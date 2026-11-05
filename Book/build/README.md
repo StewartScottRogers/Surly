@@ -1,10 +1,25 @@
 # Build
 
-Build scripts for the book arrive with the authoring-format decision. For now this folder holds the one setup step the author does himself.
+## Once, on any machine
 
-## Commit signing (once)
+```
+npm install -g asciidoctor          # the reference renderer (Node)
+pip install pyyaml                  # the build script's one dependency
+```
 
-Run these two commands once on the machine you commit from, replacing nothing; they create a key tied to your GitHub email and tell git to sign every commit with it.
+Portable Document Format and EPUB need the Ruby renderers (`gem install asciidoctor-pdf asciidoctor-epub3`); the build adds them once they are decided.
+
+## Every time
+
+```
+python3 build/build.py
+```
+
+reads every recipe's metadata, writes `generated/` (the spine, `index.json`, the per-protocol index, one page source per recipe) and renders `out/surly.html` and `out/recipes/<key>.html`. `generated/` and `out/` are not committed.
+
+## Commit signing (once, the author)
+
+Run these two commands once on the machine you commit from; they create a key tied to your GitHub email and tell git to sign every commit with it.
 
 ```
 ssh-keygen -t ed25519 -C "Stewart.Rogers@pobox.com" -f ~/.ssh/surly-signing -N ""

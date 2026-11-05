@@ -4,8 +4,18 @@ Copyright © 2026 Stewart Rogers. The prose is under Creative Commons Attributio
 
 Published under the **Oh Really Media** imprint. The title, subtitle, author and imprint are set in `book.yml` and nowhere else (ADR-0002).
 
-Working title: **Surly**. A cookbook in the O'Reilly Media form: each recipe states a Problem, gives a Solution of exact commands, and closes with a Discussion of why it works and what can go wrong.
+A cookbook in the Problem / Solution / Discussion form. Every recipe pairs a `surl` command that listens with a `curl` command that talks to it, so each one demonstrates both programs at once.
 
-Every recipe pairs a `surl` command that listens with a `curl` command that talks to it, so each one demonstrates both programs at once.
+| Where | What |
+|---|---|
+| `book.adoc` | The spine; includes the generated chapter order |
+| `front-matter/` | Foreword (the author's own hand) and preface |
+| `parts/<tier>/chapters/<chapter>/recipes/<key>/` | One folder per recipe: `recipe.adoc`, `run.sh`, `run.ps1`, `expected.txt`, its files, its images |
+| `references/` | The bibliography by citation key, and local copies in `archive/` |
+| `templates/` | Copy `recipe-template/` to start a recipe |
+| `build/` | `build.py` and the setup steps |
+| `editorial/log.md` | The author's decisions, the record of human authorship |
+| `llms.txt` | Where a machine starts |
+| `generated/`, `out/` | Build output, not committed |
 
-Chapter and recipe layout to be decided. See `../Documentation/Planning/Decisions/README.md`.
+Structure and rules: `../Documentation/Planning/Decisions/ADR-0004`.
