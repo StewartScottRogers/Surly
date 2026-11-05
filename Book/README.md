@@ -10,12 +10,13 @@ A cookbook in the Problem / Solution / Discussion form. Every recipe pairs a `su
 |---|---|
 | `book.adoc` | The spine; includes the generated chapter order |
 | `front-matter/` | Foreword (the author's own hand) and preface |
-| `parts/<tier>/chapters/<chapter>/recipes/<key>/` | One folder per recipe: `recipe.adoc`, `run.sh`, `run.ps1`, `expected.txt`, its files, its images |
+| `parts/<tier>/chapters/<chapter>/recipes/<key>/` | One folder per recipe: `recipe.yml` (the executable specification), `recipe.adoc` (the prose), generated `run.sh` and `run.ps1`, `verified.yml`, fixtures, images |
 | `references/` | The bibliography by citation key, and local copies in `archive/` |
 | `templates/` | Copy `recipe-template/` to start a recipe |
-| `build/` | `build.py` and the setup steps |
+| `build/` | `lint.py`, `verify.py`, `build.py` and the setup steps |
+| `REVIEW.md` | The rubric an AI reviewer applies to every recipe |
 | `editorial/log.md` | The author's decisions, the record of human authorship |
 | `llms.txt` | Where a machine starts |
 | `generated/`, `out/` | Build output, not committed |
 
-Structure and rules: `../Documentation/Planning/Decisions/ADR-0004`.
+Structure and rules: `../Documentation/Planning/Decisions/ADR-0004` and `ADR-0005`.

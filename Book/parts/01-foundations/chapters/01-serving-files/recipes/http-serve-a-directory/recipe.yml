@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: http-serve-a-directory
+title: Serving a Directory over HTTP
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-f, -s, -o, -w]
+exit-codes: [0, 22]
+references: [surl-readme, rfc9110]
+
+# Files written into the recipe's working directory before anything runs.
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# Servers started before the cases and stopped after. {{port}} is allocated at
+# run time and shown as 8080 in the book; ready: port waits until it accepts a connection.
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+# Every case is a claim the book makes, checked by running it. The case whose
+# role is solution is the one printed under Solution; the rest are printed under
+# Discussion as checked claims. {{null}} is /dev/null or NUL by platform.
+cases:
+  - id: solution
+    role: solution
+    claim: Fetching a file that exists prints its contents and exits 0.
+    run: curl http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: missing-path
+    claim: A path that is not there is answered 404 Not Found, and curl still exits 0 unless -f was given.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: missing-path-fail
+    claim: With -f, curl exits 22 on that 404 instead.
+    run: curl -f -s http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 22
+
+  - id: dot-file-not-served
+    claim: A file whose name begins with a dot is never served, even though it is in the directory.
+    fixtures:
+      site/.secret: "not for you\n"
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/.secret
+    expect:
+      exit: 0
+      stdout: "404"

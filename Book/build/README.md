@@ -1,10 +1,10 @@
-# Build
+# Build, verify, lint
 
 ## Once, on any machine
 
 ```
 npm install -g asciidoctor          # the reference renderer (Node)
-pip install pyyaml                  # the build script's one dependency
+pip install pyyaml                  # the scripts' one dependency
 ```
 
 Portable Document Format and EPUB need the Ruby renderers (`gem install asciidoctor-pdf asciidoctor-epub3`); the build adds them once they are decided.
@@ -12,10 +12,16 @@ Portable Document Format and EPUB need the Ruby renderers (`gem install asciidoc
 ## Every time
 
 ```
-python3 build/build.py
+python3 build/lint.py     # shape: sections, anchors, copyright, options explained, references resolve
+python3 build/verify.py   # truth: runs every case against surl and curl, writes verified.yml per recipe
+python3 build/build.py    # the book: generates each recipe's blocks, run.sh, run.ps1, the spine, index.json, by-protocol, and renders out/
 ```
 
-reads every recipe's metadata, writes `generated/` (the spine, `index.json`, the per-protocol index, one page source per recipe) and renders `out/surly.html` and `out/recipes/<key>.html`. `generated/` and `out/` are not committed.
+`verify.py` finds `surl` and `curl` on PATH, or takes `SURLY_SURL` and `SURLY_CURL`. It accepts recipe keys to run a subset. A recipe stays `draft` until it has been verified against released binaries; the book says so under each Solution.
+
+`build/recipes.py` is the shared definition of a recipe (folders, `recipe.yml`, placeholders) that all three scripts import.
+
+Not committed: `generated/`, `out/`, and each recipe's `.generated/`. Committed: each recipe's `run.sh`, `run.ps1`, fixtures and `verified.yml`.
 
 ## Commit signing (once, the author)
 
