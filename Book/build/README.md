@@ -14,7 +14,8 @@ Portable Document Format and EPUB need the Ruby renderers (`gem install asciidoc
 ```
 python3 build/lint.py     # shape: sections, anchors, copyright, options explained, references resolve
 python3 build/verify.py   # truth: runs every case against surl and curl, writes verified.yml per recipe
-python3 build/build.py    # the book: generates each recipe's blocks, run.sh, run.ps1, the spine, index.json, by-protocol, and renders out/
+python3 build/build.py    # the book
+python3 build/site.py     # the landing page into out/site/ and the pitch into dist/ (needs Node with playwright): generates each recipe's blocks, run.sh, run.ps1, the spine, index.json, by-protocol, and renders out/
 ```
 
 `verify.py` finds `surl` and `curl` on PATH, or takes `SURLY_SURL` and `SURLY_CURL`. It accepts recipe keys to run a subset. A recipe stays `draft` until it has been verified against released binaries; the book says so under each Solution.

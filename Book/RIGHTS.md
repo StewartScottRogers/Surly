@@ -8,6 +8,7 @@ The bare minimum that protects Stewart Rogers's authorship of this book, from AD
 - [ ] Copyright notice with the author's name in every source file header and on every rendered page
 - [x] Licence split recorded: prose CC BY-ND 4.0, example code Apache 2.0 (ADR-0003, approved 2026-11-05)
 - [ ] Licence files written: `Book/LICENSE.txt` (prose), `Book/LICENSE-CODE.txt` (example code)
+- [x] Canonical home: landing page on GitHub Pages under the author's name, built from the repository (ADR-0007)
 - [ ] Dated, numbered public editions rendered from the repository
 - [ ] Free trademark search run on "Surly" and "Oh Really Media", results reported
 - [ ] One-page brief prepared for the attorney hour

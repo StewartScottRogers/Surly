@@ -10,6 +10,7 @@ Architecture decision records for the Surly monorepo. One file per decision, num
 - [ADR-0004](ADR-0004-asciidoc-source-and-a-structure-that-grows.md) - One AsciiDoc source, recipes keyed not numbered, ordered by difficulty, indexed for machines.
 - [ADR-0005](ADR-0005-the-recipe-is-an-executable-specification.md) - A recipe is an executable specification; the prose is a view of it. Lint, verify, review gates.
 - [ADR-0006](ADR-0006-a-dark-factory-for-the-book-that-never-blocks.md) - A dark factory for the book that never blocks, feeds the program boards, and is built as policy on a runtime-neutral harness. Lives in `Factory/`.
+- [ADR-0007](ADR-0007-the-cover-the-mark-and-the-landing-page.md) - An original Gila monster mark, a cover of our own design, and a landing page on GitHub Pages that is the book's home; pitch in `Book/dist/`.
 
 ## Open
 

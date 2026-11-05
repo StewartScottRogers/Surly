@@ -14,6 +14,9 @@ A cookbook in the Problem / Solution / Discussion form. Every recipe pairs a `su
 | `parts/<tier>/chapters/<chapter>/recipes/<key>/` | One folder per recipe: `recipe.yml` (the executable specification), `recipe.adoc` (the prose), generated `run.sh` and `run.ps1`, `verified.yml`, fixtures, images |
 | `references/` | The bibliography by citation key, and local copies in `archive/` |
 | `templates/` | Copy `recipe-template/` to start a recipe |
+| `images/` | The mark (`gila-monster.svg`) and the cover (`cover.svg`); all rights reserved |
+| `site/` | The landing page template; `build/site.py` builds it into `out/site/` |
+| `dist/` | The pitch for handing out: page, PDF, Markdown, text, cover; generated, committed |
 | `build/` | `lint.py`, `verify.py`, `build.py` and the setup steps |
 | `REVIEW.md` | The rubric an AI reviewer applies to every recipe |
 | `editorial/log.md` | The author's decisions, the record of human authorship |
