@@ -12,9 +12,10 @@ Architecture decision records for the Surly monorepo. One file per decision, num
 
 ## Open
 
+The book's method is settled (ADR-0004, ADR-0005, `Book/AI.md`). Still to decide:
+
 - Migration method for the two solutions (subtree with history, or otherwise) and when.
 - Shared build properties and quality gates at the root versus per solution.
 - Release and versioning of the two programs from one repository.
-- The instructions file the next AI reads first: voice, rules for adding recipes and protocols, the editorial-log convention, what a build must pass.
 - The first chapter list within the difficulty tiers.
 - Whether the dark factory works in this repository, and from which folder.

@@ -8,6 +8,7 @@ A cookbook in the Problem / Solution / Discussion form. Every recipe pairs a `su
 
 | Where | What |
 |---|---|
+| `AI.md` | Read first: how the book is written and maintained |
 | `book.adoc` | The spine; includes the generated chapter order |
 | `front-matter/` | Foreword (the author's own hand) and preface |
 | `parts/<tier>/chapters/<chapter>/recipes/<key>/` | One folder per recipe: `recipe.yml` (the executable specification), `recipe.adoc` (the prose), generated `run.sh` and `run.ps1`, `verified.yml`, fixtures, images |
