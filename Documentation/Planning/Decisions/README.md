@@ -5,6 +5,7 @@ Architecture decision records for the Surly monorepo. One file per decision, num
 ## Recorded
 
 - [ADR-0001](ADR-0001-licensing-per-folder.md) - Licensing is decided per folder; the book and its code are all rights reserved.
+- [ADR-0002](ADR-0002-the-imprint-is-oh-really-media.md) - The imprint is "Oh Really Media", and the book's identity lives in one file.
 
 ## Open
 
