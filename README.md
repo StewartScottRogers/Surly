@@ -19,7 +19,7 @@ Surly is the monorepo for two matched programs and the book that describes them:
 
 ## Licensing
 
-Curl and Surl are open source under their own licences. The book and all code written for it are copyright © 2026 Stewart Rogers, all rights reserved. See `LICENSE.md`.
+Curl and Surl are open source under their own licences. The book is copyright © 2026 Stewart Rogers: its prose under Creative Commons Attribution-NoDerivatives 4.0, its example code under Apache 2.0. See `LICENSE.md`.
 
 ## Status
 

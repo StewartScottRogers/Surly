@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-11-05.
+Accepted, 2026-11-05. Items 3 and 4 as they concern `Book/` are superseded by ADR-0003: the prose is now under Creative Commons Attribution-NoDerivatives 4.0 and the example code under Apache 2.0, with the author keeping copyright. Items 1, 2, 5 and 6 stand.
 
 ## Context
 

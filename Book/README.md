@@ -1,6 +1,6 @@
 # Surly - the cookbook
 
-Copyright © 2026 Stewart Rogers. All rights reserved. See `LICENSE.txt` in this folder. Nothing here is open source, including every line of example code; the programs the recipes run are, under their own licences in `../Curl/` and `../Surl/`.
+Copyright © 2026 Stewart Rogers. The prose is under Creative Commons Attribution-NoDerivatives 4.0 (read it, share it unchanged, learn from it, credit the author); the example code is under Apache 2.0 (use it, port it, keep the notice). See `LICENSE.txt`, `LICENSE-CODE.txt` and `RIGHTS.md`. The programs the recipes run are open source under their own licences in `../Curl/` and `../Surl/`.
 
 Published under the **Oh Really Media** imprint. The title, subtitle, author and imprint are set in `book.yml` and nowhere else (ADR-0002).
 
