@@ -19,6 +19,6 @@ Surly holds three things with different owners' intentions: the Curl port, relea
 
 ## Consequences
 
-- The repository is public, so the book's source is readable by anyone, and GitHub's terms let other users view and fork a public repository. All rights reserved stops them from using, copying, modifying or redistributing it beyond that, but it does not stop them reading it. If that is not acceptable, the book moves to a private repository and Surly references it; that is a separate decision.
+- The repository is public on purpose: the author wants people to read the book and the open-source programs it describes. All rights reserved lets anyone read the book's source here while reserving to the author every right to copy, reuse, modify, redistribute or publish it.
 - A reader of a recipe may run the `surl` and `curl` commands it shows, since those programs are open source; the recipe text and any code written for the book remain the author's.
 - Nobody involved in writing this record is a lawyer. Before publication, the licence text and headers should be reviewed by one, and the publisher's contract will govern the book's text from that point.
