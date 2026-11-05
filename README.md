@@ -17,6 +17,10 @@ Surly is the monorepo for two matched programs and the book that describes them:
 
 `Surly.slnx` at the root will reference both solutions' projects once they are migrated.
 
+## Licensing
+
+Curl and Surl are open source under their own licences. The book and all code written for it are copyright © 2026 Stewart Rogers, all rights reserved. See `LICENSE.md`.
+
 ## Status
 
 Skeleton only. The two solutions have not been migrated and the book has not been started. Decisions still open are listed in `Documentation/Planning/Decisions/README.md`.
