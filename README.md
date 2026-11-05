@@ -13,6 +13,7 @@ Surly is the monorepo for two matched programs and the book that describes them:
 | `Curl/` | The Curl solution, once migrated here with its history |
 | `Surl/` | The Surl solution, once migrated here with its history |
 | `Book/` | The Surly cookbook |
+| `Factory/` | The unattended production line that writes and maintains the book |
 | `Documentation/Planning/Decisions/` | Architecture decision records for the monorepo itself |
 
 `Surly.slnx` at the root will reference both solutions' projects once they are migrated.
