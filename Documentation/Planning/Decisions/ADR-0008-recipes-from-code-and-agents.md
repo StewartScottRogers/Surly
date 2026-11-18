@@ -39,31 +39,28 @@ The author wants these documented and tested the same way the console is: every 
 
    The script references the libraries with `#:package`, never `#:project`: the book tests what a reader can install. A script that hosts its server through `Surl.Api` needs no `servers:` block. The judging is schema 1's: exit code, output, files.
 6. **Package versions are pinned once, not per script.** The pin lives in `Book/build/packages.yml`, and a release bumps it in one commit. Settled when the runner was built (2026-11-18): each script carries its real version (`#:package Surl.Api@1.0.0`) so a reader can copy it and run it as printed; `build/pin.py <package> <version>` rewrites `packages.yml` and every matching `#:package` line together, and lint refuses a line that differs from the pin. A central `Directory.Packages.props` and a `{{version}}` placeholder were both rejected because the script on disk would then not run as printed.
-7. **`mcp:` is a list of tool calls** sent in order to `surl-mcp`, `curl-mcp` or both. verify starts each host as a stdio process in the recipe's temporary directory (`surl-mcp --root <dir>`, `CURL_MCP_ROOT=<dir>`), performs the MCP `initialize` handshake, and stops it after the case:
+7. **`mcp:` is a list of tool calls** sent in order to `surl-mcp`, `curl-mcp` or both. verify starts each host as a stdio process in the recipe's temporary directory (`surl-mcp --root <dir>`, `CURL_MCP_ROOT=<dir>`) and performs the MCP `initialize` handshake. Settled when the runner was built (2026-11-18): each host is started once per recipe, not per case, and the recipe's cases run in order through it, so the solution can start a server and every later claim can use it, as a `servers:` block is shared by schema 1 cases. Argument names are the tools' own, as their input schemas give them:
 
    ```yaml
    - id: solution
      role: solution
-     claim: An agent can serve a file with surl-mcp and fetch it with curl-mcp.
+     claim: An agent serves a file with surl-mcp and fetches it with curl-mcp.
      mcp:
        - host: surl
          tool: start_server
-         arguments: { ... }               # names from the tool's own input schema
-         save: { url: bound_url }         # later calls use {{url}}
-       - host: surl
-         tool: put_file
-         arguments: { ... }
+         arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
+         save: { url: bound_urls.0, server: server_id }   # a dotted path into the answer; later calls use {{url}}
        - host: curl
          tool: transfer
          arguments: { url: "{{url}}hello.txt" }
          expect:
-           result-contains: { status: 200, body: "hello from surl\n" }
+           result-contains: { statusCode: 200, body: { content: "hello from surl\n" } }
    ```
 
-   A call's `expect` may hold `result-contains` (a JSON subset of the tool result), `is-error: true` (a refusal, with optional `error-contains`), or nothing (the call need only succeed). The case passes when every call's expectation holds. `surl-mcp`'s `get_exchanges` and `wait_for_event` let a Discussion claim what a client sent on the wire, not only what it printed.
+   A call's `expect` may hold `result-contains` (a subset of the answer: objects by key, lists by any matching item), `is-error: true` (a refusal, with optional `error-contains`), or nothing (the call need only not be an error). An `mcp:` case has no `expect` of its own; it passes when every call's expectation holds. The answer is the tool's `structuredContent` when the host gives one, else its text parsed as JSON (`curl-mcp` gives only text). `surl-mcp`'s `get_exchanges` and `wait_for_event` let a Discussion claim what a client sent on the wire, not only what it printed.
 8. **Metadata grows to match.** Beside `curl-options` and `surl-options`: `api-types` (the public types a `csharp` recipe uses) and `mcp-tools` (the tools an `mcp` recipe calls). Lint requires every listed type or tool to be explained in the Discussion, as it does for options.
-9. **verify records every version it ran against**: the .NET SDK, each package from item 6, and each MCP host (`--version`), beside the `surl` and `curl` versions in `verified.yml`. The MCP hosts are found on the path or named by `SURLY_SURL_MCP` and `SURLY_CURL_MCP`, as `SURLY_SURL` and `SURLY_CURL` name the binaries.
-10. **The build prints what was run.** For `program:` it prints the C# source and the `dotnet run` line; for `mcp:` it prints each call and its result as JSON. `run.sh` and `run.ps1` call `dotnet run` for a `csharp` recipe; an `mcp` recipe gets an MCP client configuration listing the two hosts instead.
+9. **verify records every version it ran against**: the .NET SDK, each package from item 6, and each MCP host (the version it reports in the `initialize` handshake, since `curl-mcp` has no `--version`), beside the `surl` and `curl` versions in `verified.yml`. The MCP hosts are found on the path or named by `SURLY_SURL_MCP` and `SURLY_CURL_MCP`, as `SURLY_SURL` and `SURLY_CURL` name the binaries.
+10. **The build prints what was run.** For `program:` it prints the C# source and the `dotnet run` line; for `mcp:` it prints each call, what it saves and what it must answer, as JSON. `run.sh` and `run.ps1` call `dotnet run` for a `csharp` recipe; an `mcp` recipe gets `mcp.json`, an MCP client configuration listing the two hosts, instead.
 
 ## Consequences
 

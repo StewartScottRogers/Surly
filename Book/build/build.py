@@ -8,7 +8,10 @@ solution commands and their expected output, as the book shows them),
 claims.adoc (every other case as a checked claim), and beside the recipe run.sh
 and run.ps1 (the solution, runnable by a reader on either platform). A recipe
 whose solution is a C# program (schema 2, ADR-0008) shows the program's source
-before the commands, and its run scripts call `dotnet run`. Then it
+before the commands, and its run scripts call `dotnet run`. A recipe whose
+solution is MCP calls shows each call, what it saves and what it must answer,
+and gets mcp.json (a client configuration for both hosts) in place of the run
+scripts. Then it
 writes generated/ at the book root (identity, spine, index.json, by-protocol)
 and renders out/surly.html and out/recipes/<key>.html with Asciidoctor.
 
@@ -19,13 +22,50 @@ import json, re, subprocess, sys
 from pathlib import Path
 import yaml
 from recipes import (BOOK, recipes, book_values, server_commands, solution_case, case_command,
-                     programs, versions_text)
+                     programs, versions_text, call_line, mcp_hosts)
 
 GEN, OUT = BOOK / "generated", BOOK / "out"
 
 
 def shell_block(lines, lang="shell"):
     return f"[source,{lang}]\n----\n" + "\n".join(lines) + "\n----\n"
+
+
+def mcp_listing(case, values):
+    """An mcp: case as the book shows it: each call, what it saves, what it must answer."""
+    lines = []
+    for call in case["mcp"]:
+        lines.append(call_line(call, values))
+        for name, path in (call.get("save") or {}).items():
+            lines.append(f"  saves {path} as {{{{{name}}}}}")
+        exp = call.get("expect") or {}
+        if exp.get("is-error"):
+            lines.append("  answers with an error" + (f" containing {exp['error-contains']!r}" if "error-contains" in exp else ""))
+        if "result-contains" in exp:
+            lines.append("  answers " + json.dumps(exp["result-contains"], ensure_ascii=False))
+    return lines
+
+
+def mcp_result(case):
+    """The Result column for an mcp: claim: what each checked call must answer."""
+    said = []
+    for call in case["mcp"]:
+        exp = call.get("expect") or {}
+        if exp.get("is-error"):
+            said.append(f"`{call['tool']}` is an error" + (f" containing `{exp['error-contains']}`" if "error-contains" in exp else ""))
+        if "result-contains" in exp:
+            said.append(f"`{call['tool']}` answers `{json.dumps(exp['result-contains'], ensure_ascii=False)}`")
+    return "; ".join(said) or "every call succeeds"
+
+
+def mcp_config(spec):
+    """mcp.json: both hosts as an MCP client starts them. CURL_MCP_ROOT must be an absolute folder."""
+    servers = {}
+    if "surl-mcp" in mcp_hosts(spec):
+        servers["surl"] = {"command": "surl-mcp", "args": ["--root", "."]}
+    if "curl-mcp" in mcp_hosts(spec):
+        servers["curl"] = {"command": "curl-mcp", "env": {"CURL_MCP_ROOT": "/absolute/path/to/this/folder"}}
+    return json.dumps({"mcpServers": servers}, indent=2) + "\n"
 
 
 def expected_lines(case):
@@ -59,7 +99,7 @@ def write_recipe_files(recipe, spec):
         f = recipe / rel_path
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(content, encoding="utf-8")
-    values = book_values()
+    values = book_values(spec)
     sol = solution_case(spec)
     servers = server_commands(spec, values)
     v = spec["verified"]
@@ -74,9 +114,12 @@ def write_recipe_files(recipe, spec):
                                          + "\n".join(attrs) + "\n", encoding="utf-8")
 
     # solution.adoc: the commands as the book shows them, then what they print.
-    sol_cmd = case_command(sol, values)
+    if "mcp" in sol:
+        listing = mcp_listing(sol, values)
+        said = "In order: each call to `surl-mcp` or `curl-mcp`, what it saves for later calls, and what it must answer."
+    sol_cmd = None if "mcp" in sol else case_command(sol, values)
     cmds = [s + " &" for s in servers] + [sol_cmd]
-    printed = [f"Listening on http://127.0.0.1:{values['port']}/"] * (1 if servers else 0) + expected_lines(sol)
+    printed = [f"Listening on http://127.0.0.1:{values['port']}/"] * (1 if servers else 0) + ([] if "mcp" in sol else expected_lines(sol))
     status_note = ""
     if v.get("status") == "verified":
         status_note = (f"\n[.verified]\n_Verified against {versions_text(v)} on "
@@ -85,14 +128,21 @@ def write_recipe_files(recipe, spec):
         status_note = f"\nWARNING: This recipe failed verification on {v['date']} against {versions_text(v)}; see verified.yml.\n"
     elif spec["surface"] == "csharp":
         status_note = "\nNOTE: Draft: not yet verified against released packages.\n"
+    elif spec["surface"] == "mcp":
+        status_note = "\nNOTE: Draft: not yet verified against a released surl-mcp and curl-mcp.\n"
     else:
         status_note = "\nNOTE: Draft: not yet verified against a released surl and curl.\n"
-    program = source_block(recipe, sol["program"]) + "\n" if "program" in sol else ""
-    said = (f"`surl` prints that it is listening, then {speaker(sol)} prints what it got:" if servers
-            else f"{speaker(sol)[0].upper()}{speaker(sol)[1:]} prints:")
-    (gen / "solution.adoc").write_text(
-        "// Generated by build.py from recipe.yml. Do not edit.\n" + program + shell_block(cmds)
-        + f"\n{said}\n\n" + shell_block(printed, "text") + status_note, encoding="utf-8")
+    if "mcp" in sol:
+        (gen / "solution.adoc").write_text(
+            "// Generated by build.py from recipe.yml. Do not edit.\n" + f"{said}\n\n"
+            + shell_block(listing, "text") + status_note, encoding="utf-8")
+    else:
+        program = source_block(recipe, sol["program"]) + "\n" if "program" in sol else ""
+        said = (f"`surl` prints that it is listening, then {speaker(sol)} prints what it got:" if servers
+                else f"{speaker(sol)[0].upper()}{speaker(sol)[1:]} prints:")
+        (gen / "solution.adoc").write_text(
+            "// Generated by build.py from recipe.yml. Do not edit.\n" + program + shell_block(cmds)
+            + f"\n{said}\n\n" + shell_block(printed, "text") + status_note, encoding="utf-8")
 
     # claims.adoc: every non-solution case, as a checked claim with its command and result.
     rows = []
@@ -100,10 +150,12 @@ def write_recipe_files(recipe, spec):
         if c is sol:
             continue
         mark = {"pass": "✔", "fail": "✘"}.get((v.get("cases") or {}).get(c["id"]), "·")
-        exp = c["expect"]
-        result = f"exit {exp.get('exit', 0)}"
-        if expected_lines(c):
-            result += ", prints `" + " ".join(expected_lines(c)) + "`"
+        if "mcp" in c:
+            result = mcp_result(c)
+        else:
+            result = f"exit {c['expect'].get('exit', 0)}"
+            if expected_lines(c):
+                result += ", prints `" + " ".join(expected_lines(c)) + "`"
         rows.append(f"| {mark} | {c['claim']} | `{case_command(c, values)}` | {result}")
     claims = ("// Generated by build.py from recipe.yml. Do not edit.\n"
               ".Checked claims\n[cols=\"1,6,6,3\",options=\"header\"]\n|===\n| | Claim | Command | Result\n"
@@ -114,6 +166,10 @@ def write_recipe_files(recipe, spec):
             claims += "\n" + source_block(recipe, prog)
     (gen / "claims.adoc").write_text(claims, encoding="utf-8")
 
+    if "mcp" in sol:
+        # mcp.json: the hosts, for a reader's MCP client; the calls are in the book.
+        (recipe / "mcp.json").write_text(mcp_config(spec), encoding="utf-8")
+        return
     # run.sh and run.ps1: the solution, for a reader to run.
     head = f"# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.\n# Generated by build.py from recipe.yml for recipe {spec['key']}. Do not edit.\n"
     sh = ["#!/usr/bin/env sh", head.rstrip(), "set -e", 'cd "$(dirname "$0")"']
@@ -186,7 +242,8 @@ def main():
             "status": v.get("status", "draft"), "verified": {k: v[k] for k in ("versions", "date", "platforms") if k in v},
             "part": part.name, "chapter": chapter.name,
             "source": rel, "spec": f"{recipe.relative_to(BOOK).as_posix()}/recipe.yml",
-            "run": f"{recipe.relative_to(BOOK).as_posix()}/run.sh",
+            "run": f"{recipe.relative_to(BOOK).as_posix()}/{'mcp.json' if 'mcp' in solution_case(spec) else 'run.sh'}",
+            "mcp-tools": spec.get("mcp-tools", []),
             "rendered": f"out/recipes/{spec['key']}.html"})
         for p in spec["protocols"]:
             by_proto.setdefault(p, []).append(spec["key"])

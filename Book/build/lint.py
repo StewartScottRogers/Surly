@@ -8,7 +8,8 @@ Exit:   0 clean; 1 with every finding printed as path: finding.
 """
 import re, sys
 from pathlib import Path
-from recipes import BOOK, recipes, programs, program_packages, program_projects, pinned_packages, solution_case
+from recipes import (BOOK, recipes, programs, program_packages, program_projects, pinned_packages, solution_case,
+                     mcp_tools_used)
 
 SECTIONS = ["==== Problem", "==== Solution", "==== Discussion", "==== See Also"]
 COPYRIGHT = "Copyright (c) 2026 Stewart Rogers"
@@ -19,16 +20,26 @@ def bibliography_keys():
     return set(re.findall(r"\[\[\[([a-z0-9-]+)\]\]\]", text))
 
 
+def lint_surface(recipe, spec):
+    """One recipe, one surface (ADR-0008 item 1): its solution is that surface's kind of case,
+    and no case is another surface's (a run: case may appear beside either, as a helper)."""
+    rel = f"{recipe.relative_to(BOOK).as_posix()}/recipe.yml"
+    kind = {"console": "run", "csharp": "program", "mcp": "mcp"}[spec["surface"]]
+    found = []
+    if kind not in solution_case(spec):
+        found.append(f"{rel}: surface {spec['surface']} needs a solution with {kind}:")
+    for c in spec["cases"]:
+        for other, surface in (("program", "csharp"), ("mcp", "mcp")):
+            if other in c and other != kind:
+                found.append(f"{rel}: case {c['id']} uses {other}:, so surface must be {surface}")
+    return found
+
+
 def lint_programs(recipe, spec, pins):
     """C# programs (ADR-0008): copyright, packages pinned as the book pins them, no
-    project references, Libcurl only in the advanced tier, and a surface that says so."""
+    project references, and Libcurl only in the advanced tier."""
     found = []
-    progs = programs(spec)
-    if spec["surface"] == "csharp" and "program" not in solution_case(spec):
-        found.append(f"{recipe.relative_to(BOOK).as_posix()}/recipe.yml: surface csharp needs a solution with program:")
-    if spec["surface"] == "console" and progs:
-        found.append(f"{recipe.relative_to(BOOK).as_posix()}/recipe.yml: runs a C# program, so surface must be csharp")
-    for prog in progs:
+    for prog in programs(spec):
         path = recipe / prog
         rel = path.relative_to(BOOK).as_posix()
         if COPYRIGHT not in path.read_text(encoding="utf-8"):
@@ -84,6 +95,13 @@ def main():
         for api_type in spec.get("api-types", []):
             if f"`{api_type}" not in disc:
                 findings.append(f"{rel}: type {api_type} is used but never explained in the Discussion")
+        for tool in spec.get("mcp-tools", []):
+            if f"`{tool}" not in disc:
+                findings.append(f"{rel}: tool {tool} is used but never explained in the Discussion")
+        for tool in mcp_tools_used(spec):
+            if tool not in spec.get("mcp-tools", []):
+                findings.append(f"{rel}: tool {tool} is called but not listed in mcp-tools")
+        findings += lint_surface(recipe, spec)
         findings += lint_programs(recipe, spec, pins)
         for ref in spec.get("references", []):
             if ref not in bib:

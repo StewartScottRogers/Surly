@@ -13,6 +13,15 @@ It is built once with `dotnet build <file>.cs`, then each case runs it with
 `dotnet run --no-build <file>.cs -- <args>` in the working directory, so its
 output is the program's alone. Packages come from the configured NuGet feeds;
 SURLY_NUGET_SOURCE adds one folder or feed (for packages not yet published).
+
+An mcp: case (schema 2, ADR-0008) is a list of tool calls. verify starts each
+MCP host the recipe calls once (surl-mcp with --root, curl-mcp with
+CURL_MCP_ROOT, both at the working directory), shared by the recipe's cases in
+order, so a value one call saves ({{url}}) reaches every later call. Each call
+must not be an error unless its expect: says is-error: true, and its result must
+contain result-contains. The hosts' versions are the ones they report when the
+handshake is done. SURLY_SURL_MCP and SURLY_CURL_MCP name them, as SURLY_SURL does.
+
 Only the tools a recipe uses are needed, and only their versions are recorded.
 
 Usage:  python3 build/verify.py [key ...]     (all recipes when no key is given)
@@ -22,16 +31,19 @@ Then run build.py so the book shows the new status.
 import datetime, os, platform, re, shutil, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 import yaml
-from recipes import recipes, substitute, posix_values, windows_values, programs, program_packages
+from recipes import (recipes, substitute, substitute_deep, posix_values, windows_values, programs,
+                     program_packages, mcp_hosts, MCP_HOSTS, PLACEHOLDER)
+from mcp import Host, McpError, contains, path_value
 
 WINDOWS = os.name == "nt"
 PLATFORM = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(platform.system(), platform.system().lower())
 
 
 def binary(name):
-    path = os.environ.get(f"SURLY_{name.upper()}") or shutil.which(name)
+    variable = "SURLY_" + name.upper().replace("-", "_")
+    path = os.environ.get(variable) or shutil.which(name)
     if not path:
-        sys.exit(f"{name} not found: put it on PATH or set SURLY_{name.upper()}")
+        sys.exit(f"{name} not found: put it on PATH or set {variable}")
     return path
 
 
@@ -42,7 +54,7 @@ def tools(spec):
     needed = {h for h in heads if h in ("surl", "curl")}
     if programs(spec):
         needed.add("dotnet")
-    return needed
+    return needed | set(mcp_hosts(spec))
 
 
 def version(path):
@@ -97,8 +109,47 @@ def build_program(path, root, bins):
     return None
 
 
-def run_case(case, recipe, root, values, bins, built):
+def start_host(name, root, bins):
+    """Start an MCP host confined to the working directory."""
+    if name == "surl-mcp":
+        return Host([bins[name], "--root", str(root)], cwd=root)
+    return Host([bins[name]], cwd=root, env=dict(os.environ, CURL_MCP_ROOT=str(root)))
+
+
+def run_mcp_case(case, root, values, bins, hosts, saved):
+    for i, call in enumerate(case["mcp"], 1):
+        at = f"call {i} ({call['tool']})"
+        arguments = call.get("arguments") or {}
+        known = {**values, **saved}
+        missing = sorted(set(PLACEHOLDER.findall(str(arguments))) - known.keys())
+        if missing:
+            return False, f"{at}: nothing saved as {', '.join(missing)}"
+        name = MCP_HOSTS[call["host"]]
+        try:
+            if name not in hosts:
+                hosts[name] = start_host(name, root, bins)
+            is_error, value, text = hosts[name].call(call["tool"], substitute_deep(arguments, known))
+        except McpError as e:
+            return False, f"{at}: {e}"
+        exp = call.get("expect") or {}
+        if is_error != exp.get("is-error", False):
+            return False, f"{at}: {'an error' if is_error else 'not an error'}, expected otherwise: {text[:300]}"
+        if "error-contains" in exp and exp["error-contains"] not in text:
+            return False, f"{at}: answer lacks {exp['error-contains']!r}: {text[:300]}"
+        if "result-contains" in exp and not contains(value, substitute_deep(exp["result-contains"], known)):
+            return False, f"{at}: answer {text[:300]} does not contain {exp['result-contains']!r}"
+        for key, path in (call.get("save") or {}).items():
+            got = path_value(value, path)
+            if got is None:
+                return False, f"{at}: nothing at {path} to save as {key}"
+            saved[key] = got
+    return True, ""
+
+
+def run_case(case, recipe, root, values, bins, built, hosts, saved):
     write_fixtures(root, case.get("fixtures"))
+    if "mcp" in case:
+        return run_mcp_case(case, root, values, bins, hosts, saved)
     if "program" in case:
         path = recipe / case["program"]
         if path not in built:
@@ -138,7 +189,7 @@ def verify_recipe(recipe, spec, bins):
     port = free_port()
     values = windows_values(port) if WINDOWS else posix_values(port)
     write_fixtures(root, spec.get("fixtures"))
-    procs, results, failures, built = [], {}, [], {}
+    procs, results, failures, built, hosts, saved = [], {}, [], {}, {}, {}
     try:
         for name, server in (spec.get("servers") or {}).items():
             cmd = resolve(substitute(server["command"], values), bins)
@@ -151,21 +202,25 @@ def verify_recipe(recipe, spec, bins):
             time.sleep(0.2)
         if not failures:
             for case in spec["cases"]:
-                ok, why = run_case(case, recipe, root, values, bins, built)
+                ok, why = run_case(case, recipe, root, values, bins, built, hosts, saved)
                 results[case["id"]] = "pass" if ok else "fail"
                 if not ok:
                     failures.append(f"case {case['id']}: {why}")
     finally:
+        host_versions = {name: host.version for name, host in hosts.items()}
+        for host in hosts.values():
+            host.close()
         for p in procs:
             p.kill()
             p.wait()
         shutil.rmtree(root, ignore_errors=True)
-    return results, failures
+    return results, failures, host_versions
 
 
-def recipe_versions(recipe, spec, tool_versions):
-    """Every version this recipe ran against: its tools, then each package its programs name."""
+def recipe_versions(recipe, spec, tool_versions, host_versions):
+    """Every version this recipe ran against: its tools and MCP hosts, then each package its programs name."""
     found = {t: tool_versions[t] for t in ("surl", "curl", "dotnet") if t in tools(spec)}
+    found.update({name: host_versions.get(name, "not started") for name in mcp_hosts(spec)})
     for program in programs(spec):
         for name, ver in program_packages(recipe / program).items():
             found[name] = ver
@@ -176,14 +231,14 @@ def main():
     wanted = set(sys.argv[1:])
     selected = [(recipe, spec) for _, _, recipe, spec in recipes() if not wanted or spec["key"] in wanted]
     bins = {t: binary(t) for t in sorted(set().union(*(tools(spec) for _, spec in selected)))}
-    tool_versions = {k: version(v) for k, v in bins.items()}
+    tool_versions = {k: version(v) for k, v in bins.items() if k not in MCP_HOSTS.values()}
     today = datetime.date.today().isoformat()
     any_failed = False
     for recipe, spec in selected:
-        results, failures = verify_recipe(recipe, spec, bins)
+        results, failures, host_versions = verify_recipe(recipe, spec, bins)
         status = "verified" if not failures else "broken"
         any_failed |= bool(failures)
-        versions = recipe_versions(recipe, spec, tool_versions)
+        versions = recipe_versions(recipe, spec, tool_versions, host_versions)
         previous = spec["verified"]
         platforms = sorted(set(previous.get("platforms", []) if previous.get("status") == "verified"
                                and previous.get("versions") == versions else []) | {PLATFORM}) if status == "verified" else [PLATFORM]
