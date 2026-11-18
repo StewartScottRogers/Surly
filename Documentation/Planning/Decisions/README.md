@@ -11,6 +11,7 @@ Architecture decision records for the Surly monorepo. One file per decision, num
 - [ADR-0005](ADR-0005-the-recipe-is-an-executable-specification.md) - A recipe is an executable specification; the prose is a view of it. Lint, verify, review gates.
 - [ADR-0006](ADR-0006-a-dark-factory-for-the-book-that-never-blocks.md) - A dark factory for the book that never blocks, feeds the program boards, and is built as policy on a runtime-neutral harness. Lives in `Factory/`.
 - [ADR-0007](ADR-0007-the-cover-the-mark-and-the-landing-page.md) - An original Gila monster mark, a cover of our own design, and a landing page on GitHub Pages that is the book's home; pitch in `Book/dist/`.
+- [ADR-0008](ADR-0008-recipes-from-code-and-agents.md) - Recipe schema 2: C# file-based-app cases (`Surl.Api`, `Curl.Api`, `Libcurl`) and MCP tool-call cases (`surl-mcp`, `curl-mcp`), in their own chapters inside the difficulty tiers.
 
 ## Open
 
