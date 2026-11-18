@@ -18,7 +18,7 @@ and renders out/surly.html and out/recipes/<key>.html with Asciidoctor.
 Usage:  python3 build/build.py
 Needs:  python3 with PyYAML; asciidoctor on PATH (npm install -g asciidoctor)
 """
-import json, re, subprocess, sys
+import json, re, shutil, subprocess, sys
 from pathlib import Path
 import yaml
 from recipes import (BOOK, recipes, book_values, server_commands, solution_case, case_command,
@@ -85,9 +85,13 @@ def source_block(recipe, program):
 
 
 def mono(text):
-    """Literal monospace for a table cell: `+...+` stops replacements (=> stays =>) and
-    attribute references, and an escaped | does not end the cell."""
-    return "`+" + text.replace("|", r"\|") + "+`"
+    """Literal monospace for a table cell: no replacements (=> stays =>), no attribute
+    references, and an escaped | does not end the cell. `+...+` cannot hold a +, so text
+    with one goes through pass:c[...], where only ] needs escaping."""
+    text = text.replace("|", r"\|")
+    if "+" not in text:
+        return "`+" + text + "+`"
+    return "`pass:c[" + text.replace("]", r"\]") + "]`"
 
 
 def speaker(case):
@@ -213,7 +217,12 @@ def problem_sentence(recipe):
 
 
 def run(cmd):
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    # Resolve the program through PATH and PATHEXT: npm installs asciidoctor as a .cmd on
+    # Windows, which a bare name does not reach.
+    exe = shutil.which(cmd[0])
+    if not exe:
+        sys.exit(f"{cmd[0]} not found on PATH (npm install -g asciidoctor)")
+    r = subprocess.run([exe] + cmd[1:], capture_output=True, text=True)
     if r.returncode:
         sys.exit(r.stderr or r.stdout)
     if r.stderr.strip():
