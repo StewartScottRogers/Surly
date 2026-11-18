@@ -1,0 +1,60 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: ftp-download-anonymously
+title: Downloading Anonymously over File Transfer Protocol
+protocols: [ftp]
+tier: foundations
+surl-options: [--directory, --allow-anonymous]
+curl-options: [-s, -u, -v, -o]
+exit-codes: [0, 78]
+references: [surl-readme, curl-readme]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+servers:
+  main:
+    command: surl --directory site --allow-anonymous ftp://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --allow-anonymous, curl's own anonymous login is accepted and a file that exists is downloaded to standard output, exit 0.
+    run: curl ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: logs-in-as-anonymous
+    claim: Given no user, curl sends USER anonymous, and surl accepts the login.
+    run: curl -v -s -o {{null}} ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stderr-contains: "> USER anonymous"
+
+  - id: missing-file
+    claim: A file that is not there is refused (FTP 550), and curl exits 78, remote file not found, with nothing written.
+    run: curl -s ftp://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 78
+      stdout: ""
+
+  - id: any-login-accepted
+    claim: With --allow-anonymous, a login with a user name and password nobody configured is accepted unchecked, even sent in clear, and the file is downloaded.
+    run: curl -s -u nobody:anything ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: dot-file-not-served
+    claim: A file whose name begins with a dot is not served, anonymous or not; curl exits 78 as for a missing file.
+    fixtures:
+      site/.secret: "not for you\n"
+    run: curl -s ftp://127.0.0.1:{{port}}/.secret
+    expect:
+      exit: 78
+      stdout: ""

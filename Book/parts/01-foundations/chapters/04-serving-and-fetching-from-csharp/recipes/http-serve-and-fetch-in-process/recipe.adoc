@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-serve-and-fetch-in-process]]
+=== Serving and Fetching a File in One C# Program
+
+==== Problem
+
+You want a test, or a small tool, to stand up a Hypertext Transfer Protocol server and fetch a file from it, all inside one .NET program, with no `surl` or `curl` process to start, find or clean up.
+
+==== Solution
+
+Start a `SurlServer` with the file in memory on port 0, fetch the file with a `CurlClient` at the address the server bound, and stop the server:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`'s command line as properties. `ListenUrls` holds the listen URLs `surl` takes as arguments, `http://127.0.0.1:0` here, and `Files` is an in-memory store: the key is the path the file is served at, the value its bytes. Port 0 asks the operating system for a free port, so two tests running at once never collide; `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrl` names the port it got, ending in `/`, ready to have a path appended.
+
+`SurlServer` is the running server. `StopAsync` stops it and returns the `SurlExitCode` a `surl` process would have exited with: `Ok` when it served without failing. `await using` on the server stops it too, but throws the exit code away; the program wants to print it, so it calls `StopAsync` itself.
+
+`CurlClient.Create()` makes a client over a new engine that the client owns and disposes. `CurlRequest` is the method and the URL, as `curl` takes them on its command line; `CurlClient.SendAsync` sends it and returns a `CurlResponse` as soon as the status line and headers have arrived. `StatusCode` and `ReasonPhrase` are the status line; `Body` is a stream still arriving, read here with a `StreamReader` and disposed when done. One client is meant to be shared by every request a program makes.
+
+A path that is not in `Files` is answered `404 Not Found`. As with `curl` on the console, that is a successful conversation: `SendAsync` returns a `CurlResponse` carrying the `404` and throws nothing. A program that wants `curl -f` behaviour has to look at `StatusCode` itself; this one exits `22`, the code `curl -f` exits with, and `0` otherwise. Those exit codes are the program's choice, not the library's.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-a-directory>> for the same server and request on the console.
+* <<http-fetch-from-a-surl-process>> for `Curl.Api` as the client of a separate `surl` process.
+* <<http-record-what-the-client-sent>> for seeing the bytes the client sent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

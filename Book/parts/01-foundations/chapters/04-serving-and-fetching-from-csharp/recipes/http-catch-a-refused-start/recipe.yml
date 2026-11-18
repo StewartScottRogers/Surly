@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-catch-a-refused-start
+title: Catching a Server Start That surl Refuses
+protocols: [http, https]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlExitCode]
+exit-codes: [0, 1, 45, 58, 100]
+references: [surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: An https listen URL with no certificate throws SurlServerStartException with ExitCode CertificateProblem, 58, and surl's own line saying what to give.
+    program: start.cs
+    args: [https-no-cert]
+    expect:
+      exit: 58
+      stdout: "refused: CertificateProblem (58)\nsurl: (58) https://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"
+
+  - id: same-as-surl
+    claim: The surl command line refuses the same listen URL with the same exit code, 58, and the same message on standard error.
+    run: surl https://127.0.0.1:{{port}}/
+    expect:
+      exit: 58
+      stderr-contains: "needs a certificate: give --cert <file>, or --self-signed for a throwaway one"
+
+  - id: port-in-use
+    claim: A listen URL on a port another server holds throws SurlServerStartException with ExitCode BindFailed, 45.
+    program: start.cs
+    args: [port-in-use]
+    expect:
+      exit: 45
+      stdout-matches: '^refused: BindFailed \(45\)\nsurl: \(45\) Could not bind http://127\.0\.0\.1:\d+/: Address already in use\n$'
+
+  - id: unknown-scheme
+    claim: A listen URL whose scheme Surl has no server for throws SurlServerStartException with ExitCode UnsupportedProtocol, 1.
+    program: start.cs
+    args: [unknown-scheme]
+    expect:
+      exit: 1
+      stdout: "refused: UnsupportedProtocol (1)\nsurl: (1) Protocol \"nosuch\" not supported\n"
+
+  - id: nothing-left-bound
+    claim: After a refused start, the port of a plain http listen URL that was in the same options starts again at once.
+    program: start.cs
+    args: [left-bound]
+    expect:
+      exit: 0
+      stdout: "refused: CertificateProblem (58)\nthe http port was free again\n"
+
+  - id: host-option-is-misuse
+    claim: An option that belongs to the surl host, such as --version in AdditionalArguments, is an ArgumentException, not a SurlServerStartException.
+    program: start.cs
+    args: [host-option]
+    expect:
+      exit: 100
+      stdout-matches: '^misuse: --help, --aihelp, --manual and --version start no server\.'

@@ -4,7 +4,7 @@ A lane never asks a question. When it reaches one of these decisions it applies 
 
 | Decision | Default |
 |---|---|
-| Which tier a recipe belongs in | By the hardest thing it does: login or encryption → secure-servers; uploads, listings, state or several listeners → working-servers; otherwise foundations; interoperability, edge cases or library clients → advanced; a protocol released in neither program within the last year → new-protocols |
+| Which tier a recipe belongs in | By the hardest thing it does: login or encryption → secure-servers; uploads, listings, state or several listeners → working-servers; otherwise foundations; interoperability, edge cases or `Libcurl` → advanced (`Surl.Api`, `Curl.Api` and MCP recipes go by difficulty, ADR-0008); a protocol released in neither program within the last year → new-protocols |
 | Which chapter | The existing chapter whose task matches; if none, a new chapter named for the task, not the protocol |
 | The recipe's title | A verb phrase naming the task, under eight words, no protocol acronym unexpanded |
 | A failing case: program or book | The program, if upstream curl or the program's own documentation agrees with the recipe's claim; otherwise the book. Write the reasoning in the Log |

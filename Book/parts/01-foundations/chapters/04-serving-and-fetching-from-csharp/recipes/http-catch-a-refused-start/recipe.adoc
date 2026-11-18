@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-catch-a-refused-start]]
+=== Catching a Server Start That surl Refuses
+
+==== Problem
+
+Your .NET test starts a server with `Surl.Api`, and when the start fails, because of a missing certificate, a port already taken or a mistyped scheme, you want to know which failure it was and what `surl` said about it, not a stack trace.
+
+==== Solution
+
+Catch `SurlServerStartException` around `SurlServer.StartAsync` and read its `ExitCode` and `Lines`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` here holds only a listen URL, `https://127.0.0.1:0`: Hypertext Transfer Protocol Secure, on a free port, with nothing to encrypt with. `surl` will not serve Transport Layer Security without a certificate and will not invent one unasked, so `SurlServer.StartAsync` refuses the start. That is the default on purpose: a throwaway certificate is a loosening, and the line `surl` writes names the two ways to have one, `--cert <file>` for a real certificate, or `--self-signed` for a throwaway (the `CertificateFile` and `SelfSigned` properties of `SurlServerOptions`).
+
+A start `surl` would refuse throws `SurlServerStartException`. Its `ExitCode` is a `SurlExitCode`, the code a `surl` process would have exited with for the same command line, and its `Lines` are the lines `surl` would have written after `surl: `, each starting with the code in brackets; `Message` is the same lines joined. The program returns the code as its own exit code, so the run looks like the `surl` one: the console case below shows `surl` itself exiting `58` with the same message. `SurlExitCode` is in the `Surl.Protocol.Abstractions` namespace, not `Surl.Api`, so a program that names it needs that `using` as well.
+
+Each failure has its own code. `CertificateProblem` is `58`. A port another listener holds is `BindFailed`, `45`; the program takes one by starting a first `SurlServer` on port 0 and giving its `BoundUrl` to a second. A scheme Surl has no server for is `UnsupportedProtocol`, `1`.
+
+A refused start leaves nothing behind. The `left-bound` case puts a plain `http` listen URL on a fixed port beside the refused `https` one; after the refusal a new server starts on that same port at once.
+
+Not every failure is a refusal. An option that belongs to the `surl` host rather than to a server, such as `--version` given in `AdditionalArguments`, is a mistake in the calling code and throws `ArgumentException` with no exit code at all. The program exits `100` for it, a number of its own that no `SurlExitCode` uses.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-self-signed-in-process>> for the same listen URL with `SelfSigned` set, so it starts.
+* <<surl-read-the-exit-codes>> for every exit code on the console.
+* <<surl-readme>>.

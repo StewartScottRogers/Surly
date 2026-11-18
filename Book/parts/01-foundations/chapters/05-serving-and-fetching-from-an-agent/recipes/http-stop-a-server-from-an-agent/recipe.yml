@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+schema: 2
+key: http-stop-a-server-from-an-agent
+title: Stopping a Server from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, list_servers, stop_server, transfer, get_exchanges]
+exit-codes: [0, 7]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: list_servers shows the running server by its ID and bound URL, and stop_server stops it with surl's exit code 0, Ok.
+    mcp:
+      - host: surl
+        tool: start_server
+        arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
+        save: { url: bound_urls.0, server: server_id }
+      - host: surl
+        tool: list_servers
+        expect:
+          result-contains: { servers: [{ server_id: "{{server}}", bound_urls: ["{{url}}"] }] }
+      - host: surl
+        tool: stop_server
+        arguments: { server_id: "{{server}}" }
+        expect:
+          result-contains: { server_id: "{{server}}", exit_code: 0, exit_code_name: Ok }
+
+  - id: nothing-listens
+    claim: After the stop nothing listens on that URL, so a fetch from it fails to connect with curl's exit code 7, a tool error.
+    mcp:
+      - host: curl
+        tool: transfer
+        arguments: { url: "{{url}}hello.txt" }
+        expect:
+          is-error: true
+          result-contains: { statusCode: null, failure: { kind: CurlExit, exitCode: 7 } }
+
+  - id: stop-twice
+    claim: Stopping the same ID again is a tool error, no running server has that ID.
+    mcp:
+      - host: surl
+        tool: stop_server
+        arguments: { server_id: "{{server}}" }
+        expect:
+          is-error: true
+          error-contains: "no running server has ID"
+
+  - id: exchanges-go-with-it
+    claim: The stopped server's exchanges go with it; get_exchanges on its ID is the same tool error.
+    mcp:
+      - host: surl
+        tool: get_exchanges
+        arguments: { server_id: "{{server}}" }
+        expect:
+          is-error: true
+          error-contains: "no running server has ID"
+
+  - id: port-released
+    claim: The port is released, so a new server binds the same URL at once, under a new ID, and list_servers counts its exchanges.
+    mcp:
+      - host: surl
+        tool: start_server
+        arguments: { listen_urls: ["{{url}}"], files: { hello.txt: "hello again\n" } }
+        save: { again: server_id }
+        expect:
+          result-contains: { bound_urls: ["{{url}}"] }
+      - host: curl
+        tool: transfer
+        arguments: { url: "{{url}}hello.txt" }
+        expect:
+          result-contains: { statusCode: 200, body: { content: "hello again\n" } }
+      - host: surl
+        tool: list_servers
+        expect:
+          result-contains: { servers: [{ server_id: "{{again}}", bound_urls: ["{{url}}"], exchange_count: 1 }] }
+      - host: surl
+        tool: stop_server
+        arguments: { server_id: "{{again}}" }
+        expect:
+          result-contains: { server_id: "{{again}}", exit_code: 0 }

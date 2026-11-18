@@ -28,7 +28,7 @@ Usage:  python3 build/verify.py [key ...]     (all recipes when no key is given)
 Exit:   0 when every recipe passed; 1 when any failed or the binaries are missing.
 Then run build.py so the book shows the new status.
 """
-import datetime, os, platform, re, shutil, socket, subprocess, sys, tempfile, time
+import datetime, os, platform, re, shlex, shutil, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 import yaml
 from recipes import (recipes, substitute, substitute_deep, posix_values, windows_values, programs,
@@ -84,7 +84,7 @@ def write_fixtures(root, fixtures):
     for rel, content in (fixtures or {}).items():
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content, encoding="utf-8")
+        p.write_text(content, encoding="utf-8", newline="")   # exactly as written: no CRLF on Windows
 
 
 def resolve(cmd, bins):
@@ -193,7 +193,10 @@ def verify_recipe(recipe, spec, bins):
     try:
         for name, server in (spec.get("servers") or {}).items():
             cmd = resolve(substitute(server["command"], values), bins)
-            p = subprocess.Popen(cmd, shell=True, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            # No shell: killing a shell leaves the server running on Windows. Output goes to a
+            # temporary file, since a pipe nobody reads fills up and stalls a talkative server.
+            log = tempfile.TemporaryFile()
+            p = subprocess.Popen(cmd if WINDOWS else shlex.split(cmd), cwd=root, stdout=log, stderr=log)
             procs.append(p)
             ready = server.get("ready", "port")
             if ready == "port" and not wait_port(port):

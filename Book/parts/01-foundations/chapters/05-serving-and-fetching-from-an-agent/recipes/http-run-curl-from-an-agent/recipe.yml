@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+schema: 2
+key: http-run-curl-from-an-agent
+title: Running curl from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, curl]
+curl-options: [-s, -S, -f, -w, -o]
+exit-codes: [0, 22]
+references: [curl-readme, surl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl-mcp's curl tool runs curl with the arguments given and answers its exit code, 0, and its standard output, the file.
+    mcp:
+      - host: surl
+        tool: start_server
+        arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
+        save: { url: bound_urls.0 }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "hello from surl\n" }, standardError: { content: "" }, failure: null }
+
+  - id: status-code
+    claim: With -s and -w "%{http_code}", a missing path prints 404 and curl exits 0, so the call is not a tool error.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "-w", "%{http_code}", "{{url}}missing.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "404" } }
+
+  - id: fail-is-a-tool-error
+    claim: With -f the same 404 makes curl exit 22, and a nonzero exit is a tool error whose answer still carries the exit code.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-f", "-s", "{{url}}missing.txt"] }
+        expect:
+          is-error: true
+          result-contains: { exitCode: 22, failure: { kind: CurlExit, exitCode: 22 } }
+
+  - id: show-error
+    claim: "Adding -S puts curl's own message for that exit, The requested URL returned error: 404, in the answer."
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-f", "-sS", "{{url}}missing.txt"] }
+        expect:
+          is-error: true
+          result-contains: { exitCode: 22 }
+          error-contains: "The requested URL returned error: 404"
+
+  - id: write-inside-root
+    claim: -o writes the body to a file inside the folder CURL_MCP_ROOT names, and standard output then holds only what -w prints, 200.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "-o", "hello.txt", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "200" } }
+
+  - id: path-outside-root-refused
+    claim: An -o path outside that folder is refused before curl runs, so the answer has no exit code at all.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "-o", "../hello.txt", "{{url}}hello.txt"] }
+        expect:
+          is-error: true
+          result-contains: { exitCode: null, failure: { kind: PathRefused } }
+          error-contains: "outside CURL_MCP_ROOT"
+
+  - id: unknown-option-refused
+    claim: An option curl-mcp does not know is refused the same way, since it cannot tell whether the option names a local path.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["--no-such-option", "{{url}}hello.txt"] }
+        expect:
+          is-error: true
+          result-contains: { exitCode: null, failure: { kind: PathRefused } }
+          error-contains: "is not an option this server knows"

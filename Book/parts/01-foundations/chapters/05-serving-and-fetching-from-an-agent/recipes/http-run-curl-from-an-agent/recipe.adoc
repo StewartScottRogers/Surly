@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-run-curl-from-an-agent]]
+=== Running curl from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to run `curl` with the options it already knows from the command line and read back its exit code and output, as a script would.
+
+==== Solution
+
+Start a server with `surl-mcp`'s `start_server`, then call `curl-mcp`'s `curl` tool with `curl`'s arguments as a list:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`curl-mcp` is `curl` as a Model Context Protocol (MCP) server. `start_server` here only gives it something to talk to: a Hypertext Transfer Protocol (HTTP) server on a free port with `hello.txt` in memory, whose `bound_urls` entry is saved as `{{url}}`.
+
+The `curl` tool takes `args`, `curl`'s command-line arguments without the program name, one list item per argument, so there is no shell quoting to get wrong. It runs `curl` in-process and answers `exitCode`, `standardOutput` and `standardError`, each stream as an object whose `content` is the text. `-s` keeps the progress meter out of `standardError`, which matters more here than on a terminal: the agent reads every byte of it.
+
+`-w "%{http_code}"` prints the status after the body. The `404 Not Found` for a missing path has an empty body, so `standardOutput` is `404` alone, and `curl` exits `0`, because to `curl` a 404 is a successful conversation. The call is not a tool error. `-f` asks `curl` to fail on an error status, and it exits `22`. A nonzero exit is a tool error, but the answer is still the whole result: `exitCode` is 22, and `failure` has `kind` `CurlExit` and the same code. `-S` with `-s` restores `curl`'s own error message, `The requested URL returned error: 404`, which the answer then carries. An agent should branch on `exitCode`, and read the message only to explain.
+
+`-o` writes the body to a file, so `standardOutput` holds only what `-w` prints, `200`. Every file `curl` reads or writes must be inside the folder `CURL_MCP_ROOT` names, and a relative path resolves against it. A path outside it, such as `../hello.txt`, is refused before `curl` runs: the tool error's `failure` has `kind` `PathRefused` and `exitCode` is null, because there was no `curl` to exit. An option `curl-mcp` does not know is refused the same way, since it cannot tell whether that option names a local path. That is the host being surly on purpose: an agent reaches the disk only where the person who started the host allowed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-and-fetch-from-an-agent>> for `transfer`, the structured alternative for a single request.
+* <<http-serve-a-directory>> for the same commands on the console.
+* <<curl-readme>>, <<surl-readme>>.

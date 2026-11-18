@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: tftp-download-a-file
+title: Downloading over Trivial File Transfer Protocol
+protocols: [tftp]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s, -o, -T]
+exit-codes: [0, 68, 69]
+references: [surl-readme, curl-readme]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# TFTP listens on UDP, so there is no TCP port to wait for; verify waits briefly instead.
+servers:
+  main:
+    command: surl --directory site tftp://127.0.0.1:{{port}}/
+    ready: none
+
+cases:
+  - id: solution
+    role: solution
+    claim: A file that exists is read over TFTP and written to standard output, exit 0.
+    run: curl tftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: save-to-file
+    claim: With -o, the file is written to the named local file byte for byte.
+    run: curl -s -o copy.txt tftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      files:
+        copy.txt: "hello from surl\n"
+
+  - id: missing-file
+    claim: A file that is not there is answered with TFTP ERROR 1, and curl exits 68, file not found.
+    run: curl -s tftp://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 68
+      stdout: ""
+
+  - id: dot-file-not-served
+    claim: A file whose name begins with a dot is refused as if it were missing; curl exits 68.
+    fixtures:
+      site/.secret: "not for you\n"
+    run: curl -s tftp://127.0.0.1:{{port}}/.secret
+    expect:
+      exit: 68
+      stdout: ""
+
+  - id: write-refused
+    claim: A write (curl -T) is answered with TFTP ERROR 2 while uploads are off, and curl exits 69, permission problem.
+    fixtures:
+      upload.txt: "not wanted\n"
+    run: curl -s -T upload.txt tftp://127.0.0.1:{{port}}/upload.txt
+    expect:
+      exit: 69

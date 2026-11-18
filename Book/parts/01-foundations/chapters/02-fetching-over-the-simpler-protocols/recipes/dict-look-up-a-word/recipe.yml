@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: dict-look-up-a-word
+title: Looking Up a Word with DICT
+protocols: [dict]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s]
+exit-codes: [0]
+references: [surl-readme, curl-readme]
+
+# Each file directly in the served directory is a headword: its name the word, its bytes the definition.
+fixtures:
+  words/surly: "bad-tempered and unfriendly\n"
+  words/surl: "the server that answers curl\n"
+
+servers:
+  main:
+    command: surl --directory words dict://127.0.0.1:{{port}}/
+    ready: port
+
+# DICT replies end lines with CR LF; curl's output is read as text, so a line ends in a plain new line.
+cases:
+  - id: solution
+    role: solution
+    claim: "d:surly asks for the definition of surly; after its 220 greeting and 250 ok, surl answers 150 and 151 naming the word and its database, surl, then the file's bytes, a line holding a dot, 250 ok and 221 bye, and curl prints the whole reply and exits 0."
+    run: curl dict://127.0.0.1:{{port}}/d:surly
+    expect:
+      exit: 0
+      stdout-matches: '^220 surl DICT server <mime> <\d+@surl>\n250 ok\n150 1 definitions retrieved\n151 "surly" surl "Files served by surl"\nbad-tempered and unfriendly\n\.\n250 ok\n221 bye\n$'
+
+  - id: match-by-prefix
+    claim: "m:surl asks which headwords match surl; with no strategy named, surl matches by prefix, so both surl and surly are listed under 152, each with its database."
+    run: curl -s dict://127.0.0.1:{{port}}/m:surl
+    expect:
+      exit: 0
+      stdout-matches: '152 2 matches found\nsurl "surl"\nsurl "surly"\n\.\n'
+
+  - id: match-exactly
+    claim: "m:surly:*:exact asks for the exact strategy in every database, and lists surly alone."
+    run: curl -s dict://127.0.0.1:{{port}}/m:surly:*:exact
+    expect:
+      exit: 0
+      stdout-matches: '152 1 matches found\nsurl "surly"\n\.\n'
+
+  - id: no-such-word
+    claim: A word with no file is answered 552 no match, and curl still exits 0, since to curl any DICT reply is a successful conversation.
+    run: curl -s dict://127.0.0.1:{{port}}/d:cheerful
+    expect:
+      exit: 0
+      stdout-matches: '\n552 no match\n221 bye\n$'
+
+  - id: dot-file-not-a-headword
+    claim: A file whose name begins with a dot is never a headword; asking for it is answered 552 no match.
+    fixtures:
+      words/.secret: "not for you\n"
+    run: curl -s dict://127.0.0.1:{{port}}/d:.secret
+    expect:
+      exit: 0
+      stdout-matches: '\n552 no match\n'
+
+  - id: directory-not-a-headword
+    claim: A directory under the served directory is never a headword either; asking for it is answered 552 no match.
+    fixtures:
+      words/more/word: "inside a folder\n"
+    run: curl -s dict://127.0.0.1:{{port}}/d:more
+    expect:
+      exit: 0
+      stdout-matches: '\n552 no match\n'
+
+  - id: one-database
+    claim: "show:db lists the databases, and surl has one, surl, described as Files served by surl."
+    run: curl -s dict://127.0.0.1:{{port}}/show:db
+    expect:
+      exit: 0
+      stdout-matches: '110 1 databases present\nsurl "Files served by surl"\n\.\n'
+
+  - id: unknown-database
+    claim: "Naming any other database, as d:surly:wordnet does, is answered 550 invalid database, and curl exits 0."
+    run: curl -s dict://127.0.0.1:{{port}}/d:surly:wordnet
+    expect:
+      exit: 0
+      stdout-matches: '\n550 invalid database'

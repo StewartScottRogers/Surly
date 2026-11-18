@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-record-what-the-client-sent]]
+=== Recording What an HTTP Client Sent
+
+==== Problem
+
+Your test needs to check what a Hypertext Transfer Protocol client put on the wire, its request line and headers, not only what it printed, and you want to read it from the server's side in .NET code.
+
+==== Solution
+
+Turn on `RecordExchanges` before starting the server, run the client, and read the bytes from `server.Exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` holds the listen URL, port 0 for a free port, and one in-memory file in `Files`. `RecordExchanges` is the switch this recipe is about. It is off by default, and costs nothing then; reading `server.Exchanges` with it off throws `InvalidOperationException` rather than returning an empty list that would look like a client that never called.
+
+`SurlServer.StartAsync` starts the server, and `await using` stops it when the program ends. `Exchanges` is a list of `SurlExchangeRecord`, oldest first. Each has an `ExchangeId`, the `Scheme` of the listen URL that accepted it, the `ListenUrl` itself with its bound port, the client's endpoint, `StartedAt`, the `Chunks` in the order the bytes crossed, and `IsTruncated`, `False` here, which says whether the record had to drop bytes. `Received` is every byte the client sent, concatenated; `Sent` every byte the server answered. They are raw bytes, so the program decodes them and splits on carriage return and line feed itself. The program reads `Exchanges` straight after the client finishes, with no sleep or retry, and finds the exchange complete.
+
+An exchange is a connection, not a request. `CurlClient` keeps its connection open between requests, so two requests from one client are one exchange whose `Received` holds both. A test that wants one request per record should look for request lines inside the bytes, as the program does in its `requests` mode, rather than count exchanges.
+
+On the client side, `CurlRequest` takes extra headers in `Headers`, here `X-Trace: 42`, and they reach the server in the order given, after the ones `curl` adds itself: `Host` and `Accept: */*`. `CurlClient.SendAsync` returns a `CurlResponse`, whose `Body` the program reads to the end so the exchange is complete before it looks. `Curl.Api` sends no `User-Agent` header unless `CurlClientOptions.UserAgent` sets one; the program's `agent` mode sets `my-test/1.0`, and the recorded request carries it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-and-fetch-in-process>> for the same server and client without recording.
+* <<http-wait-for-an-upload-in-process>> for waiting on an exchange instead of reading the list.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

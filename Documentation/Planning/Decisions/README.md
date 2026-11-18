@@ -15,10 +15,9 @@ Architecture decision records for the Surly monorepo. One file per decision, num
 
 ## Open
 
-The book's method is settled (ADR-0004, ADR-0005, `Book/AI.md`). Still to decide:
+The book's method is settled (ADR-0004, ADR-0005, ADR-0008, `Book/AI.md`), and the chapter list is accepted (`Book/editorial/chapter-list.md`). Still to decide:
 
 - Migration method for the two solutions (subtree with history, or otherwise) and when.
 - Shared build properties and quality gates at the root versus per solution.
 - Release and versioning of the two programs from one repository.
-- The first chapter list within the difficulty tiers.
 - When the Curl and Surl boards migrate onto `Factory/` (with the programs' migration).

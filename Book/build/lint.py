@@ -65,6 +65,9 @@ def main():
     pins = pinned_packages()
     for _, _, recipe, spec in recipes():
         adoc = recipe / "recipe.adoc"
+        if not adoc.exists():
+            findings.append(f"{recipe.relative_to(BOOK).as_posix()}: recipe.yml has no recipe.adoc beside it")
+            continue
         text = adoc.read_text(encoding="utf-8")
         rel = adoc.relative_to(BOOK).as_posix()
         if COPYRIGHT not in text:

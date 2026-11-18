@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-trace-every-byte
+title: Tracing Every Byte surl Sends and Receives
+protocols: [http]
+tier: foundations
+surl-options: [--directory, --trace-ascii, --trace-time, --log-file]
+curl-options: [-s]
+exit-codes: [0, 23]
+references: [surl-readme]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The trace is written inside the served folder only so that the cases can
+# fetch it and check what it says; in real use, keep it outside.
+servers:
+  main:
+    command: surl --directory site --trace-ascii site/trace.txt --trace-time http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A file fetched from a surl started with --trace-ascii comes back as usual, and every byte of the exchange goes into the trace file.
+    run: curl http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: trace-shows-bytes-received
+    claim: The trace has a "Recv data" line giving the byte count in decimal and hexadecimal, followed by the bytes received as text, each line led by its offset.
+    run: curl -s http://127.0.0.1:{{port}}/trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '<= Recv data, \d+ bytes \(0x[0-9a-f]+\)\n0000: GET /hello\.txt HTTP/1\.1\n[0-9a-f]{4}: Host: 127\.0\.0\.1:\d+\n'
+
+  - id: trace-shows-bytes-sent
+    claim: The trace has a "Send data" line for the response head and another for the body.
+    run: curl -s http://127.0.0.1:{{port}}/trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '=> Send data, \d+ bytes \(0x[0-9a-f]+\)\n0000: HTTP/1\.1 200 OK\n.*=> Send data, 16 bytes \(0x10\)\n0000: hello from surl\.\n'
+
+  - id: trace-dots-for-unprintable
+    claim: A byte that is not printable text, such as the newline at the end of the body, is shown as a dot.
+    run: curl -s http://127.0.0.1:{{port}}/trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '0000: hello from surl\.\n'
+
+  - id: trace-holds-the-log-lines
+    claim: The trace also holds the log lines, such as what was served and from which file.
+    run: curl -s http://127.0.0.1:{{port}}/trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '#\d+ \* GET /hello\.txt: 200, 16 bytes of '
+
+  - id: trace-time-stamps
+    claim: With --trace-time each line that starts an entry is stamped with the time of day to the microsecond.
+    run: curl -s http://127.0.0.1:{{port}}/trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '\n\d\d:\d\d:\d\d\.\d{6} #\d+ <= Recv data, '
+
+  - id: trace-file-cannot-open
+    claim: A trace file in a folder that does not exist cannot be opened, and surl exits 23 before it listens.
+    run: surl --trace-ascii nodir/trace.txt http://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 23
+      stdout-matches: '^surl: \(23\) Could not open nodir/trace\.txt for --trace-ascii'
+
+  - id: trace-not-the-log-file
+    claim: A trace file that is also the --log-file is refused with exit 23.
+    run: surl --log-file both.txt --trace-ascii both.txt http://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 23
+      stdout: "surl: (23) Could not open both.txt for --trace-ascii: --log-file names the same file\n"
