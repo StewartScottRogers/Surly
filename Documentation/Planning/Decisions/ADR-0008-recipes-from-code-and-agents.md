@@ -38,7 +38,7 @@ The author wants these documented and tested the same way the console is: every 
    ```
 
    The script references the libraries with `#:package`, never `#:project`: the book tests what a reader can install. A script that hosts its server through `Surl.Api` needs no `servers:` block. The judging is schema 1's: exit code, output, files.
-6. **Package versions are pinned once, not per script.** The pin lives in one file under `Book/build/` that verify reads, and a release bumps it in one commit. Whether the pin is a central `Directory.Packages.props` that file-based apps honour, or a `{{version}}` placeholder verify substitutes into each `#:package` line, is settled when the runner is built; either way the printed listing shows a real version.
+6. **Package versions are pinned once, not per script.** The pin lives in `Book/build/packages.yml`, and a release bumps it in one commit. Settled when the runner was built (2026-11-18): each script carries its real version (`#:package Surl.Api@1.0.0`) so a reader can copy it and run it as printed; `build/pin.py <package> <version>` rewrites `packages.yml` and every matching `#:package` line together, and lint refuses a line that differs from the pin. A central `Directory.Packages.props` and a `{{version}}` placeholder were both rejected because the script on disk would then not run as printed.
 7. **`mcp:` is a list of tool calls** sent in order to `surl-mcp`, `curl-mcp` or both. verify starts each host as a stdio process in the recipe's temporary directory (`surl-mcp --root <dir>`, `CURL_MCP_ROOT=<dir>`), performs the MCP `initialize` handshake, and stops it after the case:
 
    ```yaml

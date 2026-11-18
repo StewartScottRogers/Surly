@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See ../LICENSE-CODE.txt.
-"""Run every recipe's cases against the surl and curl on PATH (or SURLY_SURL and
-SURLY_CURL) and write verified.yml beside each recipe.
+"""Run every recipe's cases against the surl, curl and dotnet on PATH (or
+SURLY_SURL, SURLY_CURL and SURLY_DOTNET) and write verified.yml beside each recipe.
 
 For each recipe: make a temporary working directory, write the fixtures,
 allocate a free port, start the servers and wait until each is ready, run every
 case and compare exit code, stdout, stderr and files with its expectations, stop
 the servers, and record the result. A recipe passes only if every case passes.
+
+A program: case (schema 2, ADR-0008) is a C# file-based app in the recipe folder.
+It is built once with `dotnet build <file>.cs`, then each case runs it with
+`dotnet run --no-build <file>.cs -- <args>` in the working directory, so its
+output is the program's alone. Packages come from the configured NuGet feeds;
+SURLY_NUGET_SOURCE adds one folder or feed (for packages not yet published).
+Only the tools a recipe uses are needed, and only their versions are recorded.
 
 Usage:  python3 build/verify.py [key ...]     (all recipes when no key is given)
 Exit:   0 when every recipe passed; 1 when any failed or the binaries are missing.
@@ -15,7 +22,7 @@ Then run build.py so the book shows the new status.
 import datetime, os, platform, re, shutil, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 import yaml
-from recipes import recipes, substitute, posix_values, windows_values
+from recipes import recipes, substitute, posix_values, windows_values, programs, program_packages
 
 WINDOWS = os.name == "nt"
 PLATFORM = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(platform.system(), platform.system().lower())
@@ -26,6 +33,16 @@ def binary(name):
     if not path:
         sys.exit(f"{name} not found: put it on PATH or set SURLY_{name.upper()}")
     return path
+
+
+def tools(spec):
+    """The programs a recipe needs: surl or curl at the head of a server or run line, dotnet for a program."""
+    heads = [s["command"].split()[0] for s in (spec.get("servers") or {}).values()]
+    heads += [c["run"].split()[0] for c in spec["cases"] if "run" in c]
+    needed = {h for h in heads if h in ("surl", "curl")}
+    if programs(spec):
+        needed.add("dotnet")
+    return needed
 
 
 def version(path):
@@ -64,12 +81,37 @@ def resolve(cmd, bins):
     return f'"{bins[exe]}" {rest}' if exe in bins else cmd
 
 
-def run_case(case, root, values, bins):
-    write_fixtures(root, case.get("fixtures"))
-    cmd = resolve(substitute(case["run"], values), bins)
+def build_program(path, root, bins):
+    """Build a C# file-based app once; returns None, or why it would not build."""
+    cmd = [bins["dotnet"], "build", str(path), "--nologo", "-v", "q"]
+    source = os.environ.get("SURLY_NUGET_SOURCE")
+    if source:
+        cmd.append(f"--property:RestoreAdditionalProjectSources={source}")
     try:
-        r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True,
-                           timeout=case.get("timeout", 30))
+        r = subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return f"dotnet build {path.name} timed out"
+    if r.returncode:
+        tail = [l for l in (r.stdout + r.stderr).splitlines() if l.strip()][-5:]
+        return f"dotnet build {path.name} failed: " + " | ".join(tail)
+    return None
+
+
+def run_case(case, recipe, root, values, bins, built):
+    write_fixtures(root, case.get("fixtures"))
+    if "program" in case:
+        path = recipe / case["program"]
+        if path not in built:
+            built[path] = build_program(path, root, bins)
+        if built[path]:
+            return False, built[path]
+        cmd = [bins["dotnet"], "run", "--no-build", str(path), "--"] + [substitute(a, values) for a in case.get("args", [])]
+        shell, timeout = False, case.get("timeout", 60)
+    else:
+        cmd = resolve(substitute(case["run"], values), bins)
+        shell, timeout = True, case.get("timeout", 30)
+    try:
+        r = subprocess.run(cmd, shell=shell, cwd=root, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return False, "timed out"
     exp = case["expect"]
@@ -96,7 +138,7 @@ def verify_recipe(recipe, spec, bins):
     port = free_port()
     values = windows_values(port) if WINDOWS else posix_values(port)
     write_fixtures(root, spec.get("fixtures"))
-    procs, results, failures = [], {}, []
+    procs, results, failures, built = [], {}, [], {}
     try:
         for name, server in (spec.get("servers") or {}).items():
             cmd = resolve(substitute(server["command"], values), bins)
@@ -109,7 +151,7 @@ def verify_recipe(recipe, spec, bins):
             time.sleep(0.2)
         if not failures:
             for case in spec["cases"]:
-                ok, why = run_case(case, root, values, bins)
+                ok, why = run_case(case, recipe, root, values, bins, built)
                 results[case["id"]] = "pass" if ok else "fail"
                 if not ok:
                     failures.append(f"case {case['id']}: {why}")
@@ -121,23 +163,31 @@ def verify_recipe(recipe, spec, bins):
     return results, failures
 
 
+def recipe_versions(recipe, spec, tool_versions):
+    """Every version this recipe ran against: its tools, then each package its programs name."""
+    found = {t: tool_versions[t] for t in ("surl", "curl", "dotnet") if t in tools(spec)}
+    for program in programs(spec):
+        for name, ver in program_packages(recipe / program).items():
+            found[name] = ver
+    return found
+
+
 def main():
-    bins = {"surl": binary("surl"), "curl": binary("curl")}
-    versions = {k: version(v) for k, v in bins.items()}
     wanted = set(sys.argv[1:])
+    selected = [(recipe, spec) for _, _, recipe, spec in recipes() if not wanted or spec["key"] in wanted]
+    bins = {t: binary(t) for t in sorted(set().union(*(tools(spec) for _, spec in selected)))}
+    tool_versions = {k: version(v) for k, v in bins.items()}
     today = datetime.date.today().isoformat()
     any_failed = False
-    for _, _, recipe, spec in recipes():
-        if wanted and spec["key"] not in wanted:
-            continue
+    for recipe, spec in selected:
         results, failures = verify_recipe(recipe, spec, bins)
         status = "verified" if not failures else "broken"
         any_failed |= bool(failures)
+        versions = recipe_versions(recipe, spec, tool_versions)
         previous = spec["verified"]
         platforms = sorted(set(previous.get("platforms", []) if previous.get("status") == "verified"
-                               and previous.get("surl") == versions["surl"] and previous.get("curl") == versions["curl"]
-                               else []) | {PLATFORM}) if status == "verified" else [PLATFORM]
-        record = {"status": status, "surl": versions["surl"], "curl": versions["curl"], "date": today,
+                               and previous.get("versions") == versions else []) | {PLATFORM}) if status == "verified" else [PLATFORM]
+        record = {"status": status, "versions": versions, "date": today,
                   "platforms": platforms, "cases": results}
         if failures:
             record["failures"] = failures

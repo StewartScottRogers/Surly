@@ -8,7 +8,7 @@ Exit:   0 clean; 1 with every finding printed as path: finding.
 """
 import re, sys
 from pathlib import Path
-from recipes import BOOK, recipes
+from recipes import BOOK, recipes, programs, program_packages, program_projects, pinned_packages, solution_case
 
 SECTIONS = ["==== Problem", "==== Solution", "==== Discussion", "==== See Also"]
 COPYRIGHT = "Copyright (c) 2026 Stewart Rogers"
@@ -19,10 +19,39 @@ def bibliography_keys():
     return set(re.findall(r"\[\[\[([a-z0-9-]+)\]\]\]", text))
 
 
+def lint_programs(recipe, spec, pins):
+    """C# programs (ADR-0008): copyright, packages pinned as the book pins them, no
+    project references, Libcurl only in the advanced tier, and a surface that says so."""
+    found = []
+    progs = programs(spec)
+    if spec["surface"] == "csharp" and "program" not in solution_case(spec):
+        found.append(f"{recipe.relative_to(BOOK).as_posix()}/recipe.yml: surface csharp needs a solution with program:")
+    if spec["surface"] == "console" and progs:
+        found.append(f"{recipe.relative_to(BOOK).as_posix()}/recipe.yml: runs a C# program, so surface must be csharp")
+    for prog in progs:
+        path = recipe / prog
+        rel = path.relative_to(BOOK).as_posix()
+        if COPYRIGHT not in path.read_text(encoding="utf-8"):
+            found.append(f"{rel}: missing copyright line")
+        for project in program_projects(path):
+            found.append(f"{rel}: #:project {project}: reference a package with #:package instead")
+        for name, version in program_packages(path).items():
+            if name not in pins:
+                found.append(f"{rel}: package {name} is not pinned in build/packages.yml")
+            elif pins[name] is None:
+                found.append(f"{rel}: package {name} has no pinned version yet")
+            elif version != str(pins[name]):
+                found.append(f"{rel}: #:package {name}@{version or '(no version)'} must be {name}@{pins[name]}; run build/pin.py")
+            if name == "Libcurl" and spec["tier"] != "advanced":
+                found.append(f"{rel}: Libcurl recipes belong in the advanced tier, not {spec['tier']}")
+    return found
+
+
 def main():
     findings = []
     keys = {spec["key"] for _, _, _, spec in recipes()}
     bib = bibliography_keys()
+    pins = pinned_packages()
     for _, _, recipe, spec in recipes():
         adoc = recipe / "recipe.adoc"
         text = adoc.read_text(encoding="utf-8")
@@ -52,6 +81,10 @@ def main():
         for opt in spec.get("surl-options", []) + spec.get("curl-options", []):
             if f"`{opt}" not in disc:
                 findings.append(f"{rel}: option {opt} is used but never explained in the Discussion")
+        for api_type in spec.get("api-types", []):
+            if f"`{api_type}" not in disc:
+                findings.append(f"{rel}: type {api_type} is used but never explained in the Discussion")
+        findings += lint_programs(recipe, spec, pins)
         for ref in spec.get("references", []):
             if ref not in bib:
                 findings.append(f"{rel}: reference '{ref}' is not in the bibliography")
