@@ -116,6 +116,10 @@ def main():
                 findings.append(f"{rel}: reference '{ref}' is not in the bibliography")
             elif f"<<{ref}>>" not in text:
                 findings.append(f"{rel}: reference '{ref}' is listed but never cited")
+        # `surl`'s renders as a broken code span (backtick then apostrophe starts a curly quote);
+        # write `surl`{apos}s instead.
+        if re.search(r"`[^`\n]+`'s\b", text):
+            findings.append(f"{rel}: a code span followed by 's renders broken; write `name`{{apos}}s")
         for xref in re.findall(r"<<([a-z0-9-]+)>>", text):
             if xref not in keys and xref not in bib:
                 findings.append(f"{rel}: <<{xref}>> points at no recipe or reference yet")

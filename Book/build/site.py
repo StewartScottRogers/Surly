@@ -93,41 +93,82 @@ def badges(r):
     return b + f'<span class="badge {status}">{status}</span>'
 
 
+def fold_claims_and_references(content):
+    """On a recipe page, fold the checked-claims table (with the servers and programs it lists)
+    and the references: Problem, Solution and Discussion stay open."""
+    caption = content.find("Checked claims</caption>")
+    if caption >= 0:
+        start = content.rfind("<table", 0, caption)
+        see_also = content.find('<div class="sect2">', caption)
+        end = content.rfind("</div>", start, see_also if see_also >= 0 else len(content))
+        rows = content.count("<tr>", start, end) - 1
+        content = (content[:start] + f'<details class="fold claims"><summary>Checked claims '
+                   f'<span class="count">{rows}</span></summary>' + content[start:end] + "</details>" + content[end:])
+    head = content.find('<h2 id="_references">')
+    if head >= 0:
+        close = content.find("</h2>", head) + len("</h2>")
+        refs = content.count("<li>", close)
+        last = content.rstrip().rfind("</div>")
+        content = (content[:head] + f'<details class="fold refs" id="_references"><summary>References '
+                   f'<span class="count">{refs}</span></summary>' + content[close:last] + "</details>" + content[last:])
+    return content
+
+
+def search_text(r):
+    """What the contents page's search looks in: title, Problem, protocols, options, types, tools, key."""
+    words = [r["title"], r["problem"], r["key"], r["surface"], " ".join(r["protocols"]),
+             " ".join(r.get("surl-options", [])), " ".join(r.get("curl-options", [])),
+             " ".join(r.get("api-types", [])), " ".join(r.get("mcp-tools", []))]
+    return html.escape(" ".join(words).lower(), quote=True)
+
+
+FOLDBAR = ('<div class="foldbar"><button type="button" data-fold="open">Expand all</button>'
+           '<button type="button" data-fold="close">Collapse all</button>{extra}</div>')
+
+
 def write_book_pages(values, index, titles):
-    """contents.html, recipes/<key>.html and book.html, all in the site's look."""
+    """contents.html, recipes/<key>.html and book.html, all in the site's look, folded."""
     keys = {r["key"] for r in index}
     (OUT / "recipes").mkdir(parents=True, exist_ok=True)
     part_numbers = {p: i + 1 for i, p in enumerate(dict.fromkeys(r["part"] for r in index))}
+    parts = list(dict.fromkeys(r["part"] for r in index))
 
-    # Contents: parts, chapters and recipes in book order.
-    body, seen_part, seen_chapter = ["<h1>Contents</h1>"], None, None
-    for r in index:
-        if r["part"] != seen_part:
-            if seen_chapter:
-                body.append("</ol>")
-            n = part_numbers[r["part"]]
-            title, about = titles.get(r["part"], (r["part"], ""))
-            body.append(f'<h2 id="part-{n}">Part {n}. {html.escape(title)}</h2><p>{inline(about)}</p>')
-            seen_part, seen_chapter = r["part"], None
-        if r["chapter"] != seen_chapter:
-            if seen_chapter:
-                body.append("</ol>")
-            body.append(f'<h3>{html.escape(titles.get(r["chapter"], (r["chapter"], ""))[0])}</h3><ol>')
-            seen_chapter = r["chapter"]
-        body.append(f'<li><a href="recipes/{r["key"]}.html">{html.escape(r["title"])}</a>{badges(r)}'
-                    f'<p>{inline(r["problem"])}</p></li>')
-    body.append("</ol>")
+    def chapters_of(part):
+        return list(dict.fromkeys(r["chapter"] for r in index if r["part"] == part))
+
+    # Contents: folded parts and chapters, and a search over every recipe.
+    body = ["<h1>Contents</h1>",
+            '<input id="search" type="search" placeholder="Search: a word, a protocol, an option such as --user" '
+            'aria-label="Search recipes" autocomplete="off">',
+            FOLDBAR.format(extra='<span id="search-count"></span>')]
+    for part in parts:
+        n = part_numbers[part]
+        title, about = titles.get(part, (part, ""))
+        in_part = [r for r in index if r["part"] == part]
+        body.append(f'<details class="fold part" id="part-{n}"><summary><h2>Part {n}. {html.escape(title)}</h2>'
+                    f'<span class="count">{len(in_part)} recipes</span></summary><p>{inline(about)}</p>')
+        for chapter in chapters_of(part):
+            in_chapter = [r for r in in_part if r["chapter"] == chapter]
+            body.append(f'<details class="fold chapter"><summary><h3>{html.escape(titles.get(chapter, (chapter, ""))[0])}</h3>'
+                        f'<span class="count">{len(in_chapter)}</span></summary><ol>')
+            for r in in_chapter:
+                body.append(f'<li data-search="{search_text(r)}"><a href="recipes/{r["key"]}.html">{html.escape(r["title"])}</a>'
+                            f'{badges(r)}<p>{inline(r["problem"])}</p></li>')
+            body.append("</ol></details>")
+        body.append("</details>")
     (OUT / "contents.html").write_text(
-        page(values, "Contents", "Every recipe in the book, by part and chapter.",
+        page(values, "Contents", "Every recipe in the book, by part and chapter, with a search.",
              '<div class="contents">' + "\n".join(body) + "</div>", current="contents"), encoding="utf-8")
 
-    # One page per recipe.
+    # One page per recipe, its claims and references folded.
+    bodies = {}
     for i, r in enumerate(index):
         content = rendered_content(BOOK / r["rendered"])
-        # A link to another recipe is #key in a one-recipe page; here it is that recipe's own page.
+        bodies[r["key"]] = content
         content = cited_references_only(content)
         content = re.sub(r'href="#([a-z0-9-]+)"',
                          lambda m: f'href="{m.group(1)}.html"' if m.group(1) in keys else m.group(0), content)
+        content = fold_claims_and_references(content)
         n = part_numbers[r["part"]]
         part_title = titles.get(r["part"], (r["part"], ""))[0]
         chapter_title = titles.get(r["chapter"], (r["chapter"], ""))[0]
@@ -144,10 +185,39 @@ def write_book_pages(values, index, titles):
         (OUT / "recipes" / f'{r["key"]}.html').write_text(
             page(values, r["title"], r["problem"], content, root="../", crumbs=crumbs, prevnext=prevnext), encoding="utf-8")
 
-    # The whole book on one page.
+    # The whole book on one page: front matter open, then parts > chapters > recipes folded, then
+    # the appendix and the references once. A recipe's own heading becomes its fold's summary.
+    whole = rendered_content(BOOK / "out" / "surly.html")
+    first_part = whole.find('class="sect0"')
+    front = whole[:whole.rfind("<h1", 0, first_part)] if first_part >= 0 else ""
+    tail_at = whole.find('id="_recipes_by_protocol"')
+    tail = whole[whole.rfind('<div class="sect1">', 0, tail_at):] if tail_at >= 0 else ""
+    book = ["<h1>The whole book</h1>", FOLDBAR.format(extra=""), front]
+    for part in parts:
+        n = part_numbers[part]
+        title, about = titles.get(part, (part, ""))
+        book.append(f'<details class="fold part" id="part-{n}"><summary><h2>Part {n}. {html.escape(title)}</h2></summary>'
+                    f'<p>{inline(about)}</p>')
+        for chapter in chapters_of(part):
+            chapter_title, chapter_about = titles.get(chapter, (chapter, ""))
+            in_chapter = [r for r in index if r["chapter"] == chapter and r["part"] == part]
+            book.append(f'<details class="fold chapter"><summary><h3>{html.escape(chapter_title)}</h3>'
+                        f'<span class="count">{len(in_chapter)}</span></summary><p>{inline(chapter_about)}</p>')
+            for r in in_chapter:
+                content = bodies[r["key"]]
+                if '<h2 id="_references">' in content:
+                    content = content[:content.rfind('<div class="sect1">', 0, content.find('<h2 id="_references">'))]
+                content = re.sub(r'<h2 id="' + re.escape(r["key"]) + r'">.*?</h2>', "", content, count=1, flags=re.S)
+                book.append(f'<details class="fold recipe" id="{r["key"]}"><summary><span>{html.escape(r["title"])}'
+                            f'{badges(r)}<span class="problem">{inline(r["problem"])}</span></span></summary>'
+                            f'{content}<p><a href="recipes/{r["key"]}.html">This recipe on its own page</a></p></details>')
+            book.append("</details>")
+        book.append("</details>")
+    if tail:
+        book.append('<details class="fold part" id="appendix"><summary><h2>Recipes by protocol, and references</h2></summary>'
+                    + tail + "</details>")
     (OUT / "book.html").write_text(
-        page(values, "The whole book", values["pitch_one_line"], rendered_content(BOOK / "out" / "surly.html"),
-             current="book"), encoding="utf-8")
+        page(values, "The whole book", values["pitch_one_line"], "\n".join(book), current="book"), encoding="utf-8")
 
 
 def status_and_parts(index, titles):
@@ -221,6 +291,7 @@ def main():
               "copyright_cover": ident["copyright"].replace(" All rights reserved.", ""),
               "status_html": status_html, "parts_html": parts_html}
     shutil.copy(SITE / "surly.css", OUT / "surly.css")
+    shutil.copy(SITE / "surly.js", OUT / "surly.js")
     cover = (SITE / "template.html").read_text(encoding="utf-8")
     for k, v in values.items():
         cover = cover.replace("{{" + k + "}}", str(v))
