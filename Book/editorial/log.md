@@ -13,3 +13,10 @@ One line per decision by the author, newest last. This is the record of human au
 | 2026-11-19 | MCP recipes as C# programs (ADR-0008 item 7 amended) | Accepted | The mcp: call list is retired; all 13 MCP recipes rewritten on the official C# MCP SDK |
 | 2026-11-19 | Part 4, Advanced: 14 recipes (chapters 1-4) | Proposed | All 112 cases pass against local unreleased builds (Surl 993aa7072, Curl 0afbd10e3b) on Windows; two solutions use OpenSSH sftp where the Curl port cannot act as the client; each recipe stays draft |
 | 2026-11-19 | Part 5, New Protocols: 20 recipes (chapters 1-4) | Proposed | All 253 cases pass against local unreleased builds (Surl 71807f05f, Curl 82913be53d) on Windows; all 100 recipes pass together; webtransport-open-a-stream can fail under heavy parallel load (a Curl defect, reported); each recipe stays draft |
+| 2026-11-18 | Part 1, Foundations (22 recipes) | Accepted | Merged and published (ee70b2b) |
+| 2026-11-18 | Part 2, Working Servers (24 recipes) | Accepted | Merged and published (7dc0b52) |
+| 2026-11-19 | Part 3, Secure Servers (20 recipes) | Accepted | Merged and published (f36ec6d) |
+| 2026-11-19 | Part 4, Advanced (14 recipes) | Accepted | Merged and published (a157251) |
+| 2026-11-19 | Part 5, New Protocols (20 recipes) | Accepted | Merged and published (dcf78c4) |
+| 2026-11-19 | Website: one look, folded book, search; cover without the embedded recipe, plainer copy | Accepted | Merged and published (811f3c5, a6da41d, 544cf82) |
+| 2026-11-19 | Licence wording | Accepted | "All rights reserved" dropped from book.yml: the text is CC BY-ND 4.0 and the code Apache 2.0 (ADR-0003); the cover and mark keep their own rights (Book/README.md) |

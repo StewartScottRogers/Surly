@@ -85,11 +85,19 @@ def load_spec(recipe_dir):
                 sys.exit(f"{where}: case {c['id']}: program {program} does not exist")
             if not isinstance(c.get("args", []), list):
                 sys.exit(f"{where}: case {c['id']}: args must be a list")
-    setup = spec.get("setup") or []
-    if not isinstance(setup, list) or not all(isinstance(c, str) for c in setup):
-        sys.exit(f"{where}: setup must be a list of command lines")
-    if setup and spec["schema"] < 2:
-        sys.exit(f"{where}: setup needs schema: 2")
+    for field in ("setup", "seed"):
+        lines = spec.get(field) or []
+        if not isinstance(lines, list) or not all(isinstance(c, str) for c in lines):
+            sys.exit(f"{where}: {field} must be a list of command lines")
+        if lines and spec["schema"] < 2:
+            sys.exit(f"{where}: {field} needs schema: 2")
+    for c in spec["cases"]:
+        if "restart" in c:
+            names = c["restart"] if isinstance(c["restart"], list) else [c["restart"]]
+            unknown = [n for n in names if n not in (spec.get("servers") or {})]
+            if unknown or spec["schema"] < 2:
+                sys.exit(f"{where}: case {c['id']}: restart names a server under servers: (schema 2); not {unknown}")
+            c["restart"] = names
     spec["verified"] = load_verified(recipe_dir)
     return spec
 
@@ -139,6 +147,11 @@ def solution_servers(spec, values):
 def setup_commands(spec, values):
     """The preparation commands (certificates, keys) run before any server starts."""
     return [substitute(c, values) for c in spec.get("setup") or []]
+
+
+def seed_commands(spec, values):
+    """The commands that put things into the running servers before the first case."""
+    return [substitute(c, values) for c in spec.get("seed") or []]
 
 
 def server_commands(spec, values):

@@ -24,6 +24,10 @@ python3 build/site.py     # the website into out/site/: cover, a searchable fold
 
 `setup:` (schema 2) is a list of command lines run in the recipe's working directory after the fixtures are written and before any server starts: certificates with `openssl`, SSH keys with `ssh-keygen`. Each must exit 0 and none is a claim; the book prints them first in the Solution, and `run.sh`/`run.ps1` run them too. Keys and certificates are made this way, never committed as fixtures: they would expire and they would be private keys in a public repository. `Book/.gitignore` keeps the ones a reader's `run.sh` makes out of git.
 
+`seed:` (schema 2) is a list of command lines run after every server is ready and before the first case: it puts mail, files or messages into the running servers, so even the Solution starts from a known store. Like `setup:`, each must exit 0, none is a claim, and the book prints them in the Solution between the server and the solution's own command.
+
+`restart:` on a case (schema 2) names one or more servers under `servers:`; verify stops each and starts it again, same command and same ports, before that case runs, so what a server keeps across a restart is a claim with a case. The claims table says "after restarting `main`".
+
 Placeholders: `{{port}}` and `{{port2}}` to `{{port9}}` are each a free port at run time, shown in the book as 8080 to 8088, so one recipe can run several listeners, or two servers side by side (a default one and a loosened one). A server with `ready: port` is waited for on every port its command names; `ready: none` for a UDP listener such as TFTP. `{{null}}` is `/dev/null`, or `NUL` on Windows.
 
 ## C# programs (schema 2, ADR-0008)

@@ -22,4 +22,4 @@ Written and checked with AI agents following a published method: every recipe pa
 
 Landing page: https://stewartscottrogers.github.io/Surly/ · Source: https://github.com/StewartScottRogers/Surly
 
-Copyright (c) 2026 Stewart Rogers. All rights reserved. Text CC BY-ND 4.0; example code Apache 2.0.
+Copyright (c) 2026 Stewart Rogers. Text CC BY-ND 4.0; example code Apache 2.0.

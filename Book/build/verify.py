@@ -49,7 +49,7 @@ def binary(name):
 def tools(spec):
     """The programs a recipe needs: surl or curl at the head of a server or run line, dotnet for a program."""
     heads = [s["command"].split()[0] for s in (spec.get("servers") or {}).values()]
-    heads += [c.split()[0] for c in spec.get("setup") or []]
+    heads += [c.split()[0] for c in (spec.get("setup") or []) + (spec.get("seed") or [])]
     heads += [c["run"].split()[0] for c in spec["cases"] if "run" in c]
     needed = {h for h in heads if h in ("surl", "curl")}
     if programs(spec):
@@ -200,53 +200,85 @@ def run_case(case, recipe, root, values, bins, built, program_env=None):
     return (not problems), "; ".join(problems)
 
 
+def start_server(name, server, root, values, ports, bins):
+    """Start one server and wait until it is ready; returns (process, why it failed or None)."""
+    cmd = resolve(substitute(server["command"], values), bins)
+    # No shell: killing a shell leaves the server running on Windows. Output goes to a
+    # temporary file, since a pipe nobody reads fills up and stalls a talkative server.
+    log = tempfile.TemporaryFile()
+    p = subprocess.Popen(cmd if WINDOWS else shlex.split(cmd), cwd=root, stdout=log, stderr=log)
+    # ready: port waits for every port placeholder the command names (TCP only).
+    waits = [ports[n] for n in PORT_NAMES if "{{" + n + "}}" in server["command"]]
+    missed = [port for port in waits if not wait_port(port)] if server.get("ready", "port") == "port" else []
+    if missed:
+        return p, f"server {name} never listened on {', '.join(map(str, missed))}"
+    time.sleep(0.2)
+    return p, None
+
+
+def run_lines(lines, what, root, values, bins):
+    """Run setup: or seed: command lines in the working directory; each must exit 0."""
+    for line in lines or []:
+        cmd = resolve(substitute(line, values), bins)
+        r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True, timeout=120)
+        if r.returncode:
+            return f"{what} `{line}` exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}"
+    return None
+
+
 def verify_recipe(recipe, spec, bins):
     root = Path(tempfile.mkdtemp(prefix=f"surly-{spec['key']}-"))
     ports = {name: free_port() for name in PORT_NAMES}
     values = windows_values(ports) if WINDOWS else posix_values(ports)
     write_fixtures(root, spec.get("fixtures"))
-    procs, results, failures, built = [], {}, [], {}
+    servers = spec.get("servers") or {}
+    procs, results, failures, built = {}, {}, [], {}
     # An mcp recipe's programs find surl-mcp and curl-mcp on PATH, as a reader's would.
     program_env = None
     if mcp_hosts(spec):
         program_env = dict(os.environ, PATH=str(hosts_on_path(bins)) + os.pathsep + os.environ.get("PATH", ""))
     try:
-        # setup: preparation (certificates, keys) run in the working directory before any
-        # server starts. Each must succeed; none is a claim.
-        for line in spec.get("setup") or []:
-            cmd = resolve(substitute(line, values), bins)
-            r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True, timeout=120)
-            if r.returncode:
-                failures.append(f"setup `{line}` exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}")
+        # setup: preparation (certificates, keys) before any server starts; none is a claim.
+        why = run_lines(spec.get("setup"), "setup", root, values, bins)
+        if why:
+            failures.append(why)
+        for name, server in ([] if failures else servers.items()):
+            procs[name], why = start_server(name, server, root, values, ports, bins)
+            if why:
+                failures.append(why)
                 break
-        for name, server in ([] if failures else (spec.get("servers") or {}).items()):
-            cmd = resolve(substitute(server["command"], values), bins)
-            # No shell: killing a shell leaves the server running on Windows. Output goes to a
-            # temporary file, since a pipe nobody reads fills up and stalls a talkative server.
-            log = tempfile.TemporaryFile()
-            p = subprocess.Popen(cmd if WINDOWS else shlex.split(cmd), cwd=root, stdout=log, stderr=log)
-            procs.append(p)
-            ready = server.get("ready", "port")
-            # ready: port waits for every port placeholder the command names (TCP only).
-            waits = [ports[n] for n in PORT_NAMES if "{{" + n + "}}" in server["command"]]
-            missed = [p for p in waits if not wait_port(p)] if ready == "port" else []
-            if missed:
-                failures.append(f"server {name} never listened on {', '.join(map(str, missed))}")
-                break
-            time.sleep(0.2)
         # A server that has already exited failed to start (45: its port was taken). Say so,
         # rather than let its clients fail later with a refused connection.
-        for name, p in zip((spec.get("servers") or {}), procs):
+        for name, p in procs.items():
             if p.poll() is not None:
                 failures.append(f"server {name} exited at start with {p.returncode}")
+        # seed: puts things into the running servers (mail, files, messages) before the first
+        # case, the Solution included; none is a claim.
+        if not failures:
+            why = run_lines(spec.get("seed"), "seed", root, values, bins)
+            if why:
+                failures.append(why)
         if not failures:
             for case in spec["cases"]:
-                ok, why = run_case(case, recipe, root, values, bins, built, program_env)
-                results[case["id"]] = "pass" if ok else "fail"
-                if not ok:
-                    failures.append(f"case {case['id']}: {why}")
+                # restart: stops the named server and starts it again, same command and ports,
+                # before this case: what a server keeps across a restart becomes a claim.
+                for name in case.get("restart") or []:
+                    procs[name].kill()
+                    procs[name].wait()
+                    procs[name], why = start_server(name, servers[name], root, values, ports, bins)
+                    if why or procs[name].poll() is not None:
+                        failures.append(f"case {case['id']}: restarting {name}: {why or 'it exited'}")
+                        break
+                else:
+                    ok, why = run_case(case, recipe, root, values, bins, built, program_env)
+                    results[case["id"]] = "pass" if ok else "fail"
+                    if not ok:
+                        failures.append(f"case {case['id']}: {why}")
+                    continue
+                results[case["id"]] = "fail"
+                break
     finally:
-        for p in procs:
+        for p in procs.values():
             p.kill()
             p.wait()
         shutil.rmtree(root, ignore_errors=True)
