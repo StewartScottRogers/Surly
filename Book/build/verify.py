@@ -33,7 +33,7 @@ from pathlib import Path
 import yaml
 from recipes import (PORT_NAMES, recipes, substitute, substitute_deep, posix_values, windows_values, programs,
                      program_packages, mcp_hosts, MCP_HOSTS, PLACEHOLDER)
-from mcp import Host, McpError, contains, path_value
+from mcp import BridgeHost, Host, McpError, contains, path_value
 
 WINDOWS = os.name == "nt"
 PLATFORM = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(platform.system(), platform.system().lower())
@@ -54,6 +54,8 @@ def tools(spec):
     needed = {h for h in heads if h in ("surl", "curl")}
     if programs(spec):
         needed.add("dotnet")
+    if mcp_hosts(spec) and os.environ.get("SURLY_MCP_CLIENT") != "python":
+        needed.add("dotnet")                     # the C# MCP bridge
     return needed | set(mcp_hosts(spec))
 
 
@@ -109,11 +111,32 @@ def build_program(path, root, bins):
     return None
 
 
+# The MCP client: McpBridge.cs (the official C# SDK) unless SURLY_MCP_CLIENT=python asks for
+# the original standard-library client.
+BRIDGE = Path(__file__).resolve().parent / "McpBridge.cs"
+PYTHON_CLIENT = os.environ.get("SURLY_MCP_CLIENT") == "python"
+bridge_built = {}
+
+
+def mcp_client_name():
+    if PYTHON_CLIENT:
+        return "python (book's own client)"
+    m = re.search(r"^#:package\s+(\S+)@(\S+)", BRIDGE.read_text(encoding="utf-8"), re.M)
+    return f"{m.group(1)} {m.group(2)} (C#)" if m else "C# SDK"
+
+
 def start_host(name, root, bins):
-    """Start an MCP host confined to the working directory."""
-    if name == "surl-mcp":
-        return Host([bins[name], "--root", str(root)], cwd=root)
-    return Host([bins[name]], cwd=root, env=dict(os.environ, CURL_MCP_ROOT=str(root)))
+    """Start an MCP host confined to the working directory, through the chosen client."""
+    host_cmd = [bins[name], "--root", str(root)] if name == "surl-mcp" else [bins[name]]
+    env = None if name == "surl-mcp" else dict(os.environ, CURL_MCP_ROOT=str(root))
+    if PYTHON_CLIENT:
+        return Host(host_cmd, cwd=root, env=env)
+    if "ok" not in bridge_built:
+        why = build_program(BRIDGE, root, bins)
+        if why:
+            raise McpError(f"the MCP bridge would not build: {why}")
+        bridge_built["ok"] = True
+    return BridgeHost([bins["dotnet"], "run", "--no-build", str(BRIDGE)], host_cmd, cwd=root, env=env)
 
 
 def run_mcp_case(case, root, values, bins, hosts, saved):
@@ -128,10 +151,17 @@ def run_mcp_case(case, root, values, bins, hosts, saved):
         try:
             if name not in hosts:
                 hosts[name] = start_host(name, root, bins)
-            is_error, value, text = hosts[name].call(call["tool"], substitute_deep(arguments, known))
+            filled = substitute_deep(arguments, known)
+            exp = call.get("expect") or {}
+            # The recipe's arguments must fit the tool's published schema, so a renamed or
+            # retyped argument fails here, by name, rather than as a puzzling answer. A call
+            # that expects an error may break the schema on purpose; a missing tool never may.
+            problems = hosts[name].check(call["tool"], filled)
+            if problems and (exp.get("is-error") is not True or call["tool"] not in hosts[name].schemas):
+                return False, f"{at}: does not fit the schema: " + "; ".join(problems)
+            is_error, value, text = hosts[name].call(call["tool"], filled)
         except McpError as e:
             return False, f"{at}: {e}"
-        exp = call.get("expect") or {}
         if is_error != exp.get("is-error", False):
             return False, f"{at}: {'an error' if is_error else 'not an error'}, expected otherwise: {text[:300]}"
         if "error-contains" in exp and exp["error-contains"] not in text:
@@ -227,6 +257,8 @@ def recipe_versions(recipe, spec, tool_versions, host_versions):
     """Every version this recipe ran against: its tools and MCP hosts, then each package its programs name."""
     found = {t: tool_versions[t] for t in ("surl", "curl", "dotnet") if t in tools(spec)}
     found.update({name: host_versions.get(name, "not started") for name in mcp_hosts(spec)})
+    if mcp_hosts(spec):
+        found["mcp-client"] = mcp_client_name()
     for program in programs(spec):
         for name, ver in program_packages(recipe / program).items():
             found[name] = ver
