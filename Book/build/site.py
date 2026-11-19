@@ -23,22 +23,6 @@ CURL = "https://github.com/StewartScottRogers/Curl"
 SURL = "https://github.com/StewartScottRogers/Surl"
 
 
-def first_recipe_body():
-    first = next(recipes())
-    rendered = BOOK / "out" / "recipes" / f"{first[3]['key']}.html"
-    if not rendered.exists():
-        sys.exit("run build.py first")
-    text = rendered.read_text(encoding="utf-8")
-    m = re.search(r'<div id="content">(.*?)</div>\s*<div id="footer">', text, re.S)
-    body = m.group(1) if m else text
-    body = body.replace('class="sect1"', '').replace('class="sectionbody"', '')
-    body = body[: body.find('<h2 id="_references">')] if '<h2 id="_references">' in body else body
-    # Links: another recipe is its own page; a citation is the bibliography on this recipe's page.
-    keys = {spec["key"] for _, _, _, spec in recipes()}
-    own = f"recipes/{first[3]['key']}.html"
-    body = re.sub(r'href="#([^"]+)"',
-                  lambda m: f'href="recipes/{m.group(1)}.html"' if m.group(1) in keys else f'href="{own}#{m.group(1)}"', body)
-    return unlink_examples(body)
 
 
 def unlink_examples(body):
@@ -226,13 +210,15 @@ def main():
         shutil.copy(BOOK / "images" / name, OUT / name)
     today = datetime.date.today().isoformat()
     pitch = ("A cookbook of network protocol recipes in which every example is a test that runs: a surl command that listens, "
-             "a curl command that talks to it, and the proof printed beside the claim. Written to a published standard, "
-             "verified against the open-source programs it describes, and built to be read by people and by machines.")
+             "a curl command that talks to it, and the result printed beside the claim. Every claim is checked against "
+             "the current builds of the open-source programs it describes, and the book is built to be read by people "
+             "and by machines.")
     index = json.loads((BOOK / "generated" / "index.json").read_text(encoding="utf-8"))["recipes"]
     titles = part_and_chapter_titles()
     status_html, parts_html = status_and_parts(index, titles)
     values = {**ident, "pitch": pitch, "pitch_one_line": pitch.split(":")[0] + ".", "date": today,
-              "repo": REPO, "curl": CURL, "surl": SURL, "recipe_html": first_recipe_body(),
+              "repo": REPO, "curl": CURL, "surl": SURL, "first_recipe": index[0]["key"],
+              "copyright_cover": ident["copyright"].replace(" All rights reserved.", ""),
               "status_html": status_html, "parts_html": parts_html}
     shutil.copy(SITE / "surly.css", OUT / "surly.css")
     cover = (SITE / "template.html").read_text(encoding="utf-8")
@@ -258,19 +244,19 @@ def main():
 
 ## What it is
 
-Every recipe is two commands facing each other: a `surl` that listens and a `curl` that talks to it. [Surl]({SURL}) is the server-side mate of curl, answering every scheme curl can request; [Curl]({CURL}) is a drop-in replacement for the curl command-line tool. Both are open source, both written in C# on .NET 10 as a matched pair, so each recipe shows a protocol conversation from both ends.
+Every recipe is two commands facing each other: a `surl` that listens and a `curl` that talks to it. [Surl]({SURL}) is the server-side mate of curl, built to answer every scheme curl can request; [Curl]({CURL}) is a drop-in replacement for the curl command-line tool. Both are open source, both written in C# on .NET 10 as a matched pair, so each recipe shows a protocol conversation from both ends.
 
 - **Recipes that run.** A recipe is an executable specification. Every claim the text makes is a test case run against the two programs, and the book prints the result beside the claim.
 - **Simple to hard.** Ordered by difficulty, not by protocol. Open at any page; each recipe stands alone.
-- **Readable by machines.** An index of every recipe by key, problem, protocol, option and exit code; the recipes' test specifications double as a conformance suite for any port, in any language.
+- **Readable by machines.** An index of every recipe by key, problem, protocol, option and exit code; the recipes' test specifications can also serve as a conformance suite for other implementations.
 
 ## How it is written
 
-Written and maintained over a twenty-year horizon by an unattended production line of AI agents working from a published standard: a recipe schema, three gates (shape, truth, review), and a written default for every decision so work never waits. The author sets direction and accepts or sends back each recipe; nothing is published without that line.
+Written and checked with AI agents following a published method: every recipe passes three checks (shape, truth, review), and the author decides what is published. Every decision and its reasons are in the repository.
 
 ## The author
 
-**{ident['author']}**, Principal Software Engineer, thirty years on the Microsoft stack. Author of Curl and Surl, both built by the unattended dark factory he designed. https://github.com/StewartScottRogers
+**{ident['author']}**, Principal Software Engineer, thirty years on the Microsoft stack. Author of Curl and Surl, both built with the AI-assisted process he designed. https://github.com/StewartScottRogers
 
 Landing page: https://stewartscottrogers.github.io/Surly/ · Source: {REPO}
 
