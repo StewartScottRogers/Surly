@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 surl --directory site --allow-anonymous ftp://127.0.0.1:8080/ &
 sleep 1
 curl ftp://127.0.0.1:8080/hello.txt
-kill %1
+kill $(jobs -p)

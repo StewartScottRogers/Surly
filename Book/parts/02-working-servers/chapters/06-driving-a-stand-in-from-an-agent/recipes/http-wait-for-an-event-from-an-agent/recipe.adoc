@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-wait-for-an-event-from-an-agent]]
+=== Waiting for an Upload from an Agent
+
+==== Problem
+
+Your artificial intelligence (AI) agent has set a client off to upload a report to a stand-in Hypertext Transfer Protocol (HTTP) server, and it needs to know when the file has arrived without polling the folder.
+
+==== Solution
+
+Call `wait_for_event` with the server's ID, the store and the folder to watch, and a time limit; it answers the first change that matches:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts the server through `surl-mcp`, the Model Context Protocol (MCP) server for `surl`. `arguments` passes `surl`'s own options: `--allow-uploads` lets a client write into the served files, and `--user alice:secret` is the account it logs in with. `files` gives it an `uploads` folder to write into, holding `README.txt`. Its `server_id` and its `bound_urls` entry are saved as `{{server}}` and `{{url}}`.
+
+The client here is the `curl` tool, from `curl-mcp`. `-T report.txt` uploads the file with a `PUT` to `uploads/report.txt`, `-u alice:secret` with `--digest` logs in as alice by Digest authentication, `-s` keeps it quiet, and `-w "%{http_code}"` prints the status, `201 Created` (<<rfc9110>>). Without `--digest`, `curl` sends the password itself, by Basic authentication, and this server refuses it with `403 Forbidden`; <<http-refuse-a-password-in-clear>> says why and which option loosens it.
+
+The server keeps a numbered record of events. `wait_for_event` answers the first one that matches its filters, as `event`, or waits up to `timeout_ms` milliseconds for one to happen and then answers `timed_out` true. A matching event kept before the call is answered too, as it is here, so an agent can start the client first and wait second without missing the upload. `store` `content` keeps only changes to the files, and `name` `/uploads` only changes at that path or under it. The event is a `store_changed`: `change` `written`, the `name` of the file, its `byte_count`, 10, and the `exchange_id` of the connection that wrote it. `name` matches whole path segments, so `/upload` matches nothing here; that wait, like one for `/reports`, where nothing happened, answers `timed_out` true after its 200 milliseconds. `timeout_ms` must be 1 to 60000, and anything else is a tool error.
+
+`kinds` filters by kind of event instead. With `login_judged` it answers the login the upload made: `account` alice, `mechanism` `Digest`, `is_accepted` true, in the same exchange.
+
+`get_events` takes the same filters and answers the record rather than waiting for it, oldest first, in `events`: here `exchange_started`, with the `listen_url` and `scheme` the client came through, then the login, the write and `exchange_ended`. `has_more` false says that is all of them. `max_events` caps one answer; with 1 it answers only `exchange_started`, and `has_more` true says to ask again.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-wait-for-an-upload-in-process>> for the same wait from C#.
+* <<http-accept-uploads>> for uploads and why they need an account, on the console.
+* <<http-see-what-the-client-sent-from-an-agent>> for the bytes of each exchange rather than its events.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

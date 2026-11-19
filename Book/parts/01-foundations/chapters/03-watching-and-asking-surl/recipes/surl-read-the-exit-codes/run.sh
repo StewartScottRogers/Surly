@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 surl --directory site http://127.0.0.1:8080/ &
 sleep 1
 surl --directory site http://127.0.0.1:0/ 2>&1 || true
-kill %1
+kill $(jobs -p)

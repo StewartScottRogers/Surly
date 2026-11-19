@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-keep-files-across-restarts]]
+=== Keeping Uploaded Files Across Restarts
+
+==== Problem
+
+Files uploaded to a local `surl` are gone after it is stopped and started again, and you want them kept.
+
+==== Solution
+
+Give `surl` a data directory with `--directory`; an upload is then written into it as an ordinary file:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C]. The file stays in `site`.
+
+==== Discussion
+
+Without `--directory`, `surl` keeps everything in memory: it starts with an empty store, takes uploads into it and serves them back while it runs, and the store is lost when it stops (<<surl-readme>>). That is the behaviour in the Problem, and it is the default because a test that leaves nothing behind needs no cleaning up.
+
+`--directory site` makes the folder `site` the store. A Hypertext Transfer Protocol (HTTP) upload is written there as a plain file at its path, so `/notes.txt` becomes `site/notes.txt`, byte for byte. `surl` keeps no copy of its own: a file changed on disk while it runs is served as it now is, and a file that was in `site` before it started is served like any other. Together those are the restart: the next `surl` started on `site` finds `notes.txt` on disk and serves it, as this one serves `kept.txt`, which stands in the recipe for a file an earlier run took as an upload. The checks below run while one `surl` holds `site`, so they show the file on disk and a fresh server serving what is on disk; the stop and start in between is not one of them, because a second `surl` on `site` is refused while the first runs (see <<http-refuse-a-second-server-on-one-folder>>).
+
+`surl` keeps its own state under `site/.surl`: here the lock file `site/.surl/lock`, which marks the folder as held while it runs, and for other protocols the mail store and retained messages, which survive a restart the same way (<<surl-readme>>). The `.surl` folder is never served, and an upload into it is refused `403 Forbidden`, so a client cannot write the server's own state.
+
+`--allow-uploads` turns uploads on and `--user alice:s3cret` adds the account every upload needs; `curl` logs in with `-u alice:s3cret`, and `--digest` makes it use Digest, since a password sent in clear over `http://` is refused (see <<http-accept-uploads>>). `-T notes.txt` sends the local file as a `PUT` (<<rfc9110>>). In the claims below `-s` keeps `curl` quiet, `-o` sends the body nowhere and `-w "%{http_code}"` prints the status.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-accept-uploads>> for uploads, accounts and the refusals.
+* <<http-refuse-a-second-server-on-one-folder>> for the lock on `site`.
+* <<surl-readme>>, <<rfc9110>>.

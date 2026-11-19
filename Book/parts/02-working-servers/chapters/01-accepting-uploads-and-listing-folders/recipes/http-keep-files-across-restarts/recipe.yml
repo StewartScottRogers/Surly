@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-keep-files-across-restarts
+title: Keeping Uploaded Files Across Restarts
+protocols: [http]
+tier: working-servers
+surl-options: [--directory, --allow-uploads, --user]
+curl-options: [--digest, -u, -T, -s, -o, -w]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+# site/kept.txt stands for a file an earlier surl took as an upload: it is on
+# disk before this surl starts.
+fixtures:
+  site/kept.txt: "uploaded before this surl started\n"
+  notes.txt: "uploaded by curl\n"
+
+# main: a data directory. memory: the same options without --directory.
+servers:
+  main:
+    command: surl --directory site --allow-uploads --user alice:s3cret http://127.0.0.1:{{port}}/
+    ready: port
+  memory:
+    command: surl --allow-uploads --user alice:s3cret http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --directory site, an upload is written to disk as the plain file site/notes.txt, byte for byte, and curl exits 0.
+    run: curl --digest -u alice:s3cret -T notes.txt http://127.0.0.1:{{port}}/notes.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/notes.txt: "uploaded by curl\n"
+
+  - id: earlier-file-served
+    claim: A file that was in site before surl started is served, as a file an earlier surl took as an upload would be.
+    run: curl -s --digest -u alice:s3cret http://127.0.0.1:{{port}}/kept.txt
+    expect:
+      exit: 0
+      stdout: "uploaded before this surl started\n"
+
+  - id: disk-is-the-store
+    claim: surl keeps no copy of its own; a file changed on disk while it runs is served as it now is.
+    fixtures:
+      site/notes.txt: "changed on disk\n"
+    run: curl -s --digest -u alice:s3cret http://127.0.0.1:{{port}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "changed on disk\n"
+
+  - id: lock-file
+    claim: surl holds the folder with the lock file site/.surl/lock, and the .surl folder is not served.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret http://127.0.0.1:{{port}}/.surl/lock
+    expect:
+      exit: 0
+      stdout: "404"
+      files:
+        site/.surl/lock: null
+
+  - id: no-upload-into-surl
+    claim: An upload into .surl is refused 403 Forbidden, so a client cannot write the server's own state.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T notes.txt http://127.0.0.1:{{port}}/.surl/notes.txt
+    expect:
+      exit: 0
+      stdout: "403"
+
+  - id: memory-starts-empty
+    claim: Without --directory, surl starts with an empty store in memory; before any upload to it, notes.txt is answered 404 Not Found.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret http://127.0.0.1:{{port2}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: memory-upload
+    claim: Without --directory, an upload is still accepted, 201 Created.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T notes.txt http://127.0.0.1:{{port2}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "201"
+
+  - id: memory-read-back
+    claim: The in-memory upload is served back while that surl runs.
+    run: curl -s --digest -u alice:s3cret http://127.0.0.1:{{port2}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "uploaded by curl\n"

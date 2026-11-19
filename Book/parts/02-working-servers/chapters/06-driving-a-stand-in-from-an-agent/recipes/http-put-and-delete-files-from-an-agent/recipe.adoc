@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-put-and-delete-files-from-an-agent]]
+=== Putting and Deleting Files from an Agent
+
+==== Problem
+
+Your artificial intelligence (AI) agent is testing a client against a stand-in Hypertext Transfer Protocol (HTTP) server, and it needs to put a file in place on the running server for one test and take it away for the next.
+
+==== Solution
+
+Call `surl-mcp`'s `put_file` with the server's ID, a request path and the text, and `delete_file` with the same path when the test is done:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts the server through `surl-mcp`, the Model Context Protocol (MCP) server for `surl`, with `hello.txt` in memory; its `server_id` and its `bound_urls` entry are saved as `{{server}}` and `{{url}}`. `transfer`, from `curl-mcp`, plays the client under test.
+
+`put_file` writes into the running server's content store, the one its HTTP server serves, as an upload would. `path` is a request path, `/reports/a.txt`, and the folders on the way are made for it. `text` is the content as UTF-8; `base64` takes bytes that are not text instead, and exactly one of the two must be given, or the call is a tool error. The answer echoes `path` and counts `byte_count`. A second `put_file` on the same path replaces the file. The next request sees the change: no restart, no reload.
+
+`delete_file` takes the same `path` and answers it back. After it, the fetch that was 200 is `404 Not Found` (<<rfc9110>>). It deletes files given to `start_server` as well as files `put_file` wrote. A path with nothing there, or a folder, is a tool error, `no file at` the path, so an agent that deletes twice hears about it.
+
+The agent can check the store without going through a client. `read_file` answers a file's `byte_count`, `content_type` and its exact bytes: `text` when they are UTF-8, `base64` otherwise, as for the four bytes put here with `base64`, typed `application/octet-stream`. `list_files` answers the children of a folder in `entries`, each with its `name`, its `kind`, `file` or `folder`, and a file's `byte_count`, with `has_more` false when that is all of them.
+
+These are the test's own hands on the store, not a client's, so they need no permission. A client is held to the server's rules: the `curl` tool's `-X DELETE` sends a `DELETE` for `hello.txt`, `-s` keeps it quiet, and `-w "%{http_code}"` prints the status, `401 Unauthorized`, since this server has no account to log in with and changes nothing for a stranger. `curl` exits `0`, because a 401 is still an answer, and `hello.txt` is still served. `delete_file` removes it without a login. The rules that do apply to the tools are the store's: a name that starts with a dot is hidden, and `put_file` refuses `/.env` with `NotPermitted`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-accept-uploads>> for letting a client upload with an account on the console.
+* <<http-reset-and-snapshot-from-an-agent>> for putting the whole store back between tests.
+* <<http-run-curl-from-an-agent>> for the `curl` tool's arguments and answers.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-wait-for-an-upload-in-process
+title: Waiting for a Client's Upload from C#
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, StoreKind, StoreChangedEvent, SurlFileContents, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: While a client's PUT runs, WaitForEventAsync returns the content-store change that names /report.csv, and the file is then in the store with the bytes the client sent.
+    program: wait-for-upload.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "event store_changed: Written /report.csv, 22 bytes, exchange 1\nPUT answered 201\ntext/csv, 22 bytes:\nregion,total\nnorth,42\n"
+
+  - id: event-names-the-exchange
+    claim: The StoreChangedEvent says what changed (Written), the path, the byte count and the id of the exchange that made the change.
+    program: wait-for-upload.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^event store_changed: Written /report\.csv, 22 bytes, exchange 1\n'
+
+  - id: read-back
+    claim: Files.ReadAsync returns the uploaded file without a client, with its content type text/csv, its byte count and its bytes.
+    program: wait-for-upload.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ntext/csv, 22 bytes:\nregion,total\nnorth,42\n$'
+
+  - id: late-wait
+    claim: A wait that starts after the upload has finished still returns its event, because a wait first checks the events already kept.
+    program: wait-for-upload.cs
+    args: [late]
+    expect:
+      exit: 0
+      stdout-matches: '^PUT finished before the wait: 201\nevent store_changed: Written /report\.csv, 22 bytes, exchange 1\n'
+
+  - id: anonymous-refused
+    claim: A PUT with no login is answered 401 Unauthorized, no store change follows, and the wait throws TimeoutException naming the query and its timeout.
+    program: wait-for-upload.cs
+    args: [anonymous]
+    expect:
+      exit: 1
+      stdout-matches: '^PUT answered 401\nNo event matching SurlEventQuery \{.*Store = Content, Name = /report\.csv.*\} within 00:00:01; '
+
+  - id: basic-refused
+    claim: A PUT with a Basic login over plain http:// is answered 403 Forbidden, no store change follows, and the wait times out.
+    program: wait-for-upload.cs
+    args: [basic]
+    expect:
+      exit: 1
+      stdout-matches: '^PUT answered 403\nNo event matching SurlEventQuery '
+
+  - id: recording-off
+    claim: With RecordExchanges off, the upload still succeeds but WaitForEventAsync throws InvalidOperationException.
+    program: wait-for-upload.cs
+    args: ["off"]
+    expect:
+      exit: 1
+      stdout: "PUT answered 201\nRecordExchanges is off: the wait throws InvalidOperationException\n"

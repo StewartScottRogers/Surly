@@ -1,0 +1,115 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: smtp-send-and-read-it-over-imap
+title: Sending Mail and Reading It Back
+protocols: [smtp, imap, pop3]
+tier: working-servers
+surl-options: [--allow-anonymous]
+curl-options: [--crlf, --mail-from, --mail-rcpt, -T, --next, -u, -v]
+exit-codes: [0, 8, 21, 55, 67, 78]
+references: [surl-readme, curl-readme, rfc5321, rfc5322, rfc9051, rfc1939]
+
+fixtures:
+  lunch.txt: "From: ann@example.com\nTo: bob@example.com\nSubject: Lunch\n\nNoon at the usual place.\n"
+
+# Two servers. main is the recipe: one surl, one mail store, three listeners, loosened
+# for a test. strict is the same three listeners with nothing loosened, there only so
+# the default refusals are checked claims rather than citations.
+servers:
+  main:
+    command: surl --allow-anonymous smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/ pop3://127.0.0.1:{{port3}}/
+    ready: port
+  strict:
+    command: surl smtp://127.0.0.1:{{port4}}/ imap://127.0.0.1:{{port5}}/ pop3://127.0.0.1:{{port6}}/
+    ready: port
+
+# The cases run in order against the same servers, so the mail sent by the solution
+# is in the store for every later case.
+cases:
+  - id: solution
+    role: solution
+    claim: One curl sends lunch.txt over SMTP, then (after --next) fetches the body of message UID 1 from INBOX over IMAP; the body is what was sent, exit 0.
+    run: 'curl --crlf --mail-from ann@example.com --mail-rcpt bob@example.com -T lunch.txt smtp://127.0.0.1:{{port}}/example.com --next "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"'
+    expect:
+      exit: 0
+      stdout: "Noon at the usual place.\n"
+
+  - id: whole-message-gains-trace-headers
+    claim: Fetched whole, the stored message is the one sent with a Return-Path and a Received line added at the top by the SMTP server.
+    run: 'curl "imap://127.0.0.1:{{port2}}/INBOX;UID=1"'
+    expect:
+      exit: 0
+      stdout-matches: '^Return-Path: <ann@example\.com>\nReceived: from example\.com .+ by surl with ESMTP; .+\nFrom: ann@example\.com\nTo: bob@example\.com\nSubject: Lunch\n\nNoon at the usual place\.\n$'
+
+  - id: listed-over-imap
+    claim: Listing the mailboxes over IMAP shows the one anonymous INBOX.
+    run: curl imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"
+
+  - id: same-message-over-pop3
+    claim: The same message is in the POP3 maildrop, because all three listeners share one store; fetching message 1 over POP3 ends with the body that was sent.
+    run: curl pop3://127.0.0.1:{{port3}}/1
+    expect:
+      exit: 0
+      stdout-matches: 'Subject: Lunch\n\nNoon at the usual place\.\n$'
+
+  - id: every-recipient-one-inbox
+    claim: Under --allow-anonymous a message to a different recipient, at a different domain, lands in the same INBOX; POP3 now lists two messages.
+    run: 'curl --crlf --mail-from ann@example.com --mail-rcpt carol@example.net -T lunch.txt smtp://127.0.0.1:{{port}}/example.com --next pop3://127.0.0.1:{{port3}}/'
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\n2 \d+\n$'
+
+  - id: any-login-accepted
+    claim: Under --allow-anonymous a login with a user name and password nobody configured is accepted unchecked.
+    run: curl -u nobody:anything imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"
+
+  - id: missing-uid
+    claim: A UID that is not in the mailbox is refused, and curl exits 78, remote file not found, printing nothing.
+    run: 'curl "imap://127.0.0.1:{{port2}}/INBOX;UID=9"'
+    expect:
+      exit: 78
+      stdout: ""
+
+  - id: strict-smtp-refuses
+    claim: Without --allow-anonymous, MAIL FROM with no login is refused 530 and curl exits 55.
+    run: curl --crlf --mail-from ann@example.com --mail-rcpt bob@example.com -T lunch.txt smtp://127.0.0.1:{{port4}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "MAIL failed: 530"
+
+  - id: strict-imap-refuses
+    claim: Without --allow-anonymous, an IMAP mailbox command with no login is answered NO [AUTHENTICATIONFAILED] and curl exits 21.
+    run: curl -v imap://127.0.0.1:{{port5}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [AUTHENTICATIONFAILED] Authentication required"
+
+  - id: strict-pop3-refuses
+    claim: Without --allow-anonymous, a POP3 maildrop command with no login is answered -ERR [AUTH] and curl exits 8.
+    run: curl -v pop3://127.0.0.1:{{port6}}/
+    expect:
+      exit: 8
+      stderr-contains: "-ERR [AUTH] Authentication required"
+
+  - id: strict-no-clear-password
+    claim: Without TLS the strict IMAP listener advertises LOGINDISABLED and offers only CRAM-MD5, a mechanism that sends no password in clear.
+    run: curl -v imap://127.0.0.1:{{port5}}/
+    expect:
+      exit: 21
+      stderr-contains: "LOGINDISABLED AUTH=CRAM-MD5"
+
+  - id: strict-unknown-login
+    claim: Without --allow-anonymous and with no account configured, a login is refused and curl exits 67, login denied.
+    run: curl -u nobody:anything imap://127.0.0.1:{{port5}}/
+    expect:
+      exit: 67
+      stdout: ""

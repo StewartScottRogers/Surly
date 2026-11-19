@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 surl --directory site --trace-ascii site/trace.txt --trace-time http://127.0.0.1:8080/ &
 sleep 1
 curl http://127.0.0.1:8080/hello.txt
-kill %1
+kill $(jobs -p)

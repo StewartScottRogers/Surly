@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-and-read-it-over-imap]]
+=== Sending Mail and Reading It Back
+
+==== Problem
+
+A test sends an email and needs a local mail server that takes the message over SMTP and hands it back over IMAP or POP3, with no accounts to set up.
+
+==== Solution
+
+Start one `surl` with a listener for each mail protocol and anonymous access allowed, then send the message and read it back in one `curl`:
+
+include::.generated/solution.adoc[]
+
+The second `surl` in the listing has nothing loosened. It is there for the checked claims below, to show what the default refuses; you need only the first. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Simple Mail Transfer Protocol (SMTP) delivers mail, and Internet Message Access Protocol (IMAP) and Post Office Protocol version 3 (POP3) read it (<<rfc5321>>, <<rfc9051>>, <<rfc1939>>). One `surl` given all three listen URLs runs all three servers over one mail store: what SMTP delivers, IMAP and POP3 read, in the same process (<<surl-readme>>). Each listen URL takes its own port, here `8080` for SMTP, `8081` for IMAP and `8082` for POP3.
+
+On the sending side, `--mail-from` is the envelope sender (SMTP `MAIL FROM`), `--mail-rcpt` the envelope recipient (`RCPT TO`), and `-T lunch.txt` uploads the message itself after `DATA`. The path of the SMTP URL, `example.com`, is not a mailbox: `curl` sends it as the name it greets the server with (`EHLO example.com`). `--crlf` turns each line ending of the file into the carriage return and line feed that an Internet message is made of (<<rfc5322>>), so a file written with plain line feeds is stored as a well-formed message. `--next` ends the first transfer's options and starts a second transfer in the same `curl`, here the IMAP fetch, so one command sends and reads back (<<curl-readme>>).
+
+The IMAP URL `imap://127.0.0.1:8081/INBOX;UID=1;SECTION=TEXT` selects `INBOX` and fetches the body of the message whose unique identifier (UID) is 1, which is the body that was sent. Without `;SECTION=TEXT`, `curl` fetches the whole message, and the stored message has two lines the sender did not write: SMTP adds `Return-Path` and `Received` at the top, as every SMTP server must (<<rfc5321>>). `imap://127.0.0.1:8081/` with no mailbox lists the mailboxes, and `pop3://127.0.0.1:8082/1` retrieves message 1 from the same store over POP3.
+
+`--allow-anonymous` is what lets any of this happen without an account. By default, `surl` refuses `MAIL FROM` from a client that has not logged in (`530`, and `curl` exits `55`), answers an IMAP mailbox command `NO [AUTHENTICATIONFAILED]` (`curl` exits `21`, the code it uses when a command is refused), and answers a POP3 maildrop command `-ERR [AUTH]` (`curl` exits `8`, weird server reply). A mail server that accepts mail from anyone is an open relay, and one that hands mailboxes to anyone is worse, so neither is the default. With `--allow-anonymous`, every recipient's copy goes to one anonymous `INBOX`, whatever its address or domain, and every login is accepted unchecked: `-u nobody:anything` logs in. `surl` writes a `surl: warning:` line when it starts with the option on (<<surl-readme>>). Use it for a test on your own machine and nowhere a stranger can connect.
+
+Logging in properly needs an account, and an account wants Transport Layer Security (TLS). Without TLS, the strict listener advertises `LOGINDISABLED` and offers only `CRAM-MD5`, a mechanism that proves the password without sending it; a mechanism that sends the password in clear is not offered until the connection is encrypted (<<surl-readme>>). With no account configured, a login with `-u` is refused, and `curl` exits `67`, login denied. `-v` shows the conversation on standard error, which is where the checked claims read the server's answers and capabilities. Accounts, `STARTTLS` and the TLS-only protocols are Part 3.
+
+A UID that is not in the mailbox is refused, and `curl` exits `78`, remote file not found, printing nothing. Exit `0` means every transfer on the command line succeeded.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-retrieve-and-delete-a-message>> for downloading the message and deleting it from the server.
+* <<imap-search-a-mailbox>> for finding a message by its subject or sender.
+* <<imap-append-and-flag-a-message>> for putting a message into a mailbox without SMTP.
+* <<smtp-serve-a-mail-domain>> for mailboxes with accounts, and relaying refused.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc5322>>, <<rfc9051>>, <<rfc1939>>.

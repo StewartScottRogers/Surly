@@ -1,0 +1,109 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: imap-append-and-flag-a-message
+title: Appending, Flagging and Expunging Mail
+protocols: [imap]
+tier: working-servers
+surl-options: [--allow-anonymous]
+curl-options: [-T, -X, --next, -v]
+exit-codes: [0, 25, 78]
+references: [surl-readme, curl-readme, rfc9051]
+
+fixtures:
+  order.txt: "From: shop@example.com\nTo: bob@example.com\nSubject: Order 1001 shipped\n\nYour order is on its way.\n"
+
+servers:
+  main:
+    command: surl --allow-anonymous imap://127.0.0.1:{{port}}/
+    ready: port
+
+# The cases run in order against the same server: a message is appended and flagged,
+# a second is appended, then the first is marked deleted and expunged.
+cases:
+  - id: append-needs-the-mailbox
+    claim: Appending to a mailbox that does not exist is refused, and curl exits 25, upload failed.
+    run: curl -T order.txt imap://127.0.0.1:{{port}}/Orders
+    expect:
+      exit: 25
+      stdout: ""
+
+  - id: solution
+    role: solution
+    claim: One curl appends order.txt to INBOX as message 1, then (after --next) sets the \Flagged flag on it; the answer lists its flags, \Seen among them.
+    run: curl -T order.txt imap://127.0.0.1:{{port}}/INBOX --next -X "STORE 1 +FLAGS \Flagged" imap://127.0.0.1:{{port}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* 1 FETCH (FLAGS (\\Flagged \\Seen))\n"
+
+  - id: stored-as-sent
+    claim: The appended message is stored exactly as uploaded, with no trace headers added, at UID 1.
+    run: curl "imap://127.0.0.1:{{port}}/INBOX;UID=1"
+    expect:
+      exit: 0
+      stdout: "From: shop@example.com\nTo: bob@example.com\nSubject: Order 1001 shipped\n\nYour order is on its way.\n"
+
+  - id: curl-appends-as-seen
+    claim: curl's APPEND itself asks for the \Seen flag, which is where the \Seen above comes from; this appends a second copy as message 2.
+    run: curl -v -T order.txt imap://127.0.0.1:{{port}}/INBOX
+    expect:
+      exit: 0
+      stderr-contains: "APPEND INBOX (\\Seen)"
+
+  - id: flags-kept
+    claim: Flags are kept between sessions; FETCH 1:* FLAGS shows message 1 flagged and seen, message 2 seen.
+    run: curl -X "FETCH 1:* FLAGS" imap://127.0.0.1:{{port}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* 1 FETCH (FLAGS (\\Flagged \\Seen))\n* 2 FETCH (FLAGS (\\Seen))\n"
+
+  - id: remove-a-flag
+    claim: -FLAGS removes a flag; STORE 2 -FLAGS \Seen leaves message 2 with none.
+    run: curl -X "STORE 2 -FLAGS \Seen" imap://127.0.0.1:{{port}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* 2 FETCH (FLAGS ())\n"
+
+  - id: mark-deleted
+    claim: STORE 1 +FLAGS \Deleted marks message 1 for deletion, keeping its other flags.
+    run: curl -X "STORE 1 +FLAGS \Deleted" imap://127.0.0.1:{{port}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* 1 FETCH (FLAGS (\\Flagged \\Deleted \\Seen))\n"
+
+  - id: deleted-still-there
+    claim: A message marked \Deleted is still in the mailbox and can still be fetched.
+    run: curl "imap://127.0.0.1:{{port}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout: "Your order is on its way.\n"
+
+  - id: expunge
+    claim: -X EXPUNGE removes every message marked \Deleted and names each one it removed.
+    run: curl -X EXPUNGE imap://127.0.0.1:{{port}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* 1 EXPUNGE\n"
+
+  - id: gone
+    claim: After EXPUNGE, UID 1 is gone, and curl exits 78, remote file not found.
+    run: curl "imap://127.0.0.1:{{port}}/INBOX;UID=1"
+    expect:
+      exit: 78
+      stdout: ""
+
+  - id: renumbered
+    claim: The message left is now message number 1 but keeps UID 2; UIDs are not reused or renumbered.
+    run: curl -X "SEARCH ALL" imap://127.0.0.1:{{port}}/INBOX --next -X "UID SEARCH ALL" imap://127.0.0.1:{{port}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n* SEARCH 2\n"
+
+  - id: create-then-append
+    claim: After -X "CREATE Orders" the append that was refused at the start succeeds, and the new mailbox's message 1 is the order.
+    run: curl -X "CREATE Orders" imap://127.0.0.1:{{port}}/ --next -T order.txt imap://127.0.0.1:{{port}}/Orders --next "imap://127.0.0.1:{{port}}/Orders;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout: "Your order is on its way.\n"

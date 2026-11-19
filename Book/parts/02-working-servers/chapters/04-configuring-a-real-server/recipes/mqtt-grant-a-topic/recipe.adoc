@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-grant-a-topic]]
+=== Granting Access to an MQTT Topic
+
+==== Problem
+
+You want a Message Queuing Telemetry Transport (MQTT) broker for a test in which one account may publish to a set of topics, another may only subscribe, and everyone else is refused.
+
+==== Solution
+
+Add the accounts with `--user` and grant them the topics with `--topic-access`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--topic-access "shop/#=ann:pubsub,bob:sub"` grants the topic filter `shop/#`, every topic under `shop/`, to two accounts: Ann may publish and subscribe, Bob may only subscribe. Once any `--topic-access` is given, every publish and subscribe needs a grant, so Carol, a valid account with none, is refused too.
+
+Ann publishes `paid` to `shop/orders` with `curl -d paid`, and Bob subscribes with `curl` and no `-d`. `surl` keeps each publish as the topic's retained message (<<surl-readme>>), so Bob's subscription is answered with it at once, and `curl` writes the topic, as two length bytes and the name, then the payload. The accounts are `--user` options, and Ann's `-u ann:secret` and Bob's `-u bob:hunter2` are the logins in the `CONNECT`.
+
+Bob's publish of `refunded` is dropped. `curl` still exits `0`: a publish at quality of service 0 gets no answer in MQTT 3.1.1 (<<mqtt311>>), so the client cannot tell. The proof is the next subscription, which still reads `paid`. Carol's subscription is refused in the `SUBACK`, and `curl` exits `8` with `Weird server reply`; `-s` keeps `curl` quiet and `-S` brings that error line back.
+
+The logins are passwords sent in clear over `mqtt://`, and by default `surl` refuses those without checking them: the second server, `strict`, has the same grant without `--allow-plaintext-auth`, and Ann's correct password gets `CONNACK` return code 5, not authorized, so `curl` exits `8` with `Expected 0000 but got 0005`. `--allow-plaintext-auth` checks such passwords instead, and is a loosening option for tests; anyone watching the network reads the password. A real broker would listen on `mqtts://` with a certificate instead.
+
+`--topic` declares a topic filter ahead of time, with flags such as `retain` and `qos=`; `surl` checks the flags at start, and one it does not know, such as `retained`, stops it with exit `2`. So does a `--topic-access` member that names no account.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-publish-and-subscribe>> for the same exchange with no accounts.
+* <<surl-read-options-from-a-file>> for keeping the grants in a file.
+* <<surl-readme>>, <<mqtt311>>.

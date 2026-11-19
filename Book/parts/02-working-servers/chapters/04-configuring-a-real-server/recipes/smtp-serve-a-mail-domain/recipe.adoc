@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-serve-a-mail-domain]]
+=== Serving Mail for One Domain
+
+==== Problem
+
+You want a mail server for a test that accepts mail for your own domain, delivers it to named mailboxes that log in with their addresses, and refuses to relay mail anywhere else.
+
+==== Solution
+
+Give `surl` the domain with `--mail-domain` and each mailbox with `--mailbox`, listen on Simple Mail Transfer Protocol (SMTP) and Internet Message Access Protocol (IMAP), and send with `curl`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--mail-domain example.com` makes `surl` serve mail for that domain and no other. `--mailbox ann@example.com:secret` adds a mailbox and the account that reads it: the account's name is the whole address, so Ann logs in as `ann@example.com`, not `ann`. The account logs in on the mail protocols, SMTP and IMAP here, and the SMTP and IMAP listeners of one `surl` share one mail store, so Bob reads what Ann sent by logging in to the IMAP listener as `bob@example.com` and fetching `INBOX;UID=1`, the first message in his inbox.
+
+Both logins happen over plain transport, with no Transport Layer Security (TLS), and need no loosening option. On a connection without TLS, `surl` does not offer the mechanisms that send the password in clear (`PLAIN`, `LOGIN`); its `EHLO` reply offers `CRAM-MD5` alone, a challenge and response in which the password never crosses the wire, and `curl` picks it. A test that must send a clear password would add `--allow-plaintext-auth` (see <<surl-readme>>, "Logging in"); a real server would use TLS (see <<smtp-require-starttls>>).
+
+On the `curl` side, `-u` is the login, `--mail-from` and `--mail-rcpt` are the envelope sender and recipient, and `-T mail.txt` uploads the message, headers and body. `-s` keeps `curl` quiet, `-S` brings back its error line, `-v` shows the conversation, and `-w "%{response_code}"` prints the server's last reply code.
+
+The server is surly about relaying. A recipient outside every `--mail-domain` is refused `550 5.7.1 Relaying denied` (<<rfc5321>>), even for a sender who has logged in, so the server never becomes a way to send mail to the world; `curl` reports `RCPT failed: 550` and exits `55`. Inside the domain the server gives nothing away: a recipient with no mailbox, such as `nobody@example.com`, is accepted `250` like any other, so a peer cannot use the server to learn which addresses exist. And no login, no mail: without `-u` the server answers `MAIL` with `530`, and `curl` exits `55` again.
+
+The options are checked before anything listens. A `--mailbox` with no `--mail-domain`, or one outside every `--mail-domain`, is refused with exit `2` and a line that says which.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-and-read-it-over-imap>> for the same round trip without a domain.
+* <<surl-read-options-from-a-file>> for keeping the domain and mailboxes in a file.
+* <<smtp-require-starttls>> for the same server behind TLS.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

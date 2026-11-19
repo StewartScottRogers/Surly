@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: mqtt-publish-and-subscribe
+title: Publishing and Subscribing over MQTT
+protocols: [mqtt]
+tier: working-servers
+surl-options: [--allow-anonymous, --user, --allow-plaintext-auth]
+curl-options: [-d, --next, -s, -S, -u]
+exit-codes: [0, 3, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+# main is the recipe. accounts has an account and no loosening; plaintext adds
+# --allow-plaintext-auth to it, so each refusal and its loosening is a case.
+servers:
+  main:
+    command: surl --allow-anonymous mqtt://127.0.0.1:{{port}}/
+    ready: port
+  accounts:
+    command: surl --user alice:s3cret mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth mqtt://127.0.0.1:{{port3}}/
+    ready: port
+
+# curl writes each message it receives as two bytes of topic length (big-endian),
+# the topic, then the payload; "home/kitchen/temp" is 17 bytes, 0x00 0x11.
+cases:
+  - id: nothing-retained-yet
+    claim: A subscribe to a topic nothing has been published to receives nothing, and ends on its own with exit 0.
+    run: curl -s mqtt://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: solution
+    role: solution
+    claim: curl publishes the message with -d, then, after --next, subscribes to the same topic and receives it, written as the topic's length in two bytes, the topic and the message.
+    run: curl -d 71 mqtt://127.0.0.1:{{port}}/home/kitchen/temp --next mqtt://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11home/kitchen/temp71\Z'
+
+  - id: later-subscriber
+    claim: The message stays on the topic; a subscriber that connects later receives it too.
+    run: curl -s mqtt://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11home/kitchen/temp71\Z'
+
+  - id: last-message-wins
+    claim: A second publish replaces the first; a subscriber receives only the latest.
+    run: curl -s -d 72 mqtt://127.0.0.1:{{port}}/home/kitchen/temp --next -s mqtt://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11home/kitchen/temp72\Z'
+
+  - id: wildcard
+    claim: A topic filter with the single-level wildcard +, written %2B in the URL, receives the message of every topic it matches, each with its own topic name.
+    run: curl -s mqtt://127.0.0.1:{{port}}/home/%2B/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11home/kitchen/temp72\Z'
+
+  - id: multi-level-wildcard
+    claim: 'A topic filter ending in the multi-level wildcard #, written %23 in the URL, receives the message of every topic below it.'
+    run: curl -s mqtt://127.0.0.1:{{port}}/home/%23
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11home/kitchen/temp72\Z'
+
+  - id: empty-message-clears
+    claim: Publishing an empty message clears the topic; a subscriber then receives nothing.
+    run: curl -s -d "" mqtt://127.0.0.1:{{port}}/home/kitchen/temp --next -s mqtt://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: no-topic
+    claim: A URL with no topic is refused by curl before it connects, exit 3.
+    run: curl -s mqtt://127.0.0.1:{{port}}/
+    expect:
+      exit: 3
+      stdout: ""
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, a CONNECT with no user name is answered CONNACK 5, not authorized, and curl exits 8.
+    run: curl -sS mqtt://127.0.0.1:{{port2}}/home/kitchen/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "got 0005"
+
+  - id: clear-password-refused
+    claim: The right password over mqtt:// is refused unchecked with CONNACK 5 too, because it crossed the network in clear.
+    run: curl -sS -u alice:s3cret -d 71 mqtt://127.0.0.1:{{port2}}/home/kitchen/temp
+    expect:
+      exit: 8
+      stderr-contains: "got 0005"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, the same password is checked and accepted; the publish and the subscribe both log in with -u.
+    run: curl -s -u alice:s3cret -d 71 mqtt://127.0.0.1:{{port3}}/home/kitchen/temp --next -s -u alice:s3cret mqtt://127.0.0.1:{{port3}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11home/kitchen/temp71\Z'
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused with CONNACK 4, bad user name or password, and curl exits 8.
+    run: curl -sS -u alice:wrong mqtt://127.0.0.1:{{port3}}/home/kitchen/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "got 0004"

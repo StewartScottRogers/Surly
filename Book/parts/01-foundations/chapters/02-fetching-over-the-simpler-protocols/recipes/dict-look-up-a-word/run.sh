@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 surl --directory words dict://127.0.0.1:8080/ &
 sleep 1
 curl dict://127.0.0.1:8080/d:surly
-kill %1
+kill $(jobs -p)

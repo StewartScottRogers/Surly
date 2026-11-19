@@ -1,0 +1,137 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: ftp-list-and-upload
+title: Listing and Uploading over File Transfer Protocol
+protocols: [ftp]
+tier: working-servers
+surl-options: [--directory, --allow-anonymous, --list-directories, --allow-uploads]
+curl-options: [-l, -T, --ftp-create-dirs, -s, -v, -o]
+exit-codes: [0, 9, 19, 25, 67]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  site/sub/a.txt: "a\n"
+  site/.hidden: "not for you\n"
+  notes.txt: "uploaded by curl\n"
+  other/readme.txt: "read me\n"
+
+# main: anonymous logins, listings and uploads on.
+# read-only: anonymous logins, listings and uploads left off, on another directory.
+# default: nothing loosened, in memory.
+servers:
+  main:
+    command: surl --directory site --allow-anonymous --list-directories --allow-uploads ftp://127.0.0.1:{{port}}/
+    ready: port
+  read-only:
+    command: surl --directory other --allow-anonymous ftp://127.0.0.1:{{port2}}/
+    ready: port
+  default:
+    command: surl ftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With -l and a URL ending in a slash, curl asks for the folder's names and prints them one a line, exit 0.
+    run: curl -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\nsub\n"
+
+  - id: upload
+    claim: curl -T uploads a local file to the path the URL names, exit 0, and the file lands in site byte for byte.
+    run: curl -s -T notes.txt ftp://127.0.0.1:{{port}}/notes.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/notes.txt: "uploaded by curl\n"
+
+  - id: listed-after-upload
+    claim: The uploaded file is in the next listing.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\nnotes.txt\nsub\n"
+
+  - id: long-listing
+    claim: Without -l, curl asks for the long listing, one line a name with its permissions, size and date in the Unix ls style; a folder's line starts with d.
+    run: curl -s ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A-rw-r--r-- 1 surl surl +16 [A-Z][a-z]{2} [ 0-9]\d \d\d:\d\d hello\.txt\r?\n-rw-r--r-- 1 surl surl +17 [^\n]* notes\.txt\r?\ndrwxr-xr-x [^\n]* sub\r?\n\Z'
+
+  - id: dot-names-left-out
+    claim: Names beginning with a dot, .hidden and surl's own .surl folder among them, are left out of every listing.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\nnotes.txt\nsub\n"
+
+  - id: subfolder
+    claim: A subfolder is listed by naming it with a trailing slash.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/sub/
+    expect:
+      exit: 0
+      stdout: "a.txt\n"
+
+  - id: trailing-slash-names-it
+    claim: An upload to a URL ending in a slash takes the local file's name, so -T notes.txt to /sub/ stores /sub/notes.txt.
+    run: curl -s -T notes.txt ftp://127.0.0.1:{{port}}/sub/
+    expect:
+      exit: 0
+      files:
+        site/sub/notes.txt: "uploaded by curl\n"
+
+  - id: missing-folder
+    claim: An upload into a folder that does not exist fails, and curl exits 9, remote access denied.
+    run: curl -s -T notes.txt ftp://127.0.0.1:{{port}}/new/notes.txt
+    expect:
+      exit: 9
+
+  - id: create-dirs
+    claim: With --ftp-create-dirs, curl makes the missing folder first, and the upload lands in it.
+    run: curl -s --ftp-create-dirs -T notes.txt ftp://127.0.0.1:{{port}}/new/notes.txt
+    expect:
+      exit: 0
+      files:
+        site/new/notes.txt: "uploaded by curl\n"
+
+  - id: anonymous-login
+    claim: Given no user, curl logs in with USER anonymous, and --allow-anonymous lets it in.
+    run: curl -v -s -l -o {{null}} ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stderr-contains: "> USER anonymous"
+
+  - id: listings-off
+    claim: Without --list-directories, a listing is refused with 550 No such directory, as if the folder were not there, and curl exits 19 with nothing listed.
+    run: curl -v -s -l ftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 19
+      stdout: ""
+      stderr-contains: "< 550 No such directory"
+
+  - id: uploads-off
+    claim: Without --allow-uploads, an upload is refused with 550 Not permitted, and curl exits 25, upload failed.
+    run: curl -v -s -T notes.txt ftp://127.0.0.1:{{port2}}/notes.txt
+    expect:
+      exit: 25
+      stderr-contains: "< 550 Not permitted"
+
+  - id: downloads-still-work
+    claim: With both left off, a file is still downloaded.
+    run: curl -s ftp://127.0.0.1:{{port2}}/readme.txt
+    expect:
+      exit: 0
+      stdout: "read me\n"
+
+  - id: anonymous-refused
+    claim: Without --allow-anonymous, curl's anonymous login is refused like any password sent in clear, 530 Login needs TLS first, and curl exits 67, login denied, before listing anything.
+    run: curl -v -s -l ftp://127.0.0.1:{{port3}}/
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "< 530 Login needs TLS first"

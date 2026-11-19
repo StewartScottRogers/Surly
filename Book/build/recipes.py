@@ -14,7 +14,9 @@ import yaml
 
 BOOK = Path(__file__).resolve().parent.parent
 BOOK_PORT = "8080"                      # the port the book shows; verify allocates a real one
-PLACEHOLDER = re.compile(r"\{\{([a-z-]+)\}\}")
+# {{port}} and {{port2}} to {{port9}}: one free port each, shown in the book as 8080 to 8088.
+PORT_NAMES = ["port"] + [f"port{i}" for i in range(2, 10)]
+PLACEHOLDER = re.compile(r"\{\{([a-z0-9-]+)\}\}")
 REQUIRED = ["schema", "key", "title", "protocols", "tier", "cases"]
 TIERS = ["foundations", "working-servers", "secure-servers", "advanced", "new-protocols"]
 SCHEMAS = [1, 2]
@@ -28,7 +30,9 @@ MCP_CALL_KEYS = {"host", "tool", "arguments", "save", "expect"}
 MCP_EXPECT_KEYS = {"result-contains", "is-error", "error-contains"}
 
 
-def recipes():
+def recipes(only=None):
+    """only: a set of keys; folders with other names are skipped before their recipe.yml
+    is read, so a half-written recipe elsewhere cannot stop a run of these."""
     """Yield (part_dir, chapter_dir, recipe_dir, spec) in book order."""
     for part in sorted((BOOK / "parts").iterdir()):
         if not (part / "part.adoc").exists():
@@ -37,7 +41,7 @@ def recipes():
             if not (chapter / "chapter.adoc").exists():
                 continue
             for recipe in sorted((chapter / "recipes").iterdir()):
-                if (recipe / "recipe.yml").exists():
+                if (recipe / "recipe.yml").exists() and (not only or recipe.name in only):
                     yield part, chapter, recipe, load_spec(recipe)
 
 
@@ -119,6 +123,9 @@ def load_verified(recipe_dir):
 def substitute_deep(value, values):
     """substitute() through every string in a structure of mappings and lists."""
     if isinstance(value, str):
+        whole = PLACEHOLDER.fullmatch(value)
+        if whole and whole.group(1) in values and not isinstance(values[whole.group(1)], str):
+            return values[whole.group(1)]          # "{{seq}}" alone keeps a saved number's type
         return substitute(value, values)
     if isinstance(value, list):
         return [substitute_deep(v, values) for v in value]
@@ -140,18 +147,31 @@ def substitute(text, values):
 def book_values(spec=None):
     """Placeholder values as the book shows them (POSIX form). A name an MCP call
     saves is shown as itself, {{name}}, since its value is known only at run time."""
-    values = {"port": BOOK_PORT, "null": "/dev/null"}
+    values = {name: str(int(BOOK_PORT) + i) for i, name in enumerate(PORT_NAMES)}
+    values["null"] = "/dev/null"
     if spec:
         values.update({n: "{{" + n + "}}" for n in saved_names(spec)})
     return values
 
 
-def windows_values(port):
-    return {"port": port, "null": "NUL"}
+def windows_values(ports):
+    """ports: {placeholder name: free port number}, one for each of PORT_NAMES."""
+    return {**ports, "null": "NUL"}
 
 
-def posix_values(port):
-    return {"port": port, "null": "/dev/null"}
+def posix_values(ports):
+    return {**ports, "null": "/dev/null"}
+
+
+def solution_servers(spec, values):
+    """The server commands the solution needs: those sharing a port placeholder with the
+    solution's command, or every server when the solution names no port (a program, MCP)."""
+    sol = solution_case(spec)
+    text = sol.get("run", "") + " " + " ".join(map(str, sol.get("args", [])))
+    used = {n for n in PORT_NAMES if "{{" + n + "}}" in text}
+    chosen = [s["command"] for s in (spec.get("servers") or {}).values()
+              if not used or any("{{" + n + "}}" in s["command"] for n in used)]
+    return [substitute(c, values) for c in chosen]
 
 
 def server_commands(spec, values):

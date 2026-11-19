@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: surl-read-options-from-a-file
+title: Reading surl's Options from a File
+protocols: [http, smtp]
+tier: working-servers
+surl-options: [-K, --directory, --user, --mail-domain, --mailbox]
+curl-options: [-s, -S, --digest, -u, -o, -w, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 2, 37, 55]
+references: [surl-readme, curl-readme, rfc9110, rfc5321]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  mail.txt: "From: ann@example.com\r\nTo: carol@elsewhere.org\r\nSubject: Hello\r\n\r\nHi.\r\n"
+  surl.cfg: |
+    # Options for surl -K surl.cfg, one per line.
+    # The dashes are optional, and so is the = between name and value.
+    directory = site
+    user = alice:secret
+    mail-domain = example.com
+    --mailbox ann@example.com:secret
+  no-url.cfg: |
+    directory = missing
+  with-url.cfg: |
+    url = http://127.0.0.1:0/
+    directory = missing
+  typo.cfg: |
+    directroy = site
+
+servers:
+  main:
+    command: surl -K surl.cfg http://127.0.0.1:{{port}}/ smtp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The file's directory and account are in force; alice fetches hello.txt from site with a Digest login.
+    run: curl -s --digest -u alice:secret http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: account-from-file
+    claim: A request with no login is answered 401 Unauthorized, because the file configured an account.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: mail-domain-from-file
+    claim: The file's mail domain and mailbox are in force too; ann logs in, and mail to another domain is refused 550, so curl exits 55.
+    run: curl -s -S -u ann@example.com:secret --mail-from ann@example.com --mail-rcpt carol@elsewhere.org -T mail.txt smtp://127.0.0.1:{{port2}}/ 2>&1
+    expect:
+      exit: 55
+      stdout: "curl: (55) RCPT failed: 550\n"
+
+  - id: no-url
+    claim: A file with no url line and no listen URL on the command line gives surl nothing to listen on, and it exits 2.
+    run: surl -K no-url.cfg 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: \(2\) no URL specified\n'
+
+  - id: url-line-is-a-listen-url
+    claim: The same file with a url line gets past that check and stops at the missing directory instead, exit 37, so url lines are read as listen URLs.
+    run: surl -K with-url.cfg 2>&1
+    timeout: 10
+    expect:
+      exit: 37
+      stdout: "surl: (37) Could not open directory missing\n"
+
+  - id: read-in-place
+    claim: The file's lines take effect where -K stands, so its directory overrides a --directory given before it.
+    run: surl --directory site -K no-url.cfg http://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 37
+      stdout: "surl: (37) Could not open directory missing\n"
+
+  - id: unknown-option
+    claim: An option name surl does not know is refused with the file and line number, exit 2, never ignored.
+    run: surl -K typo.cfg http://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: typo\.cfg:1: option --directroy: is unknown\n'
+
+  - id: missing-file
+    claim: A config file that cannot be read exits 37.
+    run: surl -K nothere.cfg http://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 37
+      stdout: "surl: (37) Could not read config file nothere.cfg\n"

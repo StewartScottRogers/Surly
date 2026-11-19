@@ -1,0 +1,111 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+schema: 2
+key: http-wait-for-an-event-from-an-agent
+title: Waiting for an Upload from an Agent
+protocols: [http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, wait_for_event, curl, get_events]
+curl-options: [-s, --digest, -u, -T, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures:
+  report.txt: "all green\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: After curl uploads report.txt, status 201, wait_for_event answers the change to the content store at /uploads/report.txt, 10 bytes, written by exchange 1.
+    mcp:
+      - host: surl
+        tool: start_server
+        arguments:
+          listen_urls: ["http://127.0.0.1:0"]
+          arguments: ["--allow-uploads", "--user", "alice:secret"]
+          files: { uploads/README.txt: "Reports go here.\n" }
+        save: { url: bound_urls.0, server: server_id }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "alice:secret", "-T", "report.txt", "-w", "%{http_code}", "{{url}}uploads/report.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "201" } }
+      - host: surl
+        tool: wait_for_event
+        arguments: { server_id: "{{server}}", store: content, name: /uploads, timeout_ms: 5000 }
+        expect:
+          result-contains:
+            event: { kind: store_changed, store: content, change: written, name: /uploads/report.txt, byte_count: 10, exchange_id: 1 }
+
+  - id: nothing-yet
+    claim: wait_for_event for a change under /reports, which nothing has made, waits timeout_ms and answers timed_out true.
+    mcp:
+      - host: surl
+        tool: wait_for_event
+        arguments: { server_id: "{{server}}", store: content, name: /reports, timeout_ms: 200 }
+        expect:
+          result-contains: { timed_out: true }
+
+  - id: whole-segments
+    claim: name matches whole path segments, so /upload does not match /uploads/report.txt and the wait times out.
+    mcp:
+      - host: surl
+        tool: wait_for_event
+        arguments: { server_id: "{{server}}", store: content, name: /upload, timeout_ms: 200 }
+        expect:
+          result-contains: { timed_out: true }
+
+  - id: by-kind
+    claim: wait_for_event with kinds login_judged answers the login the upload made, alice by Digest, accepted, in the same exchange.
+    mcp:
+      - host: surl
+        tool: wait_for_event
+        arguments: { server_id: "{{server}}", kinds: [login_judged], timeout_ms: 5000 }
+        expect:
+          result-contains:
+            event: { kind: login_judged, scheme: http, account: alice, mechanism: Digest, is_accepted: true, exchange_id: 1 }
+
+  - id: the-whole-story
+    claim: get_events answers every event kept, oldest first, from the exchange starting to the exchange ending, with has_more false.
+    mcp:
+      - host: surl
+        tool: get_events
+        arguments: { server_id: "{{server}}" }
+        expect:
+          result-contains:
+            has_more: false
+            events:
+              - { kind: exchange_started, exchange_id: 1, scheme: http, listen_url: "{{url}}" }
+              - { kind: login_judged, account: alice }
+              - { kind: store_changed, change: written, name: /uploads/report.txt }
+              - { kind: exchange_ended, exchange_id: 1 }
+
+  - id: a-page-at-a-time
+    claim: max_events 1 answers only the oldest event, the exchange starting, and has_more true.
+    mcp:
+      - host: surl
+        tool: get_events
+        arguments: { server_id: "{{server}}", max_events: 1 }
+        expect:
+          result-contains: { has_more: true, events: [{ kind: exchange_started }] }
+
+  - id: timeout-bounds
+    claim: timeout_ms outside 1 to 60000 is a tool error.
+    mcp:
+      - host: surl
+        tool: wait_for_event
+        arguments: { server_id: "{{server}}", timeout_ms: 70000 }
+        expect:
+          is-error: true
+          error-contains: "timeout_ms must be 1 to 60000, not 70000"
+
+  - id: no-password-in-clear
+    claim: The same upload with -u but without --digest sends the password by Basic authentication, and the server answers 403.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "-u", "alice:secret", "-T", "report.txt", "-w", "%{http_code}", "{{url}}uploads/report.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "403" } }

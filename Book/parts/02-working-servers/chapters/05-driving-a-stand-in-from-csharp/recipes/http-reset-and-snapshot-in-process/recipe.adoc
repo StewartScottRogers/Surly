@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-reset-and-snapshot-in-process]]
+=== Resetting a Server Between Tests from C#
+
+==== Problem
+
+Your tests share one in-process Hypertext Transfer Protocol server, and each test's uploads leak into the next, so you want to put the server back to a known state between tests without restarting it.
+
+==== Solution
+
+Seed what every test needs, take a snapshot with `SnapshotAsync`, call `RestoreAsync` before each test and `ResetAsync` when the class is done:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` sets up the server as a test class would: one listen URL on port 0, `AllowUploads` on (`surl`'s `--allow-uploads`), one `SurlAccount` for the client to upload as, and `hello.txt` in `Files`, the file the server starts with. `SurlServer.StartAsync` starts it once for the whole class.
+
+The fixture seeds with `server.Files.PutAsync("/user.json", ...)`, which puts a file in the store the server serves, beside `hello.txt`, then takes `SurlSnapshot clean = await server.SnapshotAsync()`. A `SurlSnapshot` is an in-memory copy of the server's stores; the program never looks inside it, only hands it back.
+
+The test in the middle is the part a reader replaces with their own. Here its client is a `CurlClient` sending two `CurlRequest` uploads with `HttpMethod.Put`: the body is a byte array, and `CurlAuthenticationOptions` carries the login, `UserName` and `Password`, with `HttpAuthentication` set to `HttpAuthenticationMethods.Digest`, `curl --digest`. Digest works over plain `http://` with no loosening option. Each `CurlResponse` carries the status: `201 Created` for `report.csv`, a path that held nothing, and `204 No Content` for `user.json`, a file replaced <<rfc9110>>.
+
+`server.Files.ListAsync("/")` reads the served root without a client and returns a `SurlFolderPage`, whose `Entries` give each `Name` and `ByteCount`. The program prints it at each step, so the output is the state of the store: after the test it holds three files and the seeded one is 3 bytes long.
+
+`server.RestoreAsync(clean)` puts the stores back as the snapshot found them: `report.csv` is gone and `user.json` has its 17 seeded bytes again. Call it before every test and each one starts from the seeded state. `server.ResetAsync()` goes further back, to how the server started: the `Files` given at start and no others, so the seeded `user.json` goes too. The two answer different questions. Restore is "undo this test"; reset is "undo the fixture as well".
+
+A snapshot belongs to the server that took it. Restoring `clean` into a second server throws `ArgumentException`, which the `other-server` mode shows; the program exits 1, its own choice.
+
+`DataDirectory` (`surl`'s `--directory`) keeps the files in a real directory instead of in memory. There `ResetAsync` and `SnapshotAsync` both throw `InvalidOperationException`, as the `on-disk` mode shows: a reset would empty that directory, and the server will not do it for a fixture that pointed at the wrong folder.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-wait-for-an-upload-in-process>> for waiting until the upload has landed instead of reading the store afterwards.
+* <<imap-seed-and-read-mail-in-process>> for seeding the mail store.
+* <<http-reset-and-snapshot-from-an-agent>> for the same reset and snapshot from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

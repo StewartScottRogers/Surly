@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 surl --directory site --list-directories gopher://127.0.0.1:8080/ &
 sleep 1
 curl gopher://127.0.0.1:8080/
-kill %1
+kill $(jobs -p)

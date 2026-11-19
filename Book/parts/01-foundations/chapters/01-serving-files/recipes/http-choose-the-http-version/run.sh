@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 surl --directory site http://127.0.0.1:8080/ &
 sleep 1
 curl -s -o /dev/null -w "%{http_version}" --http2-prior-knowledge http://127.0.0.1:8080/hello.txt
-kill %1
+kill $(jobs -p)

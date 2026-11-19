@@ -1,0 +1,99 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+schema: 2
+key: mqtt-publish-from-an-agent
+title: Publishing a Retained Message from an Agent
+protocols: [mqtt]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, publish_message, read_retained_message, curl]
+curl-options: [-s]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: publish_message with retain true keeps 21.5 as the retained message of sensors/1, and read_retained_message answers it, at QoS 0.
+    mcp:
+      - host: surl
+        tool: start_server
+        arguments: { listen_urls: ["mqtt://127.0.0.1:0"] }
+        save: { server: server_id, url: bound_urls.0 }
+      - host: surl
+        tool: publish_message
+        arguments: { server_id: "{{server}}", topic: sensors/1, payload: "21.5", retain: true }
+        expect:
+          result-contains: { published: true }
+      - host: surl
+        tool: read_retained_message
+        arguments: { server_id: "{{server}}", topic: sensors/1 }
+        expect:
+          result-contains: { topic: sensors/1, qos: 0, text: "21.5" }
+
+  - id: not-retained
+    claim: Without retain the message is published but not kept, and read_retained_message answers retained false, not an error.
+    mcp:
+      - host: surl
+        tool: publish_message
+        arguments: { server_id: "{{server}}", topic: sensors/2, payload: "19.0" }
+        expect:
+          result-contains: { published: true }
+      - host: surl
+        tool: read_retained_message
+        arguments: { server_id: "{{server}}", topic: sensors/2 }
+        expect:
+          result-contains: { retained: false }
+
+  - id: empty-clears
+    claim: A retained publish with an empty payload clears the topic's retained message.
+    mcp:
+      - host: surl
+        tool: publish_message
+        arguments: { server_id: "{{server}}", topic: sensors/1, payload: "", retain: true }
+      - host: surl
+        tool: read_retained_message
+        arguments: { server_id: "{{server}}", topic: sensors/1 }
+        expect:
+          result-contains: { retained: false }
+
+  - id: no-wildcards
+    claim: A topic with a wildcard is not a topic name one can publish to, and publish_message refuses it, InvalidTopic.
+    mcp:
+      - host: surl
+        tool: publish_message
+        arguments: { server_id: "{{server}}", topic: sensors/+, payload: "0" }
+        expect:
+          is-error: true
+          error-contains: "was refused: InvalidTopic"
+
+  - id: client-refused
+    claim: The same server refuses curl's connection with no login, so curl exits 8 and reads nothing; publish_message needed no login.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "{{url}}sensors/1"] }
+        expect:
+          is-error: true
+          result-contains: { exitCode: 8, standardOutput: { content: "" } }
+
+  - id: subscriber-reads-it
+    claim: A server started with --allow-anonymous warns that it accepts any login or none; there curl subscribes to sensors/1 and prints the retained message as MQTT carries it, the topic's length in two bytes, the topic, then the payload.
+    mcp:
+      - host: surl
+        tool: start_server
+        arguments: { listen_urls: ["mqtt://127.0.0.1:0"], arguments: ["--allow-anonymous"] }
+        save: { open: server_id, openurl: bound_urls.0 }
+        expect:
+          result-contains: { log_lines: ["surl: warning: --allow-anonymous: every request and login is accepted without checking credentials"] }
+      - host: surl
+        tool: publish_message
+        arguments: { server_id: "{{open}}", topic: sensors/1, payload: "21.5", retain: true }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "{{openurl}}sensors/1"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "\0\tsensors/121.5" } }

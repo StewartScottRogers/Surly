@@ -22,6 +22,8 @@ python3 build/site.py     # the landing page into out/site/ and the pitch into d
 
 `build/recipes.py` is the shared definition of a recipe (folders, `recipe.yml`, placeholders, how a case's command is spelled) that all three scripts import.
 
+Placeholders: `{{port}}` and `{{port2}}` to `{{port9}}` are each a free port at run time, shown in the book as 8080 to 8088, so one recipe can run several listeners, or two servers side by side (a default one and a loosened one). A server with `ready: port` is waited for on every port its command names; `ready: none` for a UDP listener such as TFTP. `{{null}}` is `/dev/null`, or `NUL` on Windows.
+
 ## C# programs (schema 2, ADR-0008)
 
 A `program:` case is a C# file-based app beside `recipe.yml`. verify builds it once with `dotnet build <file>.cs`, then runs each case with `dotnet run --no-build <file>.cs -- <args>` in the recipe's temporary directory, so stdout is the program's alone. It needs the .NET 10 SDK or later.

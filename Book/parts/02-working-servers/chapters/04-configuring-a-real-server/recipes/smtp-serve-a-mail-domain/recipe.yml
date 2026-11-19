@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: smtp-serve-a-mail-domain
+title: Serving Mail for One Domain
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-s, -S, -v, -u, --mail-from, --mail-rcpt, -T, -w]
+exit-codes: [0, 2, 55]
+references: [surl-readme, rfc5321, rfc9051]
+
+fixtures:
+  mail.txt: "From: ann@example.com\r\nTo: bob@example.com\r\nSubject: Lunch\r\n\r\nNoon at the usual place.\r\n"
+
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:secret --mailbox bob@example.com:hunter2 smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Ann logs in with her full address and sends mail to bob@example.com; the server accepts it and curl exits 0.
+    run: curl -s -u ann@example.com:secret --mail-from ann@example.com --mail-rcpt bob@example.com -T mail.txt smtp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: bob-reads-it
+    claim: Bob logs in over IMAP with his address and reads the message from his INBOX.
+    run: curl -s -u bob@example.com:hunter2 "imap://127.0.0.1:{{port2}}/INBOX;UID=1"
+    expect:
+      exit: 0
+      stdout-matches: 'Subject: Lunch\r?\n\r?\nNoon at the usual place\.'
+
+  - id: cram-md5-only
+    claim: Without TLS the server offers CRAM-MD5 alone, no PLAIN or LOGIN, and curl logs in with it.
+    run: curl -s -v -u ann@example.com:secret --mail-from ann@example.com --mail-rcpt bob@example.com -T mail.txt smtp://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '< 250 AUTH CRAM-MD5\r?\n.*> AUTH CRAM-MD5\r?\n.*< 235 '
+
+  - id: relaying-denied
+    claim: A recipient at another domain is refused 550 5.7.1 Relaying denied, even for a logged-in sender.
+    run: curl -s -v -u ann@example.com:secret --mail-from ann@example.com --mail-rcpt carol@elsewhere.org -T mail.txt smtp://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 55
+      stdout-matches: '< 550 5\.7\.1 Relaying denied'
+
+  - id: relaying-denied-code
+    claim: curl exits 55 and reports RCPT failed with the 550.
+    run: curl -s -S -u ann@example.com:secret --mail-from ann@example.com --mail-rcpt carol@elsewhere.org -T mail.txt smtp://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 55
+      stdout: "curl: (55) RCPT failed: 550\n"
+
+  - id: unknown-address-accepted
+    claim: A recipient inside the domain with no mailbox is accepted 250 all the same, so a sender cannot tell which addresses exist.
+    run: curl -s -u ann@example.com:secret --mail-from ann@example.com --mail-rcpt nobody@example.com -T mail.txt -w "%{response_code}" smtp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "250"
+
+  - id: login-needed
+    claim: Without a login the server refuses MAIL, and curl exits 55.
+    run: curl -s -w "%{response_code}" --mail-from ann@example.com --mail-rcpt bob@example.com -T mail.txt smtp://127.0.0.1:{{port}}/
+    expect:
+      exit: 55
+      stdout: "530"
+
+  - id: mailbox-needs-domain
+    claim: A --mailbox with no --mail-domain is refused at start with exit 2.
+    run: surl --mailbox ann@example.com:secret smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --mailbox: mailbox ann@example\.com needs --mail-domain\n'
+
+  - id: mailbox-outside-domain
+    claim: A --mailbox outside every --mail-domain is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox ann@example.org:secret smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --mailbox: mailbox ann@example\.org is not in any --mail-domain\n'

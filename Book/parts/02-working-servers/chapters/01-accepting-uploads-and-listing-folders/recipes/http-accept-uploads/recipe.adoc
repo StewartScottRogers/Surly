@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-accept-uploads]]
+=== Accepting Uploads over HTTP
+
+==== Problem
+
+A test needs to upload a file to a local web server and find it there afterwards, and you want to know what the server needs before it will take one.
+
+==== Solution
+
+Give `surl` a directory, an account and permission to accept uploads, and upload with `curl -T`, logging in with Digest:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`curl -T notes.txt` sends the local file as the body of a Hypertext Transfer Protocol (HTTP) `PUT` to the URL. When the URL ends in a slash, `curl` appends the local file name, so `-T notes.txt` to `/` stores `/notes.txt` (<<curl-readme>>). `surl` keeps the body at the path once all of it has arrived: a new file is answered `201 Created`, a replaced one `204 No Content`, as <<rfc9110>> has it. A path whose folder does not exist is answered `409 Conflict`; `surl` creates no folders.
+
+Two things have to be true before `surl` takes a `PUT`, and neither is by default.
+
+`--allow-uploads` lets a client write into the served files. Without it, a `PUT` from a client that logged in is answered `405 Method Not Allowed`: the server reads and does not write unless told to.
+
+The second is a login. Reading with `GET` needs none while no account is configured, but every other method needs one either way (<<surl-readme>>), because a request that changes the server should come from someone the server knows. With no account configured, no login can succeed, so even with `--allow-uploads` a `PUT` is answered `401 Unauthorized`. `--user alice:s3cret` adds an account, and from then on every request on the listener needs a login, a plain `GET` included.
+
+`--digest -u alice:s3cret` is how `curl` logs in here. Over plain `http://`, `surl` refuses a password sent in clear: `-u` on its own uses Basic, and `surl` answers `403 Forbidden` without checking it. Digest never sends the password itself, so it is checked. A wrong password is `401`. To log in with Basic, put the listener behind Transport Layer Security (see <<https-serve-with-a-self-signed-certificate>>).
+
+`--directory site` is where uploads go: the upload above is the file `site/notes.txt` on disk, where it outlasts the process (see <<http-keep-files-across-restarts>>). Without `--directory`, `surl` keeps uploads in memory, serves them from there, and loses them when it stops (<<surl-readme>>).
+
+`--allow-anonymous` is the loosening for a test: every request is accepted without a login, `PUT` included, so `curl -T` needs no `-u`. It is not the default because anyone who can reach the listener can then overwrite what it serves. `surl` writes a `surl: warning:` line on every start while it is on (<<surl-readme>>).
+
+`-s` keeps `curl` quiet, `-o` sends the response body nowhere and `-w "%{http_code}"` prints the status, which is how the claims below read it. `curl` exits `0` for each of these answers, refusals included, because to `curl` an error status is still a completed exchange.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-a-directory>> for serving the same directory without uploads.
+* <<http-keep-files-across-restarts>> for what `--directory` keeps.
+* <<ftp-list-and-upload>> for uploads over File Transfer Protocol.
+* <<http-require-a-login>> for accounts in more depth.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

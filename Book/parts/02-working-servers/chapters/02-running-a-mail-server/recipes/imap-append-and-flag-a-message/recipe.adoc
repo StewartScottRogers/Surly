@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-append-and-flag-a-message]]
+=== Appending, Flagging and Expunging Mail
+
+==== Problem
+
+A test needs a message sitting in an IMAP mailbox with a given flag, without sending it through a mail server first, and needs to delete it again afterwards.
+
+==== Solution
+
+Upload the message straight into the mailbox and set a flag on it in one `curl`:
+
+include::.generated/solution.adoc[]
+
+The checked claims below go on to mark the message deleted and expunge it. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Internet Message Access Protocol (IMAP) lets a client put a message into a mailbox itself, with `APPEND`, and keep state on each message as flags (<<rfc9051>>). Here `surl` serves one IMAP listener over an in-memory mail store (<<surl-readme>>); no Simple Mail Transfer Protocol (SMTP) server is involved.
+
+`-T order.txt imap://127.0.0.1:8080/INBOX` uploads the file to `INBOX` as an `APPEND`. The message is stored exactly as uploaded: unlike mail delivered over SMTP, it gains no `Return-Path` or `Received` line, which makes `APPEND` the way to seed a mailbox with a message whose every byte a test controls. `curl` asks for the `\Seen` flag in its own `APPEND` command, so an appended message arrives already read; `-v` shows the command on standard error (<<curl-readme>>). The mailbox must exist: an append to one that does not is refused, and `curl` exits `25`, upload failed. `-X "CREATE Orders"` makes it, and the same append then succeeds.
+
+`-X` sends any IMAP command in place of the one the URL implies, and a mailbox in the URL is selected first. `--next` starts another transfer in the same `curl`, so the append and the `STORE` that follows are one command. `STORE 1 +FLAGS \Flagged` adds a flag to message 1, `-FLAGS` takes one away, and the server answers each with the message's flags as they now are. Flags are kept by the server, not the session: `-X "FETCH 1:* FLAGS"` in a later `curl` shows them still set.
+
+Deleting over IMAP is two steps. `STORE 1 +FLAGS \Deleted` only marks message 1; it is still in the mailbox and can still be fetched. `-X EXPUNGE` removes every message marked `\Deleted` and answers `* 1 EXPUNGE` for each one it removed; after that, `;UID=1` is not found, and `curl` exits `78`, remote file not found. The message that was number 2 is now number 1, but keeps its unique identifier (UID) 2: `-X "SEARCH ALL"` answers `1` and `-X "UID SEARCH ALL"` answers `2`. Message numbers close up after an expunge; UIDs are never reused within a mailbox, which is why a test that remembers a message should remember its UID (<<rfc9051>>).
+
+`--allow-anonymous` lets every command through without a login. Without it, `surl` answers a mailbox command with no login `NO [AUTHENTICATIONFAILED]`, because a mail server that lets anyone write to and delete from its mailboxes is not one to run by default; <<smtp-send-and-read-it-over-imap>> checks that refusal and says why the option is for tests only. `surl` writes a `surl: warning:` line when it starts with the option on (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-search-a-mailbox>> for finding a message by subject or sender before flagging it.
+* <<pop3-retrieve-and-delete-a-message>> for deleting over Post Office Protocol, where a deletion is committed when the session ends.
+* <<smtp-seed-mail-from-an-agent>> for seeding a mailbox from an agent instead.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9051>>.

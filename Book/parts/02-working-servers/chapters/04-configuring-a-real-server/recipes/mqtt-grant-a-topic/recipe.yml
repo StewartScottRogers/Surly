@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: mqtt-grant-a-topic
+title: Granting Access to an MQTT Topic
+protocols: [mqtt]
+tier: working-servers
+surl-options: [--user, --allow-plaintext-auth, --topic, --topic-access]
+curl-options: [-s, -S, -u, -d]
+exit-codes: [0, 2, 8]
+references: [surl-readme, mqtt311]
+
+# main loosens the clear-password refusal for the test; strict is the default, for comparison.
+servers:
+  main:
+    command: surl --allow-plaintext-auth --user ann:secret --user bob:hunter2 --user carol:pw --topic-access "shop/#=ann:pubsub,bob:sub" mqtt://127.0.0.1:{{port}}/
+    ready: port
+  strict:
+    command: surl --user ann:secret --topic-access "shop/#=ann:pubsub" mqtt://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Ann, granted pubsub on shop/#, publishes paid to shop/orders and curl exits 0.
+    run: curl -s -u ann:secret -d paid mqtt://127.0.0.1:{{port}}/shop/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: subscriber-reads-retained
+    claim: Bob, granted sub, subscribes to shop/orders and gets the retained message, prefixed by the topic's two-byte length and name.
+    run: curl -s -u bob:hunter2 mqtt://127.0.0.1:{{port}}/shop/orders
+    expect:
+      exit: 0
+      stdout-matches: '^\x00\x0bshop/orderspaid$'
+
+  - id: sub-only-cannot-publish
+    claim: Bob's publish to shop/orders is dropped; curl exits 0 because a QoS 0 publish gets no answer.
+    run: curl -s -S -u bob:hunter2 -d refunded mqtt://127.0.0.1:{{port}}/shop/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: still-paid
+    claim: The retained message is still paid, so Bob's publish never reached the topic.
+    run: curl -s -u ann:secret mqtt://127.0.0.1:{{port}}/shop/orders
+    expect:
+      exit: 0
+      stdout-matches: '^\x00\x0bshop/orderspaid$'
+
+  - id: no-grant-cannot-subscribe
+    claim: Carol, a valid account with no grant, has her subscription refused, and curl exits 8.
+    run: curl -s -S -u carol:pw mqtt://127.0.0.1:{{port}}/shop/orders 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Weird server reply\n"
+
+  - id: clear-password-refused
+    claim: Without --allow-plaintext-auth the same correct password over mqtt:// is refused with CONNACK 5, and curl exits 8.
+    run: curl -s -S -u ann:secret -d paid mqtt://127.0.0.1:{{port2}}/shop/orders 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Expected 0000 but got 0005\n"
+
+  - id: unknown-member
+    claim: A --topic-access member that names no account is refused at start with exit 2.
+    run: surl --user ann:secret --topic-access "shop/#=dave:sub" mqtt://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: (2) option --topic-access: member dave names no account or group\n"
+
+  - id: topic-flag-checked
+    claim: --topic declares a topic filter with flags, and a flag it does not know, such as retained for retain, is refused at start with exit 2.
+    run: surl --user ann:secret --topic "shop/#;retained" mqtt://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --topic: unknown flag retained\n'

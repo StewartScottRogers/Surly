@@ -6,4 +6,4 @@ cd "$(dirname "$0")"
 surl --directory site --serve-dot-files http://127.0.0.1:8080/ &
 sleep 1
 curl -s http://127.0.0.1:8080/.well-known/security.txt
-kill %1
+kill $(jobs -p)

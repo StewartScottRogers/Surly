@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-upload-and-fetch-over-http]]
+=== Sharing Uploaded Files Between FTP and HTTP
+
+==== Problem
+
+A test uploads a file over File Transfer Protocol and needs to fetch it back over Hypertext Transfer Protocol from the same server, without wiring two servers to one folder.
+
+==== Solution
+
+Give one `surl` an `ftp` and an `http` listen URL over one directory, upload with `curl -T`, and fetch the same path over the other protocol:
+
+include::.generated/solution.adoc[]
+
+The first `surl` is all the Solution needs; the other three, one without `--directory` and two each without one loosening option, are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Several listen URLs on one `surl` command line are several listeners in one process, and servers in one process that do the same job share one store (<<surl-readme>>). The File Transfer Protocol (FTP) server and the Hypertext Transfer Protocol (HTTP) server both serve files, so a file written through one is read through the other, at the same path, with nothing copied. Before the upload, the HTTP listener answers `404 Not Found` for `notes.txt`; afterwards it serves it, and so does FTP.
+
+`--directory site` makes the store the folder `site`: the uploaded file is written there as `site/notes.txt`, on disk. Without it, the store lives in memory for as long as the process runs and nothing is written to disk (<<surl-readme>>), but it is still one store: a file uploaded over FTP to that `surl` is fetched over HTTP all the same.
+
+`--allow-uploads` lets the FTP `STOR` command that `curl -T` sends write a file. Without it the upload is refused with `550`, and `curl` exits `25`, upload failed. Uploads are off by default so that whoever reaches a server meant for serving files cannot change them.
+
+`--allow-anonymous` lets `curl` log in at all. Every FTP session starts with `USER` and `PASS` (<<rfc959>>), and with no user in the URL `curl` logs in as `anonymous`. `surl` refuses that login by default with `530`, and `curl` exits `67`, login denied. The secure way to log in over FTP is an account and a password protected by Transport Layer Security (TLS), since `surl` refuses a password sent in clear without checking it; that is <<ftp-protect-the-login-with-tls>>. Here `--allow-anonymous` stands in for all of that, so use it only on a machine nobody else can reach: it accepts every login and every request unchecked, on both listeners, and `surl` writes a `surl: warning:` line on start to say so (<<surl-readme>>).
+
+The same option is why the HTTP side takes uploads too. Every HTTP method other than `GET` and `HEAD` needs a login by default (<<surl-readme>>); with `--allow-anonymous` a `PUT` from `curl -T` is answered `201 Created` (<<rfc9110>>), and the file it put is downloaded over FTP.
+
+On the `curl` side, `-T notes.txt` uploads the local file to the URL that follows, and `--next` starts a second transfer in the same command with its options reset, so the one line uploads over FTP and then fetches over HTTP (<<curl-readme>>). In the checked claims below, `-s` silences the progress meter, `-o` throws the body away, `-w "%{http_code}"` prints the HTTP status, and `-v` shows the FTP replies on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-list-and-upload>> for FTP uploads and listings on their own.
+* <<http-listen-on-several-urls>> for several listeners of one protocol in one process.
+* <<ftp-protect-the-login-with-tls>> for logging in with an account instead of anonymously.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc9110>>.

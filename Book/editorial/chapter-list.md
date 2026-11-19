@@ -88,7 +88,7 @@ Surface: **con** console (`surl` + `curl`), **c#** C# program, **mcp** MCP tool 
 ### 10. Driving a stand-in from C#
 | Key | Surface | Task |
 |---|---|---|
-| `smtp-seed-and-read-mail-in-process` | c# | Seeding the mail store |
+| `imap-seed-and-read-mail-in-process` | c# | Seeding the mail store |
 | `http-reset-and-snapshot-in-process` | c# | Reset, snapshot, restore between tests |
 | `http-wait-for-an-upload-in-process` | c# | Event queries and waits |
 

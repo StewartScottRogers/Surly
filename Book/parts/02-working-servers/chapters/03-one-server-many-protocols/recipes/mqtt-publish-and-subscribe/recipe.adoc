@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-publish-and-subscribe]]
+=== Publishing and Subscribing over MQTT
+
+==== Problem
+
+A test needs a local MQTT broker to publish a message to and read it back from, with `curl` and nothing else installed.
+
+==== Solution
+
+Start `surl` on an `mqtt` listen URL that accepts anonymous clients, publish with `curl -d`, and subscribe to the same topic with a plain `curl` of its URL:
+
+include::.generated/solution.adoc[]
+
+The first `surl` is all the Solution needs; the other two, one with an account and one that also accepts a password in clear, are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+MQTT, once MQ Telemetry Transport, is a publish-and-subscribe protocol: a client connects to a broker, publishes a message to a topic such as `home/kitchen/temp`, and every client subscribed to a matching topic filter receives it (<<mqtt311>>). `surl` on an `mqtt` listen URL is an MQTT 3.1.1 broker, and in one `surl` it is the shared message bus that the extended messaging servers, such as NATS and STOMP, publish to and read from as well (<<surl-readme>>). In the URL `curl` takes, the path is the topic. With `-d 71`, `curl` connects, publishes `71` to the topic and disconnects; without `-d`, it subscribes to the topic and writes what it receives to standard output (<<curl-readme>>). `--next` lets one `curl` command do both, one after the other, with the options of the first transfer reset for the second.
+
+What it writes is not the bare message. For each message `curl` writes the topic's length in two bytes, high byte first, then the topic, then the message: `home/kitchen/temp` is 17 bytes, so the output starts with the bytes `0x00` and `0x11` before `home/kitchen/temp71`. A program reading the output skips the length and the topic to get the message.
+
+A subscribe from `curl` cannot wait for a message that has not been published yet, and `surl` does not make it try: it sends the subscriber the message last published to each matching topic, then ends the connection, and `curl` exits `0`. A topic nothing has been published to gives no output and exit `0`. So publish first and subscribe second, as the Solution does. `surl` keeps the message last published to a topic for every later subscriber, until another publish replaces it or an empty one, `-d ""`, clears it. That is MQTT's retained message (<<mqtt311>>), which `surl` makes of every publish, so that a `curl` subscriber has something to receive; it is held in memory unless `--directory` names a folder (<<surl-readme>>).
+
+A topic filter may name many topics: a plus sign matches one level and a hash sign, last in the filter, every level below. In a URL they are written `%2B` and `%23`, since both signs mean other things there; `home/%2B/temp` receives `home/kitchen/temp`'s message, written under its own topic name, and so does `home/%23`. A URL with no topic is refused by `curl` itself, exit `3`, before it connects.
+
+`--allow-anonymous` is in the Solution because every MQTT `CONNECT` needs a login, and `curl` sends none unless given `-u`. Without the option, a `CONNECT` with no user name is answered `CONNACK` return code `5`, not authorized; `curl` reports `Expected 0000 but got 0005` and exits `8`, a reply it could not use. A broker that takes anonymous clients lets anyone who can reach it read and write every topic, so it is not the default; `--allow-anonymous` accepts every `CONNECT` unchecked and makes `surl` write a `surl: warning:` line on start (<<surl-readme>>). Use it only on a machine nobody else can reach.
+
+The way in without it is an account, `--user alice:s3cret`, and `curl -u alice:s3cret`. But `mqtt://` has no encryption, so the password crosses the network in clear, and `surl` refuses it unchecked with `CONNACK` `5`, the right password included. `--allow-plaintext-auth` loosens that for a test: the password is then checked, the right one is accepted for the publish and the subscribe alike, and a wrong one is answered `CONNACK` `4`, bad user name or password, and `curl` exits `8`. It too warns on start. The secure way is `mqtts://`, the same broker over Transport Layer Security (TLS), which needs a certificate (<<surl-readme>>).
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back, so the `CONNACK` code shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-upload-and-fetch-over-http>> for another store that two protocols share in one `surl`.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-seed-mail-from-an-agent]]
+=== Seeding Mail from an Agent
+
+==== Problem
+
+Your artificial intelligence (AI) agent is testing a mail client, and it needs a message already waiting in a mailbox on a stand-in server before the client logs in to read it.
+
+==== Solution
+
+Start a server with a Simple Mail Transfer Protocol (SMTP) and an Internet Message Access Protocol (IMAP) listener and an account, call `seed_mail` with the recipient and the message, and let `curl` read it over IMAP:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts the server through `surl-mcp`, the Model Context Protocol (MCP) server for `surl`. `listen_urls` names two listeners on free ports, one SMTP and one IMAP, sharing one mail store; `bound_urls` lists them in the same order, saved as `{{smtp}}` and `{{imap}}`. `arguments` passes `surl`'s own `--user alice:secret`, the account that owns the mailbox.
+
+`seed_mail` delivers into that store as SMTP would, without a client and without a login. `to` is the recipient's address, `alice@example.com`, and `message` the whole message as UTF-8 text, headers first, lines ending in carriage return and line feed as <<rfc5322>> requires. The answer is `delivered` true. An address no account owns is a tool error, `NoSuchAccount`.
+
+The `curl` tool, from `curl-mcp`, then plays the client. `-u alice:secret` logs in and the URL `INBOX;UID=1` names the first message by its unique identifier (UID) (<<rfc9051>>); `-s` keeps the progress meter out of the answer. `standardOutput` is the message seeded, byte for byte.
+
+The agent can read the store without a client too, and without disturbing it. `list_messages` takes the `owner` and `mailbox` and answers each message's `uid`, `size` and `flags`; it shows that the IMAP fetch set `\Seen` on UID 1. `read_message` takes the same two and a `uid` and answers the message's exact `text`, but sets no flag: after it reads a second seeded message, `list_mailboxes`, which takes the `owner`, still counts that message as unseen, two messages and one `unseen_count`.
+
+`seed_mail` is not a loophole for clients. A client sending to the SMTP listener with `--mail-from` and `--mail-rcpt`, the envelope's sender and recipient (<<rfc5321>>), and `-T note.eml`, the message from a file, is refused at `MAIL` with `530` until it logs in. `curl` exits `55`, and `-S` puts its message, `MAIL failed: 530`, in the answer. The same command with `-u alice:secret` exits `0`, and `list_messages` with `after_uid` 2 finds the message as UID 3.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-and-read-it-over-imap>> for the same store on the console.
+* <<imap-seed-and-read-mail-in-process>> for seeding mail from C#.
+* <<http-put-and-delete-files-from-an-agent>> for seeding files the same way.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc5322>>, <<rfc9051>>.

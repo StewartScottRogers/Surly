@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-search-a-mailbox]]
+=== Searching a Mailbox and Fetching a Match
+
+==== Problem
+
+A test has sent several emails and needs to find the ones with a given subject or sender in an IMAP mailbox, then read one of them.
+
+==== Solution
+
+Put an IMAP search after the mailbox in the URL; `surl` answers with the numbers of the messages that match:
+
+include::.generated/solution.adoc[]
+
+The checked claims below deliver three messages before the Solution runs, then fetch the matches. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Internet Message Access Protocol (IMAP) keeps mail on the server and lets the client search it there (<<rfc9051>>). Here `surl` takes mail over Simple Mail Transfer Protocol (SMTP) on `8080` and serves the same store over IMAP on `8081` (<<surl-readme>>). The checked claims deliver three messages with `--mail-from`, `--mail-rcpt` and `-T`, joined into one `curl` by `--next`, with `--crlf` turning each line ending into the carriage return and line feed a message is made of (<<rfc5321>>). `INBOX` then holds message 1, `Lunch` from ann, and messages 2 and 3, `Invoice 42` and `Invoice 43` from carol.
+
+The URL decides what `curl` asks for (<<curl-readme>>). `imap://127.0.0.1:8081/` with no mailbox lists the mailboxes. `imap://127.0.0.1:8081/INBOX?SUBJECT%20invoice` selects `INBOX` and sends everything after the `?` as a `SEARCH`, with `%20` for each space; the answer, `* SEARCH 2 3`, is the numbers of the matching messages. `SUBJECT` matches a substring of the subject and ignores case, so `invoice` finds both invoices. `imap://127.0.0.1:8081/INBOX;UID=3` then fetches one match whole, and `;SECTION=HEADER.FIELDS%20(SUBJECT)` after the UID fetches only that header.
+
+The search language is IMAP's own (<<rfc9051>>). Criteria in a row must all match: `FROM carol SUBJECT 43` finds message 3 only. `OR` takes the next two criteria and matches either: `OR FROM ann SUBJECT 43` finds 1 and 3. `BODY` searches the text of the message rather than its headers. A phrase with a space in it must be quoted, `%22` in the URL: `SUBJECT "invoice 42"` finds message 2, but unquoted, `SUBJECT invoice 42` is two criteria, a subject containing `invoice` and the message numbered 42, which no message is. A search that matches nothing answers a bare `* SEARCH`, and `curl` exits `0`: finding nothing is a successful search.
+
+`SEARCH` answers with message numbers, which shift when a message is removed; a unique identifier (UID) does not. `-X "UID SEARCH SUBJECT invoice"` sends the search as a custom command and answers with UIDs. In this mailbox nothing has been removed, so the two are the same, and `;UID=3` fetches message 3; once a message has been expunged they part ways (<<imap-append-and-flag-a-message>>).
+
+A search key IMAP does not have is refused with `BAD`, and `curl` exits `21`, the code it gives when a command is refused; `-v` shows the refusal on standard error. A mailbox that does not exist fails when `curl` selects it, before any search, and `curl` exits `67`. `-X "CREATE Archive"` makes that mailbox; the list then shows `INBOX` and `Archive`, and a search of the empty `Archive` finds nothing.
+
+`--allow-anonymous` lets every command through without a login and puts every recipient's mail in one anonymous `INBOX`. Without it, `surl` answers a mailbox command with no login `NO [AUTHENTICATIONFAILED]`, because a mail server that lets anyone read its mailboxes is not one to run by default; <<smtp-send-and-read-it-over-imap>> checks that refusal and says why the option is for tests only. `surl` writes a `surl: warning:` line when it starts with the option on (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-and-read-it-over-imap>> for sending mail and for what `--allow-anonymous` loosens.
+* <<imap-append-and-flag-a-message>> for flagging a match and removing it.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9051>>, <<rfc5321>>.

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-seed-and-read-mail-in-process]]
+=== Seeding a Mailbox and Reading It over IMAP from C#
+
+==== Problem
+
+Your test needs a message already waiting in a mailbox before the code under test reads it, and you would rather not send it over the Simple Mail Transfer Protocol (SMTP) first.
+
+==== Solution
+
+Deliver the message with `server.Mail.DeliverAsync`, then fetch it over the Internet Message Access Protocol (IMAP) with a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` holds one listen URL, `imap://127.0.0.1:0`, port 0 for a free port, and one account in `Accounts`: a `SurlAccount` is `surl`'s `--user name:password`, here `alice` and `secret`. The account owns a mailbox store with an `INBOX`. `SurlServer.StartAsync` returns once the listener is bound, and `await using` stops the server when the program ends.
+
+`server.Mail.DeliverAsync` is the seed. It takes an address and the message bytes, a message in the Internet Message Format <<rfc5322>> with carriage return and line feed line ends, and stores it in the mail store the IMAP server reads, so the server needs no SMTP listener and the test needs no SMTP client. With no `MailDomains` configured the domain is ignored: `alice@example.com` goes to the account `alice`. The message lands in an empty `INBOX` as UID 1, with no flags.
+
+A seed the store refuses is refused aloud. Mail for `bob@example.com`, an account the server does not have, throws `SurlSeedRefusedException`, whose `Store` is `Mail` and whose `Refusal` is the store's own word for it, `NoSuchAccount`. The seed never fails silently, so a fixture that names the wrong mailbox stops at the seed rather than at an empty inbox three steps later. The program prints the refusal and exits 1, its own choice.
+
+The client is `CurlClient.Create()` and one `CurlRequest`. The URL is the bound URL with `INBOX;UID=1` appended, the form `curl` takes for one message, and `HttpMethod.Get` asks for it. `CurlAuthenticationOptions` carries the login in `UserName` and `Password`, the spelling of `curl -u alice:secret`. The login succeeds over plain `imap://` with no `AllowPlaintextAuthentication`. `SendAsync` returns a `CurlResponse` whose `Body` is the message, byte for byte as seeded.
+
+With the wrong password, `SendAsync` throws `CurlException` with `Code` 67 and the message `Login denied`. The program prints it and exits with the code.
+
+The test reads the store itself with `server.Mail.ListMessagesAsync("alice", "INBOX")`, no client needed. It returns a `SurlMessagePage` whose `Messages` are `SurlMessageSummary` records: `Uid`, `Size` in bytes, `Flags` by their IMAP names. Before the fetch the list shows no flags; after it, `\Seen`, because an IMAP fetch of the whole message marks it read <<rfc9051>>. A test that checks "the code under test read the mail" can look for that flag.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-reset-and-snapshot-in-process>> for emptying the mailbox again between tests.
+* <<http-wait-for-an-upload-in-process>> for waiting for what a client changed instead of reading it afterwards.
+* <<smtp-seed-mail-from-an-agent>> for the same seed from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9051>>, <<rfc5322>>.

@@ -31,7 +31,7 @@ Then run build.py so the book shows the new status.
 import datetime, os, platform, re, shlex, shutil, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 import yaml
-from recipes import (recipes, substitute, substitute_deep, posix_values, windows_values, programs,
+from recipes import (PORT_NAMES, recipes, substitute, substitute_deep, posix_values, windows_values, programs,
                      program_packages, mcp_hosts, MCP_HOSTS, PLACEHOLDER)
 from mcp import Host, McpError, contains, path_value
 
@@ -186,8 +186,8 @@ def run_case(case, recipe, root, values, bins, built, hosts, saved):
 
 def verify_recipe(recipe, spec, bins):
     root = Path(tempfile.mkdtemp(prefix=f"surly-{spec['key']}-"))
-    port = free_port()
-    values = windows_values(port) if WINDOWS else posix_values(port)
+    ports = {name: free_port() for name in PORT_NAMES}
+    values = windows_values(ports) if WINDOWS else posix_values(ports)
     write_fixtures(root, spec.get("fixtures"))
     procs, results, failures, built, hosts, saved = [], {}, [], {}, {}, {}
     try:
@@ -199,8 +199,11 @@ def verify_recipe(recipe, spec, bins):
             p = subprocess.Popen(cmd if WINDOWS else shlex.split(cmd), cwd=root, stdout=log, stderr=log)
             procs.append(p)
             ready = server.get("ready", "port")
-            if ready == "port" and not wait_port(port):
-                failures.append(f"server {name} never listened on {port}")
+            # ready: port waits for every port placeholder the command names (TCP only).
+            waits = [ports[n] for n in PORT_NAMES if "{{" + n + "}}" in server["command"]]
+            missed = [p for p in waits if not wait_port(p)] if ready == "port" else []
+            if missed:
+                failures.append(f"server {name} never listened on {', '.join(map(str, missed))}")
                 break
             time.sleep(0.2)
         if not failures:
@@ -232,7 +235,7 @@ def recipe_versions(recipe, spec, tool_versions, host_versions):
 
 def main():
     wanted = set(sys.argv[1:])
-    selected = [(recipe, spec) for _, _, recipe, spec in recipes() if not wanted or spec["key"] in wanted]
+    selected = [(recipe, spec) for _, _, recipe, spec in recipes(wanted or None)]
     bins = {t: binary(t) for t in sorted(set().union(*(tools(spec) for _, spec in selected)))}
     tool_versions = {k: version(v) for k, v in bins.items() if k not in MCP_HOSTS.values()}
     today = datetime.date.today().isoformat()
