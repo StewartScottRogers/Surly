@@ -1,0 +1,99 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-require-a-login
+title: Requiring a Login over HTTP
+protocols: [http]
+tier: secure-servers
+surl-options: [--directory, --user]
+curl-options: [-s, --digest, -u, -I, -o, -w]
+exit-codes: [0, 2]
+references: [surl-readme, rfc9110, rfc7616]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  public/hello.txt: "hello to anyone\n"
+
+# main has two accounts; open serves another folder with none, for comparison.
+# (Two surl processes cannot hold one folder.)
+servers:
+  main:
+    command: surl --directory site --user alice:secret --user bob:pass:word http://127.0.0.1:{{port}}/
+    ready: port
+  open:
+    command: surl --directory public http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Alice, logged in with HTTP Digest, fetches hello.txt and curl exits 0.
+    run: curl --digest -u alice:secret http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: no-login
+    claim: A GET with no login is answered 401 Unauthorized once an account exists, and curl still exits 0.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: head-needs-login
+    claim: A HEAD request with no login is answered 401 too.
+    run: curl -s -I -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: wrong-password
+    claim: Alice with the wrong password is answered 401.
+    run: curl -s --digest -u alice:guess -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: unknown-user
+    claim: A user name no --user names is answered 401.
+    run: curl -s --digest -u carol:secret -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: second-account
+    claim: --user is repeatable, and its value is split at the first colon, so Bob's password is pass:word.
+    run: curl -s --digest -u bob:pass:word http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: basic-refused
+    claim: Alice's right password sent with HTTP Basic, curl's default, over http:// is answered 403 Forbidden.
+    run: curl -s -u alice:secret -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "403"
+
+  - id: no-account-no-login
+    claim: With no account configured, the default, a GET needs no login and is answered 200.
+    run: curl -s http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello to anyone\n"
+
+  - id: user-given-twice
+    claim: A user name given twice is refused at start with exit 2.
+    run: surl --user alice:secret --user alice:other http://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --user: user alice is given twice\n'
+
+  - id: empty-password
+    claim: An empty password is refused at start with exit 2.
+    run: 'surl --user alice: http://127.0.0.1:0/ 2>&1'
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --user: the password is empty\n'

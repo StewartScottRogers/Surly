@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-add-an-account-from-an-agent]]
+=== Adding and Removing an Account from an Agent
+
+==== Problem
+
+Your artificial intelligence (AI) agent is testing a client's login against a running Hypertext Transfer Protocol (HTTP) server, and it needs to give one test a user who can log in and take that user away again for the next, without restarting the server.
+
+==== Solution
+
+Call `surl-mcp`'s `add_account` with the server's ID, a user name and a password, and `remove_account` with the same user name when the test is done:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts the server through `surl-mcp`, the Model Context Protocol (MCP) server for `surl`, with `hello.txt` in memory and one account given in `arguments` as `surl` takes it, `--user alice:secret`. Its `server_id` and its `bound_urls` entry are saved as `{{server}}` and `{{url}}`. The `curl` tool, from `curl-mcp`, plays the client: `-u bob:builder` is the login, `--digest` logs in with Digest (<<rfc7616>>), `-s` keeps the progress meter out of the answer, and `-w "%{http_code}"` prints the status after the body, so `standardOutput` is the whole result in one string.
+
+Before the test, `bob` has no account, and his login is `401 Unauthorized` (<<rfc9110>>). `add_account` takes `server_id`, `user` and `password`, all three required, and answers the `user` back. The next request sees the account: the same login now fetches the file, `200`. `remove_account` takes `server_id` and `user` and answers the `user`; after it, the login is 401 again. An added account is held to the same rules as one given at start: `bob` with a wrong password is 401.
+
+`add_account` does not change a password. For a user who already has an account it is a tool error, `user bob already has an account`, and the first password still logs in. To change a password, `remove_account` and then `add_account` with the new one, which logs in at once. A user name with a colon in it is a tool error too, because `--user` could not spell it. `remove_account` for a user with no account is a tool error ending `has no account bob`, so an agent that removes twice hears about it, and a server ID that is not running is `no running server has ID s99`.
+
+The client logs in with Digest because this server listens on plain HTTP. `-u` without `--digest` sends Basic (<<rfc7617>>), which is the password in clear, and `surl` answers `403 Forbidden` rather than read it. <<http-refuse-a-password-in-clear>> covers that refusal and the option that loosens it; `add_account` changes neither.
+
+`remove_account` removes an account given at start as readily as one it added. That has a consequence worth knowing. Accounts are what make `surl` ask for a login, so when the last one goes, the server serves anyone again: after `alice` is removed too, a request with no `-u` at all gets the file, `200`. The reverse also holds. `add_account` on a server with no accounts closes it at once: a request with no login is 401 from then on, and only the new account gets in. An agent that wants the server closed for a whole run keeps one account in place from `start_server` and adds and removes the others.
+
+`curl` exits `0` throughout, since a 401 or a 403 is still an answer; the status is in `standardOutput`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-require-a-login>> for accounts on the console.
+* <<https-serve-self-signed-in-process>> for accounts and Transport Layer Security from C#.
+* <<http-put-and-delete-files-from-an-agent>> for changing a running server's files the same way.
+* <<http-run-curl-from-an-agent>> for the `curl` tool's arguments and answers.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc7616>>, <<rfc7617>>.

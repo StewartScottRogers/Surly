@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-require-starttls]]
+=== Requiring TLS for Mail with STARTTLS
+
+==== Problem
+
+Your local mail server has an account, and you want mail sent and read over an encrypted connection, with the client refusing to carry on if it cannot have one.
+
+==== Solution
+
+Give `surl` a certificate, an account and the mail listen URLs; tell `curl` with `--ssl-reqd` to upgrade each connection with `STARTTLS` and to trust the certificate with `--cacert`:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run a second `surl` on ports `8086` to `8088`, `surl --allow-plaintext-auth --user alice:s3cret smtp://127.0.0.1:8086/ imap://127.0.0.1:8087/ pop3://127.0.0.1:8088/`, with no certificate and passwords in clear allowed, to show what that costs. You do not need it. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Simple Mail Transfer Protocol (SMTP) sends mail, and Internet Message Access Protocol (IMAP) and Post Office Protocol version 3 (POP3) read it (<<rfc5321>>, <<rfc9051>>, <<rfc1939>>). Each can protect itself with Transport Layer Security (TLS) in two ways (<<rfc8446>>). On `smtp://`, `imap://` and `pop3://` the connection starts in clear and the client upgrades it with a command: `STARTTLS` for SMTP and IMAP (<<rfc3207>>), `STLS` for POP3. On `smtps://`, `imaps://` and `pop3s://` it is TLS from the first byte. Given a certificate, one `surl` serves all six over one mail store, here on ports `8080` to `8085`: what SMTP delivers, IMAP and POP3 read, upgraded or not (<<surl-readme>>).
+
+`--ssl-reqd` makes `curl` send `STARTTLS` or `STLS` and stop if the server does not offer it; the login and the message then go over TLS. `--next` ends the SMTP transfer's options and starts the IMAP one, which needs its own `--ssl-reqd`, `--cacert` and `-u`. Against that second `surl`, which has no certificate and so offers no upgrade, `curl` stops before it logs in with exit `64`, the TLS level it was told to require could not be had. That is the point of `--ssl-reqd`: without it, `curl` would carry on in clear (<<curl-readme>>).
+
+What `surl` offers depends on whether the connection is encrypted, and `-v` shows it. Before the upgrade, SMTP's `EHLO` answer lists `STARTTLS` and `AUTH CRAM-MD5` only; IMAP advertises `STARTTLS LOGINDISABLED AUTH=CRAM-MD5`, `LOGINDISABLED` meaning its `LOGIN` command is off; POP3 lists `STLS` and `SASL CRAM-MD5`. After it, all three add `PLAIN`, `LOGIN`, `OAUTHBEARER` and `XOAUTH2`, IMAP drops `LOGINDISABLED`, and POP3 adds `USER`. `CRAM-MD5` is offered either way because it proves the password without sending it; every mechanism that carries the password or a token itself waits for TLS. So without `--ssl-reqd`, `curl -u` still logs in, with `CRAM-MD5`, though the mail it then reads is not encrypted. `--login-options AUTH=PLAIN` tells `curl` to use only `PLAIN`: without TLS it is not offered, and `curl` exits `67`, login denied, having sent no password; after `STARTTLS` the same login succeeds. A wrong password over TLS is `67` too.
+
+On the `s` schemes there is nothing to upgrade and no `--ssl-reqd` to give: `smtps://` sends, `imaps://` reads the same message back, and `pop3s://` takes a `PLAIN` login from the first byte. A listen URL that is TLS from the first byte needs a certificate the way `https` does: `smtps` with neither `--cert` nor `--self-signed` is refused at start, exit `58`. The plain schemes start without one, and offer no upgrade.
+
+`--cert server.pem` and `--key server.key` are the certificate and key `surl` serves, made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting it; without it, `curl` stops with exit `60` (<<https-serve-with-your-own-certificate>>). For a test, `--self-signed` and `curl -k` can stand in for all three (<<https-serve-with-a-self-signed-certificate>>). `--user alice:s3cret` is the account and `-u alice:s3cret` the login. On the sending side, `--mail-from` and `--mail-rcpt` are the envelope sender and recipient, `-T lunch.txt` the message, and `--crlf` turns its line ends into the carriage return and line feed a message is made of.
+
+`--allow-plaintext-auth` on that second `surl` turns the default off: without TLS it offers `PLAIN` and `LOGIN` as well, and `-v` shows what that costs. `curl` sends `AUTHENTICATE PLAIN AGFsaWNlAHMzY3JldA==`, which is `alice` and `s3cret` in base64, readable by anyone who can watch the network. That is why it is not the default; `surl` warns on every start while it is on (<<surl-readme>>). It is for a test against a client that cannot do TLS.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-and-read-it-over-imap>> for the same mail server with no accounts and no TLS.
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<ftp-protect-the-login-with-tls>> for the same upgrade on File Transfer Protocol.
+* <<surl-readme>>, <<curl-readme>>, <<rfc3207>>, <<rfc5321>>, <<rfc9051>>, <<rfc1939>>, <<rfc8446>>.

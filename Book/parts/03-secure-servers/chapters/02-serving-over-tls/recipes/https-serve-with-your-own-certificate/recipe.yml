@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: https-serve-with-your-own-certificate
+title: Serving HTTPS with Your Own Certificate
+protocols: [https]
+tier: secure-servers
+surl-options: [--directory, --cert, --key]
+curl-options: [--cacert]
+exit-codes: [0, 2, 58, 60]
+references: [surl-readme, curl-readme, rfc8446, rfc5280, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The certificate and its key are made here, never committed: a certificate for
+# 127.0.0.1, good for 30 days, signed by its own key.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key https://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Given server.pem as the certificate to trust, curl verifies surl's certificate and fetches hello.txt over HTTPS with no -k, exit 0.
+    run: curl --cacert server.pem https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: untrusted-without-cacert
+    claim: Without --cacert, curl does not trust a certificate signed by its own key, refuses the connection, prints nothing and exits 60.
+    run: curl https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""
+      stderr-contains: "curl: (60)"
+
+  - id: wrong-name
+    claim: Trusted but reached by a name the certificate does not hold (localhost, where it names only the address 127.0.0.1), the certificate is refused too, exit 60.
+    run: curl --cacert server.pem https://localhost:{{port}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""
+      stderr-contains: "curl: (60)"
+
+  - id: no-certificate
+    claim: An https listen URL with neither --cert nor --self-signed is refused at start, exit 58.
+    run: surl --directory site https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) https://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"
+
+  - id: cert-without-key
+    claim: --cert server.pem without --key is refused at start, exit 58, because server.pem holds no private key.
+    run: surl --cert server.pem https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: "^surl: \\(58\\) Could not load the server certificate: 'server.pem' holds no PEM private key\\.\n$"
+
+  - id: missing-cert-file
+    claim: A --cert file that is not there is refused at start, exit 58, naming the file.
+    run: surl --cert missing.pem --key server.key https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) Could not load the server certificate: Cannot read the --cert file 'missing.pem'.\n"
+
+  - id: key-without-cert
+    claim: --key without --cert is refused as an option badly used, exit 2.
+    run: surl --key server.key https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --key: is badly used here\n'

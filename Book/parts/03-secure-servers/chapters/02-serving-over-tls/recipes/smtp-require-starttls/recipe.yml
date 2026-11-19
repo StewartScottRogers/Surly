@@ -1,0 +1,149 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: smtp-require-starttls
+title: Requiring TLS for Mail with STARTTLS
+protocols: [smtp, smtps, imap, imaps, pop3, pop3s]
+tier: secure-servers
+surl-options: [--cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--ssl-reqd, --cacert, -u, --login-options, --crlf, --mail-from, --mail-rcpt, -T, --next, -v]
+exit-codes: [0, 58, 60, 64, 67]
+references: [surl-readme, curl-readme, rfc3207, rfc5321, rfc9051, rfc1939, rfc8446]
+
+fixtures:
+  lunch.txt: "From: ann@example.com\nTo: alice@example.com\nSubject: Lunch\n\nNoon at the usual place.\n"
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: one account, a certificate, the three mail protocols with the
+# upgrade (smtp, imap, pop3) and the three that are TLS from the first byte (smtps,
+# imaps, pop3s), over one mail store. plain has no certificate and accepts passwords
+# in clear; it is there only so its refusals and its loosening are checked claims.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/ pop3://127.0.0.1:{{port3}}/ smtps://127.0.0.1:{{port4}}/ imaps://127.0.0.1:{{port5}}/ pop3s://127.0.0.1:{{port6}}/
+    ready: port
+  plain:
+    command: surl --allow-plaintext-auth --user alice:s3cret smtp://127.0.0.1:{{port7}}/ imap://127.0.0.1:{{port8}}/ pop3://127.0.0.1:{{port9}}/
+    ready: port
+
+# The cases run in order against the same servers, so the message the solution sends
+# is UID 1 in alice's INBOX for every later case.
+cases:
+  - id: solution
+    role: solution
+    claim: One curl sends lunch.txt to alice over SMTP after STARTTLS, then (after --next) reads its body back over IMAP after STARTTLS, both logged in as alice and verified against server.pem, exit 0.
+    run: 'curl --ssl-reqd --cacert server.pem -u alice:s3cret --crlf --mail-from ann@example.com --mail-rcpt alice@example.com -T lunch.txt smtp://127.0.0.1:{{port}}/example.com --next --ssl-reqd --cacert server.pem -u alice:s3cret "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"'
+    expect:
+      exit: 0
+      stdout: "Noon at the usual place.\n"
+
+  - id: smtp-logins-offered
+    claim: Before STARTTLS the SMTP server offers STARTTLS and only the CRAM-MD5 login; after it, PLAIN, LOGIN, OAUTHBEARER and XOAUTH2 as well.
+    run: curl -v --ssl-reqd --cacert server.pem -u alice:s3cret --crlf --mail-from ann@example.com --mail-rcpt alice@example.com -T lunch.txt smtp://127.0.0.1:{{port}}/example.com 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '250-STARTTLS\s+< 250 AUTH CRAM-MD5\s+> STARTTLS\s.*< 250 AUTH CRAM-MD5 OAUTHBEARER XOAUTH2 PLAIN LOGIN\s'
+
+  - id: imap-logins-offered
+    claim: Before STARTTLS the IMAP server advertises STARTTLS, LOGINDISABLED and only AUTH=CRAM-MD5; after it, LOGINDISABLED is gone and PLAIN, LOGIN, OAUTHBEARER and XOAUTH2 are offered too.
+    run: curl -v --ssl-reqd --cacert server.pem -u alice:s3cret imap://127.0.0.1:{{port2}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: 'STARTTLS LOGINDISABLED AUTH=CRAM-MD5\s.*> A002 STARTTLS\s.*CAPABILITY [^\n]*APPENDLIMIT=\d+ AUTH=CRAM-MD5 AUTH=OAUTHBEARER AUTH=XOAUTH2 AUTH=PLAIN AUTH=LOGIN\s'
+
+  - id: pop3-logins-offered
+    claim: Before STLS the POP3 server offers STLS and only SASL CRAM-MD5; after it, USER and the PLAIN, LOGIN, OAUTHBEARER and XOAUTH2 mechanisms too.
+    run: curl -v --ssl-reqd --cacert server.pem -u alice:s3cret pop3://127.0.0.1:{{port3}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '< SASL CRAM-MD5\s+< STLS\s.*> STLS\s.*< USER\s+< SASL CRAM-MD5 OAUTHBEARER XOAUTH2 PLAIN LOGIN\s'
+
+  - id: plain-not-offered-in-clear
+    claim: Told to log in with PLAIN only, curl finds it not offered on IMAP without TLS and exits 67, login denied, sending no password.
+    run: curl --login-options AUTH=PLAIN -u alice:s3cret imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 67
+      stdout: ""
+
+  - id: plain-over-starttls
+    claim: After STARTTLS the same PLAIN-only login succeeds and lists the mailboxes, exit 0.
+    run: curl --ssl-reqd --cacert server.pem --login-options AUTH=PLAIN -u alice:s3cret imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"
+
+  - id: cram-md5-in-clear
+    claim: Without --ssl-reqd, curl logs in with CRAM-MD5, which sends no password, and the IMAP server accepts it without TLS, exit 0.
+    run: curl -u alice:s3cret imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"
+
+  - id: smtps-implicit
+    claim: On smtps:// the connection is TLS from the first byte, so the message is sent with no --ssl-reqd, exit 0.
+    run: curl --cacert server.pem -u alice:s3cret --crlf --mail-from ann@example.com --mail-rcpt alice@example.com -T lunch.txt smtps://127.0.0.1:{{port4}}/example.com
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: imaps-implicit
+    claim: On imaps:// the body of message UID 1 is read over TLS with no --ssl-reqd, from the same mail store, exit 0.
+    run: 'curl --cacert server.pem -u alice:s3cret "imaps://127.0.0.1:{{port5}}/INBOX;UID=1;SECTION=TEXT"'
+    expect:
+      exit: 0
+      stdout: "Noon at the usual place.\n"
+
+  - id: pop3s-implicit
+    claim: On pop3s:// a PLAIN login works from the first byte and lists alice's maildrop, message 1 first, exit 0.
+    run: curl --cacert server.pem --login-options AUTH=PLAIN -u alice:s3cret pop3s://127.0.0.1:{{port6}}/
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\n'
+
+  - id: wrong-password-over-tls
+    claim: Over TLS the password is checked, and a wrong one is refused, exit 67.
+    run: curl --ssl-reqd --cacert server.pem -u alice:wrong imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 67
+      stdout: ""
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate on imaps:// and stops, exit 60.
+    run: curl -u alice:s3cret imaps://127.0.0.1:{{port5}}/
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: no-starttls-smtp
+    claim: An SMTP listener with no certificate offers no STARTTLS, and with --ssl-reqd curl stops before logging in, exit 64.
+    run: curl --ssl-reqd -u alice:s3cret --crlf --mail-from ann@example.com --mail-rcpt alice@example.com -T lunch.txt smtp://127.0.0.1:{{port7}}/example.com
+    expect:
+      exit: 64
+      stdout: ""
+
+  - id: no-stls-pop3
+    claim: A POP3 listener with no certificate offers no STLS, and with --ssl-reqd curl stops, exit 64.
+    run: curl --ssl-reqd -u alice:s3cret pop3://127.0.0.1:{{port9}}/
+    expect:
+      exit: 64
+      stdout: ""
+
+  - id: plaintext-auth-loosened
+    claim: Under --allow-plaintext-auth the IMAP server offers PLAIN without TLS, and curl sends the user name and password in clear, only base64-encoded, exit 0.
+    run: curl -v --login-options AUTH=PLAIN -u alice:s3cret imap://127.0.0.1:{{port8}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: 'AUTH=PLAIN AUTH=LOGIN\s.*> A002 AUTHENTICATE PLAIN AGFsaWNlAHMzY3JldA==\s'
+
+  - id: smtps-needs-a-certificate
+    claim: An smtps listen URL with neither --cert nor --self-signed is refused at start, exit 58.
+    run: surl --user alice:s3cret smtps://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) smtps://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"

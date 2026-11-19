@@ -1,0 +1,111 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: sftp-upload-and-rename
+title: Uploading and Renaming over Secure Shell
+protocols: [sftp, scp]
+tier: secure-servers
+surl-options: [--directory, --throwaway-hostkey, --user, --allow-uploads, --list-directories]
+curl-options: [-k, -u, -T, -Q, -l, -s, -S]
+exit-codes: [0, 9, 21, 25, 78]
+references: [surl-readme, curl-readme, rfc4251]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  notes.txt: "uploaded by curl\n"
+  other/readme.txt: "read me\n"
+
+# main: uploads and listings on. read-only: both left off, on another directory.
+servers:
+  main:
+    command: surl --directory site --throwaway-hostkey --user alice:s3cret --allow-uploads --list-directories sftp://127.0.0.1:{{port}}/
+    ready: port
+  read-only:
+    command: surl --directory other --throwaway-hostkey --user alice:s3cret sftp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl uploads notes.txt under the name notes.part, then renames it to notes.txt once the upload is done, exit 0; the file lands in site byte for byte.
+    run: curl -k -u alice:s3cret -T notes.txt -Q "-rename /notes.part /notes.txt" sftp://127.0.0.1:{{port}}/notes.part
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/notes.txt: "uploaded by curl\n"
+
+  - id: listing
+    claim: With -l and a URL ending in a slash, curl lists the folder's names one a line; notes.txt is there and notes.part is not.
+    run: curl -s -S -k -u alice:s3cret -l sftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\nnotes.txt\n"
+
+  - id: long-listing
+    claim: Without -l, the listing is the long one, in the style of Unix ls -l, with each file's size.
+    run: curl -s -S -k -u alice:s3cret sftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A-rw-r--r-- 1 surl surl +16 [^\n]* hello\.txt\r?\n-rw-r--r-- 1 surl surl +17 [^\n]* notes\.txt\r?\n\Z'
+
+  - id: rename-before
+    claim: Without the leading dash, -Q runs its command before the transfer, so a listing in the same call already shows the new name.
+    run: curl -s -S -k -u alice:s3cret -Q "rename /notes.txt /kept.txt" -l sftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\nkept.txt\n"
+
+  - id: rename-missing
+    claim: Renaming a file that is not there fails, and curl exits 21, quote command error, transferring nothing.
+    run: curl -s -S -k -u alice:s3cret -Q "rename /nothere.txt /x.txt" -l sftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stdout: ""
+      stderr-contains: "No such file or directory"
+
+  - id: scp-upload
+    claim: The same listener takes an upload over SCP too.
+    run: curl -s -S -k -u alice:s3cret -T notes.txt scp://127.0.0.1:{{port}}/copy.txt
+    expect:
+      exit: 0
+      files:
+        site/copy.txt: "uploaded by curl\n"
+
+  - id: uploads-off-sftp
+    claim: Without --allow-uploads, an SFTP upload is refused with permission denied, and curl exits 9.
+    run: curl -s -S -k -u alice:s3cret -T notes.txt sftp://127.0.0.1:{{port2}}/notes.txt
+    expect:
+      exit: 9
+      stderr-contains: "Permission denied"
+
+  - id: uploads-off-scp
+    claim: Without --allow-uploads, an SCP upload is refused too, and curl exits 25, upload failed.
+    run: curl -s -S -k -u alice:s3cret -T notes.txt scp://127.0.0.1:{{port2}}/notes.txt
+    expect:
+      exit: 25
+
+  - id: rename-off
+    claim: Without --allow-uploads, a rename is refused with permission denied, exit 21, and the file keeps its name.
+    run: curl -s -S -k -u alice:s3cret -Q "rename /readme.txt /gone.txt" sftp://127.0.0.1:{{port2}}/readme.txt
+    expect:
+      exit: 21
+      stdout: ""
+      stderr-contains: "Permission denied"
+      files:
+        other/readme.txt: "read me\n"
+
+  - id: listings-off
+    claim: Without --list-directories, a listing is answered as if the folder were not there, and curl exits 78, nothing listed.
+    run: curl -s -S -k -u alice:s3cret -l sftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 78
+      stdout: ""
+      stderr-contains: "No such file or directory"
+
+  - id: downloads-still-work
+    claim: With both left off, a file is still downloaded.
+    run: curl -s -S -k -u alice:s3cret sftp://127.0.0.1:{{port2}}/readme.txt
+    expect:
+      exit: 0
+      stdout: "read me\n"

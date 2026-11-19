@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-refuse-a-password-in-clear]]
+=== Refusing a Password Sent in Clear
+
+==== Problem
+
+You want to check that your client never logs in by sending its password in clear over plain Hypertext Transfer Protocol (HTTP), and know what to use instead.
+
+==== Solution
+
+Give `surl` an account and nothing else; a password sent with HTTP Basic over `http://` is refused:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` serves the folder `site` and `--user alice:secret` gives it Alice's account. `-u alice:secret` with no method named makes `curl` send HTTP Basic (<<rfc7617>>): the user name and password, Base64-encoded, in an `Authorization` header. Base64 is an encoding, not encryption, so over `http://` anyone who can watch the connection reads the password. `surl` answers such a request `403 Forbidden` without checking the password: a wrong one gets the same `403` as the right one, so the answer says only that the client sent a password where anyone could read it. `curl` exits `0` on the `403`, since it is still an answer, unless `-f` asks it to fail on an error status, when it exits `22`. `-s`, `-o` and `-w "%{http_code}"` print only the status code.
+
+The same `surl` does not invite the mistake. Its `401 Unauthorized` over `http://` offers HTTP Digest three times, once for each algorithm, and nothing else; `-D -` prints the response headers. Digest sends a hash in place of the password (<<rfc7616>>), so with `--digest` added `curl` logs Alice in over the same listener.
+
+The other way is to encrypt the connection. The recipe's third server, `tls`, on `https://127.0.0.1:8082/`, serves Hypertext Transfer Protocol Secure (HTTPS) with a certificate the `openssl` line makes for `127.0.0.1`, `--cert server.pem` and `--key server.key`, and `--cacert server.pem` makes `curl` trust that certificate. Transport Layer Security (TLS) (<<rfc8446>>) encrypts everything before the `Authorization` header is sent, so `surl` checks Basic there: the right password fetches the file, and a wrong one is answered `401`.
+
+`--allow-plaintext-auth` turns the refusal off. The second server, `loose`, is the solution's command with `--allow-plaintext-auth` added, on port 8081; it checks Basic over `http://` as the `tls` server does over `https://`, letting the right password in and answering a wrong one `401`, and its `401` offers `Basic` and `Bearer` after the three Digest challenges. It is a loosening option, for tests of a client that cannot do better, and it gives up what the default protects: the password is readable on the wire. `surl` warns on every start while it is on (<<surl-readme>>). The same refusal covers Bearer tokens over `http://`; see <<http-accept-a-bearer-token>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-log-in-with-digest>> for Digest over `http://`.
+* <<http-accept-a-bearer-token>> for tokens, which `surl` treats as passwords.
+* <<https-serve-with-your-own-certificate>> for the certificate.
+* <<surl-readme>>, <<rfc7617>>, <<rfc7616>>, <<rfc8446>>, <<rfc9110>>.

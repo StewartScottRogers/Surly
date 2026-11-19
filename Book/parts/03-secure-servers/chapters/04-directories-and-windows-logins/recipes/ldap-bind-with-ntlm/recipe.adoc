@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-bind-with-ntlm]]
+=== Binding to a Directory with NTLM
+
+==== Problem
+
+A Windows client logs in to a directory over the Lightweight Directory Access Protocol (LDAP) with NT LAN Manager (NTLM), as it would to Active Directory, and you want a local directory server that accepts that login without a certificate and without the password crossing the wire.
+
+==== Solution
+
+Start `surl` with the account and NTLM accepted, then search with `curl --ntlm`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C]. The checked claims below also run two more `surl` on ports `8081` and `8082`, one with nothing loosened and one with `--auth negotiate`, to show what each refuses.
+
+==== Discussion
+
+`--directory site` serves the entries in `site/.surl/ldap/directory.ldif`, and `-u alice:s3cret` adds the account on the server and gives `curl` the name and password to log in with. The URL is the search (<<rfc4516>>): base `dc=example,dc=com`, attribute `mail`, scope `sub`, filter `(cn=alice)`.
+
+`--ntlm` makes `curl` bind with NTLM instead of a simple bind. NTLM is a challenge and response (<<ms-nlmp>>): the server sends a random challenge, the client answers with a value computed from it and the password, and the password itself is never sent. `curl` on Windows hands LDAP to the system's own LDAP library, `WinLDAP`, which sends the NTLM messages in the bind and, once it succeeds, seals every later message on the connection with keys both sides derive from the login (<<surl-readme>>). The search answers, so `surl` sealed its side too. A wrong password is refused `invalidCredentials`, and `curl` exits `38`, the code for a bind that failed.
+
+`--auth ntlm` is the loosening option, and it is what makes the bind possible. By default `surl` accepts none of NTLM: the bind is refused `authMethodNotSupported`, and `curl` exits `38`. An NTLM response is built from a hash of the password, so anyone who captures one can try passwords against it offline, or relay it to another server while it is fresh; that is why it is not the default (<<surl-readme>>). `surl` writes a `surl: warning:` line naming the methods it accepts whenever `--auth` is given. Under `--auth ntlm` the root DSE (the Directory System Agent-specific entry, which a URL with no base reads) lists `NTLM` as the one Simple Authentication and Security Layer (SASL) mechanism on offer, in `supportedSASLMechanisms`.
+
+`--auth ntlm` loosens nothing else. A simple bind, `-u` without `--ntlm`, still sends the password in clear, and over `ldap://` it is still refused `confidentialityRequired` without being checked; `curl` exits `38`. Accepting that takes `--allow-plaintext-auth` (<<ldap-search-a-directory>>).
+
+`--negotiate` binds with Negotiate instead, which `WinLDAP` sends as the SASL mechanism `GSS-SPNEGO` (Simple and Protected Generic Security Service Negotiation) carrying NTLM, since there is no Kerberos server here to give it anything else. `surl` accepts that under `--auth negotiate`, and its root DSE then lists `GSS-SPNEGO`. The two words are not interchangeable: under `--auth negotiate`, `curl --ntlm` is refused `authMethodNotSupported` and exits `38`. `-s` hides `curl`'s progress meter and `-S` still shows the error, which is where the checked claims read the server's answer.
+
+The binds here are `WinLDAP`'s, checked with `curl` on Windows. `curl` on Linux and macOS uses another LDAP library, and this recipe makes no claim about its binds.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-search-a-directory>> for the directory file, the search URL and the simple bind.
+* <<http-log-in-with-ntlm>> for NTLM over Hypertext Transfer Protocol.
+* <<smb-read-a-share>> for the older NTLM a file share uses.
+* <<surl-readme>>, <<rfc4511>>, <<rfc4516>>, <<ms-nlmp>>.

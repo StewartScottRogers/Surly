@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: ldap-bind-with-ntlm
+title: Binding to a Directory with NTLM
+protocols: [ldap]
+tier: secure-servers
+surl-options: [--directory, --auth, -u]
+curl-options: [--ntlm, --negotiate, -u, -s, -S]
+exit-codes: [0, 38]
+references: [surl-readme, rfc4511, rfc4516, ms-nlmp]
+
+fixtures:
+  site/.surl/ldap/directory.ldif: |
+    dn: dc=example,dc=com
+    objectClass: domain
+    dc: example
+
+    dn: cn=alice,dc=example,dc=com
+    objectClass: person
+    cn: alice
+    mail: alice@example.com
+
+# Three servers, each with the one account. main is the recipe: NTLM binds accepted.
+# strict has nothing loosened, and negotiate accepts Negotiate instead of NTLM; both are
+# there for the checked claims, and serve an empty directory (two surl cannot share one
+# --directory), which the root DSE search they answer does not need.
+servers:
+  main:
+    command: surl --directory site --auth ntlm -u alice:s3cret ldap://127.0.0.1:{{port}}/
+    ready: port
+  strict:
+    command: surl -u alice:s3cret ldap://127.0.0.1:{{port2}}/
+    ready: port
+  negotiate:
+    command: surl --auth negotiate -u alice:s3cret ldap://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Bound with NTLM as alice, a search for cn=alice asking for mail prints alice's entry with her mail address, exit 0.
+    run: curl --ntlm -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?mail?sub?(cn=alice)"
+    expect:
+      exit: 0
+      stdout: "DN: cn=alice,dc=example,dc=com\n\tmail: alice@example.com\n\n"
+
+  - id: root-dse-offers-ntlm
+    claim: Under --auth ntlm the root DSE lists NTLM as the one SASL mechanism the server offers.
+    run: curl --ntlm -u alice:s3cret "ldap://127.0.0.1:{{port}}/?supportedSASLMechanisms"
+    expect:
+      exit: 0
+      stdout: "DN: \n\tsupportedSASLMechanisms: NTLM\n\n"
+
+  - id: wrong-password
+    claim: An NTLM bind with the wrong password is refused invalidCredentials, and curl exits 38.
+    run: curl -s -S --ntlm -u alice:wrong "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Invalid Credentials"
+
+  - id: simple-bind-still-refused
+    claim: --auth ntlm does not let a password through in clear; a simple bind (-u without --ntlm) over ldap:// is still refused confidentialityRequired, and curl exits 38.
+    run: curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Confidentiality Required"
+
+  - id: strict-refuses-ntlm
+    claim: Without --auth ntlm, the NTLM bind is refused authMethodNotSupported, and curl exits 38.
+    run: curl -s -S --ntlm -u alice:s3cret "ldap://127.0.0.1:{{port2}}/"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Authentication Method Not Supported"
+
+  - id: negotiate-binds
+    claim: Under --auth negotiate the root DSE offers GSS-SPNEGO, and curl's --negotiate bind, which carries NTLM inside it, succeeds.
+    run: curl --negotiate -u alice:s3cret "ldap://127.0.0.1:{{port3}}/?supportedSASLMechanisms"
+    expect:
+      exit: 0
+      stdout: "DN: \n\tsupportedSASLMechanisms: GSS-SPNEGO\n\n"
+
+  - id: negotiate-is-not-ntlm
+    claim: --auth negotiate does not accept curl's --ntlm bind; it is refused authMethodNotSupported, and curl exits 38.
+    run: curl -s -S --ntlm -u alice:s3cret "ldap://127.0.0.1:{{port3}}/"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Authentication Method Not Supported"

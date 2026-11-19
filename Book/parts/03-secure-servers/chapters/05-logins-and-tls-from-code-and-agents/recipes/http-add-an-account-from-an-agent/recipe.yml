@@ -1,0 +1,171 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+schema: 2
+key: http-add-an-account-from-an-agent
+title: Adding and Removing an Account from an Agent
+protocols: [http]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, add_account, remove_account, curl]
+curl-options: [-s, -w, -u, --digest]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110, rfc7616, rfc7617]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: On a running server that has the account alice, bob's Digest login is refused 401 until add_account gives bob an account, then fetches the file, 200; after remove_account takes it away, the same login is 401 again.
+    mcp:
+      - host: surl
+        tool: start_server
+        arguments: { listen_urls: ["http://127.0.0.1:0"], arguments: ["--user", "alice:secret"], files: { hello.txt: "hello from surl\n" } }
+        save: { url: bound_urls.0, server: server_id }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "bob:builder", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "401" } }
+      - host: surl
+        tool: add_account
+        arguments: { server_id: "{{server}}", user: bob, password: builder }
+        expect:
+          result-contains: { user: bob }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "bob:builder", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "hello from surl\n200" } }
+      - host: surl
+        tool: remove_account
+        arguments: { server_id: "{{server}}", user: bob }
+        expect:
+          result-contains: { user: bob }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "bob:builder", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "401" } }
+
+  - id: wrong-password
+    claim: An added account is checked like one given at start; bob with a wrong password is 401.
+    mcp:
+      - host: surl
+        tool: add_account
+        arguments: { server_id: "{{server}}", user: bob, password: builder }
+        expect:
+          result-contains: { user: bob }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "bob:wrong", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "401" } }
+
+  - id: no-overwrite
+    claim: add_account for a user who already has an account is a tool error, user bob already has an account, and bob's first password still logs in.
+    mcp:
+      - host: surl
+        tool: add_account
+        arguments: { server_id: "{{server}}", user: bob, password: other }
+        expect:
+          is-error: true
+          error-contains: "user bob already has an account"
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "bob:builder", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "hello from surl\n200" } }
+
+  - id: change-password
+    claim: To change a password, remove_account and then add_account with the new one; the new password logs in.
+    mcp:
+      - host: surl
+        tool: remove_account
+        arguments: { server_id: "{{server}}", user: bob }
+        expect:
+          result-contains: { user: bob }
+      - host: surl
+        tool: add_account
+        arguments: { server_id: "{{server}}", user: bob, password: other }
+        expect:
+          result-contains: { user: bob }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "bob:other", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "hello from surl\n200" } }
+
+  - id: no-colon
+    claim: A user name holding a colon is a tool error, since --user could not spell it.
+    mcp:
+      - host: surl
+        tool: add_account
+        arguments: { server_id: "{{server}}", user: "carol:x", password: pw }
+        expect:
+          is-error: true
+          error-contains: "user: a user name may not hold ':'"
+
+  - id: basic-in-clear
+    claim: The same account with -u and no --digest sends Basic, a password in clear over plain HTTP, and the server answers 403.
+    mcp:
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "-u", "bob:other", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "403" } }
+
+  - id: no-such-account
+    claim: remove_account for a user with no account, or on a server ID that is not running, is a tool error that says which.
+    mcp:
+      - host: surl
+        tool: remove_account
+        arguments: { server_id: "{{server}}", user: bob }
+        expect:
+          result-contains: { user: bob }
+      - host: surl
+        tool: remove_account
+        arguments: { server_id: "{{server}}", user: bob }
+        expect:
+          is-error: true
+          error-contains: "has no account bob"
+      - host: surl
+        tool: remove_account
+        arguments: { server_id: s99, user: alice }
+        expect:
+          is-error: true
+          error-contains: "no running server has ID s99"
+
+  - id: last-account-opens
+    claim: remove_account also removes an account given at start, and when it removes the last one the server serves anyone again, 200 with no login.
+    mcp:
+      - host: surl
+        tool: remove_account
+        arguments: { server_id: "{{server}}", user: alice }
+        expect:
+          result-contains: { user: alice }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "hello from surl\n200" } }
+
+  - id: first-account-closes
+    claim: add_account on a server with no accounts closes it; a request with no login is 401 from then on, and the new account's login fetches the file.
+    mcp:
+      - host: surl
+        tool: add_account
+        arguments: { server_id: "{{server}}", user: carol, password: pw }
+        expect:
+          result-contains: { user: carol }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "401" } }
+      - host: curl
+        tool: curl
+        arguments: { args: ["-s", "--digest", "-u", "carol:pw", "-w", "%{http_code}", "{{url}}hello.txt"] }
+        expect:
+          result-contains: { exitCode: 0, standardOutput: { content: "hello from surl\n200" } }

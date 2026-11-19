@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[wss-log-in-over-tls]]
+=== Logging In to a WebSocket over TLS
+
+==== Problem
+
+Your WebSocket endpoint needs a login, and you want the password checked rather than sent where anyone can read it.
+
+==== Solution
+
+Give `surl` a certificate, an account and a `wss` listen URL, and log in with `curl -u`, trusting the certificate with `--cacert`:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run a second `surl` on port `8082`, `surl --directory plain --allow-plaintext-auth --user alice:s3cret ws://127.0.0.1:8082/`, which checks passwords sent in clear, to show what that costs. You do not need it. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A WebSocket connection starts as a Hypertext Transfer Protocol (HTTP) request that asks to be upgraded; `surl` answers `101 Switching Protocols`, then sends the file at the request path as one message and closes (<<rfc6455>>). `wss://` is the same inside Transport Layer Security (TLS) from the first byte (<<rfc8446>>). The login rides on the upgrade request, as an HTTP `Authorization` header.
+
+`-u alice:s3cret` makes `curl` send that header as Basic, which is the user name and password in base64: readable by anyone who sees it (<<rfc7617>>). Over `wss://` nobody else sees it, so `surl` checks it: the right password gets the file, a wrong one `401 Unauthorized`, and so does no login at all, because once any account is configured every upgrade needs one. `curl` exits `22` on any answer to an upgrade but `101` (<<curl-readme>>); `-w "%{http_code}"` prints the status, `-s` keeps `curl` quiet, and `-o /dev/null` (`NUL` on Windows) throws away anything else.
+
+Over plain `ws://`, on the same `surl` and with the same account, the same Basic login is refused unchecked with `403 Forbidden`, the right password and a wrong one alike, so a listener learns nothing from the answer either. That is the default because the password has already crossed the network in clear by the time `surl` sees it (<<surl-readme>>). `--allow-plaintext-auth` on that second `surl` turns the refusal off: Basic over `ws://` is checked, so the right password gets the file and a wrong one `401`. It gives up the password on the wire, and `surl` warns on every start while it is on; it is for a test against a client that cannot do TLS.
+
+`curl` sends no second request on an upgrade, so it logs in only with what it sends unasked. Basic is one; a Bearer token is another (<<rfc6750>>). `--user :tok123`, an account with an empty user name, holds the token `tok123`, and `--oauth2-bearer tok123` makes `curl` send it. `--digest` does not work here: Digest needs `curl` to answer the server's `401` challenge, and on an upgrade it does not, so the login is refused `401` (<<surl-readme>>).
+
+`--user alice:s3cret` is the account, given once per account. `--directory site` serves the files, and the second `surl` serves `plain`, because two `surl` processes cannot hold one directory. `--cert server.pem` and `--key server.key` are the certificate and key made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting it (<<https-serve-with-your-own-certificate>>). For a test, `--self-signed` and `curl -k` can stand in for all three (<<https-serve-with-a-self-signed-certificate>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-receive-a-file-as-a-message>> for the same server with no login and no TLS.
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>, <<rfc7617>>, <<rfc6750>>, <<rfc8446>>.

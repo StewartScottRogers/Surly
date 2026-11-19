@@ -1,0 +1,115 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: ftp-protect-the-login-with-tls
+title: Protecting an FTP Login with TLS
+protocols: [ftp, ftps]
+tier: secure-servers
+surl-options: [--directory, --cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--ssl-reqd, --ssl, --cacert, -u, -v]
+exit-codes: [0, 58, 64, 67]
+references: [surl-readme, curl-readme, rfc959, rfc4217, rfc8446]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  plain/hello.txt: "hello from surl\n"
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: one account, a certificate, explicit TLS on ftp and implicit TLS
+# on ftps. plain has no certificate and checks passwords in clear; it is there only so
+# the refusal and the loosening are checked claims. Each surl needs a directory of its own.
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key --user alice:s3cret ftp://127.0.0.1:{{port}}/ ftps://127.0.0.1:{{port2}}/
+    ready: port
+  plain:
+    command: surl --directory plain --allow-plaintext-auth --user alice:s3cret ftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --ssl-reqd, curl upgrades the ftp:// connection to TLS before it sends the password, verifies the certificate against server.pem, logs in as alice and downloads hello.txt, exit 0.
+    run: curl --ssl-reqd --cacert server.pem -u alice:s3cret ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: implicit-ftps
+    claim: On the ftps:// listener the connection is TLS from the first byte, so the same login and download need no --ssl-reqd, exit 0.
+    run: curl --cacert server.pem -u alice:s3cret ftps://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: data-connection-protected
+    claim: After the login, curl asks for a protected data connection (PROT P) and surl agrees, so the file travels encrypted too.
+    run: curl -v --ssl-reqd --cacert server.pem -u alice:s3cret ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stderr-contains: "< 200 Protection level set to P"
+
+  - id: clear-password-refused
+    claim: Without --ssl-reqd, curl sends the password in clear; surl refuses it unchecked with 530 and curl exits 67, access denied.
+    run: curl -v -u alice:s3cret ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "< 530 Login needs TLS first: send AUTH TLS"
+
+  - id: clear-password-unchecked
+    claim: A wrong password sent in clear gets the same 530 as the right one, because neither is checked.
+    run: curl -v -u alice:wrong ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "< 530 Login needs TLS first: send AUTH TLS"
+
+  - id: wrong-password-over-tls
+    claim: Over TLS the password is checked, and a wrong one is refused, exit 67.
+    run: curl --ssl-reqd --cacert server.pem -u alice:wrong ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 67
+      stdout: ""
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate and stops before it logs in, exit 60.
+    run: curl --ssl-reqd -u alice:s3cret ftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: no-tls-on-offer
+    claim: A listener with no certificate answers AUTH 534, TLS is not available, and with --ssl-reqd curl stops there and exits 64 rather than send the password in clear.
+    run: curl -v --ssl-reqd -u alice:s3cret ftp://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 64
+      stdout: ""
+      stderr-contains: "< 534 TLS is not available"
+
+  - id: ssl-is-only-a-wish
+    claim: With --ssl instead of --ssl-reqd, curl carries on in clear when TLS is not available, and its clear password is checked only because that server has --allow-plaintext-auth, exit 0.
+    run: curl --ssl -u alice:s3cret ftp://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: plaintext-auth-checks
+    claim: Under --allow-plaintext-auth a clear password is checked rather than refused, so a wrong one is still denied, exit 67.
+    run: curl -u alice:wrong ftp://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 67
+      stdout: ""
+
+  - id: ftps-needs-a-certificate
+    claim: An ftps listen URL with neither --cert nor --self-signed is refused at start, exit 58.
+    run: surl --user alice:s3cret ftps://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) ftps://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"

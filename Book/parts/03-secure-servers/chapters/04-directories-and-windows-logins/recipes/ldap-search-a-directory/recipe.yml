@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: ldap-search-a-directory
+title: Searching a Directory over LDAP
+protocols: [ldap]
+tier: secure-servers
+surl-options: [--directory, --allow-plaintext-auth, -u]
+curl-options: [-u, -s, -S]
+exit-codes: [0, 38, 39]
+references: [surl-readme, rfc4511, rfc4516]
+
+# The directory surl serves: one LDAP Data Interchange Format (LDIF) file, read at start.
+fixtures:
+  site/.surl/ldap/directory.ldif: |
+    dn: dc=example,dc=com
+    objectClass: domain
+    dc: example
+
+    dn: cn=alice,dc=example,dc=com
+    objectClass: person
+    cn: alice
+    sn: Liddell
+    mail: alice@example.com
+
+    dn: cn=bob,dc=example,dc=com
+    objectClass: person
+    cn: bob
+    sn: Builder
+    mail: bob@example.com
+
+# Two servers. main is the recipe, loosened to check a password sent in clear. strict has
+# the same account, an empty directory and nothing loosened, there only so the refusal
+# is a checked claim (two surl cannot share one --directory).
+servers:
+  main:
+    command: surl --directory site --allow-plaintext-auth -u alice:s3cret ldap://127.0.0.1:{{port}}/
+    ready: port
+  strict:
+    command: surl -u alice:s3cret ldap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Bound as alice, a subtree search under dc=example,dc=com for every person, asking for cn and mail, prints both entries with those two attributes, exit 0.
+    run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn,mail?sub?(objectClass=person)"
+    expect:
+      exit: 0
+      stdout: "DN: cn=alice,dc=example,dc=com\n\tcn: alice\n\n\tmail: alice@example.com\n\nDN: cn=bob,dc=example,dc=com\n\tcn: bob\n\n\tmail: bob@example.com\n\n"
+
+  - id: one-entry-by-dn
+    claim: A URL that names an entry's distinguished name and nothing else reads that one entry with every attribute.
+    run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/cn=alice,dc=example,dc=com"
+    expect:
+      exit: 0
+      stdout: "DN: cn=alice,dc=example,dc=com\n\tobjectClass: person\n\n\tcn: alice\n\n\tsn: Liddell\n\n\tmail: alice@example.com\n\n"
+
+  - id: filter-one-person
+    claim: The filter (cn=bob) with the attribute mail prints bob's mail address and nothing of alice.
+    run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?mail?sub?(cn=bob)"
+    expect:
+      exit: 0
+      stdout: "DN: cn=bob,dc=example,dc=com\n\tmail: bob@example.com\n\n"
+
+  - id: no-match-prints-nothing
+    claim: A filter that matches no entry is not an error; curl prints nothing and exits 0.
+    run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn?sub?(cn=zed)"
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: bind-as-a-dn
+    claim: The bind name may be a distinguished name whose leftmost part is cn=alice; it binds as the account alice. Scope one finds the entries directly under the base.
+    run: curl -u cn=alice,dc=example,dc=com:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn?one"
+    expect:
+      exit: 0
+      stdout: "DN: cn=alice,dc=example,dc=com\n\tcn: alice\n\nDN: cn=bob,dc=example,dc=com\n\tcn: bob\n\n"
+
+  - id: root-dse-naming-contexts
+    claim: A URL with no base reads the root DSE; asking for namingContexts names the top of the directory, dc=example,dc=com.
+    run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/?namingContexts"
+    expect:
+      exit: 0
+      stdout: "DN: \n\tnamingContexts: dc=example,dc=com\n\n"
+
+  - id: missing-base
+    claim: A base that is not in the directory is answered noSuchObject, and curl exits 39, printing nothing.
+    run: curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=nowhere,dc=com"
+    expect:
+      exit: 39
+      stdout: ""
+      stderr-contains: "No Such Object"
+
+  - id: wrong-password
+    claim: A wrong password is refused invalidCredentials, and curl exits 38, the code for a failed bind.
+    run: curl -s -S -u alice:wrong "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Invalid Credentials"
+
+  - id: strict-refuses-clear-password
+    claim: Without --allow-plaintext-auth, the right password over ldap:// is refused confidentialityRequired without being checked, and curl exits 38.
+    run: curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port2}}/dc=example,dc=com"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Confidentiality Required"
+
+  - id: anonymous-bind-refused
+    claim: An anonymous bind (-u with an empty name and password) is refused inappropriateAuthentication, and curl exits 38.
+    run: 'curl -s -S -u : "ldap://127.0.0.1:{{port}}/"'
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Inappropriate Authentication"
+
+  - id: no-user-binds-as-windows
+    claim: With no -u at all, curl on Windows binds with Negotiate as the Windows user, which this server does not accept, and exits 38.
+    run: curl -s -S "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Authentication Method Not Supported"

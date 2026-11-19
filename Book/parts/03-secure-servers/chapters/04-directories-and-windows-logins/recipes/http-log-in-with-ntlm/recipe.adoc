@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-log-in-with-ntlm]]
+=== Logging In over HTTP with NTLM
+
+==== Problem
+
+A client logs in to a Windows web server with NT LAN Manager (NTLM) or Negotiate, and you want a local Hypertext Transfer Protocol (HTTP) server that asks for that login and checks it.
+
+==== Solution
+
+Start `surl` with an account and NTLM accepted, then fetch with `curl --ntlm`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C]. The checked claims below also run two more `surl` on ports `8081` and `8082`, one with nothing loosened and one with `--auth negotiate`, to show what each offers and refuses.
+
+==== Discussion
+
+`--directory site` serves `site`, and `-u alice:s3cret` adds the account; once an account exists, every request needs a login. A request without one is answered `401 Unauthorized` with a `WWW-Authenticate` header for each method the server accepts (<<rfc9110>>); `-i` shows the response headers along with the body, and `-s` hides the progress meter.
+
+`--auth ntlm` is the loosening option: it sets the methods `surl` accepts and offers to NTLM alone, so the `401` offers `WWW-Authenticate: NTLM` and nothing else. By default the `401` offers Digest, and neither NTLM nor Negotiate; `curl --ntlm` gets `401` and goes no further. NTLM is not the default because an NTLM response is built from a hash of the password: anyone who captures one can try passwords against it offline, or relay it to another server while it is fresh (<<surl-readme>>). `surl` writes a `surl: warning:` line naming the methods it accepts whenever `--auth` is given.
+
+`--ntlm` makes `curl` answer the `401` with NTLM, and `-u` gives it the name and password. NTLM is a challenge and response over three messages on one connection (<<ms-nlmp>>): `curl` asks, `surl` answers `401` with a random challenge, and `curl` sends a value computed from the challenge and the password, never the password itself. So it is accepted over plain `http://`, with no Transport Layer Security (TLS). A wrong password is answered `401` again; `-f` makes `curl` exit `22` on that instead of `0`, and `-S` still prints the error with `-s`.
+
+`--auth ntlm` accepts NTLM and turns the default methods off; it lets no password through in clear. `-u` without `--ntlm` sends Basic, the password in clear, and over `http://` that is refused `403 Forbidden` without being checked. `-o` sends the body nowhere and `-w "%{http_code}"` prints the status, which is how the checked claims read it.
+
+Negotiate is what Windows clients send first: it carries Kerberos when the machine is in a domain, and NTLM when not. `--auth negotiate` makes `surl` offer `WWW-Authenticate: Negotiate`, and it checks NTLM carried inside it (<<surl-readme>>). `--negotiate` makes `curl` answer with Negotiate instead. On a Windows machine in no domain, though, with no Kerberos to use, it finds no credentials to send: Windows answers `SEC_E_NO_CREDENTIALS`, the `401` stands, and with `-f` `curl` exits `22` naming that error. From version 8.22.0, `curl` no longer lets Negotiate fall back to NTLM, so a Windows client of that version with no Kerberos logs in with `--ntlm` or not at all (<<curl-changes>>). Test Negotiate against `surl` with Kerberos, which `--keytab` adds (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-log-in-with-digest>> for the login `surl` offers by default.
+* <<http-refuse-a-password-in-clear>> for the `403` and `--allow-plaintext-auth`.
+* <<ldap-bind-with-ntlm>> and <<smb-read-a-share>> for NTLM over a directory and a file share.
+* <<surl-readme>>, <<rfc9110>>, <<ms-nlmp>>.

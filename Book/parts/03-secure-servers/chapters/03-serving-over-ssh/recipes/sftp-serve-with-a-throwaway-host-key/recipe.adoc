@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-serve-with-a-throwaway-host-key]]
+=== Serving over Secure Shell with a Throwaway Key
+
+==== Problem
+
+A test needs a local Secure Shell (SSH) File Transfer Protocol server to download from, and you do not want to make or keep a host key for it.
+
+==== Solution
+
+Let `surl` make a throwaway host key at start, give it one account, and tell `curl` to skip the host-key check:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Secure Shell (SSH) is a protocol whose server proves who it is with a host key, the way a Transport Layer Security server does with a certificate (<<rfc4251>>). SSH File Transfer Protocol (SFTP) and Secure Copy (SCP) both run inside it, and `surl` answers both on one listener: the same command answers `scp://` as well as `sftp://`.
+
+A host key is not optional. Given an `sftp` or `scp` listen URL and neither `--hostkey` nor `--throwaway-hostkey`, `surl` refuses to start, names both options on standard error, and exits `2`. `--hostkey <file>` names a key you keep, so clients can learn it once and pin it (see <<scp-pin-the-host-key>>). `--throwaway-hostkey` makes a new Rivest-Shamir-Adleman (RSA) key of 3,072 bits in memory each time `surl` starts and forgets it when `surl` stops. The two cannot be given together; `surl` refuses the pair and exits `2`.
+
+`--throwaway-hostkey` loosens something, and the cost is the point of a host key: no client can know the key beforehand, so no client can tell this `surl` from anything else that answers on the same address. That is why it is off by default, and why `surl` writes a `surl: warning:` line on every start while it is on, giving the key's hash for anyone who wants to pin it after all (<<surl-readme>>). It is fine for a test on your own machine; for anything else, keep a key with `--hostkey`.
+
+The client side of the same trade is `-k`. Without it, `curl` checks the server's key against an OpenSSH `known_hosts` file; `--knownhosts known_hosts` names one, here an empty file, and since the throwaway key is in no such file, `curl` refuses the server, `SSH remote key was not OK`, and exits `60` before it sends a password (<<curl-readme>>). `-k` skips that check and nothing else.
+
+The login is still checked, because an SSH password always travels encrypted and `surl` checks every SSH login (<<rfc4252>>). `--user alice:s3cret` adds one account. `-u alice:s3cret` logs in as it. A wrong password, or no `-u` at all, is refused, and `curl` exits `67`, login denied. `--directory site` serves the files under `site`.
+
+In the claims below `-s` hides the progress meter and `-S` still shows the error, which is where the refusals are read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<scp-pin-the-host-key>> for a key you keep, and pinning it instead of `-k`.
+* <<sftp-log-in-with-a-public-key>> for logging in with a key instead of a password.
+* <<sftp-upload-and-rename>> for uploads and remote commands over SFTP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4251>>, <<rfc4252>>.

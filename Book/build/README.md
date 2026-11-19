@@ -22,6 +22,8 @@ python3 build/site.py     # the landing page into out/site/ and the pitch into d
 
 `build/recipes.py` is the shared definition of a recipe (folders, `recipe.yml`, placeholders, how a case's command is spelled) that all three scripts import.
 
+`setup:` (schema 2) is a list of command lines run in the recipe's working directory after the fixtures are written and before any server starts: certificates with `openssl`, SSH keys with `ssh-keygen`. Each must exit 0 and none is a claim; the book prints them first in the Solution, and `run.sh`/`run.ps1` run them too. Keys and certificates are made this way, never committed as fixtures: they would expire and they would be private keys in a public repository. `Book/.gitignore` keeps the ones a reader's `run.sh` makes out of git.
+
 Placeholders: `{{port}}` and `{{port2}}` to `{{port9}}` are each a free port at run time, shown in the book as 8080 to 8088, so one recipe can run several listeners, or two servers side by side (a default one and a loosened one). A server with `ready: port` is waited for on every port its command names; `ready: none` for a UDP listener such as TFTP. `{{null}}` is `/dev/null`, or `NUL` on Windows.
 
 ## C# programs (schema 2, ADR-0008)

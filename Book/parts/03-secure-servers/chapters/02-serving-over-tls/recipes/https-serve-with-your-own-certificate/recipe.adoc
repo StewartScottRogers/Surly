@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-serve-with-your-own-certificate]]
+=== Serving HTTPS with Your Own Certificate
+
+==== Problem
+
+You want an `https://` server whose certificate the client actually verifies, without turning verification off with `-k`.
+
+==== Solution
+
+Make a certificate and its key with `openssl`, give both to `surl` with `--cert` and `--key`, and give the certificate to `curl` with `--cacert` as the one to trust:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Hypertext Transfer Protocol Secure (HTTPS) is HTTP inside Transport Layer Security (TLS). In the TLS handshake the server shows a certificate, and the client checks two things before it sends a byte of the request: that someone it trusts signed the certificate, and that the certificate names the host the client asked for (<<rfc8446>>, <<rfc5280>>, <<rfc9110>>).
+
+The `openssl req -x509` line makes both halves. `-newkey rsa:2048 -nodes -keyout server.key` makes a new RSA private key and writes it unencrypted to `server.key`; `-x509 -out server.pem` writes a certificate for that key, signed by the key itself, to `server.pem`; `-days 30` is how long it is good for. `-subj "/CN=127.0.0.1"` gives it a subject, and `-addext "subjectAltName=IP:127.0.0.1"` names the address `127.0.0.1` as a subject alternative name, the field a client matches the host of the URL against (<<rfc5280>>). The key is a secret: keep it out of version control, which is why this book makes it on every run instead of shipping one.
+
+`--cert server.pem` is the certificate `surl` serves, and `--key server.key` its private key. `--key` is needed because `server.pem` holds no key: without it, `surl` refuses to start with exit `58` and says so. A `--cert` file that is not there is exit `58` too, naming the file, and `--key` without `--cert` is refused as an option badly used, exit `2`. With neither `--cert` nor `--self-signed`, an `https` listen URL is exit `58` before `surl` listens (<<surl-readme>>). `--directory site` serves the files under `site`.
+
+On the `curl` side, `--cacert server.pem` names the certificates `curl` trusts for this transfer. Because the certificate signed itself, it is its own authority, and `curl` verifies it with nothing skipped (<<curl-readme>>). Without `--cacert`, `curl` finds nobody it trusts behind the certificate, refuses the connection, prints nothing and exits `60`. Trust is not the whole check: reached as `https://localhost:8080/`, a name the certificate does not hold, the same trusted certificate is refused with exit `60` as well. The wording of the `curl: (60)` line depends on the TLS library `curl` was built with; the exit code does not.
+
+For a server other machines reach, use a certificate from an authority their clients already trust, given to `surl` the same way; a client that trusts that authority needs no `--cacert` (<<curl-readme>>). Unlike `--self-signed`, nothing here loosens a default.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-with-a-self-signed-certificate>> for a test that needs no certificate file, at the cost of `-k`.
+* <<ftp-protect-the-login-with-tls>> and <<smtp-require-starttls>> for the same certificate on the other protocols.
+* <<surl-readme>>, <<curl-readme>>, <<rfc8446>>, <<rfc5280>>, <<rfc9110>>.

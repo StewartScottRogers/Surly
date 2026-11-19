@@ -1,0 +1,104 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: http-refuse-a-password-in-clear
+title: Refusing a Password Sent in Clear
+protocols: [http, https]
+tier: secure-servers
+surl-options: [--directory, --user, --allow-plaintext-auth, --cert, --key]
+curl-options: [-s, -f, -u, --digest, --cacert, -D, -o, -w]
+exit-codes: [0, 22]
+references: [surl-readme, rfc7617, rfc7616, rfc8446, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  loose/hello.txt: "hello, loosened\n"
+  secure/hello.txt: "hello over TLS\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the default. loose adds --allow-plaintext-auth; tls serves the same account
+# over https://. Each serves its own folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory site --user alice:secret http://127.0.0.1:{{port}}/
+    ready: port
+  loose:
+    command: surl --directory loose --allow-plaintext-auth --user alice:secret http://127.0.0.1:{{port2}}/
+    ready: port
+  tls:
+    command: surl --directory secure --cert server.pem --key server.key --user alice:secret https://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Alice's right password, sent with HTTP Basic over http://, is answered 403 Forbidden.
+    run: curl -s -u alice:secret -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "403"
+
+  - id: unchecked
+    claim: A wrong password gets the same 403, so the password was not checked.
+    run: curl -s -u alice:guess -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "403"
+
+  - id: refused-fail
+    claim: With -f, curl exits 22 on that 403.
+    run: curl -f -s -u alice:secret http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 22
+
+  - id: digest-accepted
+    claim: The same account logs in with HTTP Digest over the same http:// listener.
+    run: curl -s --digest -u alice:secret http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: tls-checked
+    claim: Over https://, Basic is checked, and Alice's right password fetches the file.
+    run: curl -s --cacert server.pem -u alice:secret https://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello over TLS\n"
+
+  - id: tls-wrong-password
+    claim: Over https://, a wrong Basic password is answered 401 Unauthorized.
+    run: curl -s --cacert server.pem -u alice:guess -o {{null}} -w "%{http_code}" https://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: loosened-checked
+    claim: With --allow-plaintext-auth, Basic over http:// is checked, and the right password fetches the file.
+    run: curl -s -u alice:secret http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello, loosened\n"
+
+  - id: loosened-wrong-password
+    claim: With --allow-plaintext-auth, a wrong Basic password over http:// is answered 401.
+    run: curl -s -u alice:guess -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: loosened-offers-basic
+    claim: With --allow-plaintext-auth, the 401 over http:// offers Basic and Bearer after the three Digest challenges.
+    run: curl -s -o {{null}} -D - http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: 'WWW-Authenticate: Digest [^\r\n]*algorithm=SHA-512-256[^\r\n]*\r?\nWWW-Authenticate: Basic realm="surl", charset="UTF-8"\r?\nWWW-Authenticate: Bearer realm="surl"\r?\n'
+
+  - id: default-offers-digest-only
+    claim: By default the 401 over http:// offers the three Digest challenges and nothing else.
+    run: curl -s -o {{null}} -D - http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 401 Unauthorized\r?\nDate: [^\r\n]+\r?\nServer: surl\r?\nContent-Length: 0\r?\n(WWW-Authenticate: Digest [^\r\n]+\r?\n){3}\r?\n$'

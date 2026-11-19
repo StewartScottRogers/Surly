@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-search-a-directory]]
+=== Searching a Directory over LDAP
+
+==== Problem
+
+A test looks people up in a directory over the Lightweight Directory Access Protocol (LDAP), and you want a local directory server with a few known entries that answers `curl`'s searches after a password login.
+
+==== Solution
+
+Write the entries to `site/.surl/ldap/directory.ldif`, start `surl` on an `ldap` URL with an account, and search with `curl`, binding as that account:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C]. The checked claims below also run a second `surl`, `surl -u alice:s3cret ldap://127.0.0.1:8081/`, with nothing loosened, to show what the default refuses.
+
+==== Discussion
+
+`--directory site` makes `site` the data directory, and the directory `surl` serves over LDAP is the LDAP Data Interchange Format (LDIF) file `site/.surl/ldap/directory.ldif` in it, read once at start (<<surl-readme>>). Each record names an entry by its distinguished name (DN), such as `cn=alice,dc=example,dc=com`, and lists its attributes. The directory is read-only: nothing `curl` sends changes it.
+
+The URL is the search (<<rfc4516>>): `ldap://127.0.0.1:8080/dc=example,dc=com?cn,mail?sub?(objectClass=person)` is the base DN, the attributes to return, the scope and the filter, separated by `?`. Scope `sub` searches the base and everything under it, `one` only the entries directly under it, and a URL that names only a DN reads that one entry with every attribute. `curl` prints each entry as a `DN:` line followed by its attributes, one per line and indented. A filter that matches nothing prints nothing and exits `0`, since an empty result is still a successful search. A base that is not in the directory is answered `noSuchObject` (<<rfc4511>>), and `curl` exits `39`, the code for a failed search.
+
+A URL with no base, `ldap://127.0.0.1:8080/?namingContexts`, reads the root DSE (the Directory System Agent-specific entry), the entry in which the server describes itself; its `namingContexts` attribute names the top of each tree the server holds, here `dc=example,dc=com`.
+
+`-u alice:s3cret` is the login on both sides. On `surl` it adds the account; on `curl` it makes a simple bind, the LDAP login that sends the name and password as they are. Every search but the root DSE's needs a successful bind on the connection (<<surl-readme>>). The bind name is the account name, or a DN whose leftmost part is `cn=` or `uid=` the account name, so `-u cn=alice,dc=example,dc=com:s3cret` binds as `alice` too. A wrong password is answered `invalidCredentials`, and `curl` exits `38`, the code for a bind that failed. `-s` hides `curl`'s progress meter and `-S` still shows the error, which is where the checked claims read the server's answer.
+
+`--allow-plaintext-auth` is what lets the simple bind be checked at all. A simple bind over `ldap://` carries the password in clear, so by default `surl` refuses it with `confidentialityRequired` without looking at it, right password or not, and `curl` exits `38`. Anyone who can watch the network reads that password, which is why the refusal is the default; `surl` writes a `surl: warning:` line when it starts with the option on (<<surl-readme>>). Use it for a test on your own machine. To log in without sending the password, bind with Windows NT LAN Manager (NTLM) instead (<<ldap-bind-with-ntlm>>).
+
+`curl` on Windows binds before every search, the root DSE's included. With `-u :`, an empty name and password, it sends an anonymous bind, which `surl` refuses with `inappropriateAuthentication`. With no `-u` at all it binds with Negotiate as the logged-in Windows user, a method this server has not been told to accept, and the bind fails with `Authentication Method Not Supported`. Both exit `38`, so on Windows even the root DSE is read after a password bind.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-bind-with-ntlm>> for searching without sending the password in clear.
+* <<http-refuse-a-password-in-clear>> for the same refusal over Hypertext Transfer Protocol (HTTP).
+* <<surl-readme>>, <<rfc4511>>, <<rfc4516>>.

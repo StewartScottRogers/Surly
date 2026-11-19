@@ -50,6 +50,7 @@ def binary(name):
 def tools(spec):
     """The programs a recipe needs: surl or curl at the head of a server or run line, dotnet for a program."""
     heads = [s["command"].split()[0] for s in (spec.get("servers") or {}).values()]
+    heads += [c.split()[0] for c in spec.get("setup") or []]
     heads += [c["run"].split()[0] for c in spec["cases"] if "run" in c]
     needed = {h for h in heads if h in ("surl", "curl")}
     if programs(spec):
@@ -221,7 +222,15 @@ def verify_recipe(recipe, spec, bins):
     write_fixtures(root, spec.get("fixtures"))
     procs, results, failures, built, hosts, saved = [], {}, [], {}, {}, {}
     try:
-        for name, server in (spec.get("servers") or {}).items():
+        # setup: preparation (certificates, keys) run in the working directory before any
+        # server starts. Each must succeed; none is a claim.
+        for line in spec.get("setup") or []:
+            cmd = resolve(substitute(line, values), bins)
+            r = subprocess.run(cmd, shell=True, cwd=root, capture_output=True, text=True, timeout=120)
+            if r.returncode:
+                failures.append(f"setup `{line}` exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}")
+                break
+        for name, server in ([] if failures else (spec.get("servers") or {}).items()):
             cmd = resolve(substitute(server["command"], values), bins)
             # No shell: killing a shell leaves the server running on Windows. Output goes to a
             # temporary file, since a pipe nobody reads fills up and stalls a talkative server.
@@ -236,6 +245,11 @@ def verify_recipe(recipe, spec, bins):
                 failures.append(f"server {name} never listened on {', '.join(map(str, missed))}")
                 break
             time.sleep(0.2)
+        # A server that has already exited failed to start (45: its port was taken). Say so,
+        # rather than let its clients fail later with a refused connection.
+        for name, p in zip((spec.get("servers") or {}), procs):
+            if p.poll() is not None:
+                failures.append(f"server {name} exited at start with {p.returncode}")
         if not failures:
             for case in spec["cases"]:
                 ok, why = run_case(case, recipe, root, values, bins, built, hosts, saved)
@@ -274,6 +288,11 @@ def main():
     any_failed = False
     for recipe, spec in selected:
         results, failures, host_versions = verify_recipe(recipe, spec, bins)
+        if any(f.endswith("exited at start with 45") for f in failures):
+            # Another program took a free port between allocation and bind: not the recipe's
+            # fault. Try once more on fresh ports, and say so.
+            print(f"{spec['key']}: a server's port was taken; retrying once on fresh ports")
+            results, failures, host_versions = verify_recipe(recipe, spec, bins)
         status = "verified" if not failures else "broken"
         any_failed |= bool(failures)
         versions = recipe_versions(recipe, spec, tool_versions, host_versions)

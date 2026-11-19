@@ -1,0 +1,10 @@
+<!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
+# Review: ldap-search-a-directory
+Verdict: accept with fixes
+Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl commit a0236e175), Curl port 8.22.0 (Curl commit f4b30d981f): 11 of 11 cases pass on windows.
+## Findings
+1. Truth (4, 7): the default refusal (`confidentialityRequired`, exit 38) is a case against a second `surl` with no `--directory` (two `surl` cannot lock one data directory; the first draft tried and the second server never started). The prose names that second command under the Solution, since the generated listing shows only the server the solution talks to.
+2. Platform: `curl` on Windows does LDAP through `WinLDAP` and always binds before a search. The Surl README's "every search but the root DSE's needs a bind" could not be shown as "the root DSE with no login": `-u :` sends an anonymous simple bind, refused `inappropriateAuthentication` (exit 38), and no `-u` binds Negotiate as the Windows user, refused `Authentication Method Not Supported` (exit 38). Both are cases, and the root DSE is read after a password bind. The "needs no bind" half is cited, not cased.
+3. Platform: cases 9 and 10 (anonymous bind, no `-u`) and the exact error wording are `WinLDAP`'s; on Linux and macOS the Curl port's LDAP client will word them differently and may bind differently. Verify there before publishing; split or drop those two cases if they differ.
+4. Truth (5): the start-up warning for `--allow-plaintext-auth` is cited to <<surl-readme>>, not cased (verify cannot read a server's log).
+5. Reader: LDIF, DN, DSE and LDAP are spelled out on first use; the curl output format (tab-indented attributes, blank line after each) is shown verbatim in the Solution.

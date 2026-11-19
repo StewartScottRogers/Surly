@@ -86,6 +86,11 @@ def load_spec(recipe_dir):
                 sys.exit(f"{where}: case {c['id']}: program {program} does not exist")
             if not isinstance(c.get("args", []), list):
                 sys.exit(f"{where}: case {c['id']}: args must be a list")
+    setup = spec.get("setup") or []
+    if not isinstance(setup, list) or not all(isinstance(c, str) for c in setup):
+        sys.exit(f"{where}: setup must be a list of command lines")
+    if setup and spec["schema"] < 2:
+        sys.exit(f"{where}: setup needs schema: 2")
     spec["verified"] = load_verified(recipe_dir)
     return spec
 
@@ -172,6 +177,11 @@ def solution_servers(spec, values):
     chosen = [s["command"] for s in (spec.get("servers") or {}).values()
               if not used or any("{{" + n + "}}" in s["command"] for n in used)]
     return [substitute(c, values) for c in chosen]
+
+
+def setup_commands(spec, values):
+    """The preparation commands (certificates, keys) run before any server starts."""
+    return [substitute(c, values) for c in spec.get("setup") or []]
 
 
 def server_commands(spec, values):

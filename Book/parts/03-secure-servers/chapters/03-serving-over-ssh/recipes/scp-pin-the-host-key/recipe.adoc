@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[scp-pin-the-host-key]]
+=== Pinning the Server's Secure Shell Host Key
+
+==== Problem
+
+You want `curl` to download from a local Secure Copy server only if it is the server you set up, by checking its host key instead of skipping the check with `-k`.
+
+==== Solution
+
+Make a host key, give it to `surl`, and pin its hash in `curl`, read from the fingerprint `ssh-keygen` prints:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A Secure Shell (SSH) server proves who it is with its host key (<<rfc4251>>). A client that knows the key beforehand can refuse anything else that answers on the same address; a client that skips the check with `-k` cannot. Pinning is knowing it beforehand: `--hostpubsha256` gives `curl` the base64 form of the SHA-256 hash of the server's public key, and `curl` refuses a server whose key hashes to anything else (<<curl-readme>>).
+
+The key comes first. The setup runs `ssh-keygen -t rsa -b 3072 -N "" -f host_key`, which writes a Rivest-Shamir-Adleman (RSA) key of 3,072 bits with no passphrase to `host_key` and its public half to `host_key.pub`. `--hostkey host_key` gives `surl` the private key, the one it proves itself with. A file that cannot be read stops `surl` at start with exit `37`; the public half, `host_key.pub`, is not a key `surl` can serve with, and it exits `2`. The Surl README notes that `curl` on Windows offers only RSA host-key algorithms, so an Ed25519 or ECDSA host key alone does not serve it there; RSA serves every `curl` (<<surl-readme>>).
+
+The hash comes from the same key. `ssh-keygen -lf host_key.pub` prints the key's fingerprint in one line: its size, `3072`, then `SHA256:`, then the hash as 43 characters of base64 without the `=` padding, then the key's comment. The setup writes that line to `fingerprint.txt`, so the hash is bytes 12 to 54 of the file. `curl` reads them itself: `--variable "host_sha256[12-54]@fingerprint.txt"` sets the variable `host_sha256` to that byte range of the file, and `--expand-hostpubsha256` is `--hostpubsha256` with every `+{{name}}+` in its value replaced by the variable of that name, here `+"{{host_sha256}}"+`. That keeps the command the same in every shell; by hand, copy the hash from the fingerprint and write `--hostpubsha256 <hash>`. The range counts on the four digits of `3072` at the front of the line; a key of another size needs it counted again. `curl` accepts the hash with or without its trailing `=`.
+
+`surl -v` prints the same hash too: with `-v`, `surl` writes `* Serving SSH host key ssh-rsa, --hostpubsha256 <base64> --hostpubmd5 <hex>` before it listens, ready to paste (<<surl-readme>>). That is the easier source when you did not make the key yourself, and the reason `-v` is in the server's command.
+
+A pin that does not match makes `curl` stop before it sends the password, with `mismatch SHA256 fingerprint`, naming the hash the server offered, and exit `60`. That is the check doing its job: either the key changed or the server is not the one you pinned.
+
+One host key serves both protocols: the `scp` listener also answers `sftp://`, with the same pin. `--user alice:s3cret` adds the one account and `-u alice:s3cret` logs in as it; an SSH password always travels encrypted. `--directory site` serves the files under `site`. In the claims, `-s` hides the progress meter and `-S` still shows an error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-serve-with-a-throwaway-host-key>> for a key made at start, and `-k`.
+* <<sftp-log-in-with-a-public-key>> for the client proving itself with a key too.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4251>>.

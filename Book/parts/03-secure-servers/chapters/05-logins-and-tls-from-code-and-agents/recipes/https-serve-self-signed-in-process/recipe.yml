@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: https-serve-self-signed-in-process
+title: Serving HTTPS Behind a Login from C#
+protocols: [https]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110, rfc7617, rfc8446, rfc5280]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api and makes its own certificate.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Surl.Api server with SelfSigned and one account serves hello.txt over HTTPS to a Curl.Api client that skips verification and logs in; a second server with a certificate the program made serves it to a client that trusts that certificate, verification on.
+    program: login-over-tls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^no certificate: \(58\) https://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\nself-signed: https://127\.0\.0\.1:[1-9]\d*/\nverified, alice: CurlException 60 PeerFailedVerification\nunverified, no login: 401\nunverified, wrong password: 401\nunverified, alice: 200 hello from surl\nown certificate: https://127\.0\.0\.1:[1-9]\d*/\ntrusted, alice: 200 hello from surl\n$'
+
+  - id: needs-a-certificate
+    claim: An https listen URL with neither SelfSigned nor a certificate file is refused at start with SurlServerStartException, whose first line carries surl's exit code 58 and names --cert and --self-signed.
+    program: login-over-tls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^no certificate: \(58\) https://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n'
+
+  - id: self-signed-not-verified
+    claim: With the client's default TLS options, the throwaway certificate fails verification, and SendAsync throws CurlException with code 60, PeerFailedVerification.
+    program: login-over-tls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nverified, alice: CurlException 60 PeerFailedVerification\n'
+
+  - id: no-login
+    claim: Once the server has an account, a request with no login is answered 401 Unauthorized, even over TLS.
+    program: login-over-tls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunverified, no login: 401\n'
+
+  - id: wrong-password
+    claim: A login with the right user name and a wrong password is answered 401 Unauthorized, as an ordinary CurlResponse, not an exception.
+    program: login-over-tls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunverified, wrong password: 401\n'
+
+  - id: skip-verification
+    claim: VerifyPeer and VerifyHost set to false in the request's CurlTlsOptions, with the account's user name and password, fetch the file from the self-signed server, 200 OK.
+    program: login-over-tls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunverified, alice: 200 hello from surl\n'
+
+  - id: trust-your-own
+    claim: A certificate the program makes for 127.0.0.1, given to the server as CertificateFile and KeyFile and to the client as CertificateAuthorityBlob, passes verification with VerifyPeer and VerifyHost left on, and the login fetches the file, 200 OK.
+    program: login-over-tls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nown certificate: https://127\.0\.0\.1:[1-9]\d*/\ntrusted, alice: 200 hello from surl\n$'

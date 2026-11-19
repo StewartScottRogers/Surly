@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-protect-the-login-with-tls]]
+=== Protecting an FTP Login with TLS
+
+==== Problem
+
+Your FTP server has an account, and you want the password and the files to cross the network encrypted rather than in clear.
+
+==== Solution
+
+Give `surl` a certificate, an account, and both an `ftp` and an `ftps` listen URL; on `ftp://`, tell `curl` with `--ssl-reqd` to upgrade to TLS before it logs in:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run a second `surl` on port `8082`, `surl --directory plain --allow-plaintext-auth --user alice:s3cret ftp://127.0.0.1:8082/`, with no certificate and passwords in clear allowed, to show what that costs. You do not need it. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+File Transfer Protocol (FTP) sends the user name and password as plain `USER` and `PASS` commands (<<rfc959>>). Transport Layer Security (TLS) can wrap the connection in two ways (<<rfc4217>>, <<rfc8446>>). On `ftp://` the connection starts in clear and the client asks for TLS with an `AUTH` command before it logs in; that is explicit TLS. On `ftps://` the connection is TLS from the first byte, before the server says anything; that is implicit TLS. One `surl` serves both here, on two ports, over one directory and one account.
+
+`surl` is surly about the first way. A password sent on `ftp://` before `AUTH` is refused unchecked: `530 Login needs TLS first: send AUTH TLS`, and `curl` exits `67`, access denied. It is not checked, so a right password is refused the same as a wrong one, and nobody watching the network learns which it was. That is the default because anyone who can watch the network reads a password sent in clear (<<surl-readme>>).
+
+`--ssl-reqd` makes `curl` ask for TLS on `ftp://` and give up if it cannot have it. With it, the password goes over TLS and is checked: `alice:s3cret` logs in, `alice:wrong` is denied with exit `67`. `curl` then asks for a protected data connection too (`PBSZ 0`, `PROT P`), `surl` answers `200 Protection level set to P`, and the file itself travels encrypted. On a listener with no certificate, `surl` answers `AUTH` with `534 TLS is not available`, and `curl` stops with exit `64`, the TLS level it was told to require could not be had, rather than send the password in clear. `--ssl` is the weaker request: try TLS, carry on without it. Against the same listener it carries on in clear, so use `--ssl-reqd` (<<curl-readme>>). On `ftps://` there is nothing to ask for, and `curl` needs neither option.
+
+`--cert server.pem` and `--key server.key` are the certificate and key `surl` serves, made by the `openssl` line in setup; `--cacert server.pem` is `curl` trusting it, and without it `curl` stops before it logs in, exit `60` (<<https-serve-with-your-own-certificate>>). For a test, `--self-signed` and `curl -k` can stand in for all three (<<https-serve-with-a-self-signed-certificate>>). An `ftps` listen URL with neither `--cert` nor `--self-signed` is refused at start, exit `58`; an `ftp` one starts without, and then has no TLS to offer.
+
+`--user alice:s3cret` is the account, `-u alice:s3cret` the login `curl` sends, and `--directory` the directory each `surl` serves; two `surl` processes cannot share one, so the second serves `plain`. `-v` shows the conversation on standard error, where the checked claims read the server's replies.
+
+`--allow-plaintext-auth` turns the refusal off: a password sent on `ftp://` without TLS is checked instead of refused, so the right one logs in and a wrong one is still denied, exit `67`. It gives up exactly what the default protects, the password on the wire, and `surl` warns on every start while it is on (<<surl-readme>>). It is for a test against a client that cannot do TLS, and nowhere a stranger can listen.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<ftp-list-and-upload>> for listings and uploads, which work the same over TLS.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc4217>>, <<rfc8446>>.
