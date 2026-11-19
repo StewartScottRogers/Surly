@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-add-a-zone-from-an-agent]]
+=== Adding a DNS Zone from an Agent
+
+==== Problem
+
+Your artificial intelligence (AI) agent is testing a program that looks names up in the Domain Name System (DNS), and it needs a stand-in DNS server to start answering for a made-up zone while the server is already running.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts a DNS server with no zone through `surl-mcp`, calls `add_dns_zone` with the zone's text, checks it with `read_zone`, and lets `curl`, through `curl-mcp`, look a name up:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program's folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here one `dns` listener on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound, which the program keeps in variables. On the console, a `surl` reads its zones from files once, at start; this server starts with none, and until it has one it answers every query `REFUSED`.
+
+`add_dns_zone` gives the running server a zone, served at once with no restart. `apex` is the zone's top name, `example.com`, and `zone_text` the zone as a master file, the text format of <<rfc1035>> section 5. The apex is the file's origin, so a name without a final dot, `www` or `ns1`, is read as a name under it, and `@` is the apex itself. The program's zone has a default time to live (TTL) of 3600 seconds, a start of authority (SOA) record, a name server and two addresses. The answer is the `apex` and the text's `byte_count`. A zone with no SOA record at its apex is a tool error and is not served; so is a second zone for an apex already served, which replaces nothing: the first zone's address is still the answer.
+
+`read_zone` with no `apex` answers `zones`, the apexes served, each ending in a dot. With an `apex` it answers that zone's records as `zone`, the text of a master file as the server holds it: one record per line, every name in full, every TTL filled in. An apex nobody added is a tool error, `No such zone.`.
+
+The `curl` tool, from `curl-mcp`, plays the program under test. It takes `curl`'s own arguments, here `-s`, which keeps the progress meter out of the answer, and a `dns` URL as <<rfc4501>> lays it out: the server in the authority and the name to look up as the path, asking for the name's A record, its Internet Protocol version 4 (IPv4) address (<<curl-readme>>, <<curl-protocols>>). `curl-mcp` answers in text that is JSON, with `curl`'s output in `standardOutput`; that output is the answer written as the `dig` tool writes it. The program prints `curl`'s exit code, the status from the header line, and the records of the answer section, tab-separated; the message identifier, which changes with every query, it leaves out. A name in the zone that has no records is `NXDOMAIN`, and `curl` exits `0` all the same: the status is in the output, not in the exit code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-look-up-a-name>> for the same server on the console, with zones from files, other record types and zone transfers.
+* <<redis-seed-keys-from-an-agent>> for seeding another store the same way.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<rfc1035>>, <<rfc4501>>, <<mcp-spec>>.

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[gs-put-and-get-an-object]]
+=== Putting and Getting a Google Cloud Storage Object
+
+==== Problem
+
+A test needs a local stand-in for a Google Cloud Storage bucket that it can put an object into and get the object back from, signed with a Hash-based Message Authentication Code (HMAC) key, without a Google Cloud project.
+
+==== Solution
+
+Make a certificate, give `surl` a folder, an HMAC key and permission to take uploads on a `gs` listen URL, and send `curl` to it with `--connect-to`, putting the object with `-T` and getting it with a second URL:
+
+include::.generated/solution.adoc[]
+
+The other two servers in the checked claims, one without `--allow-uploads` and one with `--allow-anonymous`, are there to show the refusals. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Google Cloud Storage keeps objects in buckets, and its Extensible Markup Language (XML) API speaks Hypertext Transfer Protocol (HTTP): `PUT` on an object name stores the object and `GET` reads it (<<gcs-xml-api>>). `surl` on a `gs` listen URL is one of its extended servers, judged by that API and not by upstream curl, which has no `gs` scheme (<<surl-readme>>, <<curl-protocols>>). `--directory store` is its store: each top-level folder is a bucket and the path under it the object name, so `store/photos/` is the bucket `photos`. The object put here is the file `store/photos/note.txt`, and the file `hello.txt`, written there before `surl` started, is an object `curl` gets like any other.
+
+In `curl`, a `gs://` URL names the bucket as its host and the object as its path, as `gcloud storage` does, so `gs://photos/note.txt` is the object `note.txt` in `photos`. `-T note.txt` puts the local file there; a URL with no `-T` of its own gets the object and writes it to standard output, so one `curl` command puts the object and reads it back. `curl` sends each request where Google would have it, to `storage.googleapis.com` on port 443 with the bucket as the first segment of the path. `--connect-to ::127.0.0.1:8080` sends every connection to `surl` instead, whatever host and port the URL names, while `curl` keeps Google's host name in the request and in the certificate check.
+
+`--user GOOGTESTKEY:s3cret` gives `surl` an account whose user name is an HMAC access key and whose password is its secret, and `-u` with the same pair makes `curl` sign each request with them, in the `GOOG4-HMAC-SHA256` form of Cloud Storage's V4 signing (<<gcs-xml-api>>), which proves the secret without sending it. `surl` answers as Cloud Storage does: a request with no `Authorization` is `401 AuthenticationRequired`, an access key it does not hold `403 InvalidAccessKeyId`, a wrong secret `403 SignatureDoesNotMatch`, and a name with no object `404 NoSuchKey`. For every error status `curl` writes nothing to standard output, names the error on standard error, and exits `22`.
+
+Cloud Storage is reached over Transport Layer Security (TLS) from the first byte (<<rfc8446>>), and so is `surl`'s `gs` listener: started with no certificate, it exits `58` and says it needs one. The `openssl` line makes a certificate and its key for `127.0.0.1`, `storage.googleapis.com` and the Amazon S3 host name used below; `--cert server.pem` and `--key server.key` serve them, and `--cacert server.pem` makes `curl` trust that certificate, which no authority signed.
+
+`--allow-uploads` lets a signed request write. Without it, the `readonly` server refuses a signed put with `403 AccessDenied` and still serves a signed get, because a stand-in that changes when nobody asked it to is a test that lies. `--allow-anonymous`, on the `anonymous` server, serves gets with no `-u`, so a test can read without a key, and so can anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on (<<surl-readme>>). A put with no `-u` is still `401 AuthenticationRequired`.
+
+One `surl` keeps one store for every protocol it serves, so the main server's second listen URL, `s3://127.0.0.1:8081/`, which the Solution does not need and the claims do, serves the same buckets as Amazon Simple Storage Service (S3) (<<aws-s3-api>>). The object put over `gs` is the S3 object `note.txt` in `photos`, and the same account signs for it, its key pair standing as an Amazon Web Services (AWS) access key ID and secret. `s3://photos/note.txt` goes to `photos.s3.us-east-1.amazonaws.com`, which `--connect-to` sends to that listener. In the checked claims, `-s` silences `curl`'s progress meter and messages, and `-S` puts the error message back.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-put-and-get-an-object>> for Amazon S3 on its own, and an object read over HTTPS.
+* <<az-put-and-get-a-blob>> for Azure Blob Storage.
+* <<https-serve-with-your-own-certificate>> for the certificate.
+* <<surl-readme>>, <<curl-protocols>>, <<gcs-xml-api>>, <<aws-s3-api>>, <<rfc8446>>.

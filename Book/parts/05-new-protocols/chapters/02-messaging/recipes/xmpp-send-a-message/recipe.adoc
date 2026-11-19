@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[xmpp-send-a-message]]
+=== Sending a Message over XMPP
+
+==== Problem
+
+A test needs a local XMPP server to log in to with an account and send a chat message through, over an encrypted connection, with `curl` and nothing else installed.
+
+==== Solution
+
+Give `surl` a certificate and an account on an `xmpp` listen URL, and send the message with `curl -d`, trusting the certificate with `--cacert` and logging in with `-u`:
+
+include::.generated/solution.adoc[]
+
+The second `surl` in the checked claims, with no certificate and passwords in clear allowed, is there to show what that costs. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+XMPP, the Extensible Messaging and Presence Protocol, is the protocol of Jabber chat: a client opens an Extensible Markup Language (XML) stream to a server's domain, logs in with Simple Authentication and Security Layer (SASL), binds a resource, and sends stanzas, such as a `<message/>` to a Jabber identifier (JID) like `alice@127.0.0.1` (<<rfc6120>>). `surl` on an `xmpp` listen URL is an XMPP server for the listen URL's host as its domain, an extended server of `surl`'s that upstream curl has no client for; the Curl port has one (<<curl-protocols>>). In the URL `curl` takes, the host is the server and its domain, and the path is the JID to write to. With `-d`, `curl` logs in, binds a resource, sends the data as a message's `<body/>` and closes the stream; the query `?message;body=` carries the text in the URL instead, percent-encoded. It prints nothing (<<curl-readme>>).
+
+A message needs someone to receive it. `surl` routes a message to the streams bound to its JID in the same run, and `curl` holds a stream only while it sends, so the Solution writes to `alice@127.0.0.1`, alice's own bare JID: `surl` delivers it to the one stream alice has bound, the one `curl` is sending on, and `curl` exits `0`. A message to `bob@127.0.0.1`, an account with no stream bound, is answered with the stanza error `service-unavailable`, because `surl` stores no messages for later, and `curl` exits `8`, a reply it could not use. A message to `alice@example.com` is answered `remote-server-not-found`: `surl` serves its own domain and talks to no other server (<<surl-readme>>). To receive messages, connect a chat client to `surl` as `bob` and keep it open; `curl` only sends.
+
+Without `-d`, and with the server's domain as the path, `curl` asks for service discovery information instead and prints the answer: `surl` says it is an instant-messaging server, `category="server" type="im"`, and lists the features it answers.
+
+`surl` with a certificate requires Transport Layer Security (TLS) before a login on `xmpp://`: it offers `STARTTLS` as required, and `curl` takes it whenever it is offered, then verifies the certificate (<<rfc8446>>). `--cert server.pem` and `--key server.key` are the certificate and key `surl` serves, made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting it; without it, `curl` stops with exit `60` before it sends the password. `xmpps://` is the same server with TLS from the first byte and no `STARTTLS`, here on port `8081`. `--user alice:s3cret` and `--user bob:hunter2` are the accounts, and `-u alice:s3cret` the login, sent inside TLS; a wrong password is answered `not-authorized`, and `curl` exits `67`, login denied. Without `-u`, `curl` asks for SASL `ANONYMOUS`, which `surl` does not offer here, and exits `67` too.
+
+`--allow-plaintext-auth` on the second `surl`, which has no certificate, lets a password cross in clear: no `STARTTLS` is offered and `curl` logs in and sends without TLS. Anyone who can watch the network then reads the password, which is why it is not the default; `surl` warns on start while it is on (<<surl-readme>>). `--ssl-reqd` is the client's guard against that: it makes `curl` refuse a server that does not offer `STARTTLS`, before it sends the password, exit `64`.
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back, so the stanza or SASL error shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-require-starttls>> for the same upgrade on mail.
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<rfc6120>>, <<rfc8446>>.
+* <<rfc6121>> for how a server routes a message to an offline contact (section 8.5).

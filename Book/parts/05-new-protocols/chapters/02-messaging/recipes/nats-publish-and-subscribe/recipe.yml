@@ -1,0 +1,118 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: nats-publish-and-subscribe
+title: Publishing and Subscribing over NATS
+protocols: [nats, mqtt]
+tier: new-protocols
+surl-options: [--allow-anonymous, --fault, --topic, --user, --allow-plaintext-auth]
+curl-options: [-Z, --next, -d, -m, -s, -S, -u]
+exit-codes: [0, 3, 28, 56, 67]
+references: [surl-readme, curl-readme, curl-protocols, nats-protocol, mqtt311]
+
+# main is the recipe: a NATS server that holds every PUB for a second before it acts
+# on it, so a subscriber started at the same time is in place before the publish. bridge adds an MQTT listener and keeps what is
+# published under orders/. accounts has an account and no loosening; plaintext adds
+# --allow-plaintext-auth to it, so each refusal and its loosening is a case.
+servers:
+  main:
+    command: surl --allow-anonymous --fault "delay;ms=1000;stage=command;command=PUB" nats://127.0.0.1:{{port}}/
+    ready: port
+  bridge:
+    command: surl --allow-anonymous --topic "orders/#;retain" nats://127.0.0.1:{{port2}}/ mqtt://127.0.0.1:{{port3}}/
+    ready: port
+  accounts:
+    command: surl --user alice:s3cret nats://127.0.0.1:{{port4}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth nats://127.0.0.1:{{port5}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With -Z, one curl subscribes to orders.new and publishes paid to it at the same time, the publish held a second by --fault; the subscriber receives the message, writes its payload and a newline, and ends after one message because of ?count=1, exit 0.
+    run: curl -Z "nats://127.0.0.1:{{port}}/orders.new?count=1" --next -d paid nats://127.0.0.1:{{port}}/orders.new
+    expect:
+      exit: 0
+      stdout: "paid\n"
+
+  - id: wildcard
+    claim: 'A subscription to orders.* (the token wildcard *) receives the message published to orders.new; curl writes the payload alone, not the subject.'
+    run: curl -Z "nats://127.0.0.1:{{port}}/orders.*?count=1" --next -d paid nats://127.0.0.1:{{port}}/orders.new
+    expect:
+      exit: 0
+      stdout: "paid\n"
+
+  - id: tail-wildcard
+    claim: 'A subscription to orders.> (the tail wildcard >, last) receives the message published to orders.new as well.'
+    run: curl -Z "nats://127.0.0.1:{{port}}/orders.>?count=1" --next -d paid nats://127.0.0.1:{{port}}/orders.new
+    expect:
+      exit: 0
+      stdout: "paid\n"
+
+  - id: nothing-kept
+    claim: NATS keeps nothing; a subscriber that connects after the publish never receives it, and -m 1 ends the wait with exit 28 and no output.
+    run: curl -s -d paid nats://127.0.0.1:{{port}}/orders.new --next -s -m 1 "nats://127.0.0.1:{{port}}/orders.new?count=1"
+    expect:
+      exit: 28
+      stdout: ""
+
+  - id: no-responders
+    claim: With ?request, curl publishes with a reply subject and waits for one reply; with nobody subscribed, surl says there are no responders at once, and curl exits 56.
+    run: curl -sS -d status "nats://127.0.0.1:{{port}}/orders.status?request"
+    expect:
+      exit: 56
+      stdout: ""
+      stderr-contains: "no responders"
+
+  - id: wildcard-publish-refused
+    claim: A publish to a subject holding a wildcard is refused by curl before it connects, exit 3.
+    run: curl -sS -d paid "nats://127.0.0.1:{{port}}/orders.*"
+    expect:
+      exit: 3
+      stderr-contains: "holds a wildcard"
+
+  - id: reaches-mqtt
+    claim: On a surl that also serves MQTT, the NATS subject orders.new is the MQTT topic orders/new; under --topic "orders/#;retain" a later MQTT subscriber receives the NATS publish, written as the topic's length in two bytes, the topic and the payload.
+    run: curl -s -d paid nats://127.0.0.1:{{port2}}/orders.new --next -s mqtt://127.0.0.1:{{port3}}/orders/new
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x0aorders/newpaid\Z'
+
+  - id: retained-not-for-nats
+    claim: The retained message is MQTT's; a NATS subscriber to the same subject still receives nothing, and -m 1 ends it with exit 28.
+    run: curl -s -m 1 "nats://127.0.0.1:{{port2}}/orders.new?count=1"
+    expect:
+      exit: 28
+      stdout: ""
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, a CONNECT with no user name is answered -ERR 'Authorization Violation' and curl exits 67.
+    run: curl -sS -d paid nats://127.0.0.1:{{port4}}/orders.new
+    expect:
+      exit: 67
+      stderr-contains: "Authorization Violation"
+
+  - id: clear-password-refused
+    claim: The right password over nats:// is refused unchecked with the same error, because it crossed the network in clear.
+    run: curl -sS -u alice:s3cret -d paid nats://127.0.0.1:{{port4}}/orders.new
+    expect:
+      exit: 67
+      stderr-contains: "Authorization Violation"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, the same password is checked and accepted, and the publish succeeds, exit 0.
+    run: curl -sS -u alice:s3cret -d paid nats://127.0.0.1:{{port5}}/orders.new
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused, exit 67.
+    run: curl -sS -u alice:wrong -d paid nats://127.0.0.1:{{port5}}/orders.new
+    expect:
+      exit: 67
+      stderr-contains: "Authorization Violation"

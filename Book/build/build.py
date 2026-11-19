@@ -18,7 +18,7 @@ and renders out/surly.html and out/recipes/<key>.html with Asciidoctor.
 Usage:  python3 build/build.py
 Needs:  python3 with PyYAML; asciidoctor on PATH (npm install -g asciidoctor)
 """
-import json, re, shutil, subprocess, sys
+import json, re, shlex, shutil, subprocess, sys
 from pathlib import Path
 import yaml
 from recipes import (BOOK, recipes, book_values, server_commands, solution_servers, setup_commands, solution_case, case_command,
@@ -102,7 +102,9 @@ def write_recipe_files(recipe, spec):
     setup = setup_commands(spec, values)
     cmds = setup + [s + " &" for s in servers] + [sol_cmd]
     # surl prints one Listening line per listen URL on its command line, in order.
-    listening = [f"Listening on {u}" for cmd in servers for u in re.findall(r"(?<![\w/])[a-z][a-z0-9+.-]*://\S+", cmd)]
+    # A listen URL is a whole argument; a URL inside an option's value (--fault "...;listener=...") is not.
+    listening = [f"Listening on {arg}" for cmd in servers for arg in shlex.split(cmd)
+                 if re.fullmatch(r"[a-z][a-z0-9+.-]*://\S+", arg)]
     printed = listening + expected_lines(sol)
     status_note = ""
     if v.get("status") == "verified":

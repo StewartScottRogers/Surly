@@ -1,0 +1,10 @@
+<!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
+# Review: nats-publish-and-subscribe
+Verdict: accept with fixes
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 71807f05f), Curl port 8.22.0 (Curl commit 82913be53d): 12 of 12 cases pass on windows (five runs, all side by side with the two other recipes).
+## Findings
+1. Fitness (3), for the author: `--fault "delay;ms=1000;stage=command;command=PUB"` is in the Solution only to order the two parallel transfers. Core NATS keeps nothing (a retained message is never delivered to NATS, ADR-0113 decision 4), so a subscriber must exist before the publish, and `curl -Z` alone loses that race: in probing, one of four plain `-Z` runs ended with exit 28 and no output. No curl option orders parallel transfers, and `?request` with `--retry-all-errors` (which does wait for a subscriber) leaves the requester waiting for a reply until `-m`. The Discussion says why the fault is there and what to do against a real server. The ordering rests on a one-second margin, not a handshake; a slower machine would need a larger `ms`.
+2. Fixed: the first version used a second listen URL with `--fault "delay;...;listener=nats://..."`; build.py's Listening-line pattern picked the URL inside the fault value and printed a false `Listening on nats://127.0.0.1:8081/"` line. Scoping the delay to `command=PUB` on one listener avoids it and is simpler. The pattern itself is a build.py issue, reported to the lead.
+3. Truth: the subscribe ends by `?count=1` in every solution-style case and by `-m 1` (exit 28) where nothing arrives; no case waits on a race.
+4. Cited, not cased: the start-up warnings of `--allow-anonymous`, `--allow-plaintext-auth` and `--fault`, and `natss` needing a certificate (<<surl-readme>>). `-ERR 'Authorization Violation'` is checked through curl's stderr, not on the wire.
+5. Reader: MQTT is spelled out at its first use in the Solution; NATS is a name, not an acronym. `*` and `>` in claims are plain text; no AsciiDoc replacement fires on them.

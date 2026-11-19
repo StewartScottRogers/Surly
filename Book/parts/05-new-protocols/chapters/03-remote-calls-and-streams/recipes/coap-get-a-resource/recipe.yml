@@ -1,0 +1,129 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: coap-get-a-resource
+title: Getting a Constrained Application Protocol Resource
+protocols: [coap, coaps]
+tier: new-protocols
+surl-options: [--directory, --user, --allow-anonymous, --self-signed]
+curl-options: [-i, -f, -s, -u, -k, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 7, 22, 58, 60]
+references: [rfc7252, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  private/hello.txt: "hello from surl\n"
+  open/hello.txt: "hello from surl\n"
+  secure/hello.txt: "hello from surl\n"
+
+# CoAP listens on UDP only, so there is no TCP port to wait for (ready: none). The
+# first case waits instead: curl retries until surl answers. main starts last, so the
+# other servers have had longer to start than it has. private has an account; open
+# has the same account and --allow-anonymous; secure serves coaps over DTLS with a
+# throwaway certificate.
+# Each serves its own directory.
+servers:
+  private:
+    command: surl --directory private --user alice:secret coap://127.0.0.1:{{port2}}/
+    ready: none
+  open:
+    command: surl --directory open --user alice:secret --allow-anonymous coap://127.0.0.1:{{port3}}/
+    ready: none
+  secure:
+    command: surl --directory secure --self-signed coaps://127.0.0.1:{{port4}}/
+    ready: none
+  main:
+    command: surl --directory site coap://127.0.0.1:{{port}}/
+    ready: none
+
+cases:
+  - id: wait-for-start
+    claim: With --retry 5 --retry-all-errors --retry-delay 1, curl tries again until surl answers, then gets the resource, exit 0.
+    run: curl -s --retry 5 --retry-all-errors --retry-delay 1 coap://127.0.0.1:{{port}}/hello.txt
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: nothing-listening
+    claim: With nothing listening on the UDP port, curl fails at once, exit 7, as it does when surl has not bound it yet.
+    run: curl -s coap://127.0.0.1:{{port9}}/hello.txt
+    timeout: 60
+    expect:
+      exit: 7
+      stdout: ""
+
+  - id: solution
+    role: solution
+    claim: curl sends a confirmable GET over UDP and writes the payload of surl's answer, the file's contents, exit 0.
+    run: curl coap://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: response-code
+    claim: With -i, curl writes the response code first, 2.05 Content, and a blank line before the payload.
+    run: curl -s -i coap://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 2.05\n\nhello from surl\n"
+
+  - id: not-found
+    claim: A resource that is not there is answered 4.04 Not Found, and curl still exits 0 with no payload.
+    run: curl -s -i coap://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.04\n\n"
+
+  - id: not-found-fail
+    claim: With -f, a 4.04 makes curl exit 22, naming the code, with nothing on standard output.
+    run: curl -f coap://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "curl: (22) The requested URL returned error: 4.04"
+
+  - id: account-makes-private
+    claim: Once surl has an account, a coap read is refused 4.01 Unauthorized, because plain CoAP carries no login.
+    run: curl -s -i coap://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01\n\n"
+
+  - id: password-not-sent
+    claim: -u changes nothing over coap; the read is still 4.01.
+    run: curl -s -i -u alice:secret coap://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01\n\n"
+
+  - id: anonymous-allowed
+    claim: With --allow-anonymous, the same server with the same account serves the read.
+    run: curl -s -i coap://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 2.05\n\nhello from surl\n"
+
+  - id: over-dtls
+    claim: Over coaps, the same GET runs inside DTLS; with -k, curl accepts surl's throwaway certificate unverified, exit 0.
+    run: curl -s -k coaps://127.0.0.1:{{port4}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: over-dtls-untrusted
+    claim: Over coaps without -k, curl cannot verify the throwaway certificate and exits 60, writing nothing.
+    run: curl -s coaps://127.0.0.1:{{port4}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: coaps-needs-a-certificate
+    claim: A coaps listen URL with no certificate (neither --cert nor --self-signed) and no account is refused at start, exit 58.
+    run: surl --directory site coaps://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) coaps://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n'

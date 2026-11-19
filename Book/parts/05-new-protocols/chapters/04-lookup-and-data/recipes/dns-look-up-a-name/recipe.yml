@@ -1,0 +1,147 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: dns-look-up-a-name
+title: Looking Up a Name in a Local DNS Server
+protocols: [dns]
+tier: new-protocols
+surl-options: [--directory, --allow-zone-transfer]
+curl-options: [--dns-json, --dns-transport, -s, -S]
+exit-codes: [0, 3, 37]
+references: [surl-readme, curl-readme, curl-protocols, rfc1035, rfc4501]
+
+# The zone is a master file under <--directory>/.surl/dns/, named for its apex.
+# Two surls cannot share a --directory, so transfers/ holds a copy of the zone.
+# bad/ holds a file that is not a zone, for the start-up refusal.
+fixtures:
+  zones/.surl/dns/example.com.zone: &zone |
+    $ORIGIN example.com.
+    $TTL 3600
+    @     IN SOA   ns1.example.com. admin.example.com. 1 7200 3600 1209600 300
+    @     IN NS    ns1.example.com.
+    @     IN MX    10 mail.example.com.
+    ns1   IN A     127.0.0.1
+    www   IN A     192.0.2.10
+    mail  IN A     192.0.2.25
+    ftp   IN CNAME www
+  transfers/.surl/dns/example.com.zone: *zone
+  bad/.surl/dns/example.net.zone: "this is not a zone\n"
+
+# A dns listen URL serves UDP and TCP on the same port, so ready: port (a TCP
+# connect) finds it ready. main is the recipe; empty has no zones; transfers
+# answers zone transfers.
+servers:
+  main:
+    command: surl --directory zones dns://127.0.0.1:{{port}}/
+    ready: port
+  empty:
+    command: surl dns://127.0.0.1:{{port2}}/
+    ready: port
+  transfers:
+    command: surl --allow-zone-transfer --directory transfers dns://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl asks for www.example.com's A record over UDP and writes surl's authoritative answer as dig does, status NOERROR, address 192.0.2.10, exit 0.
+    run: curl dns://127.0.0.1:{{port}}/www.example.com
+    expect:
+      exit: 0
+      stdout-matches: '\A;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: \d+\n;; flags: qr aa rd; QUERY: 1, ANSWER: 1, AUTHORITY: 1, ADDITIONAL: 1\n\n;; QUESTION SECTION:\n;www\.example\.com\.\t\tIN\tA\n\n;; ANSWER SECTION:\nwww\.example\.com\.\t3600\tIN\tA\t192\.0\.2\.10\n\n;; AUTHORITY SECTION:\nexample\.com\.\t3600\tIN\tNS\tns1\.example\.com\.\n\n;; ADDITIONAL SECTION:\nns1\.example\.com\.\t3600\tIN\tA\t127\.0\.0\.1\n\Z'
+
+  - id: json
+    claim: With --dns-json the same answer is one line of JSON, each record's data held by field name.
+    run: curl --dns-json dns://127.0.0.1:{{port}}/www.example.com
+    expect:
+      exit: 0
+      stdout-matches: '\A\{"id":\d+,"opcode":"QUERY","status":"NOERROR","flags":\["qr","aa","rd"\],"question":\[\{"name":"www\.example\.com\.","type":"A","class":"IN"\}\],"answer":\[\{"name":"www\.example\.com\.","type":"A","class":"IN","ttl":3600,"data":\{"address":"192\.0\.2\.10"\}\}\],'
+
+  - id: type-mx
+    claim: The URL's ?type=MX asks for the mail exchanger, and surl adds the exchanger's address in the additional section.
+    run: curl "dns://127.0.0.1:{{port}}/example.com?type=MX"
+    expect:
+      exit: 0
+      stdout-matches: ';; ANSWER SECTION:\nexample\.com\.\t3600\tIN\tMX\t10 mail\.example\.com\.\n.*;; ADDITIONAL SECTION:\nmail\.example\.com\.\t3600\tIN\tA\t192\.0\.2\.25\n'
+
+  - id: cname
+    claim: A name that is an alias is answered with its CNAME record and the A record of the name it points to.
+    run: curl dns://127.0.0.1:{{port}}/ftp.example.com
+    expect:
+      exit: 0
+      stdout-matches: ';; ANSWER SECTION:\nftp\.example\.com\.\t3600\tIN\tCNAME\twww\.example\.com\.\nwww\.example\.com\.\t3600\tIN\tA\t192\.0\.2\.10\n'
+
+  - id: no-such-name
+    claim: A name in the zone that has no records is NXDOMAIN, with the zone's SOA record in the authority section, and curl still exits 0.
+    run: curl dns://127.0.0.1:{{port}}/nope.example.com
+    expect:
+      exit: 0
+      stdout-matches: 'status: NXDOMAIN, .*ANSWER: 0, .*;; AUTHORITY SECTION:\nexample\.com\.\t\d+\tIN\tSOA\tns1\.example\.com\. '
+
+  - id: no-such-type
+    claim: A name that exists but has no record of the type asked is NOERROR with no answer.
+    run: curl "dns://127.0.0.1:{{port}}/www.example.com?type=TXT"
+    expect:
+      exit: 0
+      stdout-matches: 'status: NOERROR, .*ANSWER: 0, '
+
+  - id: outside-the-zones
+    claim: A name in no zone surl serves is REFUSED, without the aa flag, since surl answers no recursive query.
+    run: curl dns://127.0.0.1:{{port}}/www.example.org
+    expect:
+      exit: 0
+      stdout-matches: 'status: REFUSED, .*\n;; flags: qr rd; QUERY: 1, ANSWER: 0, '
+
+  - id: no-zones
+    claim: A surl with no --directory holds no zone and answers every query REFUSED.
+    run: curl dns://127.0.0.1:{{port2}}/www.example.com
+    expect:
+      exit: 0
+      stdout-matches: 'status: REFUSED, '
+
+  - id: over-tcp
+    claim: With --dns-transport tcp curl asks the same listener over TCP and gets the same answer.
+    run: curl --dns-transport tcp dns://127.0.0.1:{{port}}/www.example.com
+    expect:
+      exit: 0
+      stdout-matches: 'status: NOERROR, .*;; ANSWER SECTION:\nwww\.example\.com\.\t3600\tIN\tA\t192\.0\.2\.10\n'
+
+  - id: transfer-refused
+    claim: By default a zone transfer (AXFR) is REFUSED, even over TCP.
+    run: curl --dns-transport tcp "dns://127.0.0.1:{{port}}/example.com?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: 'status: REFUSED, .*ANSWER: 0, '
+
+  - id: transfer-allowed
+    claim: With --allow-zone-transfer, AXFR over TCP sends every record of the zone, the SOA record first and last.
+    run: curl --dns-transport tcp "dns://127.0.0.1:{{port3}}/example.com?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: 'status: NOERROR, .*ANSWER: 8, .*;; ANSWER SECTION:\nexample\.com\.\t3600\tIN\tSOA\t[^\n]*\n(?:[^\n]+\n){6}example\.com\.\t3600\tIN\tSOA\t[^\n]*\n\Z'
+
+  - id: transfer-not-over-udp
+    claim: With --allow-zone-transfer, AXFR over UDP is still answered NOTIMP, telling the client to use TCP.
+    run: curl "dns://127.0.0.1:{{port3}}/example.com?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: 'status: NOTIMP, '
+
+  - id: no-name
+    claim: A dns URL with no name to look up is refused by curl before it sends anything, exit 3.
+    run: curl -sS dns://127.0.0.1:{{port}}/
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "names no DNS name to query"
+
+  - id: bad-zone-file
+    claim: A file under .surl/dns that is not a zone stops surl at start with exit 37, naming the file.
+    run: surl --directory bad dns://127.0.0.1:{{port4}}/
+    timeout: 20
+    expect:
+      exit: 37
+      stdout: ""
+      stderr-contains: "example.net.zone: line 1:"

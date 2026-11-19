@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[oci-push-and-pull-an-image]]
+=== Pushing and Pulling a Container Image
+
+==== Problem
+
+A test needs a local container registry that it can push an image to and pull the image back from, with a login, and without Docker or a registry service installed.
+
+==== Solution
+
+Make a certificate, give `surl` a folder, an account and permission to take uploads on an `oci` listen URL, then push the image's two blobs and its manifest with `curl -T`, one `-T` per URL, and pull the layer with a last URL:
+
+include::.generated/solution.adoc[]
+
+The other two servers in the checked claims, one without `--allow-uploads` and one with `--allow-anonymous`, are there to show the refusals. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+A container registry speaks the Open Container Initiative (OCI) Distribution Specification over Hypertext Transfer Protocol (HTTP): an image is blobs, each addressed by the SHA-256 digest of its bytes, and a manifest, a JavaScript Object Notation (JSON) document that names the blobs by digest and is pushed under a tag (<<oci-distribution>>). The image here is the smallest there is: one layer, `layer.txt`, the empty config `{}` that OCI uses when an image needs none, and `manifest.json`, which names both. `surl` on an `oci` listen URL is one of its extended servers, judged by that specification and not by upstream curl, which has no `oci` scheme (<<surl-readme>>, <<curl-protocols>>).
+
+In `curl`, `oci://<registry>/<repository>@sha256:<digest>` is a blob and `oci://<registry>/<repository>:<tag>` a manifest (<<curl-protocols>>). With `-T`, `curl` pushes the file there: a blob through an upload session, a manifest with its media type. A URL with no `-T` of its own pulls and writes what it got to standard output. `curl` pairs each `-T` with the next URL, so the Solution's one command pushes the config, then the layer, then the manifest under the tag `1.0` in the repository `demo/app`, and pulls the layer back last. The order matters: `surl` refuses a manifest that names a blob it does not hold with `400 MANIFEST_BLOB_UNKNOWN`. A URL with a tag pulls the manifest pushed under it, byte for byte; a tag nothing was pushed under is `404 MANIFEST_UNKNOWN`. `curl` also checks each file's digest before it sends anything: a file whose SHA-256 is not the one its URL names is refused by `curl` itself, exit `25`.
+
+`--directory store` is the registry's store, and a repository is a folder holding an OCI image layout: the push above leaves `store/demo/app/oci-layout`, `index.json`, which records the tag, and each blob as `blobs/sha256/<digest>`. A layout already on disk is served as it is, which is how the `readonly` and `anonymous` servers have an image without a push.
+
+A registry hands out Bearer tokens (<<rfc6750>>). A request to `/v2/` with no token is answered `401 Unauthorized`, and the answer names `surl`'s token endpoint, which checks a login and returns a token for the repository (<<surl-readme>>). `--user alice:s3cret` is the account, and `-u alice:s3cret` makes `curl` follow the challenge, log in at the token endpoint with HTTP Basic (<<rfc7617>>), and send the token it gets. With no `-u`, or a wrong password, the token endpoint gives no token and `curl` exits `67`, login denied.
+
+The login and the token travel only inside Transport Layer Security (TLS) (<<rfc8446>>): `surl`'s `oci` listener is TLS from the first byte, and started with no certificate it exits `58` and says it needs one. The `openssl` line makes a certificate for `127.0.0.1` and its key; `--cert server.pem` and `--key server.key` serve them, and `--cacert server.pem` makes `curl` trust that certificate, which no authority signed.
+
+`--allow-uploads` lets the token endpoint grant `push` as well as `pull`. Without it, on the `readonly` server, a push is refused `403 DENIED`, which `curl` also reports as exit `67`, and a pull still works: a registry nobody asked to change should not change. `--allow-anonymous`, on the `anonymous` server, serves pulls with no login, so a test can pull without an account, and so can anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on (<<surl-readme>>). A push with no login is still `403 DENIED`. For every other error status `curl` writes nothing to standard output, names the registry's error code on standard error, and exits `22`.
+
+The main server has a second listen URL, `https://127.0.0.1:8081/`, on the same store, which the Solution does not need and the claims do: the pushed layer is the file `/demo/app/blobs/sha256/<digest>` there, served to the same account with Basic. In the checked claims, `-s` silences `curl`'s progress meter and messages, `-S` puts the error message back, and `-o` with `-w "%{http_code}"` throws the body away and prints only the status code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-put-and-get-an-object>> for objects in an Amazon S3 bucket.
+* <<https-serve-with-your-own-certificate>> for the certificate.
+* <<surl-readme>>, <<curl-protocols>>, <<oci-distribution>>, <<rfc6750>>, <<rfc7617>>, <<rfc8446>>.
+* <<oci-image-spec>> for the manifest and the empty config.

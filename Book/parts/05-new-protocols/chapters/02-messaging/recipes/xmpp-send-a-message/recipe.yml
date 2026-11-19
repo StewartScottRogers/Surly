@@ -1,0 +1,110 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: xmpp-send-a-message
+title: Sending a Message over XMPP
+protocols: [xmpp, xmpps]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--cacert, -u, -d, -s, -S, --ssl-reqd]
+exit-codes: [0, 8, 60, 64, 67]
+references: [surl-readme, curl-readme, curl-protocols, rfc6120, rfc8446, rfc6121]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: a certificate, two accounts, xmpp (STARTTLS required) and xmpps
+# (TLS from the first byte). plain has no certificate and accepts passwords in clear;
+# it is there only so its loosening is a checked claim.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret --user bob:hunter2 xmpp://127.0.0.1:{{port}}/ xmpps://127.0.0.1:{{port2}}/
+    ready: port
+  plain:
+    command: surl --allow-plaintext-auth --user alice:s3cret xmpp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl upgrades the stream with STARTTLS, trusts server.pem, logs in as alice, binds a resource and sends the -d text as a message to alice's own bare JID, which surl delivers to the stream curl holds; curl prints nothing and exits 0.
+    run: curl --cacert server.pem -u alice:s3cret -d "Lunch at noon" xmpp://127.0.0.1:{{port}}/alice@127.0.0.1
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: body-in-the-url
+    claim: The query ?message;body= carries the message text in the URL instead of -d, percent-encoded, with the same result.
+    run: curl --cacert server.pem -u alice:s3cret "xmpp://127.0.0.1:{{port}}/alice@127.0.0.1?message;body=Lunch%20at%20noon"
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: nobody-online
+    claim: A message to bob, an account with no stream bound, is answered with the stanza error service-unavailable, since surl stores no messages for later; curl exits 8.
+    run: curl -sS --cacert server.pem -u alice:s3cret -d "Lunch at noon" xmpp://127.0.0.1:{{port}}/bob@127.0.0.1
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "service-unavailable"
+
+  - id: other-domain
+    claim: A message to a domain surl does not serve is answered remote-server-not-found, since surl talks to no other server; curl exits 8.
+    run: curl -sS --cacert server.pem -u alice:s3cret -d "Lunch at noon" xmpp://127.0.0.1:{{port}}/alice@example.com
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "remote-server-not-found"
+
+  - id: disco-the-server
+    claim: Without -d and with the server's domain as the path, curl asks for service discovery information and prints the answer, a server identity of category server and type im and three features.
+    run: curl --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: xmpps
+    claim: Over xmpps:// the stream is TLS from the first byte, with no STARTTLS, and the same send succeeds.
+    run: curl --cacert server.pem -u alice:s3cret -d "Lunch at noon" xmpps://127.0.0.1:{{port2}}/alice@127.0.0.1
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate after STARTTLS and stops before it logs in, exit 60.
+    run: curl -s -u alice:s3cret -d "Lunch at noon" xmpp://127.0.0.1:{{port}}/alice@127.0.0.1
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: wrong-password
+    claim: A wrong password is answered with the SASL failure not-authorized, and curl exits 67.
+    run: curl -sS --cacert server.pem -u alice:wrong -d "Lunch at noon" xmpp://127.0.0.1:{{port}}/alice@127.0.0.1
+    expect:
+      exit: 67
+      stderr-contains: "not-authorized"
+
+  - id: no-login
+    claim: Without -u, curl asks for SASL ANONYMOUS, which surl does not offer here, and exits 67 before sending anything.
+    run: curl -sS --cacert server.pem -d "Lunch at noon" xmpp://127.0.0.1:{{port}}/alice@127.0.0.1
+    expect:
+      exit: 67
+      stderr-contains: "does not offer SASL ANONYMOUS"
+
+  - id: clear-password-allowed
+    claim: On a surl with no certificate and --allow-plaintext-auth, no STARTTLS is offered, and curl logs in and sends in clear, exit 0.
+    run: curl -u alice:s3cret -d "Lunch at noon" xmpp://127.0.0.1:{{port3}}/alice@127.0.0.1
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: ssl-reqd-refuses-clear
+    claim: With --ssl-reqd, curl refuses that server, which offers no STARTTLS, before it sends the password, exit 64.
+    run: curl -sS --ssl-reqd -u alice:s3cret -d "Lunch at noon" xmpp://127.0.0.1:{{port3}}/alice@127.0.0.1
+    expect:
+      exit: 64
+      stdout: ""
+      stderr-contains: "Requested SSL level failed"

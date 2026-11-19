@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[az-put-and-get-a-blob]]
+=== Putting and Getting an Azure Blob
+
+==== Problem
+
+A test needs a local stand-in for Azure Blob Storage, addressed as the Azurite emulator is, that it can put a blob into and get the blob back from with a Bearer token, without an Azure subscription.
+
+==== Solution
+
+Make a certificate, give `surl` a folder, a storage account name, a Bearer token and permission to take uploads on an `az` listen URL, and put the blob with `curl -T`, getting it with a second URL:
+
+include::.generated/solution.adoc[]
+
+The other three servers in the checked claims, one with no named account, one without `--allow-uploads` and one with `--allow-anonymous`, are there to show the refusals. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Azure Blob Storage keeps blobs in containers inside a storage account, and its Blob service REST API speaks Hypertext Transfer Protocol (HTTP): Put Blob is a `PUT` on the blob's name and Get Blob a `GET` (<<azure-blob-api>>). `surl` on an `az` listen URL is one of its extended servers, judged by that API and not by upstream curl, which has no `az` scheme (<<surl-readme>>, <<curl-protocols>>). `--directory store` is its store: each top-level folder is a container and the path under it the blob name, so `store/photos/` is the container `photos`. The blob put here is the file `store/photos/note.txt`, and the file `hello.txt`, written there before `surl` started, is a blob `curl` gets like any other.
+
+In `curl`, an `az://` URL whose host is an IP address or `localhost` is in the emulator's path style, `az://<host>:<port>/<account>/<container>/<blob>`, so `az://127.0.0.1:8080/devstoreaccount1/photos/note.txt` is the blob `note.txt` in `photos` of the account `devstoreaccount1`, the name Azurite uses. `-T note.txt` puts the local file there; a URL with no `-T` of its own gets the blob and writes it to standard output, so one `curl` command puts the blob and reads it back.
+
+`surl` takes the first path segment as the account only when it is the name of an account it holds, which is what `--user devstoreaccount1:c2VjcmV0` is for. The `noaccount` server holds the token but no account of that name, so it reads `devstoreaccount1` as the container, finds none, and answers `404 ContainerNotFound`. The account's password is its key, which `curl` does not use: `curl` does not sign with Shared Key, so `-u devstoreaccount1:c2VjcmV0` sends no credentials at all and is answered `401 NoAuthenticationInformation`.
+
+`curl` logs in with a Bearer token, as an Entra ID access token is sent (<<rfc6750>>). `--user :t0ken-abc` is an account with an empty user name, whose password `surl` reads as a Bearer token, and `--oauth2-bearer t0ken-abc` makes `curl` send `Authorization: Bearer t0ken-abc`. A request with no token is `401 NoAuthenticationInformation` and one with a token `surl` does not hold `401 InvalidAuthenticationInfo`; a name with no blob is `404 BlobNotFound`. For every error status `curl` writes nothing to standard output, names the Azure error on standard error, and exits `22`.
+
+The token is a password by another name, so it travels only inside Transport Layer Security (TLS) (<<rfc8446>>): `curl` speaks Hypertext Transfer Protocol Secure (HTTPS) for an `az://` URL (<<curl-protocols>>), and `surl`'s `az` listener is TLS from the first byte. Started with no certificate, it exits `58` and says it needs one. The `openssl` line makes a certificate for `127.0.0.1` and its key; `--cert server.pem` and `--key server.key` serve them, and `--cacert server.pem` makes `curl` trust that certificate, which no authority signed.
+
+`--allow-uploads` lets a request with the token write. Without it, the `readonly` server refuses a put with `403 AuthorizationPermissionMismatch` and still serves a get, because a stand-in nobody asked to change should not change. `--allow-anonymous`, on the `anonymous` server, serves gets with no token, so a test can read without one, and so can anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on (<<surl-readme>>). A put with no token is still `401 NoAuthenticationInformation`.
+
+The main server has a second listen URL, `https://127.0.0.1:8081/`, on the same store, which the Solution does not need and the claims do: the blob put over `az` is the file `/photos/note.txt` there, served to the same token. In the checked claims, `-s` silences `curl`'s progress meter and messages, and `-S` puts the error message back.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-put-and-get-an-object>> for Amazon S3.
+* <<gs-put-and-get-an-object>> for Google Cloud Storage, and an object read across two stores.
+* <<http-accept-a-bearer-token>> for Bearer tokens over HTTPS.
+* <<surl-readme>>, <<curl-protocols>>, <<azure-blob-api>>, <<rfc6750>>, <<rfc8446>>.

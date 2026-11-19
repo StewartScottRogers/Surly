@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-set-and-get-a-key]]
+=== Setting and Getting a Redis Key
+
+==== Problem
+
+A test needs a local Redis key store to set a key in and read it back from, with `curl` and nothing else installed.
+
+==== Solution
+
+Start `surl` on a `redis` listen URL that accepts clients without a login, set the key with a `curl` of a `SET` URL and `-d`, and read it with a `GET` URL:
+
+include::.generated/solution.adoc[]
+
+The first `surl` is all the Solution needs; the other three, one with an account, one that also accepts a password in clear, and one over Transport Layer Security (TLS), are there for the checked claims below, and the `openssl` line makes the certificate the last one needs. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Redis is a key-value store that clients talk to in RESP, the Redis serialization protocol: each command is an array of strings, and each reply a typed value, a status such as `OK`, a string, a number, an error or null (<<redis-resp>>). `surl` on a `redis` listen URL is a Redis server holding its keys in memory, lost when it stops. It is one of `surl`'s extended servers, and upstream curl has no `redis` scheme, so both programs are judged here by the RESP specification, not by curl (<<surl-readme>>, <<curl-protocols>>).
+
+`curl` sends one command per URL, and the path is the command: the first segment is its name and every later segment one argument, so `/GET/greeting` sends `GET greeting`. `-d hello` adds `hello` as one more, last argument, which makes `/SET/greeting` with `-d hello` into `SET greeting hello`. Each segment is percent-decoded first, so `%2F` puts a slash inside a key and `%20` a space inside a value. A number as the first segment selects that database before the command, and database `2` does not hold database `0`'s keys. A URL with no command is refused by `curl` itself, exit `3`, before it connects (<<curl-readme>>).
+
+`curl` writes each reply as `redis-cli --raw` does: `OK` for the status, the value as it is, each on its own line. `--next` lets one `curl` command send the `SET` and then the `GET`, with the options of the first transfer reset for the second, so `-d` goes with the `SET` only. The key outlives the connection: a later `curl` reads the same value. A key that does not exist is null, written as an empty line, with exit `0`. An error reply, such as `INCR` on a value that is not a number, writes nothing to standard output and exits `8`, with the server's error on standard error.
+
+`--allow-anonymous` is in the Solution because `surl` lets no client in without a login by default. `curl` opens every connection with `HELLO 3`, asking for version 3 of RESP, and with `-u` it logs in in the same command (<<curl-protocols>>). Without the option and without `-u`, `surl` answers `HELLO` with a `NOAUTH` error and `curl` exits `67`, login denied. A store that takes anonymous clients lets anyone who can reach it read and write every key, so it is not the default; `--allow-anonymous` accepts every client unchecked and makes `surl` write a `surl: warning:` line on start (<<surl-readme>>). Use it only on a machine nobody else can reach.
+
+The way in without it is an account, `--user alice:s3cret`, and `curl -u alice:s3cret`. But `redis://` has no encryption, so the password crosses the network in clear, and `surl` refuses it unchecked with `WRONGPASS`, the right password included; `curl` exits `67`. `--allow-plaintext-auth` loosens that for a test: the password is then checked, the right one is accepted for the `SET` and the `GET` alike, and a wrong one is answered `WRONGPASS`, exit `67`. It gives up the secrecy of the password, and it too warns on start.
+
+The secure way is `rediss://`, the same server inside TLS from the first byte (<<rfc8446>>). It needs a certificate: the `openssl` line makes one for `127.0.0.1` and its key, which `--cert` and `--key` hand to `surl`. `curl --cacert server.pem` trusts that certificate, and the same password is then accepted with no loosening option. Without `--cacert`, `curl` does not trust a certificate no authority signed, sends nothing, and exits `60`.
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back, so the server's error shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-seed-keys-from-an-agent>> for setting keys from an agent and reading them with `curl`.
+* <<mqtt-publish-and-subscribe>> for the same loosening options on a message broker.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<redis-resp>>, <<rfc8446>>.

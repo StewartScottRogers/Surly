@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-look-up-a-name]]
+=== Looking Up a Name in a Local DNS Server
+
+==== Problem
+
+A test needs a local Domain Name System (DNS) server that answers for a made-up zone, and a way to ask it for a name's address from the command line with `curl`.
+
+==== Solution
+
+Write the zone as a master file under `.surl/dns/` in a folder, start `surl` on a `dns` listen URL with `--directory` naming that folder, and ask with `curl` for a `dns` URL whose path is the name:
+
+include::.generated/solution.adoc[]
+
+The first `surl` is all the Solution needs; the other two, one with no zones and one that answers zone transfers, are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+DNS is the protocol that turns a name such as `www.example.com` into the records filed under it: its address, its mail exchanger, its aliases (<<rfc1035>>). `surl` on a `dns` listen URL is an authoritative name server: it answers for the zones it holds and for nothing else. It is one of `surl`'s extended servers, and upstream curl has no `dns` scheme at all, so both programs are judged here by the RFCs, not by curl (<<surl-readme>>, <<curl-protocols>>).
+
+The zones are master files, the text format of <<rfc1035>> section 5, one file per zone, named for the zone's apex and kept in `.surl/dns/` under the folder `--directory` names: here `zones/.surl/dns/example.com.zone`. `surl` reads them once, at start; no option names another place, and a test seeds its zones by writing the files before `surl` starts. The file in this recipe sets the origin and a default time to live (TTL) of 3600 seconds, then gives the zone its start of authority (SOA) record, a name server, a mail exchanger, three addresses and one alias. A file there that is not a zone stops `surl` at start with exit `37` and the file's name and line, as the `bad` folder shows. Two `surl` processes cannot share one `--directory`, so the third server reads its own copy of the zone, from `transfers`.
+
+The `curl` URL follows <<rfc4501>>: the authority is the server to ask, `127.0.0.1` and the port, and the path is the name to look up. With no query part `curl` asks for the name's A record, its Internet Protocol version 4 (IPv4) address, in class IN. `?type=MX` asks for another type, here the mail exchanger; quote the URL so neither shell reads the question mark. A URL with no name is refused by `curl` itself, exit `3`, before it sends anything.
+
+`curl` writes the answer as the `dig` tool does (<<curl-readme>>): a header line with the status and the message identifier, which changes with every query, so the checked claims match it as any number; a flags line; then each section that holds a record, one record per line, fields separated by tabs. In the flags, `qr` marks a response, `aa` an authoritative answer from the zone's own server, and `rd` that `curl` asked for recursion, which `surl` never offers. Besides the answer, `surl` fills the authority section with the zone's name server and the additional section with the addresses of the names it mentions, such as the mail exchanger's. An alias is answered with its CNAME record and the record of the name it points to. With `--dns-json` the same answer is one line of JavaScript Object Notation (JSON), every record's data held by field name, `address` for an A record, for a program to read.
+
+Every answer is exit `0`, whatever its status, as with `dig`: the answer is the output asked for, and the status is in it. A name inside the zone with no records is `NXDOMAIN`, sent with the zone's SOA record; a name that exists but has no record of the type asked is `NOERROR` with no answer. A name in no zone `surl` holds is `REFUSED`, without `aa`, and a `surl` started with no `--directory` holds no zone and refuses every query. A script that needs the address checks the status line, not the exit code.
+
+Readiness needs a thought, since DNS is mostly User Datagram Protocol (UDP), and UDP has no connection to wait for. A `dns` listen URL serves UDP and Transmission Control Protocol (TCP) on the same port, so the TCP port answering a connect is the sign that the server is up; the checked claims wait on it. `curl` asks over UDP by default and over TCP with `--dns-transport tcp`, and the answer is the same.
+
+A zone transfer, a query of type AXFR, asks for every record in a zone at once. It hands a stranger the zone's whole map, so `surl` refuses it by default with `REFUSED`, even over TCP. `--allow-zone-transfer` loosens that for a test: an AXFR over TCP then sends every record, the SOA record first and last, as <<rfc1035>> lays out. It widens what any client that reaches the port may read, so keep it off a shared network. Over UDP a transfer is still answered `NOTIMP`, not implemented, telling the client to ask over TCP.
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-add-a-zone-from-an-agent>> for adding a zone to a running server from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<rfc1035>>, <<rfc4501>>.

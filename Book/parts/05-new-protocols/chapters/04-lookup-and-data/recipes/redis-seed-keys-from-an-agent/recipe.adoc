@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-seed-keys-from-an-agent]]
+=== Seeding Redis Keys from an Agent
+
+==== Problem
+
+Your artificial intelligence (AI) agent is testing a program that reads its settings from Redis, and it needs keys already waiting in a stand-in Redis store before the program connects, and a way to see what the program left there.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts a Redis server with an account through `surl-mcp`, calls `set_key`, checks the key with `read_key` and `list_keys`, and lets `curl`, through `curl-mcp`, read it as a client would:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program's folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here one `redis` listener on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound, which the program keeps in variables. `arguments` passes `surl`'s own options: `--user alice:s3cret` is the account a client logs in with, and `--allow-plaintext-auth` lets that password cross a `redis://` connection, which has no encryption. That loosening is for a test on one machine; the console recipe shows the refusal without it and `rediss://`, the same server over Transport Layer Security (TLS), which needs none.
+
+`set_key` writes into the store as a client's `SET` would, with no client and no login. `key` and `value` are UTF-8 text; the answer gives the key with its database in front, `0/greeting`, and its `byte_count`. `database`, a number from 0 to 15, puts the key in another database, the same one a client selects with a number first in its URL path. `value_base64` stores bytes that are not text. `expire_ms` gives the key a lifetime in milliseconds: one set with 1000 is gone three seconds later. The keys live in memory and go when the server stops (<<surl-readme>>).
+
+`read_key` takes the `key` and answers its `type`, `string` here, its `byte_count`, and the value as `text`, or as `base64` when it is not UTF-8 text; a key nobody set, or one that has expired, is a tool error, `No such key.`. `list_keys` answers the `keys` of database 0, or of `database`, in order. `pattern` is a glob as Redis's `KEYS` command takes it, so `user:*` finds `user:1` and `user:2` (<<redis-resp>>). `limit` cuts a page short, and `has_more` true says another follows; `after_key` starts the next page after the last key seen.
+
+The `curl` tool, from `curl-mcp`, plays the client. It takes `curl`'s own arguments: the URL's path is the Redis command and its arguments, `GET/greeting`, a number first selects a database, and `-d` adds one last argument, so `SET/greeting` with `-d changed` sets the value, and `read_key` then answers the new one (<<curl-readme>>, <<curl-protocols>>). `-u alice:s3cret` logs in, and `-s` keeps the progress meter out of the answer. `curl-mcp` answers in text that is JSON; the program parses it and prints `curl`'s exit code and its `standardOutput` as a JSON string, so the line feed after each value shows. A key that has expired comes back to `curl` as null, which it writes as an empty line, exit `0`.
+
+`set_key` is not a loophole for clients. A `curl` that sends no login is refused at its first command, `HELLO`, with `NOAUTH`; `-S` puts the error in the answer's `standardError`, and `curl` exits `67`, login denied, though the key it asked for is there.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-set-and-get-a-key>> for the same store on the console, with the login refusals and `rediss://`.
+* <<smtp-seed-mail-from-an-agent>> for seeding mail the same way.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<redis-resp>>, <<mcp-spec>>.

@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs zones.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: dns-add-a-zone-from-an-agent
+title: Adding a DNS Zone from an Agent
+protocols: [dns]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, add_dns_zone, read_zone, curl]
+curl-options: [-s]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-protocols, rfc1035, rfc4501, mcp-spec]
+
+cases:
+  - id: solution
+    role: solution
+    claim: add_dns_zone gives a running server the zone example.com, read_zone lists it, and curl's lookup of www.example.com is answered NOERROR with its address.
+    program: zones.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone example.com: 117 bytes\nread_zone: [\"example.com.\"]\ncurl exit 0, www.example.com: NOERROR\n  www.example.com.\t3600\tIN\tA\t192.0.2.10\n"
+
+  - id: zone-as-served
+    claim: read_zone with an apex answers the zone's records as served, one per line, every name in full and every TTL filled in.
+    program: zones.cs
+    args: [zone-as-served]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone example.com: 117 bytes\nread_zone example.com:\nexample.com. 3600 IN SOA ns1.example.com. admin.example.com. 1 7200 3600 1209600 300\nexample.com. 3600 IN NS ns1.example.com.\nns1.example.com. 3600 IN A 127.0.0.1\nwww.example.com. 3600 IN A 192.0.2.10\n"
+
+  - id: refused-until-added
+    claim: A server started with no zone answers REFUSED; the same query after add_dns_zone, with no restart, is answered.
+    program: zones.cs
+    args: [refused-until-added]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, www.example.com: REFUSED\nadd_dns_zone example.com: 117 bytes\ncurl exit 0, www.example.com: NOERROR\n  www.example.com.\t3600\tIN\tA\t192.0.2.10\n"
+
+  - id: no-such-name
+    claim: A name the added zone does not hold is NXDOMAIN, and curl still exits 0.
+    program: zones.cs
+    args: [no-such-name]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone example.com: 117 bytes\ncurl exit 0, nope.example.com: NXDOMAIN\n"
+
+  - id: second-zone
+    claim: add_dns_zone for an apex already served is a tool error and replaces nothing; the first zone's address is still the answer.
+    program: zones.cs
+    args: [second-zone]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone example.com: 117 bytes\nadd_dns_zone example.com: error: Zones: The zone example.com was refused: a second zone for example.com.\ncurl exit 0, www.example.com: NOERROR\n  www.example.com.\t3600\tIN\tA\t192.0.2.10\n"
+
+  - id: no-soa
+    claim: A zone with no SOA record at its apex is refused as a tool error, and read_zone then lists no zone.
+    program: zones.cs
+    args: [no-soa]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone example.org: error: Zones: The zone example.org was refused: no SOA at the apex.\nread_zone: []\n"
+
+  - id: no-such-zone
+    claim: read_zone for an apex nobody added is a tool error, No such zone.
+    program: zones.cs
+    args: [no-such-zone]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone example.com: 117 bytes\nread_zone example.net: error: No such zone.\n"

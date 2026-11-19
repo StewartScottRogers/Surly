@@ -1,0 +1,131 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: redis-set-and-get-a-key
+title: Setting and Getting a Redis Key
+protocols: [redis, rediss]
+tier: new-protocols
+surl-options: [--allow-anonymous, --user, --allow-plaintext-auth, --cert, --key]
+curl-options: [-d, --next, -s, -S, -u, --cacert]
+exit-codes: [0, 3, 8, 60, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, rfc8446]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe. accounts has an account and no loosening; plaintext adds
+# --allow-plaintext-auth to it; tls serves the same account over rediss.
+servers:
+  main:
+    command: surl --allow-anonymous redis://127.0.0.1:{{port}}/
+    ready: port
+  accounts:
+    command: surl --user alice:s3cret redis://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth redis://127.0.0.1:{{port3}}/
+    ready: port
+  tls:
+    command: surl --user alice:s3cret --cert server.pem --key server.key rediss://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl sets the key greeting to hello with SET and -d, then, after --next, reads it back with GET; surl answers OK, then the value.
+    run: curl redis://127.0.0.1:{{port}}/SET/greeting -d hello --next redis://127.0.0.1:{{port}}/GET/greeting
+    expect:
+      exit: 0
+      stdout: "OK\nhello\n"
+
+  - id: kept-between-connections
+    claim: The key stays in surl's memory; a later connection reads the same value.
+    run: curl redis://127.0.0.1:{{port}}/GET/greeting
+    expect:
+      exit: 0
+      stdout: "hello\n"
+
+  - id: missing-key
+    claim: GET of a key that does not exist answers null, which curl writes as an empty line, exit 0.
+    run: curl redis://127.0.0.1:{{port}}/GET/nothing
+    expect:
+      exit: 0
+      stdout: "\n"
+
+  - id: another-database
+    claim: A number first in the path selects that database; database 2 does not hold database 0's key.
+    run: curl redis://127.0.0.1:{{port}}/2/GET/greeting
+    expect:
+      exit: 0
+      stdout: "\n"
+
+  - id: percent-decoded
+    claim: Each path segment is one argument, percent-decoded, so %2F puts a slash inside a key and %20 a space inside a value.
+    run: curl redis://127.0.0.1:{{port}}/SET/notes%2Fmonday/two%20words --next redis://127.0.0.1:{{port}}/GET/notes%2Fmonday
+    expect:
+      exit: 0
+      stdout: "OK\ntwo words\n"
+
+  - id: error-reply
+    claim: An error reply, such as INCR on a value that is not a number, writes nothing to standard output and exits 8, with the server's error on standard error.
+    run: curl -sS redis://127.0.0.1:{{port}}/INCR/greeting
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Redis server answered INCR with error: ERR value is not an integer or out of range"
+
+  - id: no-command
+    claim: A URL that names no command is refused by curl before it connects, exit 3.
+    run: curl -sS redis://127.0.0.1:{{port}}/
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "No Redis command found in the URL"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, a client that does not log in is refused at HELLO with NOAUTH, and curl exits 67.
+    run: curl -sS redis://127.0.0.1:{{port2}}/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "answered HELLO with error: NOAUTH"
+
+  - id: clear-password-refused
+    claim: The right password over redis:// is refused unchecked with WRONGPASS, because it crossed the network in clear; curl exits 67.
+    run: curl -sS -u alice:s3cret redis://127.0.0.1:{{port2}}/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "answered HELLO with error: WRONGPASS"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, the same password is checked and accepted, for the SET and the GET alike.
+    run: curl -u alice:s3cret redis://127.0.0.1:{{port3}}/SET/greeting -d hello --next -u alice:s3cret redis://127.0.0.1:{{port3}}/GET/greeting
+    expect:
+      exit: 0
+      stdout: "OK\nhello\n"
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused with WRONGPASS, exit 67.
+    run: curl -sS -u alice:wrong redis://127.0.0.1:{{port3}}/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"
+
+  - id: over-tls
+    claim: Over rediss://, with the server's certificate trusted through --cacert, the password is accepted with no loosening option.
+    run: curl --cacert server.pem -u alice:s3cret rediss://127.0.0.1:{{port4}}/SET/greeting -d hello --next --cacert server.pem -u alice:s3cret rediss://127.0.0.1:{{port4}}/GET/greeting
+    expect:
+      exit: 0
+      stdout: "OK\nhello\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, sends nothing and exits 60.
+    run: curl -s -u alice:s3cret rediss://127.0.0.1:{{port4}}/GET/greeting
+    expect:
+      exit: 60
+      stdout: ""

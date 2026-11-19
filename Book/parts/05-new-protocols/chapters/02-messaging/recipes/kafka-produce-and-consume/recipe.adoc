@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-produce-and-consume]]
+=== Producing and Consuming Kafka Records
+
+==== Problem
+
+A test needs a local Kafka broker to produce a record to a topic and consume it again, with `curl` and nothing else installed.
+
+==== Solution
+
+Start `surl` on a `kafka` listen URL that accepts anonymous clients, produce with `curl -d` to the topic's URL, and consume with a plain `curl` of the same URL:
+
+include::.generated/solution.adoc[]
+
+The first `surl` is all the Solution needs, and the `openssl` line only serves the last one. The others, one with a Message Queuing Telemetry Transport (MQTT) 5 listener beside the Kafka one, one with an account, one that also accepts a password in clear, and one over Transport Layer Security (TLS), are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Kafka keeps each topic as a log: a producer appends records to a partition of the topic, each record gets the next offset, and a consumer reads the partition from an offset it chooses. Reading does not remove anything (<<kafka-protocol>>). `surl` on a `kafka` listen URL is a Kafka broker, and `curl`'s `kafka://` scheme is a client for it. Both are extended: upstream curl has no `kafka` scheme, so the two programs are judged by the Kafka protocol guide, not by curl (<<surl-readme>>, <<curl-protocols>>).
+
+The URL's path is `/<topic>` or `/<topic>/<partition>`. With `-d first`, `curl` produces one record whose value is `first`; without `-d`, it consumes the partition from offset `0` to its end and writes each record's value and a newline, then exits `0` (<<curl-protocols>>). Because it stops at the end of the log, a consume from `curl` needs no time limit and no help from the broker to finish. `--next` lets one `curl` command produce and then consume, with the options of the first transfer reset for the second.
+
+Records stay: after a second produce, a consume writes `first` and `second`, oldest first, one per line, and a topic nothing has been produced to writes nothing and exits `0`. `?offset=1` starts the consume at the second record. An offset equal to the number of records is the end of the log and writes nothing; one past it is answered error `1`, `OFFSET_OUT_OF_RANGE`, and `curl` exits `8`, a reply it could not use. Every topic in `surl` has one partition, `0`, so `/orders/0` reads the same records as `/orders` and `/orders/1` is answered error `3`, `UNKNOWN_TOPIC_OR_PARTITION`, exit `8`. A topic name with a character Kafka does not allow, such as a space, `%20` in the URL, is answered error `17`, `INVALID_TOPIC_EXCEPTION`, exit `8`. A URL with no topic is refused by `curl` itself, exit `3`, before it connects.
+
+`surl` keeps one message bus for all its messaging servers in a process, and Kafka topics are its topics, with each dot in a Kafka name a slash in an MQTT one (<<surl-readme>>). On the server `bus`, which also listens on `mqtt5://`, a message published over MQTT 5 to `shop/orders` is a record of the Kafka topic `shop.orders`. The reverse needs the record to wait for a subscriber that comes later: MQTT keeps a message for later subscribers only as a retained message (<<mqtt5>>), and `--topic "shop/#;retain"` makes `surl` keep every publish under `shop/` that way, so an MQTT 5 subscriber to `shop/orders` receives the record produced to `shop.orders`. `--mqtt5-disconnect-after-retained` ends that subscription once the retained message is sent, so `curl` exits instead of waiting (<<mqtt5-publish-and-subscribe>>).
+
+`--allow-anonymous` is in the Solution because `surl` lets no Kafka client in without a login by default. Without it, a client that does not log in has its connection closed, and `curl` exits `56`, the connection ended under it. A broker that takes anonymous clients lets anyone who can reach it read and write every topic, so it is not the default; `--allow-anonymous` accepts every client unchecked and makes `surl` write a `surl: warning:` line on start (<<surl-readme>>). Use it only on a machine nobody else can reach.
+
+The way in without it is an account, `--user alice:s3cret`, and `-u alice:s3cret` for `curl`, which then logs in with SASL, the Simple Authentication and Security Layer, by the mechanism PLAIN: the user name and password as they are (<<kafka-protocol>>, <<curl-protocols>>). Over `kafka://`, with no TLS, that password would cross the network in clear, so `surl` offers no mechanism at all, and `curl` stops before it sends the password, exit `67`, login denied. `--allow-plaintext-auth` loosens that for a test: `surl` then takes PLAIN in clear and checks the password, so the right one produces and consumes and a wrong one is refused, exit `67`. It gives up the secrecy of the password, and it too warns on start.
+
+The secure way is `kafkas://`, the same broker inside TLS from the first byte (<<rfc8446>>). It needs a certificate: the Solution's `openssl` line makes one for `127.0.0.1` and its key, which `--cert` and `--key` hand to `surl`. `curl --cacert server.pem` trusts that certificate, and the same password is then accepted with no loosening option. Without `--cacert`, `curl` does not trust a certificate no authority signed, sends nothing, and exits `60`.
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back, so the broker's error code shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-publish-and-subscribe>> for the MQTT 5 side of the bus.
+* <<amqp-send-and-receive>> for a broker whose messages are taken off a queue rather than kept.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<kafka-protocol>>, <<mqtt5>>, <<rfc8446>>.

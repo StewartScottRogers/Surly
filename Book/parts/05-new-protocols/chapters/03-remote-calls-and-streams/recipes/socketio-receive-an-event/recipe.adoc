@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socketio-receive-an-event]]
+=== Receiving a Socket.IO Event
+
+==== Problem
+
+You want to emit an event to a Socket.IO server and see the events it sends back, from the command line, in a test that ends on its own.
+
+==== Solution
+
+Start `surl` as a Socket.IO server, and have `curl` emit an event, print what comes back, and stop after three seconds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Socket.IO carries named events between a server and its clients. A client opens a WebSocket (<<rfc6455>>) at the path `/socket.io/`, joins a _namespace_, and then each side may emit events, each a JavaScript Object Notation (JSON) array whose first element is the event's name and whose rest are its arguments (<<socketio-protocol>>). Upstream curl has no `socketio` scheme; the Curl port adds it, and `surl` serves it (<<curl-protocols>>, <<surl-readme>>).
+
+`-d` is the event `curl` emits once it has joined, here `["greeting","hello from surl"]`. The URL's path names the namespace, and `/` is the main one. `surl` answers an event by sending it back to the sender, the same array byte for byte, and `curl` writes each event it receives as one JSON array per line.
+
+A Socket.IO session has no last message: `curl` keeps listening until the server disconnects, and `surl` does not disconnect it after the echo. `-m 3` ends it after three seconds, which is far longer than the echo takes, and `curl` exits `28`, the time-out, with the event already written. That exit code is the expected end of every run here that joins. `-s` keeps `curl` quiet; in the claims, `-S` still shows the error when there is one.
+
+An event named `broadcast` comes back to its sender exactly once too. With no `-d`, `curl` joins and only listens; with no one emitting, nothing is written before `-m 2` ends the run.
+
+`curl` checks `-d` before it connects: data that is not a JSON array starting with the event's name is refused with exit `2`. `surl` serves the main namespace only, so `socketio://127.0.0.1:8080/admin` is refused with `Invalid namespace`, and `curl` exits `22`. The server answers only at `/socket.io/`: any other path on the same port is `404 Not Found`, which `-s -o /dev/null -w "%{http_code}"` shows: `-o` throws the body away and `-w` prints the status.
+
+`--allow-anonymous` lets a client with no credentials join. A Socket.IO client logs in with the namespace request itself, and `curl` sends no credentials there, so against the second server in the claims below, `plain`, which has neither an account nor `--allow-anonymous`, it is refused with `Not authorized` and exits `22` without writing an event. That is the default because a server that lets anyone join sends its events to anyone.
+
+The loosening is for tests, and today it is the only way the Curl port's client can join `surl`: Socket.IO puts the login in the namespace request, and `curl` sends none there. The third server, `account`, has the account `--user alice:secret` and `--allow-plaintext-auth`, the loosening that lets a password be checked over plain `socketio` instead of refused unread. `-u alice:secret`, which gives `curl` that account, still puts no login in the request, so it is refused with `Not authorized` like the anonymous client. To test a login, use a client library that sends one in its namespace request (<<socketio-protocol>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<signalr-receive-a-message>> for the same job with SignalR, where a call can end the run with exit 0.
+* <<grpc-call-a-method>> for calling a method over gRPC.
+* <<socketio-protocol>>, <<rfc6455>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

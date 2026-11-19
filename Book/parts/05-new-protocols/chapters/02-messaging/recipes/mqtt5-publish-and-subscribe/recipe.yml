@@ -1,0 +1,173 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: mqtt5-publish-and-subscribe
+title: Publishing and Subscribing over MQTT 5
+protocols: [mqtt5, mqtt5s, mqtt]
+tier: new-protocols
+surl-options: [--allow-anonymous, --mqtt5-disconnect-after-retained, --topic, --user, --allow-plaintext-auth, --cert, --key]
+curl-options: [-d, --next, -s, -S, -m, -u, --cacert]
+exit-codes: [0, 3, 28, 60, 67]
+references: [surl-readme, curl-readme, curl-protocols, mqtt5, mqtt311, rfc8446]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe. bus adds an MQTT 3.1.1 listener beside MQTT 5 in one surl, so
+# both share its message bus. live has no --mqtt5-disconnect-after-retained, so a
+# subscribe stays open. accounts has an account and no loosening; plaintext adds
+# --allow-plaintext-auth to it; tls serves the same account over mqtt5s.
+servers:
+  main:
+    command: surl --allow-anonymous --mqtt5-disconnect-after-retained --topic "home/#;retain" mqtt5://127.0.0.1:{{port}}/
+    ready: port
+  bus:
+    command: surl --allow-anonymous --mqtt5-disconnect-after-retained --topic "home/#;retain" mqtt5://127.0.0.1:{{port2}}/ mqtt://127.0.0.1:{{port3}}/
+    ready: port
+  live:
+    command: surl --allow-anonymous --topic "home/#;retain" mqtt5://127.0.0.1:{{port4}}/
+    ready: port
+  accounts:
+    command: surl --user alice:s3cret --mqtt5-disconnect-after-retained mqtt5://127.0.0.1:{{port5}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth --mqtt5-disconnect-after-retained --topic "home/#;retain" mqtt5://127.0.0.1:{{port6}}/
+    ready: port
+  tls:
+    command: surl --user alice:s3cret --cert server.pem --key server.key --mqtt5-disconnect-after-retained --topic "home/#;retain" mqtt5s://127.0.0.1:{{port7}}/
+    ready: port
+
+cases:
+  - id: nothing-retained-yet
+    claim: A subscribe to a topic nothing has been published to receives nothing; surl ends it at once and curl exits 0.
+    run: curl -s mqtt5://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: solution
+    role: solution
+    claim: curl publishes 71 with -d, then, after --next, subscribes to the same topic and writes the message, the payload alone, exit 0.
+    run: curl -d 71 mqtt5://127.0.0.1:{{port}}/home/kitchen/temp --next mqtt5://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: "71"
+
+  - id: later-subscriber
+    claim: Under --topic "home/#;retain" the message stays on the topic; a subscriber that connects later receives it too.
+    run: curl -s mqtt5://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: "71"
+
+  - id: single-level-wildcard
+    claim: A topic filter with the single-level wildcard +, written %2B in the URL, receives the message of a topic it matches.
+    run: curl -s mqtt5://127.0.0.1:{{port}}/home/%2B/temp
+    expect:
+      exit: 0
+      stdout: "71"
+
+  - id: multi-level-wildcard
+    claim: 'A topic filter ending in the multi-level wildcard #, written %23 in the URL, receives the message of every topic below it.'
+    run: curl -s mqtt5://127.0.0.1:{{port}}/home/%23
+    expect:
+      exit: 0
+      stdout: "71"
+
+  - id: empty-message-clears
+    claim: Publishing an empty message clears the topic; a subscriber then receives nothing.
+    run: curl -s -d "" mqtt5://127.0.0.1:{{port}}/home/kitchen/temp --next -s mqtt5://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: outside-the-filter
+    claim: A topic outside the --topic filter, such as garden/temp, keeps nothing, because curl publishes with RETAIN 0; a subscribe right after the publish receives nothing.
+    run: curl -s -d 5 mqtt5://127.0.0.1:{{port}}/garden/temp --next -s mqtt5://127.0.0.1:{{port}}/garden/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: no-topic
+    claim: A URL with no topic is refused by curl before it connects, exit 3.
+    run: curl -sS mqtt5://127.0.0.1:{{port}}/
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "No MQTT topic found"
+
+  - id: from-mqtt-3
+    claim: In one surl, a message published over mqtt:// (MQTT 3.1.1) is retained on the shared bus and an mqtt5:// subscriber receives it.
+    run: curl -s -d 68 mqtt://127.0.0.1:{{port3}}/home/hall/temp --next -s mqtt5://127.0.0.1:{{port2}}/home/hall/temp
+    expect:
+      exit: 0
+      stdout: "68"
+
+  - id: to-mqtt-3
+    claim: The reverse holds, and the mqtt:// subscriber writes the topic's length in two bytes and the topic before the message, where mqtt5:// writes the message alone.
+    run: curl -s -d 71 mqtt5://127.0.0.1:{{port2}}/home/kitchen/temp --next -s mqtt://127.0.0.1:{{port3}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11home/kitchen/temp71\Z'
+
+  - id: payloads-run-together
+    claim: A filter that matches two retained topics receives both messages, written one after the other with nothing between them.
+    run: curl -s mqtt5://127.0.0.1:{{port2}}/home/%2B/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A(6871|7168)\Z'
+
+  - id: broker-stays-open
+    claim: Without --mqtt5-disconnect-after-retained, surl keeps the subscription open as a broker should; curl writes the retained message and waits, until -m 2 stops it with exit 28.
+    run: curl -s -d 71 mqtt5://127.0.0.1:{{port4}}/home/kitchen/temp --next -s -m 2 mqtt5://127.0.0.1:{{port4}}/home/kitchen/temp
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "71"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, a CONNECT with no user name is answered CONNACK reason code 0x87, not authorized, and curl exits 67.
+    run: curl -sS mqtt5://127.0.0.1:{{port5}}/home/kitchen/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x87 NotAuthorized"
+
+  - id: clear-password-refused
+    claim: The right password over mqtt5:// is refused unchecked with 0x87 too, because it crossed the network in clear; curl exits 67.
+    run: curl -sS -u alice:s3cret -d 71 mqtt5://127.0.0.1:{{port5}}/home/kitchen/temp
+    expect:
+      exit: 67
+      stderr-contains: "CONNACK reason code 0x87 NotAuthorized"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, the same password is checked and accepted, for the publish and the subscribe alike.
+    run: curl -s -u alice:s3cret -d 71 mqtt5://127.0.0.1:{{port6}}/home/kitchen/temp --next -s -u alice:s3cret mqtt5://127.0.0.1:{{port6}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: "71"
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused with reason code 0x86, bad user name or password, exit 67.
+    run: curl -sS -u alice:wrong mqtt5://127.0.0.1:{{port6}}/home/kitchen/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x86 BadUserNameOrPassword"
+
+  - id: over-tls
+    claim: Over mqtt5s://, with the server's certificate trusted through --cacert, the password is accepted with no loosening option.
+    run: curl -s --cacert server.pem -u alice:s3cret -d 71 mqtt5s://127.0.0.1:{{port7}}/home/kitchen/temp --next -s --cacert server.pem -u alice:s3cret mqtt5s://127.0.0.1:{{port7}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: "71"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, sends nothing and exits 60.
+    run: curl -s -u alice:s3cret mqtt5s://127.0.0.1:{{port7}}/home/kitchen/temp
+    expect:
+      exit: 60
+      stdout: ""

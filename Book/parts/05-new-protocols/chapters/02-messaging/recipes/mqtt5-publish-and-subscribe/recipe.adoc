@@ -1,0 +1,48 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-publish-and-subscribe]]
+=== Publishing and Subscribing over MQTT 5
+
+==== Problem
+
+A test needs a local MQTT 5 broker to publish a message to and read it back from, with `curl` and nothing else installed.
+
+==== Solution
+
+Start `surl` on an `mqtt5` listen URL that accepts anonymous clients, keeps the last message published under `home/`, and ends a subscription once it has sent what it keeps; publish with `curl -d` and subscribe with a plain `curl` of the same URL:
+
+include::.generated/solution.adoc[]
+
+The first `surl` is all the Solution needs, and the `openssl` line only serves the last one. The others, one with an MQTT 3.1.1 listener beside the MQTT 5 one, one that keeps a subscription open, one with an account, one that also accepts a password in clear, and one over Transport Layer Security (TLS), are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+MQTT, once MQ Telemetry Transport, is a publish-and-subscribe protocol: a client connects to a broker, publishes a message to a topic such as `home/kitchen/temp`, and every client subscribed to a matching topic filter receives it. Version 5.0 keeps that model and adds reason codes on every acknowledgement, properties and shared subscriptions (<<mqtt5>>). `surl` on an `mqtt5` listen URL is an MQTT 5.0 broker, and `curl`'s `mqtt5://` scheme is an MQTT 5.0 client. Both are extended: upstream curl has no `mqtt5` scheme, so the two programs are judged by the MQTT 5.0 specification, not by curl (<<surl-readme>>, <<curl-protocols>>). `mqtt://` stays MQTT 3.1.1 in both.
+
+In the URL `curl` takes, the path is the topic. With `-d 71`, `curl` connects, publishes `71` to the topic and disconnects; without `-d`, it subscribes to the topic and writes each message it receives to standard output, the payload and nothing else, until the broker disconnects it (<<curl-protocols>>). `--next` lets one `curl` command publish and then subscribe, with the options of the first transfer reset for the second. A filter that matches two topics receives both messages, written one after the other with nothing between them, so a program that needs to tell them apart subscribes to each topic on its own. A URL with no topic is refused by `curl` itself, exit `3`, before it connects.
+
+A broker never ends a subscription by itself, and a client that writes what arrives until the broker disconnects would wait for ever. `--mqtt5-disconnect-after-retained` is what makes the Solution end: `surl` answers a `SUBSCRIBE` with the retained messages it holds for the filter, then sends `DISCONNECT` with reason code `0x00`, a normal end, and closes, and `curl` exits `0`. A topic with nothing retained gives no output and exit `0`. The option makes the listener useless as a broker for any other client, so use it only for a one-shot reader (<<surl-readme>>). Without it, on the server `live`, `surl` behaves as a broker should: `curl` writes the retained message and waits for more, and only a time limit stops it; `-m 2` gives up after two seconds with exit `28`, the message already written. That is the way to read for a fixed time from a real broker.
+
+A retained message is MQTT's way of leaving a message on a topic for subscribers that come later: a publish with its RETAIN flag set is kept as the topic's retained message (<<mqtt5>>). `curl` publishes with RETAIN `0`, so on a broker left as it is, a `curl` publish reaches only subscribers already connected. `--topic "home/#;retain"` changes that for one filter: `surl` keeps every publish on a matching topic as its retained message, whatever the publisher's flag said (<<surl-readme>>). So publish first and subscribe second, as the Solution does. The latest publish replaces the one before, an empty one, `-d ""`, clears the topic, and a topic outside the filter, such as `garden/temp`, keeps nothing.
+
+A topic filter may name many topics: a plus sign matches one level and a hash sign, last in the filter, every level below. In a URL they are written `%2B` and `%23`, since both signs mean other things there; `home/%2B/temp` and `home/%23` both receive `home/kitchen/temp`'s message.
+
+`surl` keeps one message bus for all its messaging servers in a process, so the server `bus`, which listens on `mqtt5://` and `mqtt://` at once, shows a message crossing between the two versions: a publish over MQTT 3.1.1 reaches an MQTT 5 subscriber, and the reverse (<<surl-readme>>, <<mqtt311>>). The two clients write what they receive differently. `curl`'s `mqtt://` writes the topic's length in two bytes, high byte first, and the topic before each message, the bytes `0x00` `0x11` and `home/kitchen/temp` before `71`; `mqtt5://` writes the message alone.
+
+`--allow-anonymous` is in the Solution because every MQTT `CONNECT` needs a login, and `curl` sends none unless given `-u`. Without the option, a `CONNECT` with no user name is answered `CONNACK` with reason code `0x87`, not authorized; `curl` names it on standard error and exits `67`, login denied. A broker that takes anonymous clients lets anyone who can reach it read and write every topic, so it is not the default; `--allow-anonymous` accepts every `CONNECT` unchecked and makes `surl` write a `surl: warning:` line on start (<<surl-readme>>). Use it only on a machine nobody else can reach.
+
+The way in without it is an account, `--user alice:s3cret`, and `curl -u alice:s3cret`. But `mqtt5://` has no encryption, so the password crosses the network in clear, and `surl` refuses it unchecked with `0x87`, the right password included. `--allow-plaintext-auth` loosens that for a test: the password is then checked, the right one is accepted for the publish and the subscribe alike, and a wrong one is answered `0x86`, bad user name or password, exit `67`. It gives up the secrecy of the password, and it too warns on start.
+
+The secure way is `mqtt5s://`, the same broker inside TLS from the first byte (<<rfc8446>>). It needs a certificate: the Solution's `openssl` line makes one for `127.0.0.1` and its key, which `--cert` and `--key` hand to `surl`. `curl --cacert server.pem` trusts that certificate, and the same password is then accepted with no loosening option. Without `--cacert`, `curl` does not trust a certificate no authority signed, sends nothing, and exits `60`.
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back, so the reason code shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-publish-and-subscribe>> for the same task over MQTT 3.1.1.
+* <<kafka-produce-and-consume>> and <<amqp-send-and-receive>> for two other brokers on the same bus.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<mqtt5>>, <<mqtt311>>, <<rfc8446>>.

@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs keys.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: redis-seed-keys-from-an-agent
+title: Seeding Redis Keys from an Agent
+protocols: [redis]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, set_key, read_key, list_keys, curl]
+curl-options: [-s, -S, -u, -d]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, mcp-spec]
+
+cases:
+  - id: solution
+    role: solution
+    claim: set_key stores greeting in database 0 of a running server, read_key and list_keys find it there, and curl reads it back over redis:// with alice's login.
+    program: keys.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "set_key: 0/greeting, 5 bytes\nread_key greeting: string, 5 bytes, text \"hello\"\nlist_keys: [greeting], has_more false\ncurl exit 0, output \"hello\\n\"\n"
+
+  - id: client-needs-login
+    claim: set_key needs no login, but a client that sends none is refused at HELLO with NOAUTH, and curl exits 67.
+    program: keys.cs
+    args: [client-needs-login]
+    expect:
+      exit: 0
+      stdout-matches: '\Aset_key: 0/greeting, 5 bytes\ncurl exit 67, output "", error curl: \(67\) Redis server answered HELLO with error: NOAUTH '
+
+  - id: pattern-and-pages
+    claim: list_keys answers keys in order; pattern narrows them with a Redis glob, limit cuts a page short with has_more true, and after_key starts the next page after the key given.
+    program: keys.cs
+    args: [pattern-and-pages]
+    expect:
+      exit: 0
+      stdout: "set_key: 0/user:2, 3 bytes\nset_key: 0/greeting, 5 bytes\nset_key: 0/user:1, 5 bytes\nlist_keys: [user:1, user:2], has_more false\nlist_keys: [greeting], has_more true\nlist_keys: [user:1], has_more true\n"
+
+  - id: curl-writes
+    claim: A value curl sets with SET and -d is what read_key then answers.
+    program: keys.cs
+    args: [curl-writes]
+    expect:
+      exit: 0
+      stdout: "set_key: 0/greeting, 5 bytes\ncurl exit 0, output \"OK\\n\"\nread_key greeting: string, 7 bytes, text \"changed\"\n"
+
+  - id: database
+    claim: set_key with database 2 stores the key where curl's /2/ path reads it, and list_keys of database 0 does not list it.
+    program: keys.cs
+    args: [database]
+    expect:
+      exit: 0
+      stdout: "set_key: 2/greeting, 5 bytes\ncurl exit 0, output \"hello\\n\"\nlist_keys: [], has_more false\n"
+
+  - id: bytes
+    claim: set_key with value_base64 stores bytes that are not text, and read_key answers them as base64 rather than text.
+    program: keys.cs
+    args: [bytes]
+    expect:
+      exit: 0
+      stdout: "set_key: 0/raw, 3 bytes\nread_key raw: string, 3 bytes, base64 AAEC\n"
+
+  - id: expires
+    claim: A key set with expire_ms 1000 is gone three seconds later; read_key answers No such key and curl's GET a null, written as an empty line.
+    program: keys.cs
+    args: [expires]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "set_key: 0/session, 3 bytes\nread_key session: error: No such key.\ncurl exit 0, output \"\\n\"\n"
+
+  - id: no-such-key
+    claim: read_key of a key nobody set is a tool error, No such key.
+    program: keys.cs
+    args: [no-such-key]
+    expect:
+      exit: 0
+      stdout: "read_key missing: error: No such key.\n"

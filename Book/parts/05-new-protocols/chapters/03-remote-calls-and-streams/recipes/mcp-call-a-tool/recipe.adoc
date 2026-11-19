@@ -1,0 +1,49 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mcp-call-a-tool]]
+=== Calling a Model Context Protocol Tool
+
+==== Problem
+
+You want to call a tool on a Model Context Protocol server from the command line, without writing a client, and see what it returns.
+
+==== Solution
+
+Serve the protocol with `surl`, write the call to a file, and send it to the `/mcp` endpoint with `curl -d`. The file `echo.json` holds the call:
+
+[source,json]
+----
+{"name":"echo","arguments":{"text":"hello from curl"}}
+----
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run two more `surl` servers: one on port `8081` with no loosening, to show what it refuses, and one serving `mcps` on port `8082` with a throwaway certificate. You do not need them. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The Model Context Protocol (MCP) is how an agent finds and calls tools: JavaScript Object Notation Remote Procedure Call (JSON-RPC) messages, carried here over Hypertext Transfer Protocol (HTTP) as the specification's Streamable HTTP transport, each one a `POST` to a single endpoint (<<mcp-spec>>). A listen URL `mcp://127.0.0.1:8080/` makes `surl` that endpoint at `/mcp` on the port; any other path is answered `404`, and `curl` exits `8`, a reply it could not use. Upstream curl has no `mcp` scheme; this one is an extension of the Curl port, judged by the MCP specification (<<curl-protocols>>, <<surl-readme>>).
+
+Given an `mcp://` URL, `curl` opens the session (`initialize`, then the `initialized` notification) and does one thing. Without `-d` it asks for the tools and writes one line for each: its name, a tab, its description. With `-d` it sends the data as a `tools/call`, an object naming the tool and its arguments, and writes each content item the tool returns on a line of its own (<<curl-readme>>). `-d @echo.json` reads that object from the file, so the command reads the same in every shell, with no quotes inside quotes. `echo` returns the text it is given. `read_file` returns a file from the directory `--directory site` serves, by its path there; the file's own newline and the one `curl` adds after the item make two.
+
+Those are the two tools `surl` offers by default. `--list-directories` adds `list_directory` and `--allow-uploads` adds `write_file`, which writes into the served directory: the same options, with the same reasons to keep them off, that widen what the other `surl` servers let a client do.
+
+There are two ways a call can fail. A tool that runs and reports an error, as `read_file` does for a file that is not there, still answers: `curl` writes its text, `no such file or folder`, and exits `22`. A call the server cannot run at all, such as one naming a tool it does not have, is a JSON-RPC error, here `-32602`, invalid parameters; `curl` names it on standard error, writes nothing on standard output, and exits `8`.
+
+`--allow-anonymous` is in the Solution because without it `surl` lets no one in. With no account configured, every MCP request needs a login, so the server on port `8081` answers `401` and `curl` exits `67`, login denied. MCP logins are OAuth 2.1 Bearer tokens (<<mcp-spec>>, <<rfc6750>>): `--oauth2-bearer` sends one, and a token `surl` did not issue gets the same `401` and exit `67`. `curl` does not fetch a token by itself; it sends the one it is given (<<curl-protocols>>). A user name and password with `-u` is not a login this endpoint takes at all: it answers `400` and `curl` exits `8`. `--allow-anonymous` gives up the login altogether: anyone who can reach the port can call every tool `surl` offers, as the anonymous caller. It is for a test on your own machine.
+
+`mcps://` is the same endpoint inside Transport Layer Security (TLS) from the first byte (<<rfc8446>>), and `surl` will not open one without a certificate: given none, it ends at start with exit `58`, naming `--cert` and `--self-signed`. The server on port `8082` has `--self-signed`, a throwaway certificate `surl` makes when it starts, and `-k` makes `curl` accept it without verifying it; without `-k`, `curl` cannot verify it and exits `60`. That is what `--self-signed` gives up: the connection is encrypted, but `curl` cannot tell this `surl` from anything else on the port. For more than a test, give `surl` a certificate `curl` can verify (<<https-serve-with-your-own-certificate>>).
+
+`mcp+stdio://localhost/surl?--directory&site&mcp+stdio:` needs no listener. `curl` starts the program the path names, found on the `PATH`, with the query's items, split at `&`, as its arguments, and speaks MCP over its standard input and output, one JSON-RPC message per line. The listen URL `mcp+stdio:` makes `surl` serve that one session. It takes no login: the client that started it is trusted. Its log goes to standard error, so `curl` passes `Listening on mcp+stdio:` through on its own standard error. The host must be `localhost`; a URL without it is refused as malformed, exit `3`, with the form it wants.
+
+Exit `0` means the session opened and the call, or the listing, succeeded.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<webtransport-open-a-stream>> and <<coap-get-a-resource>> for the other extended servers in this chapter.
+* <<https-serve-with-your-own-certificate>> for a certificate `curl` can verify.
+* <<mcp-spec>>, <<rfc6750>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

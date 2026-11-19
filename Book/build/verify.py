@@ -102,9 +102,21 @@ def version(path):
 
 
 def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    """A port free for both TCP and UDP: DNS, TFTP, CoAP and QUIC listen on UDP, and Windows
+    reserves UDP ranges that are free for TCP, where a UDP bind fails (surl exit 45)."""
+    # The OS's own choice (port 0) comes from the ephemeral range, which Windows' UDP reservations
+    # overlap heavily, so pick at random below it and check both protocols.
+    import random
+    for _ in range(500):
+        port = random.randint(20000, 44999)
+        try:
+            with socket.socket() as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+                tcp.bind(("127.0.0.1", port))
+                udp.bind(("127.0.0.1", port))
+            return port
+        except OSError:
+            continue
+    raise RuntimeError("no port free for both TCP and UDP after 500 tries")
 
 
 def wait_port(port, seconds=10):

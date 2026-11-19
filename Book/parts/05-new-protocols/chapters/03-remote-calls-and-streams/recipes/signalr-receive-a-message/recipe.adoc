@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[signalr-receive-a-message]]
+=== Receiving a SignalR Hub Message
+
+==== Problem
+
+You want to see the messages an ASP.NET Core SignalR hub pushes to its clients, from the command line, in a test that ends on its own instead of hanging until someone presses kbd:[Ctrl+C].
+
+==== Solution
+
+Start `surl` as a SignalR hub, and have `curl` invoke the hub's `Broadcast` method, which pushes the message back to it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+SignalR is Microsoft's library for pushing messages from a server to its clients. A client negotiates over the Hypertext Transfer Protocol (HTTP), opens a WebSocket (<<rfc6455>>), and then exchanges JavaScript Object Notation (JSON) messages with a _hub_, each message naming a method, its `target`, and carrying its `arguments` (<<signalr-hub-protocol>>). Calls go both ways: the client invokes the hub's methods, and the hub invokes methods on the client, which is how a hub delivers a message. Upstream curl has no `signalr` scheme; the Curl port adds it, and `surl` serves the hub at `/` (<<curl-protocols>>, <<surl-readme>>).
+
+`-d` is the one message `curl` sends after the handshake: `type` `1` is an invocation, `target` the hub method and `arguments` its arguments. `surl`'s `Broadcast` method sends its arguments back to the caller as a hub call named `Broadcast`. `curl` writes each hub call it receives as one line, the JSON array of the method name followed by the arguments, so the line is `["Broadcast","hello from surl"]`. Then the hub completes the invocation, and the completion is what ends the run, with exit `0`. That is the deterministic way to receive: ask for something whose answer has an end. `-s` keeps `curl` quiet and `-S` still shows an error.
+
+The other methods show the other two ways a hub answers. `Echo` returns its one argument as the invocation's result, which `curl` writes on its own (`"hi"`). A stream invocation, `type` `4`, of `Count` with `3` gets three stream items, `1`, `2` and `3`, one per line, and ends at the stream's completion. A method the hub does not have is answered with a completion carrying an error, which `curl` prints on stderr, and it exits `22`.
+
+Without `-d`, `curl` sends nothing after the handshake and listens for hub calls until the hub closes the connection. That has no natural end, so bound it: `-m 2` stops it after two seconds with exit `28`, the time-out, and here with no output, since no one else was broadcasting. Left unbounded it still ends: `curl` sends the hub no keep-alive messages, and after 30 seconds of silence (`-w "%{time_total}"` prints how long the run took) the hub closes the connection with its server-timeout error, which `curl` reports with exit `22`.
+
+`--allow-anonymous` lets a client with no credentials negotiate. The second server in the claims below, `plain`, has neither an account nor `--allow-anonymous`, and refuses the negotiate request with `401 Unauthorized`, so `curl` exits `22` before any message moves. That is the default because a hub that accepts anyone delivers its messages to anyone. The loosening is for tests; the secure form, with accounts, is `signalrs`, the same hub inside Transport Layer Security (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socketio-receive-an-event>> for the same job with Socket.IO.
+* <<grpc-call-a-method>> for calling a method over gRPC.
+* <<signalr-hub-protocol>>, <<rfc6455>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

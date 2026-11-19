@@ -1,0 +1,159 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: grpc-call-a-method
+title: Calling a gRPC Method
+protocols: [grpc]
+tier: new-protocols
+surl-options: [--allow-anonymous, --user, --allow-plaintext-auth]
+curl-options: [-s, -S, -d, --grpc-proto, -u]
+exit-codes: [0, 1, 2, 22]
+references: [surl-readme, curl-readme, curl-protocols, grpc-http2, rfc9113]
+
+# The service surl serves, as a .proto file, for the --grpc-proto cases.
+fixtures:
+  echo.proto: |
+    syntax = "proto3";
+
+    package surl.test;
+
+    message EchoRequest {
+      string message = 1;
+      uint32 count = 2;
+      int32 status_code = 3;
+      string status_message = 4;
+      uint32 delay_milliseconds = 5;
+    }
+
+    message EchoReply {
+      string message = 1;
+      uint32 index = 2;
+    }
+
+    service Echo {
+      rpc Echo (EchoRequest) returns (EchoReply);
+      rpc Expand (EchoRequest) returns (stream EchoReply);
+      rpc Collect (stream EchoRequest) returns (EchoReply);
+      rpc Chat (stream EchoRequest) returns (stream EchoReply);
+    }
+
+# main is the recipe. locked has an account and no --allow-anonymous; loose is locked
+# with --allow-plaintext-auth, so a password over plain grpc is checked.
+servers:
+  main:
+    command: surl --allow-anonymous grpc://127.0.0.1:{{port}}/
+    ready: port
+  locked:
+    command: surl --user alice:secret grpc://127.0.0.1:{{port2}}/
+    ready: port
+  loose:
+    command: surl --user alice:secret --allow-plaintext-auth grpc://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Calling surl.test.Echo/Echo with the request message {"message":"hello"} as JSON prints the reply message as JSON, with the same message, and exits 0; the method's types come from the server by reflection.
+    run: curl -s -S -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"hello\"\n}\n"
+
+  - id: list-services
+    claim: Calling the reflection method grpc.reflection.v1.ServerReflection/ServerReflectionInfo with {"listServices":""} lists the services served, the two reflection services and surl.test.Echo.
+    run: curl -s -S -d "{\"listServices\":\"\"}" grpc://127.0.0.1:{{port}}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo
+    expect:
+      exit: 0
+      stdout: "{\n  \"originalRequest\": {\n    \"listServices\": \"\"\n  },\n  \"listServicesResponse\": {\n    \"service\": [\n      {\n        \"name\": \"grpc.reflection.v1.ServerReflection\"\n      },\n      {\n        \"name\": \"grpc.reflection.v1alpha.ServerReflection\"\n      },\n      {\n        \"name\": \"surl.test.Echo\"\n      }\n    ]\n  }\n}\n"
+
+  - id: describe-service
+    claim: Reflection's fileContainingSymbol answer describes a service as a compiled file descriptor, which curl prints as a base64 string.
+    run: curl -s -S -d "{\"fileContainingSymbol\":\"surl.test.Echo\"}" grpc://127.0.0.1:{{port}}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo
+    expect:
+      exit: 0
+      stdout-matches: '"fileDescriptorResponse": \{\s*"fileDescriptorProto": \[\s*"[A-Za-z0-9+/]+=*"\s*\]'
+
+  - id: with-proto
+    claim: With --grpc-proto echo.proto the method's types come from the file instead, and the same call prints the same reply.
+    run: curl -s -S --grpc-proto echo.proto -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"hello\"\n}\n"
+
+  - id: server-streaming
+    claim: Expand, a server-streaming method, answers {"message":"hi","count":3} with three replies, each printed as its own JSON object; an index of 0 is the field's default and is left out of the first.
+    run: curl -s -S --grpc-proto echo.proto -d "{\"message\":\"hi\",\"count\":3}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"hi\"\n}\n{\n  \"message\": \"hi\",\n  \"index\": 1\n}\n{\n  \"message\": \"hi\",\n  \"index\": 2\n}\n"
+
+  - id: status-not-ok
+    claim: A call that ends with a grpc-status other than 0 (here 5, NOT_FOUND, asked for with statusCode) prints no reply, names the status and its grpc-message on stderr, and exits 22.
+    run: curl -s -S -d "{\"message\":\"hello\",\"statusCode\":5,\"statusMessage\":\"no such greeting\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 5 (NOT_FOUND): no such greeting"
+
+  - id: unknown-field
+    claim: A request field the message type does not have is refused by curl before the call, with exit 2.
+    run: curl -s -S -d "{\"greeting\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "the data is not a surl.test.EchoRequest message as JSON (UnknownField)"
+
+  - id: unknown-method
+    claim: A method the service does not have is found missing by reflection, and curl exits 2 without calling it.
+    run: curl -s -S -d "{}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Shout
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "service surl.test.Echo has no method Shout"
+
+  - id: unknown-service
+    claim: A service the server does not serve is answered by reflection with error 5, not found, and curl exits 22 and asks for a .proto file.
+    run: curl -s -S -d "{}" grpc://127.0.0.1:{{port}}/surl.test.Other/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "gRPC server reflection failed (error 5: not found); give the method's .proto file with --grpc-proto"
+
+  - id: not-http1
+    claim: The grpc listener speaks only HTTP/2 from the first byte, so a plain HTTP/1.1 request gets an HTTP/2 frame back, which curl refuses as an HTTP/0.9 answer, exit 1.
+    run: curl -s -S http://127.0.0.1:{{port}}/
+    expect:
+      exit: 1
+      stdout: ""
+      stderr-contains: "Received HTTP/0.9 when not allowed"
+
+  - id: locked-anonymous
+    claim: On a server with an account and no --allow-anonymous, a call with no credentials ends UNAUTHENTICATED (16), exit 22.
+    run: curl -s -S --grpc-proto echo.proto -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port2}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 16 (UNAUTHENTICATED)"
+
+  - id: locked-password-in-clear
+    claim: On that server the right user name and password, sent over plain grpc, end PERMISSION_DENIED (7) unchecked, exit 22.
+    run: curl -s -S -u alice:secret --grpc-proto echo.proto -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port2}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 7 (PERMISSION_DENIED)"
+
+  - id: loose-password
+    claim: With --allow-plaintext-auth added, the same password over plain grpc is checked and the call is served.
+    run: curl -s -S -u alice:secret -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port3}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"hello\"\n}\n"
+
+  - id: loose-wrong-password
+    claim: A wrong password on that server ends UNAUTHENTICATED (16), exit 22.
+    run: curl -s -S -u alice:wrong --grpc-proto echo.proto -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port3}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 16 (UNAUTHENTICATED)"

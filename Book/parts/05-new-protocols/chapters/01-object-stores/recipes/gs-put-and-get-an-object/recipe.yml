@@ -1,0 +1,130 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: gs-put-and-get-an-object
+title: Putting and Getting a Google Cloud Storage Object
+protocols: [gs, s3]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --allow-uploads, --allow-anonymous]
+curl-options: [--cacert, --connect-to, -u, -T, -s, -S]
+exit-codes: [0, 22, 58]
+references: [surl-readme, curl-protocols, gcs-xml-api, aws-s3-api, rfc8446]
+
+fixtures:
+  note.txt: "uploaded over gs\n"
+  store/photos/hello.txt: "hello from surl\n"
+  readonly/photos/hello.txt: "hello, read only\n"
+  open/photos/hello.txt: "hello to anyone\n"
+
+# A certificate for 127.0.0.1, for Google's storage host and for the host name an s3:// URL
+# gives the bucket photos, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:storage.googleapis.com,DNS:photos.s3.us-east-1.amazonaws.com"
+
+# main is the recipe: gs and, on the same store, s3. readonly has no --allow-uploads;
+# anonymous adds --allow-anonymous. Each serves its own folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user GOOGTESTKEY:s3cret --allow-uploads gs://127.0.0.1:{{port}}/ s3://127.0.0.1:{{port2}}/
+    ready: port
+  readonly:
+    command: surl --directory readonly --cert server.pem --key server.key --user GOOGTESTKEY:s3cret gs://127.0.0.1:{{port3}}/
+    ready: port
+  anonymous:
+    command: surl --directory open --cert server.pem --key server.key --allow-anonymous --allow-uploads gs://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -T puts note.txt as the object note.txt in the bucket photos, signed with the account's HMAC key, and the second URL, with no -T, gets it back, exit 0; the object is the file store/photos/note.txt.
+    run: curl --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret -T note.txt gs://photos/note.txt gs://photos/note.txt
+    expect:
+      exit: 0
+      stdout: "uploaded over gs\n"
+      files:
+        store/photos/note.txt: "uploaded over gs\n"
+
+  - id: file-is-an-object
+    claim: A file already in the bucket's folder is an object, and is got like one.
+    run: curl -s --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret gs://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: object-over-s3
+    claim: The object put over gs is an S3 object in the bucket photos of the same surl's s3 listener, got with the same key pair signing as an AWS access key.
+    run: curl -s --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u GOOGTESTKEY:s3cret s3://photos/note.txt
+    expect:
+      exit: 0
+      stdout: "uploaded over gs\n"
+
+  - id: unauthenticated
+    claim: A request with no -u carries no Authorization and is answered 401 AuthenticationRequired; curl writes nothing and exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 401: AuthenticationRequired"
+
+  - id: wrong-secret
+    claim: The right access key with the wrong secret is refused 403 SignatureDoesNotMatch, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:wrong gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: SignatureDoesNotMatch"
+
+  - id: unknown-key
+    claim: An access key surl does not hold is refused 403 InvalidAccessKeyId, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGOTHERKEY:s3cret gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: InvalidAccessKeyId"
+
+  - id: missing-object
+    claim: A name with no object is answered 404 NoSuchKey, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret gs://photos/missing.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 404: NoSuchKey"
+
+  - id: needs-a-certificate
+    claim: A gs listen URL with no certificate stops the start with exit 58 and a message that says so.
+    run: surl --user GOOGTESTKEY:s3cret gs://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) gs://127\.0\.0\.1:0/ needs a certificate'
+
+  - id: uploads-off
+    claim: Without --allow-uploads, a signed put is refused 403 AccessDenied, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u GOOGTESTKEY:s3cret -T note.txt gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: AccessDenied"
+
+  - id: uploads-off-reads
+    claim: Without --allow-uploads, a signed get is still served.
+    run: curl -s --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u GOOGTESTKEY:s3cret gs://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello, read only\n"
+
+  - id: anonymous-read
+    claim: With --allow-anonymous, a get with no -u is served.
+    run: curl -s --cacert server.pem --connect-to ::127.0.0.1:{{port4}} gs://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello to anyone\n"
+
+  - id: anonymous-write
+    claim: With --allow-anonymous and --allow-uploads, a put with no -u is still refused 401 AuthenticationRequired, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port4}} -T note.txt gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 401: AuthenticationRequired"

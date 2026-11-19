@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-send-and-receive]]
+=== Sending and Receiving over AMQP
+
+==== Problem
+
+A test needs a local AMQP 0-9-1 broker, the protocol RabbitMQ speaks, to put a message on a queue and take it off again, with `curl` and nothing else installed.
+
+==== Solution
+
+Make a certificate, start `surl` on an `amqps` listen URL with one account, send with `curl -d` to the queue's URL, and receive with a plain `curl` of the same URL:
+
+include::.generated/solution.adoc[]
+
+The first `surl` is all the Solution needs. The others, one with an AMQP 1.0 listener beside the AMQP 0-9-1 one, one with the account and no Transport Layer Security (TLS), one that also accepts a password in clear, and one that accepts anonymous clients, are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+AMQP, the Advanced Message Queuing Protocol, version 0-9-1, is a broker protocol: a client publishes a message to an exchange, the exchange routes it to queues, and a client takes messages from a queue. The default exchange routes a message to the queue whose name is its routing key, and `basic.get` takes one message off a queue (<<amqp091>>). `surl` on an `amqp` or `amqps` listen URL is an AMQP 0-9-1 broker with the one virtual host `/`, and `curl`'s `amqp://` scheme is a client for it. Both are extended: upstream curl has no `amqp` scheme, so the two programs are judged by the AMQP 0-9-1 specification, not by curl (<<surl-readme>>, <<curl-protocols>>).
+
+The URL's path is `/<virtual host>/<queue>`, so the virtual host `/` is written `%2F` and the queue `orders` follows it. `curl` declares the queue first, using it as it is when it exists and creating it when it does not. With `-d hello` it then publishes `hello` through the default exchange to that queue; without `-d` it takes one message off the queue with `basic.get` and writes its body to standard output (<<curl-protocols>>). `--next` lets one `curl` command send and then receive, with the options of the first transfer reset for the second, which is why `--cacert` and `-u` are given twice.
+
+A queue hands out each message once. A receive takes the oldest message off the queue, the next receive the one after it, and a receive from an empty queue writes nothing and exits `0`, so an empty output means no message, not a failure. A path with no virtual host is refused by `curl` itself, exit `3`, before it connects. A virtual host other than `/` is answered `connection.close` with reply code `530`, not allowed, and `curl` exits `8`, a reply it could not use.
+
+`surl` keeps one message bus for all its messaging servers in a process, and AMQP 0-9-1 queues are its queues. On the server `bus`, which also listens on `amqp1s://`, a message sent over AMQP 0-9-1 to the queue `orders` is received by an AMQP 1.0 client at the address `orders`, and the reverse (<<surl-readme>>, <<amqp10>>). `curl` sends only through the default exchange, so its messages go to queues; reaching a topic shared with MQTT or Kafka subscribers takes a client that publishes to the topic exchange `amq.topic` (<<surl-readme>>).
+
+The Solution is over TLS because of how `curl` logs in. It offers only PLAIN, the user name and password as they are, and without `-u` it logs in with RabbitMQ's default account, which `surl` does not have: refused with `connection.close` `403`, access refused, exit `67`, login denied (<<curl-protocols>>). Inside TLS the password is safe on the wire, so `surl` offers PLAIN on `amqps://` with nothing loosened; the right password logs in and a wrong one is refused with `403` (<<rfc8446>>). `amqps://` needs a certificate: the `openssl` line makes one for `127.0.0.1` and its key, `--cert` and `--key` hand them to `surl`, and `curl --cacert server.pem` trusts it. Without `--cacert`, `curl` does not trust a certificate no authority signed, sends nothing, and exits `60`. `--user alice:s3cret` is the account and `-u alice:s3cret` the login `curl` sends.
+
+Over `amqp://`, with no TLS, the same password would cross the network in clear, and `surl` does not offer PLAIN at all; `curl` sees that and stops before it sends the password, exit `67`. `--allow-plaintext-auth` loosens that for a test: `surl` then offers PLAIN in clear and checks the password, so the right one sends and receives and a wrong one is refused with `403`. It gives up the secrecy of the password, and `surl` warns on every start while it is on (<<surl-readme>>).
+
+`--allow-anonymous`, the usual loosening for a quick test, does not help here. It makes `surl` offer the ANONYMOUS mechanism, which `curl`'s AMQP 0-9-1 client does not use, and without `--allow-plaintext-auth` there is still no PLAIN, so `curl` exits `67` all the same. It would also let anyone who can reach the broker read and write every queue, which is why it is not the default.
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back, so the broker's reply code shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-publish-and-subscribe>> and <<kafka-produce-and-consume>> for two other brokers on the same bus.
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<amqp091>>, <<amqp10>>, <<rfc8446>>.

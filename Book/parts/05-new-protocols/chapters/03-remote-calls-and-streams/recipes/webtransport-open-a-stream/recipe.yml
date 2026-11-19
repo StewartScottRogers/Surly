@@ -1,0 +1,130 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: webtransport-open-a-stream
+title: Opening a WebTransport Stream
+protocols: [webtransport]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --allow-anonymous]
+curl-options: [-d, --cacert, -u, --retry, --retry-all-errors, --retry-delay, --http3-only, -s, -o, -w]
+exit-codes: [0, 7, 22, 58, 60]
+references: [webtransport-http3, rfc9114, rfc9000, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# WebTransport listens on UDP only, so there is no TCP port to wait for (ready: none).
+# The first case waits instead: curl retries until surl answers. main starts last, so
+# the two account servers have had longer to start than it has.
+# locked has an account, so a session needs a login; open has the same account and
+# --allow-anonymous.
+servers:
+  locked:
+    command: surl --cert server.pem --key server.key --user alice:secret webtransport://127.0.0.1:{{port2}}/
+    ready: none
+  open:
+    command: surl --cert server.pem --key server.key --user alice:secret --allow-anonymous webtransport://127.0.0.1:{{port3}}/
+    ready: none
+  main:
+    command: surl --cert server.pem --key server.key webtransport://127.0.0.1:{{port}}/
+    ready: none
+
+cases:
+  - id: wait-for-start
+    claim: With --retry 5 --retry-all-errors --retry-delay 1, curl tries again until surl answers, then gets its data echoed, exit 0.
+    run: curl --retry 5 --retry-all-errors --retry-delay 1 --cacert server.pem -d "ready" webtransport://127.0.0.1:{{port}}/
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "ready"
+
+  - id: nothing-listening
+    claim: With nothing listening on the UDP port, curl fails at once, exit 7, as it does when surl has not bound it yet.
+    run: curl -s --cacert server.pem -d "x" webtransport://127.0.0.1:{{port9}}/echo
+    timeout: 60
+    expect:
+      exit: 7
+      stdout: ""
+
+  - id: solution
+    role: solution
+    claim: curl opens a WebTransport session over HTTP/3, sends the -d data on a bidirectional stream and writes what surl echoes back on it, exit 0.
+    run: curl --cacert server.pem -d "hello over a stream" webtransport://127.0.0.1:{{port}}/echo
+    expect:
+      exit: 0
+      stdout: "hello over a stream"
+
+  - id: unidirectional
+    claim: With ?wt=uni, curl sends the data on a unidirectional stream, and surl echoes it on one of its own.
+    run: curl --cacert server.pem -d "one way" "webtransport://127.0.0.1:{{port}}/echo?wt=uni"
+    expect:
+      exit: 0
+      stdout: "one way"
+
+  - id: datagram
+    claim: With ?wt=datagram, curl sends the data as one HTTP/3 datagram, and surl echoes it in another.
+    run: curl --cacert server.pem -d "a datagram" "webtransport://127.0.0.1:{{port}}/echo?wt=datagram"
+    expect:
+      exit: 0
+      stdout: "a datagram"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate in the QUIC handshake and exits 60, writing nothing.
+    run: curl -s -d "hello over a stream" webtransport://127.0.0.1:{{port}}/echo
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: other-requests-405
+    claim: An ordinary HTTP/3 request to the same port is not a session, and surl answers it 405.
+    run: curl --http3-only --cacert server.pem -s -o {{null}} -w "%{http_code}" https://127.0.0.1:{{port}}/echo
+    expect:
+      exit: 0
+      stdout: "405"
+
+  - id: udp-only
+    claim: surl binds UDP only for webtransport, so a TCP connection to the same port is refused, exit 7.
+    run: curl -s --cacert server.pem https://127.0.0.1:{{port}}/echo
+    expect:
+      exit: 7
+      stdout: ""
+
+  - id: needs-a-certificate
+    claim: A webtransport listen URL without --cert (or --self-signed) is refused at start, exit 58, because QUIC is always TLS.
+    run: surl webtransport://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) webtransport://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n'
+
+  - id: login-required
+    claim: Once surl has an account, a session with no login is refused with HTTP status 401, and curl exits 22.
+    run: curl --cacert server.pem -d "x" webtransport://127.0.0.1:{{port2}}/echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "The server refused the WebTransport session: HTTP status 401"
+
+  - id: login
+    claim: With -u and the account's password, the session opens and the data is echoed.
+    run: curl --cacert server.pem -u alice:secret -d "hello alice" webtransport://127.0.0.1:{{port2}}/echo
+    expect:
+      exit: 0
+      stdout: "hello alice"
+
+  - id: wrong-password
+    claim: A wrong password is refused like no login, exit 22.
+    run: curl -s --cacert server.pem -u alice:guess -d "x" webtransport://127.0.0.1:{{port2}}/echo
+    expect:
+      exit: 22
+      stdout: ""
+
+  - id: anonymous-allowed
+    claim: With --allow-anonymous, the same server with the same account opens a session with no login.
+    run: curl --cacert server.pem -d "hello anyone" webtransport://127.0.0.1:{{port3}}/echo
+    expect:
+      exit: 0
+      stdout: "hello anyone"

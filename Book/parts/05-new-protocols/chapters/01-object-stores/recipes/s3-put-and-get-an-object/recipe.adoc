@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-put-and-get-an-object]]
+=== Putting and Getting an Amazon S3 Object
+
+==== Problem
+
+A test needs a local stand-in for an Amazon S3 bucket that it can put an object into and get the object back from, signed as the real service wants, without an Amazon Web Services account.
+
+==== Solution
+
+Make a certificate, give `surl` a folder, an access key and permission to take uploads on an `s3` listen URL, and send `curl` to it with `--connect-to`, putting the object with `-T` and getting it with a second URL:
+
+include::.generated/solution.adoc[]
+
+The other two servers in the checked claims, one without `--allow-uploads` and one with `--allow-anonymous`, are there to show the refusals. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) keeps objects in buckets and is spoken as Hypertext Transfer Protocol (HTTP) requests: `PUT` on a key stores an object (PutObject) and `GET` reads it (GetObject) (<<aws-s3-api>>). `surl` on an `s3` listen URL is one of its extended servers, judged by the S3 API Reference and not by upstream curl, which has no `s3` scheme (<<surl-readme>>, <<curl-protocols>>). `--directory store` is its store: each top-level folder is a bucket and the path under it is the key, so `store/photos/` is the bucket `photos`. The object put here is the file `store/photos/note.txt`, and the file `hello.txt`, written there before `surl` started, is an object `curl` gets like any other.
+
+In `curl`, an `s3://` URL names the bucket as its host and the key as its path, as `aws s3` does, so `s3://photos/note.txt` is the key `note.txt` in `photos`. `-T note.txt` puts the local file there; a URL with no `-T` of its own gets the object and writes it to standard output, which is how one `curl` command puts the object and reads it back. `curl` sends the request where Amazon would have it, to `photos.s3.us-east-1.amazonaws.com` on port 443. `--connect-to ::127.0.0.1:8080` sends every connection to `surl` instead, whatever host and port the URL names, while `curl` keeps the Amazon host name in the request and in the certificate check; `surl` reads the bucket back from that name.
+
+Every request must be signed with AWS Signature Version 4 (SigV4), the scheme S3 uses (<<aws-s3-api>>). `--user AKIAIOSFODNN7EXAMPLE:s3cret` gives `surl` an account whose user name is the access key ID and whose password is the secret access key, and `-u` with the same pair makes `curl` sign each request with them. The signature proves the secret without sending it. `surl` answers as S3 does: an unsigned request is `403 AccessDenied`, an access key it does not hold `403 InvalidAccessKeyId`, a wrong secret `403 SignatureDoesNotMatch`, and a key with no object `404 NoSuchKey`. For every error status `curl` writes nothing to standard output, names the S3 error on standard error, and exits `22`.
+
+S3 is reached over Transport Layer Security (TLS) from the first byte (<<rfc8446>>), and so is `surl`'s `s3` listener: started with no certificate, it exits `58` and says it needs one. The `openssl` line makes a certificate and its key for both `127.0.0.1` and `photos.s3.us-east-1.amazonaws.com`, the name `curl` checks; `--cert server.pem` and `--key server.key` serve them. `--cacert server.pem` makes `curl` trust that certificate, which no authority signed. Without it `curl` exits `60` and sends nothing.
+
+`--allow-uploads` lets a signed request write. Without it, the `readonly` server refuses a signed put with `403 AccessDenied` and still serves a signed get: a store that changes is a store a test did not mean to change, so writing is off until asked for. `--allow-anonymous`, on the `anonymous` server, serves unsigned gets, so a test can read without keys, and anyone who can reach the listener can read every bucket; it is for tests only, and `surl` warns on every start while it is on (<<surl-readme>>). An unsigned put is still `403 AccessDenied`, `--allow-uploads` or not.
+
+The main server has a second listen URL, `https://127.0.0.1:8081/`, on the same store, which the Solution does not need and the claims do: the object put over `s3` is the file `/photos/note.txt` there. The account is the same, sent with HTTP Basic (<<rfc7617>>), which is safe here because the connection is encrypted. In the checked claims, `-s` silences `curl`'s progress meter and messages, and `-S` puts the error message back.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<gs-put-and-get-an-object>> for the same task with Google Cloud Storage, and an object read across two stores.
+* <<az-put-and-get-a-blob>> for Azure Blob Storage.
+* <<https-serve-with-your-own-certificate>> for the certificate.
+* <<surl-readme>>, <<curl-protocols>>, <<aws-s3-api>>, <<rfc8446>>, <<rfc7617>>.

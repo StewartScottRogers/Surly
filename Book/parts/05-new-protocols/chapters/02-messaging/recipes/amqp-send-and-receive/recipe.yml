@@ -1,0 +1,166 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: amqp-send-and-receive
+title: Sending and Receiving over AMQP
+protocols: [amqps, amqp, amqp1s]
+tier: new-protocols
+surl-options: [--user, --cert, --key, --allow-plaintext-auth, --allow-anonymous]
+curl-options: [-d, --next, -s, -S, -u, --cacert]
+exit-codes: [0, 3, 8, 60, 67]
+references: [surl-readme, curl-readme, curl-protocols, amqp091, amqp10, rfc8446]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: one account over amqps, nothing loosened. bus adds an AMQP 1.0
+# listener (amqp1s) beside AMQP 0-9-1 in one surl, so both share its message bus.
+# plain has the account on amqp:// with no TLS; plaintext adds --allow-plaintext-auth
+# to it; anonymous has no account, only --allow-anonymous.
+servers:
+  main:
+    command: surl --user alice:s3cret --cert server.pem --key server.key amqps://127.0.0.1:{{port}}/
+    ready: port
+  bus:
+    command: surl --user alice:s3cret --cert server.pem --key server.key amqps://127.0.0.1:{{port2}}/ amqp1s://127.0.0.1:{{port3}}/
+    ready: port
+  plain:
+    command: surl --user alice:s3cret amqp://127.0.0.1:{{port4}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth amqp://127.0.0.1:{{port5}}/
+    ready: port
+  anonymous:
+    command: surl --allow-anonymous amqp://127.0.0.1:{{port6}}/
+    ready: port
+
+cases:
+  - id: empty-queue
+    claim: Taking a message from a queue that holds none writes nothing and exits 0.
+    run: curl -s --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: solution
+    role: solution
+    claim: curl logs in over TLS as alice, sends hello to the queue orders in the virtual host / with -d, then, after --next, takes it off the queue and writes its body, exit 0.
+    run: curl --cacert server.pem -u alice:s3cret -d hello amqps://127.0.0.1:{{port}}/%2F/orders --next --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "hello"
+
+  - id: taken-off
+    claim: Receiving takes the message off the queue; a second receive finds the queue empty and writes nothing.
+    run: curl -s --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: send-two
+    claim: Two sends put two messages on the queue, and a send writes nothing to standard output.
+    run: curl -s --cacert server.pem -u alice:s3cret -d one amqps://127.0.0.1:{{port}}/%2F/orders --next -s --cacert server.pem -u alice:s3cret -d two amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: first-in-first-out
+    claim: Each receive takes one message, the oldest first.
+    run: curl -s --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "one"
+
+  - id: then-the-next
+    claim: The next receive takes the message sent after it.
+    run: curl -s --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "two"
+
+  - id: no-virtual-host
+    claim: A URL whose path is not /<virtual host>/<queue> is refused by curl before it connects, exit 3.
+    run: curl -sS --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/orders
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "the URL path must be /<virtual host>/<queue>"
+
+  - id: unknown-virtual-host
+    claim: surl serves only the virtual host /; any other is answered connection.close 530, not allowed, and curl exits 8.
+    run: curl -sS --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/shop/orders
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "reply code 530, NOT_ALLOWED - unknown virtual host"
+
+  - id: to-amqp-1
+    claim: In one surl, a message sent over AMQP 0-9-1 to the queue orders is received by an AMQP 1.0 client at the address orders.
+    run: curl -s --cacert server.pem -u alice:s3cret -d hello amqps://127.0.0.1:{{port2}}/%2F/orders --next -s --cacert server.pem -u alice:s3cret amqp1s://127.0.0.1:{{port3}}/orders
+    expect:
+      exit: 0
+      stdout: "hello"
+
+  - id: from-amqp-1
+    claim: The reverse holds; a message sent over AMQP 1.0 is taken from the same queue over AMQP 0-9-1.
+    run: curl -s --cacert server.pem -u alice:s3cret -d back amqp1s://127.0.0.1:{{port3}}/orders --next -s --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port2}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "back"
+
+  - id: no-login-refused
+    claim: Without -u, curl logs in with a default account surl does not have; surl answers connection.close 403, access refused, and curl exits 67.
+    run: curl -sS --cacert server.pem amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: wrong-password-refused
+    claim: A wrong password over TLS is checked and refused with 403, exit 67.
+    run: curl -sS --cacert server.pem -u alice:wrong amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, sends nothing and exits 60.
+    run: curl -s -u alice:s3cret amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: clear-password-refused
+    claim: Over amqp://, with no TLS, surl does not offer PLAIN, the one mechanism curl logs in with, so curl stops before it sends the password, exit 67.
+    run: curl -sS -u alice:s3cret amqp://127.0.0.1:{{port4}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "AMQP server offers no PLAIN mechanism"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, surl offers PLAIN over amqp:// and checks the password; the send and the receive both log in.
+    run: curl -s -u alice:s3cret -d hello amqp://127.0.0.1:{{port5}}/%2F/orders --next -s -u alice:s3cret amqp://127.0.0.1:{{port5}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "hello"
+
+  - id: wrong-password-in-clear
+    claim: With --allow-plaintext-auth, a wrong password is still checked and refused with 403, exit 67.
+    run: curl -sS -u alice:wrong amqp://127.0.0.1:{{port5}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: anonymous-is-not-enough
+    claim: --allow-anonymous alone does not let curl in over amqp://; surl offers the ANONYMOUS mechanism, which curl does not use, and no PLAIN, so curl exits 67.
+    run: curl -sS amqp://127.0.0.1:{{port6}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "ANONYMOUS"

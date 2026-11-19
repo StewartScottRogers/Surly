@@ -1,0 +1,161 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: oci-push-and-pull-an-image
+title: Pushing and Pulling a Container Image
+protocols: [oci, https]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --allow-uploads, --allow-anonymous]
+curl-options: [--cacert, -u, -T, -s, -S, -o, -w]
+exit-codes: [0, 22, 25, 58, 67]
+references: [surl-readme, curl-protocols, oci-distribution, rfc6750, rfc7617, rfc8446, oci-image-spec]
+
+# layer.txt is the image's one layer and empty.json its empty config; manifest.json names both
+# by their SHA-256 digests (bc8e73... and 44136f...). broken.json names a layer never pushed.
+# readonly/ and open/ hold the same image's layer as an OCI image layout on disk.
+fixtures:
+  layer.txt: "hello from an image\n"
+  empty.json: "{}"
+  manifest.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7\",\"size\":20}]}\n"
+  broken.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:b8fe6f0d8933749da1afc312c871455aaf45f172a02e117cc4ee309ee9d33961\",\"size\":13}]}\n"
+  store/readme.txt: "Repositories are folders here.\n"
+  readonly/demo/app/oci-layout: "{\"imageLayoutVersion\":\"1.0.0\"}"
+  readonly/demo/app/blobs/sha256/bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7: "hello from an image\n"
+  open/demo/app/oci-layout: "{\"imageLayoutVersion\":\"1.0.0\"}"
+  open/demo/app/blobs/sha256/bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7: "hello from an image\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: oci and, on the same store, https. readonly has no --allow-uploads;
+# anonymous adds --allow-anonymous. Each serves its own folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user alice:s3cret --allow-uploads oci://127.0.0.1:{{port}}/ https://127.0.0.1:{{port2}}/
+    ready: port
+  readonly:
+    command: surl --directory readonly --cert server.pem --key server.key --user alice:s3cret oci://127.0.0.1:{{port3}}/
+    ready: port
+  anonymous:
+    command: surl --directory open --cert server.pem --key server.key --allow-anonymous --allow-uploads oci://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl pushes the config and the layer as blobs by digest, then the manifest under the tag 1.0 to the repository demo/app, then pulls the layer by digest, exit 0; the layer is a file in the repository's image layout.
+    run: curl --cacert server.pem -u alice:s3cret -T empty.json oci://127.0.0.1:{{port}}/demo/app@sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a -T layer.txt oci://127.0.0.1:{{port}}/demo/app@sha256:bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7 -T manifest.json oci://127.0.0.1:{{port}}/demo/app:1.0 oci://127.0.0.1:{{port}}/demo/app@sha256:bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7
+    expect:
+      exit: 0
+      stdout: "hello from an image\n"
+      files:
+        store/demo/app/blobs/sha256/bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7: "hello from an image\n"
+        store/demo/app/oci-layout: ~
+        store/demo/app/index.json: ~
+
+  - id: pull-by-tag
+    claim: A URL that ends in a tag pulls the manifest pushed under it, byte for byte.
+    run: curl -s --cacert server.pem -u alice:s3cret oci://127.0.0.1:{{port}}/demo/app:1.0
+    expect:
+      exit: 0
+      stdout: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7\",\"size\":20}]}\n"
+
+  - id: blob-over-https
+    claim: The pushed layer is served over HTTPS by the same surl at its path in the image layout, to the same account logging in with Basic.
+    run: curl -s --cacert server.pem -u alice:s3cret https://127.0.0.1:{{port2}}/demo/app/blobs/sha256/bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7
+    expect:
+      exit: 0
+      stdout: "hello from an image\n"
+
+  - id: tag-in-the-index
+    claim: The layout's index.json, served over HTTPS, records the manifest under the tag 1.0.
+    run: curl -s --cacert server.pem -u alice:s3cret https://127.0.0.1:{{port2}}/demo/app/index.json
+    expect:
+      exit: 0
+      stdout-matches: '"org\.opencontainers\.image\.ref\.name":"1\.0"'
+
+  - id: unknown-tag
+    claim: A tag nothing was pushed under is answered 404 MANIFEST_UNKNOWN; curl writes nothing and exits 22.
+    run: curl -sS --cacert server.pem -u alice:s3cret oci://127.0.0.1:{{port}}/demo/app:2.0
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "404 (MANIFEST_UNKNOWN"
+
+  - id: manifest-needs-its-blobs
+    claim: A manifest that names a layer the registry does not hold is refused 400 MANIFEST_BLOB_UNKNOWN, exit 22.
+    run: curl -sS --cacert server.pem -u alice:s3cret -T broken.json oci://127.0.0.1:{{port}}/demo/app:broken
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "400 (MANIFEST_BLOB_UNKNOWN"
+
+  - id: digest-checked
+    claim: curl checks a blob's digest before it sends it, so a file whose SHA-256 is not the one the URL names is refused with exit 25.
+    run: curl -sS --cacert server.pem -u alice:s3cret -T layer.txt oci://127.0.0.1:{{port}}/demo/app@sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+    expect:
+      exit: 25
+      stdout: ""
+      stderr-contains: "does not match the URL's sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+
+  - id: registry-wants-a-token
+    claim: A registry request with no token is answered 401 Unauthorized.
+    run: curl -s --cacert server.pem -o {{null}} -w "%{http_code}" https://127.0.0.1:{{port}}/v2/
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: no-login
+    claim: With no -u, the token endpoint gives curl no token, and curl exits 67.
+    run: curl -sS --cacert server.pem oci://127.0.0.1:{{port}}/demo/app:1.0
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "The token endpoint answered 401 without a token"
+
+  - id: wrong-password
+    claim: A wrong password gets no token either, exit 67.
+    run: curl -sS --cacert server.pem -u alice:wrong oci://127.0.0.1:{{port}}/demo/app:1.0
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "The token endpoint answered 401 without a token"
+
+  - id: needs-a-certificate
+    claim: An oci listen URL with no certificate stops the start with exit 58 and a message that says so.
+    run: surl --user alice:s3cret oci://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) oci://127\.0\.0\.1:0/ needs a certificate'
+
+  - id: uploads-off
+    claim: Without --allow-uploads, the token grants no push, so a push is refused 403 DENIED and curl exits 67.
+    run: curl -sS --cacert server.pem -u alice:s3cret -T empty.json oci://127.0.0.1:{{port3}}/demo/app@sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "403 (DENIED"
+
+  - id: uploads-off-pulls
+    claim: Without --allow-uploads, a blob in an image layout on disk is still pulled.
+    run: curl -s --cacert server.pem -u alice:s3cret oci://127.0.0.1:{{port3}}/demo/app@sha256:bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7
+    expect:
+      exit: 0
+      stdout: "hello from an image\n"
+
+  - id: anonymous-pull
+    claim: With --allow-anonymous, a pull with no -u is served.
+    run: curl -s --cacert server.pem oci://127.0.0.1:{{port4}}/demo/app@sha256:bc8e736e1f5355d0d48103cd039342ae934cfbe33dc7339c5e68f34f933421b7
+    expect:
+      exit: 0
+      stdout: "hello from an image\n"
+
+  - id: anonymous-push
+    claim: With --allow-anonymous and --allow-uploads, a push with no -u is still refused 403 DENIED, exit 67.
+    run: curl -sS --cacert server.pem -T empty.json oci://127.0.0.1:{{port4}}/demo/app@sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "403 (DENIED"

@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[nats-publish-and-subscribe]]
+=== Publishing and Subscribing over NATS
+
+==== Problem
+
+A test needs a local NATS server to publish a message to a subject and receive it on a subscriber, with `curl` and nothing else installed.
+
+==== Solution
+
+Start `surl` on a `nats` listen URL that holds each publish for a second, and give `curl` with `-Z` a subscription and a publish to run at the same time:
+
+include::.generated/solution.adoc[]
+
+The other three `surl` commands in the checked claims, one that also serves MQTT (once MQ Telemetry Transport), one with an account, and one that also accepts a password in clear, are there for the claims. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+NATS is a publish-and-subscribe protocol: a client connects, sends `CONNECT`, then publishes a message to a subject such as `orders.new` with `PUB`, or subscribes to one with `SUB` and receives every message published to it from then on (<<nats-protocol>>). `surl` on a `nats` listen URL is a core NATS server, an extended server of `surl`'s that upstream curl has no client for; the Curl port has one (<<curl-protocols>>). In the URL `curl` takes, the path is the subject. With `-d paid`, `curl` publishes `paid` to it and exits; without `-d`, it subscribes and writes the payload of each message it receives, followed by a newline, until the server closes the connection or, with `?count=1` in the URL, until one message has arrived (<<curl-readme>>). The payload is all it writes: not the subject.
+
+Core NATS keeps nothing. A message goes to the subscriptions that exist when it is published, and a subscriber that arrives a moment later never sees it: publish with `-d` and subscribe after it with `--next`, and the subscriber waits for a message that is gone until `-m 1` ends it, exit `28`, a timeout. So publisher and subscriber must run at the same time, and the subscription must be in place first. `-Z` runs every transfer on the command line in parallel, and `--next` separates the subscription's options from the publish's. That alone is a race: the two connect together, and when the publish gets there first the message is lost and the subscriber waits. `--fault "delay;ms=1000;stage=command;command=PUB"` settles it: it makes `surl` hold every `PUB` for a second before it acts on it, so the publish is delivered long after the subscription is made. `--fault` exists to make `surl` misbehave on purpose for a test, and `surl` warns on start while it is on (<<surl-readme>>); against a real NATS server, start the subscriber first and publish from another terminal.
+
+A subscription may name many subjects. Subjects are tokens separated by dots, and in `SUB` the token `*` matches any one token, so `orders.*` receives what is published to `orders.new` (<<nats-protocol>>); `>` as the last token matches the rest. A publish may not name a wildcard, and `curl` refuses `-d` to `orders.*` itself, exit `3`, before it connects. `?request` asks for request and reply instead: `curl` publishes with a reply subject of its own and waits for one reply. With nobody subscribed, `surl` says so at once, and `curl` exits `56`, no responders.
+
+`surl` shares one message bus among its messaging servers, so on a `surl` that also serves MQTT, the NATS subject `orders.new` is the MQTT topic `orders/new`: dots become slashes (<<surl-readme>>). `--topic "orders/#;retain"` makes `surl` keep the last message published under `orders/`, whichever protocol published it, as the topic's retained message, and an MQTT subscriber that comes later receives it, written as the topic's length in two bytes, the topic and the payload (<<mqtt311>>). The retained message is MQTT's, not NATS's: a NATS subscriber to `orders.new` on the same `surl` still receives nothing.
+
+`--allow-anonymous` is in the Solution because every NATS `CONNECT` needs a login, and `curl` sends none unless given `-u`. Without it, `surl` answers `-ERR 'Authorization Violation'` and closes, and `curl` exits `67`, login denied. A server that takes anonymous clients lets anyone who can reach it publish and subscribe to everything, so it is not the default, and `surl` warns on start while it is on. The way in without it is an account, `--user alice:s3cret`, and `curl -u alice:s3cret`. But `nats://` has no encryption, so `surl` refuses that password unchecked, the right one included, with the same error. `--allow-plaintext-auth` loosens that for a test: the password is then checked, the right one is accepted and a wrong one refused, `67`. It warns on start too. The secure way is `natss://`, the same server over Transport Layer Security (TLS), which needs a certificate (<<surl-readme>>).
+
+In the checked claims, `-s` silences `curl`'s progress meter and error messages, and `-S` puts the error message back, so the reason shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-publish-and-subscribe>> for the MQTT broker on the same message bus.
+* <<stomp-send-to-a-queue>> for a destination that keeps messages until a subscriber comes.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<nats-protocol>>, <<mqtt311>>.

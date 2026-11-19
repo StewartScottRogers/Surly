@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[coap-get-a-resource]]
+=== Getting a Constrained Application Protocol Resource
+
+==== Problem
+
+You are testing a device client or a gateway that speaks the Constrained Application Protocol, and you want a local server that serves a file as a resource and a client that reads it.
+
+==== Solution
+
+Serve a directory with a `coap` listen URL and read the file with `curl`:
+
+include::.generated/solution.adoc[]
+
+`surl` listens on User Datagram Protocol (UDP) only, so nothing tells a script when it is ready; if `curl` runs the moment `surl` starts, add `--retry 5 --retry-all-errors --retry-delay 1`, as the first checked claim does. The checked claims below also run three more `surl` servers, on ports `8081` to `8083`, to show the login and `coaps`. You do not need them. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The Constrained Application Protocol (CoAP) is a small request and response protocol for small devices, shaped like Hypertext Transfer Protocol (HTTP), with `GET`, `PUT`, `POST` and `DELETE` on resources named by URLs, but carried in single UDP datagrams (<<rfc7252>>). `surl` serves the files of the directory `--directory site` names as resources, so `site/hello.txt` is `coap://127.0.0.1:8080/hello.txt` (<<surl-readme>>). Upstream curl has no `coap` scheme; this one is an extension of the Curl port, judged by RFC 7252 (<<curl-protocols>>).
+
+`curl` sends a confirmable `GET`, one the server must acknowledge, and writes the payload of the answer: the file. CoAP response codes are written class, dot, detail: `2.05` is Content, `4.04` Not Found, `4.01` Unauthorized (<<rfc7252>>). `-i` writes the code first, as `CoAP/1.0 2.05`, then a blank line, then the payload; CoAP has no headers to show. In the checked claims `-s` keeps the progress meter quiet.
+
+A resource that is not there is answered `4.04`, and `curl` treats it as it treats an HTTP error status: it writes the answer's payload, here nothing, and exits `0`. `-f` makes it exit `22` instead, naming the code (<<curl-readme>>).
+
+UDP has no connection, so there is nothing to wait for before `surl` answers. A `curl` sent to a port where nothing listens fails at once with exit `7`, and that is what a `curl` started before `surl` has bound its port meets. `--retry 5` makes `curl` try up to five more times, `--retry-all-errors` counts that failure as one worth retrying, and `--retry-delay 1` waits a second between tries.
+
+Plain CoAP authenticates no one: a request carries no login, so `-u alice:secret` changes nothing. With no account configured, `surl` serves every read. Once it has an account, here `--user alice:secret`, it is private, and a `coap` read is refused `4.01`, with `-u` or without, since there is no way to log in over plain `coap`. `--allow-anonymous` serves the read anyway, which gives up what the account was for: anyone who can reach the port reads every file. It is for a test on your own machine.
+
+`coaps` is CoAP inside Datagram Transport Layer Security (DTLS) 1.2, the datagram form of Transport Layer Security (TLS) (<<rfc7252>>, <<rfc8446>>). The server on port `8083` has `--self-signed`, a throwaway certificate `surl` makes when it starts, and `-k` makes `curl` accept it without verifying it; without `-k`, `curl` cannot verify it and exits `60`, writing nothing. That is what `--self-signed` gives up: the datagrams are encrypted, but `curl` cannot tell this `surl` from anything else on the port. A `coaps` listen URL with no certificate and no account is refused at start, exit `58`, naming `--cert` and `--self-signed`; for more than a test, give `surl` a certificate `curl` can verify (<<https-serve-with-your-own-certificate>>). RFC 7252 also defines a pre-shared key mode, in which an account's name and password are the key, and `surl` accepts it (<<surl-readme>>); this `curl` offers only the certificate mode (<<curl-protocols>>).
+
+Exit `0` means an answer came back, whatever its code, unless `-f` is given.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-download-a-file>> for another file server on UDP.
+* <<https-serve-with-your-own-certificate>> for a certificate `curl` can verify.
+* <<mcp-call-a-tool>> and <<webtransport-open-a-stream>> for the other extended servers in this chapter.
+* <<rfc7252>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

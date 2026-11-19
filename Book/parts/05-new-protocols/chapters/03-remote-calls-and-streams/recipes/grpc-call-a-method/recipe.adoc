@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-call-a-method]]
+=== Calling a gRPC Method
+
+==== Problem
+
+You want to call a method on a gRPC server from the command line, writing the request as JSON instead of compiling a client, and you want to find out which services and methods the server offers.
+
+==== Solution
+
+Start `surl` as a gRPC server, and call its `Echo` method with `curl`, giving the request message as JSON with `-d`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+gRPC (gRPC Remote Procedure Calls) runs each call as one HTTP/2 (Hypertext Transfer Protocol version 2) request: a `POST` to `/<service>/<method>`, whose body is the request message in Protocol Buffers' binary encoding, and whose answer is the reply messages followed by trailers carrying `grpc-status` (<<grpc-http2>>, <<rfc9113>>). Upstream curl has no `grpc` scheme; the Curl port adds it, and `surl` serves it (<<curl-protocols>>, <<surl-readme>>). The URL's path is the method's full name, here `surl.test.Echo/Echo`: the package `surl.test`, the service `Echo`, the method `Echo`.
+
+`-d` gives the request message as JavaScript Object Notation (JSON), in the field names of the Protocol Buffers JSON mapping (`statusCode` for the field `status_code`). To turn it into the binary message `curl` needs the method's types. Without `--grpc-proto` it asks the server for them over gRPC server reflection, a service the server offers for exactly this, then makes the call and prints each reply message as JSON. `-s` keeps `curl` quiet and `-S` still shows an error when there is one.
+
+`surl` serves one built-in service, `surl.test.Echo`, plus reflection. To see what a server offers, call the reflection method itself: `grpc.reflection.v1.ServerReflection/ServerReflectionInfo` with `{"listServices":""}` lists the services by name. Reflection will describe a service too, given `{"fileContainingSymbol":"surl.test.Echo"}`, but as a compiled file descriptor that `curl` prints in base64, so for the methods and their fields read the service's `.proto` file. For `surl` that is the `echo.proto` fixture of this recipe: four methods, one of each gRPC call shape (`Echo` one request and one reply, `Expand` a stream of replies, `Collect` a stream of requests, `Chat` both), all taking an `EchoRequest` and answering `EchoReply`. `--grpc-proto echo.proto` makes `curl` read the types from that file instead of asking the server, and the call prints the same reply. `Expand` with a `count` of 3 answers three messages, each printed as its own JSON object; the first has `index` 0, which is the field's default and so is left out of the JSON, as the mapping says.
+
+A call is a success when its `grpc-status` is `0`. Any other status makes `curl` exit `22` and print the status and its `grpc-message` on stderr; the `Echo` service sends whatever status a request asks for in `statusCode` and `statusMessage`, so a test can see each one. Mistakes `curl` can catch before calling are exit `2`: a field the request type does not have, and a method reflection says the service lacks. A service the server does not know at all comes back from reflection as error `5`, not found, which is exit `22`. The `grpc` listener is HTTP/2 from its first byte ("prior knowledge"), so an ordinary `http://` request to it is answered with an HTTP/2 frame, which `curl` refuses as an HTTP/0.9 reply, exit `1`.
+
+`--allow-anonymous` lets a call with no credentials in. Without it, a server with an account refuses one: the second server in the claims below, `locked`, made with `--user alice:secret`, ends an anonymous call `UNAUTHENTICATED` (16). `-u alice:secret` makes `curl` send that account's user name and password with the call, but over plain `grpc` the password would cross the network in clear, so `locked` ends that call `PERMISSION_DENIED` (7) without checking it. That is the default because anyone watching the connection could copy the password. `--allow-plaintext-auth` on the third server, `loose`, turns that refusal off: the right password is checked and served, and a wrong one is `UNAUTHENTICATED`. It is for tests only, and gives up exactly what the default protects. The secure form is `grpcs`, which `surl` also serves: the same server inside Transport Layer Security (TLS) (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<signalr-receive-a-message>> and <<socketio-receive-an-event>> for the other two remote-call protocols in this chapter.
+* <<http-refuse-a-password-in-clear>> for the same rule for an HTTP password.
+* <<grpc-http2>>, <<rfc9113>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

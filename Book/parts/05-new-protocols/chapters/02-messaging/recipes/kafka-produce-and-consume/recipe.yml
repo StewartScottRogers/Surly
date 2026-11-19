@@ -1,0 +1,171 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: kafka-produce-and-consume
+title: Producing and Consuming Kafka Records
+protocols: [kafka, kafkas, mqtt5]
+tier: new-protocols
+surl-options: [--allow-anonymous, --mqtt5-disconnect-after-retained, --topic, --user, --allow-plaintext-auth, --cert, --key]
+curl-options: [-d, --next, -s, -S, -u, --cacert]
+exit-codes: [0, 3, 8, 56, 60, 67]
+references: [surl-readme, curl-readme, curl-protocols, kafka-protocol, mqtt5, rfc8446]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe. bus adds an MQTT 5 listener beside Kafka in one surl, so both
+# share its message bus. accounts has an account and no loosening; plaintext adds
+# --allow-plaintext-auth to it; tls serves the same account over kafkas.
+servers:
+  main:
+    command: surl --allow-anonymous kafka://127.0.0.1:{{port}}/
+    ready: port
+  bus:
+    command: surl --allow-anonymous --mqtt5-disconnect-after-retained --topic "shop/#;retain" kafka://127.0.0.1:{{port2}}/ mqtt5://127.0.0.1:{{port3}}/
+    ready: port
+  accounts:
+    command: surl --user alice:s3cret kafka://127.0.0.1:{{port4}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth kafka://127.0.0.1:{{port5}}/
+    ready: port
+  tls:
+    command: surl --user alice:s3cret --cert server.pem --key server.key kafkas://127.0.0.1:{{port6}}/
+    ready: port
+
+cases:
+  - id: empty-topic
+    claim: Consuming a topic nothing has been produced to writes nothing and exits 0.
+    run: curl -s kafka://127.0.0.1:{{port}}/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: solution
+    role: solution
+    claim: curl produces one record with -d, then, after --next, consumes the topic from its start and writes the record's value and a newline, exit 0.
+    run: curl -d first kafka://127.0.0.1:{{port}}/orders --next kafka://127.0.0.1:{{port}}/orders
+    expect:
+      exit: 0
+      stdout: "first\n"
+
+  - id: records-stay
+    claim: Consuming does not remove records; after a second produce, a consume writes both values, oldest first, one per line.
+    run: curl -s -d second kafka://127.0.0.1:{{port}}/orders --next -s kafka://127.0.0.1:{{port}}/orders
+    expect:
+      exit: 0
+      stdout: "first\nsecond\n"
+
+  - id: from-an-offset
+    claim: ?offset=1 starts the consume at the second record, offset 1, and reads to the end.
+    run: curl -s "kafka://127.0.0.1:{{port}}/orders?offset=1"
+    expect:
+      exit: 0
+      stdout: "second\n"
+
+  - id: offset-at-the-end
+    claim: An offset equal to the number of records is the end of the log; the consume writes nothing and exits 0.
+    run: curl -s "kafka://127.0.0.1:{{port}}/orders?offset=2"
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: offset-past-the-end
+    claim: An offset past the end is answered error 1, OFFSET_OUT_OF_RANGE, and curl exits 8.
+    run: curl -sS "kafka://127.0.0.1:{{port}}/orders?offset=5"
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "error 1 (OFFSET_OUT_OF_RANGE)"
+
+  - id: partition-zero
+    claim: A number after the topic names the partition; partition 0 holds the topic's records.
+    run: curl -s kafka://127.0.0.1:{{port}}/orders/0
+    expect:
+      exit: 0
+      stdout: "first\nsecond\n"
+
+  - id: one-partition-only
+    claim: Every topic in surl has the one partition 0; partition 1 is answered error 3, UNKNOWN_TOPIC_OR_PARTITION, and curl exits 8.
+    run: curl -sS kafka://127.0.0.1:{{port}}/orders/1
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "error 3 (UNKNOWN_TOPIC_OR_PARTITION)"
+
+  - id: invalid-topic-name
+    claim: A topic name with a character Kafka does not allow, such as a space, is answered error 17, INVALID_TOPIC_EXCEPTION, and curl exits 8.
+    run: curl -sS kafka://127.0.0.1:{{port}}/a%20b
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "error 17 (INVALID_TOPIC_EXCEPTION)"
+
+  - id: no-topic
+    claim: A URL with no topic is refused by curl before it connects, exit 3.
+    run: curl -sS kafka://127.0.0.1:{{port}}/
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "No Kafka topic found"
+
+  - id: from-mqtt5
+    claim: In one surl, a message published over MQTT 5 to shop/orders is a record of the Kafka topic shop.orders, each slash a dot.
+    run: curl -s -d 42 mqtt5://127.0.0.1:{{port3}}/shop/orders --next -s kafka://127.0.0.1:{{port2}}/shop.orders
+    expect:
+      exit: 0
+      stdout: "42\n"
+
+  - id: to-mqtt5
+    claim: The reverse holds; a record produced to shop.orders is retained under --topic "shop/#;retain" and an MQTT 5 subscriber to shop/orders receives it.
+    run: curl -s -d paid kafka://127.0.0.1:{{port2}}/shop.orders --next -s mqtt5://127.0.0.1:{{port3}}/shop/orders
+    expect:
+      exit: 0
+      stdout: "paid"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, surl closes a connection that does not log in, and curl exits 56.
+    run: curl -sS kafka://127.0.0.1:{{port4}}/orders
+    expect:
+      exit: 56
+      stdout: ""
+
+  - id: clear-password-refused
+    claim: Over kafka://, with no TLS, surl offers no SASL mechanism for the password, so curl stops before it sends it, exit 67.
+    run: curl -sS -u alice:s3cret kafka://127.0.0.1:{{port4}}/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "it offers no SASL mechanism"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, surl takes SASL PLAIN in clear and checks the password; the produce and the consume both log in.
+    run: curl -s -u alice:s3cret -d first kafka://127.0.0.1:{{port5}}/orders --next -s -u alice:s3cret kafka://127.0.0.1:{{port5}}/orders
+    expect:
+      exit: 0
+      stdout: "first\n"
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused, exit 67.
+    run: curl -sS -u alice:wrong kafka://127.0.0.1:{{port5}}/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "SASL PLAIN authentication failed"
+
+  - id: over-tls
+    claim: Over kafkas://, with the server's certificate trusted through --cacert, the password is accepted with no loosening option.
+    run: curl -s --cacert server.pem -u alice:s3cret -d first kafkas://127.0.0.1:{{port6}}/orders --next -s --cacert server.pem -u alice:s3cret kafkas://127.0.0.1:{{port6}}/orders
+    expect:
+      exit: 0
+      stdout: "first\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, sends nothing and exits 60.
+    run: curl -s -u alice:s3cret kafkas://127.0.0.1:{{port6}}/orders
+    expect:
+      exit: 60
+      stdout: ""

@@ -1,0 +1,152 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: mcp-call-a-tool
+title: Calling a Model Context Protocol Tool
+protocols: [mcp, mcps, mcp+stdio]
+tier: new-protocols
+surl-options: [--directory, --allow-anonymous, --self-signed, --allow-uploads, --list-directories]
+curl-options: [-d, -u, --oauth2-bearer, -k]
+exit-codes: [0, 3, 8, 22, 58, 60, 67]
+references: [mcp-spec, surl-readme, curl-readme, curl-protocols, rfc6750, rfc8446]
+
+# Each call is a JSON file sent with -d @file, so the command reads the same in every shell.
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  locked/hello.txt: "hello from surl\n"
+  secure/hello.txt: "hello from surl\n"
+  echo.json: '{"name":"echo","arguments":{"text":"hello from curl"}}'
+  read.json: '{"name":"read_file","arguments":{"path":"hello.txt"}}'
+  missing.json: '{"name":"read_file","arguments":{"path":"missing.txt"}}'
+  unknown.json: '{"name":"no_such_tool","arguments":{}}'
+
+# main is the recipe. default is surl with no loosening, there so its refusals are
+# checked claims; secure serves mcps over TLS with a throwaway certificate. Each serves its own directory.
+servers:
+  main:
+    command: surl --directory site --allow-anonymous mcp://127.0.0.1:{{port}}/
+    ready: port
+  default:
+    command: surl --directory locked mcp://127.0.0.1:{{port2}}/
+    ready: port
+  secure:
+    command: surl --directory secure --allow-anonymous --self-signed mcps://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -d with a tools/call body calls surl's echo tool at /mcp and writes the text it returns, exit 0.
+    run: curl -d @echo.json mcp://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 0
+      stdout: "hello from curl\n"
+
+  - id: list-tools
+    claim: Without -d, curl lists the tools, one per line as name, tab, description; surl offers read_file and echo.
+    run: curl mcp://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: read-a-file
+    claim: read_file returns a served file's text as one content item, which curl writes followed by a newline.
+    run: curl -d @read.json mcp://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 0
+      stdout: "hello from surl\n\n"
+
+  - id: tool-error
+    claim: A tool that reports an error has its text written to standard output, and curl exits 22.
+    run: curl -d @missing.json mcp://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 22
+      stdout: "no such file or folder\n"
+      stderr-contains: "curl: (22) MCP: the tool reported an error"
+
+  - id: unknown-tool
+    claim: A tool the server does not have is a JSON-RPC error, -32602, and curl exits 8 with nothing on standard output.
+    run: curl -d @unknown.json mcp://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "MCP server error -32602: Invalid params: unknown tool no_such_tool"
+
+  - id: endpoint-is-mcp
+    claim: The endpoint is /mcp; a URL without that path is answered 404, and curl exits 8.
+    run: curl mcp://127.0.0.1:{{port}}/
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "status 404"
+
+  - id: login-required
+    claim: Without --allow-anonymous, surl answers 401 to a client with no login, and curl exits 67.
+    run: curl mcp://127.0.0.1:{{port2}}/mcp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "status 401"
+
+  - id: password-refused
+    claim: A user name and password (HTTP Basic) is not a login surl's MCP endpoint takes; it answers 400 and curl exits 8.
+    run: curl -u alice:secret mcp://127.0.0.1:{{port2}}/mcp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "status 400"
+
+  - id: unknown-token
+    claim: A Bearer token surl did not issue is answered 401, and curl exits 67.
+    run: curl --oauth2-bearer not-a-token mcp://127.0.0.1:{{port2}}/mcp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "status 401"
+
+  - id: over-tls
+    claim: Over mcps, the same call runs inside TLS; with -k, curl accepts surl's throwaway certificate unverified, exit 0.
+    run: curl -k -d @read.json mcps://127.0.0.1:{{port3}}/mcp
+    expect:
+      exit: 0
+      stdout: "hello from surl\n\n"
+
+  - id: over-tls-untrusted
+    claim: Over mcps without -k, curl cannot verify the throwaway certificate and exits 60.
+    run: curl -d @read.json mcps://127.0.0.1:{{port3}}/mcp
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: mcps-needs-a-certificate
+    claim: An mcps listen URL without --self-signed (or --cert) is refused at start, exit 58.
+    run: surl --directory site mcps://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) mcps://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n'
+
+  - id: over-stdio
+    claim: An mcp+stdio URL makes curl start surl itself, with the arguments in its query, and call the tool over surl's standard input and output; surl's log goes to standard error.
+    run: curl -d @read.json "mcp+stdio://localhost/surl?--directory&site&mcp+stdio:"
+    expect:
+      exit: 0
+      stdout: "hello from surl\n\n"
+      stderr-contains: "Listening on mcp+stdio:"
+
+  - id: more-tools
+    claim: With --allow-uploads and --list-directories, surl also offers list_directory and write_file.
+    run: curl "mcp+stdio://localhost/surl?--allow-uploads&--list-directories&mcp+stdio:"
+    expect:
+      exit: 0
+      stdout: "list_directory\tList the files and folders in a folder Surl serves.\nread_file\tRead one file Surl serves.\nwrite_file\tCreate or replace one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: stdio-needs-localhost
+    claim: An mcp+stdio URL with no host is refused as a malformed URL, exit 3, naming the form it wants.
+    run: curl "mcp+stdio:///surl?mcp+stdio:"
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "an mcp+stdio URL names a local program: mcp+stdio://localhost/command?arg1&arg2"

@@ -1,0 +1,128 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: stomp-send-to-a-queue
+title: Sending to a Queue over STOMP
+protocols: [stomp, amqp1]
+tier: new-protocols
+surl-options: [--allow-anonymous, --idle-timeout, --user, --allow-plaintext-auth]
+curl-options: [--next, -d, -m, -s, -S, -u]
+exit-codes: [0, 3, 8, 28, 67]
+references: [surl-readme, curl-readme, curl-protocols, stomp12, amqp10]
+
+# main is the recipe: a STOMP broker that ends a connection idle for one second, so
+# a subscriber ends once the queue is empty. held keeps the default idle timeout.
+# bridge adds an AMQP 1.0 listener on the same message bus. accounts has an account
+# and no loosening; plaintext adds --allow-plaintext-auth to it.
+servers:
+  main:
+    command: surl --allow-anonymous --idle-timeout 1 stomp://127.0.0.1:{{port}}/
+    ready: port
+  held:
+    command: surl --allow-anonymous stomp://127.0.0.1:{{port2}}/
+    ready: port
+  bridge:
+    command: surl --allow-anonymous --idle-timeout 1 stomp://127.0.0.1:{{port3}}/ amqp1://127.0.0.1:{{port4}}/
+    ready: port
+  accounts:
+    command: surl --user alice:s3cret stomp://127.0.0.1:{{port5}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth stomp://127.0.0.1:{{port6}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl sends paid to /queue/orders with -d, then, after --next, subscribes to the same queue and writes the message body; the queue kept the message until a subscriber came, and surl ends the idle subscription after a second, exit 0.
+    run: curl -d paid stomp://127.0.0.1:{{port}}/queue/orders --next stomp://127.0.0.1:{{port}}/queue/orders
+    expect:
+      exit: 0
+      stdout: "paid"
+
+  - id: taken-once
+    claim: A queue message goes to one subscriber only; a second subscribe finds the queue empty, writes nothing and ends with exit 0.
+    run: curl -s stomp://127.0.0.1:{{port}}/queue/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: in-order
+    claim: Two messages sent to the queue come back in the order sent, the bodies written back to back with nothing between them.
+    run: curl -s -d first stomp://127.0.0.1:{{port}}/queue/orders --next -s -d second stomp://127.0.0.1:{{port}}/queue/orders --next -s stomp://127.0.0.1:{{port}}/queue/orders
+    expect:
+      exit: 0
+      stdout: "firstsecond"
+
+  - id: topic-keeps-nothing
+    claim: A /topic/ destination keeps nothing for STOMP; a subscribe after the send receives nothing.
+    run: curl -s -d news stomp://127.0.0.1:{{port}}/topic/news --next -s stomp://127.0.0.1:{{port}}/topic/news
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: unknown-destination
+    claim: A destination that starts with neither /queue/ nor /topic/ is answered with an ERROR frame, Unknown destination, and curl exits 8.
+    run: curl -sS -d paid stomp://127.0.0.1:{{port}}/orders
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Unknown destination"
+
+  - id: no-destination
+    claim: A URL with no destination is refused by curl before it connects, exit 3.
+    run: curl -sS -d paid stomp://127.0.0.1:{{port}}/
+    expect:
+      exit: 3
+      stdout: ""
+
+  - id: held-open
+    claim: With the default idle timeout surl keeps the subscription open after the queue is empty; curl writes the message and waits, and -m 2 ends it with exit 28.
+    run: curl -s -d paid stomp://127.0.0.1:{{port2}}/queue/orders --next -s -m 2 stomp://127.0.0.1:{{port2}}/queue/orders
+    expect:
+      exit: 28
+      stdout: "paid"
+
+  - id: to-amqp1
+    claim: A message sent over STOMP to /queue/orders is received over AMQP 1.0 from the address orders, the same queue on the same bus.
+    run: curl -s -d paid stomp://127.0.0.1:{{port3}}/queue/orders --next -s amqp1://127.0.0.1:{{port4}}/orders
+    expect:
+      exit: 0
+      stdout: "paid"
+
+  - id: from-amqp1
+    claim: A message sent over AMQP 1.0 to orders is received by a STOMP subscriber to /queue/orders.
+    run: curl -s -d shipped amqp1://127.0.0.1:{{port4}}/orders --next -s stomp://127.0.0.1:{{port3}}/queue/orders
+    expect:
+      exit: 0
+      stdout: "shipped"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, a CONNECT with no login is answered with an ERROR frame, Authentication failed, and curl exits 67.
+    run: curl -sS -d paid stomp://127.0.0.1:{{port5}}/queue/orders
+    expect:
+      exit: 67
+      stderr-contains: "Authentication failed"
+
+  - id: clear-password-refused
+    claim: The right password over stomp:// is refused unchecked with the same ERROR, because it crossed the network in clear.
+    run: curl -sS -u alice:s3cret -d paid stomp://127.0.0.1:{{port5}}/queue/orders
+    expect:
+      exit: 67
+      stderr-contains: "Authentication failed"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, the same password is checked and accepted, and the send succeeds, exit 0.
+    run: curl -sS -u alice:s3cret -d paid stomp://127.0.0.1:{{port6}}/queue/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused, exit 67.
+    run: curl -sS -u alice:wrong -d paid stomp://127.0.0.1:{{port6}}/queue/orders
+    expect:
+      exit: 67
+      stderr-contains: "Authentication failed"

@@ -1,0 +1,93 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: socketio-receive-an-event
+title: Receiving a Socket.IO Event
+protocols: [socketio]
+tier: new-protocols
+surl-options: [--allow-anonymous, --user, --allow-plaintext-auth]
+curl-options: [-s, -S, -m, -d, -o, -w, -u]
+exit-codes: [0, 2, 22, 28]
+references: [surl-readme, curl-readme, curl-protocols, socketio-protocol, rfc6455]
+
+# main is the recipe. plain is the default: no account and no --allow-anonymous.
+# account has an account whose password may cross plain socketio.
+# Every run that connects ends by -m, so no case waits on the server to close.
+servers:
+  main:
+    command: surl --allow-anonymous socketio://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl socketio://127.0.0.1:{{port2}}/
+    ready: port
+  account:
+    command: surl --user alice:secret --allow-plaintext-auth socketio://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Emitting the event ["greeting","hello from surl"] to the main namespace gets it back from surl as an event, which curl writes as one JSON array; curl then waits for more until -m 3 ends the run, exit 28.
+    run: curl -s -m 3 -d "[\"greeting\",\"hello from surl\"]" socketio://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "[\"greeting\",\"hello from surl\"]\n"
+
+  - id: broadcast-once
+    claim: An event named broadcast also comes back to its sender, exactly once.
+    run: curl -s -m 3 -d "[\"broadcast\",\"to everyone\"]" socketio://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "[\"broadcast\",\"to everyone\"]\n"
+
+  - id: listen-only
+    claim: Without -d curl joins the namespace and only listens; with no one emitting, nothing is written and -m 2 ends the run, exit 28.
+    run: curl -s -m 2 socketio://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: ""
+
+  - id: not-an-array
+    claim: Data that is not a JSON array starting with the event name is refused by curl before it connects, exit 2.
+    run: curl -s -S -m 3 -d "{\"greeting\":\"hello\"}" socketio://127.0.0.1:{{port}}/
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "the data to emit must be a JSON array whose first element is the event name"
+
+  - id: other-namespace
+    claim: The URL's path names the namespace; surl serves only the main namespace, so /admin is refused with Invalid namespace, exit 22.
+    run: curl -s -S -m 3 -d "[\"greeting\",\"hello\"]" socketio://127.0.0.1:{{port}}/admin
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Socket.IO server refused namespace /admin: {\"message\":\"Invalid namespace\"}"
+
+  - id: other-path
+    claim: The server answers only at /socket.io/; any other HTTP path is 404 Not Found.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/chat
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: refused-by-default
+    claim: Without an account or --allow-anonymous, joining the namespace with no credentials is refused with Not authorized, exit 22, and no event is written.
+    run: curl -s -S -m 10 -d "[\"greeting\",\"hello from surl\"]" socketio://127.0.0.1:{{port2}}/
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Socket.IO server refused namespace /: {\"message\":\"Not authorized\"}"
+
+  - id: no-login-from-curl
+    claim: curl does not send -u's user name and password when it joins, so even the right account, on a server with that account and --allow-plaintext-auth, is refused with Not authorized, exit 22.
+    run: curl -s -S -m 10 -u alice:secret -d "[\"greeting\",\"hello from surl\"]" socketio://127.0.0.1:{{port3}}/
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Socket.IO server refused namespace /: {\"message\":\"Not authorized\"}"

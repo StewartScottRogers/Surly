@@ -1,0 +1,76 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: signalr-receive-a-message
+title: Receiving a SignalR Hub Message
+protocols: [signalr]
+tier: new-protocols
+surl-options: [--allow-anonymous]
+curl-options: [-s, -S, -d, -m, -w]
+exit-codes: [0, 22, 28]
+references: [surl-readme, curl-readme, curl-protocols, signalr-hub-protocol, rfc6455]
+
+# main is the recipe. plain is the default: no account and no --allow-anonymous.
+servers:
+  main:
+    command: surl --allow-anonymous signalr://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl signalr://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Invoking the hub method Broadcast with the argument "hello from surl" makes the hub send that message back to the caller as a hub call of its own; curl writes the message it received as the JSON array ["Broadcast", then its arguments], then ends at the call's completion with exit 0.
+    run: curl -s -S -d "{\"type\":1,\"target\":\"Broadcast\",\"arguments\":[\"hello from surl\"]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "[\"Broadcast\",\"hello from surl\"]\n"
+
+  - id: echo-result
+    claim: Invoking Echo writes the call's result, its one argument, and exits 0.
+    run: curl -s -S -d "{\"type\":1,\"target\":\"Echo\",\"arguments\":[\"hi\"]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "\"hi\"\n"
+
+  - id: stream
+    claim: A stream invocation (type 4) of Count with 3 writes each stream item on its own line, 1 to 3, and ends at the stream's completion.
+    run: curl -s -S -d "{\"type\":4,\"target\":\"Count\",\"arguments\":[3]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "1\n2\n3\n"
+
+  - id: unknown-method
+    claim: A method the hub does not have is answered with a completion carrying an error, which curl prints on stderr, exit 22.
+    run: curl -s -S -d "{\"type\":1,\"target\":\"Shout\",\"arguments\":[]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "SignalR hub method failed: Unknown hub method."
+
+  - id: listen-bounded
+    claim: Without -d curl only listens; with no one broadcasting nothing arrives, and -m 2 ends the run after two seconds with exit 28 and no output.
+    run: curl -s -m 2 signalr://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: ""
+
+  - id: listen-hub-timeout
+    claim: Left to itself, a listening curl sends the hub nothing, so about 30 seconds in (-w prints the time taken) the hub closes the connection with its server-timeout error, and curl exits 22.
+    run: curl -s -S -w "%{time_total}" signalr://127.0.0.1:{{port}}/
+    timeout: 90
+    expect:
+      exit: 22
+      stdout-matches: '^3[0-9]\.[0-9]+$'
+      stderr-contains: "Server timeout elapsed without receiving a message from the client."
+
+  - id: refused-by-default
+    claim: Without an account or --allow-anonymous the negotiate request is refused 401 Unauthorized, and curl exits 22 before any message.
+    run: curl -s -S -d "{\"type\":1,\"target\":\"Broadcast\",\"arguments\":[\"hello from surl\"]}" signalr://127.0.0.1:{{port2}}/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "The negotiate request failed with HTTP status 401."

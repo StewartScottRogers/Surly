@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[webtransport-open-a-stream]]
+=== Opening a WebTransport Stream
+
+==== Problem
+
+You want to test a WebTransport client, or see the protocol work, against a local server that opens a session and echoes what you send on a stream.
+
+==== Solution
+
+Give `surl` a certificate and a `webtransport` listen URL, and send data with `curl -d`, trusting the certificate with `--cacert`:
+
+include::.generated/solution.adoc[]
+
+`surl` listens on User Datagram Protocol (UDP) only, so nothing tells a script when it is ready; if `curl` runs the moment `surl` starts, add `--retry 5 --retry-all-errors --retry-delay 1`, as the first checked claim does. The checked claims below also run two more `surl` servers, on ports `8081` and `8082`, with an account, to show the login. You do not need them. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+WebTransport gives a client several streams, in one or both directions, and unreliable datagrams, all inside one session over Hypertext Transfer Protocol version 3 (HTTP/3) (<<webtransport-http3>>). HTTP/3 runs over QUIC, a transport on UDP with Transport Layer Security (TLS) 1.3 built into its handshake (<<rfc9114>>, <<rfc9000>>, <<rfc8446>>). The client opens the session with an extended `CONNECT` request; `surl` accepts one on any path, `/echo` here being only a name, and echoes back each stream and datagram the session carries (<<surl-readme>>). Upstream curl has no `webtransport` scheme; this one is an extension of the Curl port, judged by the WebTransport draft (<<curl-protocols>>).
+
+Given a `webtransport://` URL, `curl` opens the session, sends the `-d` data on a bidirectional stream, writes what comes back on that stream, and closes the session (<<curl-readme>>). `?wt=uni` sends it on a unidirectional stream instead and writes the first unidirectional stream `surl` opens in reply; `?wt=datagram` sends it as one HTTP/3 datagram and writes the first datagram back. The answer is written as it arrived, with no newline added.
+
+QUIC is always encrypted, so `surl` will not open a `webtransport` listen URL without a certificate: given none, it ends at start with exit `58` and a line naming `--cert` and `--self-signed`. `--cert server.pem` and `--key server.key` are the certificate and key it serves, made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting it. Without `--cacert`, `curl` cannot verify the certificate in the QUIC handshake and exits `60`, writing nothing.
+
+The listener is UDP and nothing else. A Transmission Control Protocol (TCP) connection to the same port is refused, and `curl` exits `7`; so does a `curl` sent to a UDP port where nothing listens, which is what a `curl` started before `surl` has bound its port meets. `--retry 5` makes `curl` try up to five more times, `--retry-all-errors` counts that failure as one worth retrying, and `--retry-delay 1` waits a second between tries. A plain HTTP/3 request to the port, which `--http3-only` makes `curl` send, is not a session, and `surl` answers it `405`, method not allowed; in that claim `-s` keeps `curl` quiet, `-o` throws the body away (`/dev/null`, or `NUL` on Windows) and `-w "%{http_code}"` prints the status.
+
+With no account configured, `surl` opens a session for anyone, as it serves an HTTP `GET` to anyone. Once it has an account, here `--user alice:secret`, a session needs a login: with none, `surl` answers the `CONNECT` with `401`, and `curl` exits `22` with `The server refused the WebTransport session: HTTP status 401`. `-u alice:secret` logs in, inside the QUIC encryption, and the session opens; a wrong password is refused the same way as none. `--allow-anonymous` opens sessions without a login even on a server with accounts, which gives up the point of having them: anyone who can reach the port gets a session. It is for a test on your own machine.
+
+Exit `0` means the session opened and the echo came back.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-http3>> for HTTP/3 itself, and `curl --http3-only`.
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<mcp-call-a-tool>> and <<coap-get-a-resource>> for the other extended servers in this chapter.
+* <<webtransport-http3>>, <<rfc9114>>, <<rfc9000>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.
