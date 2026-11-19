@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # Review: mqtt-publish-and-subscribe
 Verdict: accept with fixes
-Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl commit a0236e175), Curl port 8.22.0 (Curl commit f4b30d981f): 12 of 12 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 993aa7072), Curl port 8.22.0 (Curl commit 0afbd10e3b): 14 of 14 cases pass on windows.
 ## Findings
 1. Fixed: a YAML comment swallowed the `#` claim (unquoted `#` after a space); quoted. Prose writes the wildcards as "plus sign" and "hash sign", since a bare `+` or `#` in backticks is AsciiDoc markup.
 2. Fixed: the wrong-password case now asserts `got 0004` (CONNACK 4, bad user name or password); it had only asserted exit 8.
@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl comm
 4. Truth: the subscribe ends because surl disconnects, so `-m`/`--max-time` is not needed and not used; against a broker that keeps the subscription open, curl would wait until stopped. Not claimed, since no case can show it against surl.
 5. Cited, not cased: the shared message bus reaching NATS and STOMP, `--directory` keeping retained messages, `mqtts` needing a certificate, the start-up warnings (<<surl-readme>>).
 6. Reader: the Solution block shows three `surl` commands; a sentence under it says only the first is the Solution. The subscribe output starts with two raw bytes, so the solution expects `stdout-matches` and the book prints the pattern; the Discussion explains the bytes.
+7. Updated 2026-11-19 for Surl commit 993aa7072: surl now honours MQTT 3.1.1 RETAIN (section 3.3.1.3), fixing the first half of finding 3: a publish with RETAIN 0, all curl sends, is no longer kept, so a later subscriber gets nothing. The main and plaintext servers now take `--topic "home/#;retain"`, which keeps every publish on a matching topic (`surl --aihelp messages`), and the Discussion says so; the claim and citation that surl retains every publish are gone. New cases: `not-kept-without-retain` (a fourth server, `bare`, with no `--topic`) and `outside-the-filter` (`garden/temp` keeps nothing). The DISCONNECT half of finding 3 stands: `surl --aihelp mqtt` still says surl sends DISCONNECT after the retained messages, because curl exits 56 on a bare close.

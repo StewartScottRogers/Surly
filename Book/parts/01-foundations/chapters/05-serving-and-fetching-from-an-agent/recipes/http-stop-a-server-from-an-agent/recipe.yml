@@ -1,6 +1,8 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+# Each case runs stop-server.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks what the program does after the stop. Each pattern captures
+# the server's ID and URL once and requires every later line to name the same ones.
 schema: 2
 key: http-stop-a-server-from-an-agent
 title: Stopping a Server from an Agent
@@ -17,71 +19,40 @@ cases:
   - id: solution
     role: solution
     claim: list_servers shows the running server by its ID and bound URL, and stop_server stops it with surl's exit code 0, Ok.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
-        save: { url: bound_urls.0, server: server_id }
-      - host: surl
-        tool: list_servers
-        expect:
-          result-contains: { servers: [{ server_id: "{{server}}", bound_urls: ["{{url}}"] }] }
-      - host: surl
-        tool: stop_server
-        arguments: { server_id: "{{server}}" }
-        expect:
-          result-contains: { server_id: "{{server}}", exit_code: 0, exit_code_name: Ok }
+    program: stop-server.cs
+    args: [stop]
+    expect:
+      exit: 0
+      stdout-matches: '^started (\S+) on (http://127\.0\.0\.1:\d+/)\nrunning: \1 on \2, exchange_count 0\nstopped \1: exit_code 0 \(Ok\)\n$'
 
   - id: nothing-listens
-    claim: After the stop nothing listens on that URL, so a fetch from it fails to connect with curl's exit code 7, a tool error.
-    mcp:
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          is-error: true
-          result-contains: { statusCode: null, failure: { kind: CurlExit, exitCode: 7 } }
+    claim: After the stop nothing listens on that URL, so a fetch from it fails to connect with curl's exit code 7, a tool error with no status code.
+    program: stop-server.cs
+    args: [fetch]
+    expect:
+      exit: 1
+      stdout-matches: '^started (\S+) on \S+\nstopped \1: exit_code 0 \(Ok\)\nstatusCode: null, failure: CurlExit, exitCode 7\n$'
 
   - id: stop-twice
     claim: Stopping the same ID again is a tool error, no running server has that ID.
-    mcp:
-      - host: surl
-        tool: stop_server
-        arguments: { server_id: "{{server}}" }
-        expect:
-          is-error: true
-          error-contains: "no running server has ID"
+    program: stop-server.cs
+    args: [stop-again]
+    expect:
+      exit: 1
+      stdout-matches: '^started (\S+) on \S+\nstopped \1: exit_code 0 \(Ok\)\nno running server has ID \1\n$'
 
   - id: exchanges-go-with-it
     claim: The stopped server's exchanges go with it; get_exchanges on its ID is the same tool error.
-    mcp:
-      - host: surl
-        tool: get_exchanges
-        arguments: { server_id: "{{server}}" }
-        expect:
-          is-error: true
-          error-contains: "no running server has ID"
+    program: stop-server.cs
+    args: [exchanges]
+    expect:
+      exit: 1
+      stdout-matches: '^started (\S+) on \S+\nstopped \1: exit_code 0 \(Ok\)\nno running server has ID \1\n$'
 
   - id: port-released
-    claim: The port is released, so a new server binds the same URL at once, under a new ID, and list_servers counts its exchanges.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["{{url}}"], files: { hello.txt: "hello again\n" } }
-        save: { again: server_id }
-        expect:
-          result-contains: { bound_urls: ["{{url}}"] }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          result-contains: { statusCode: 200, body: { content: "hello again\n" } }
-      - host: surl
-        tool: list_servers
-        expect:
-          result-contains: { servers: [{ server_id: "{{again}}", bound_urls: ["{{url}}"], exchange_count: 1 }] }
-      - host: surl
-        tool: stop_server
-        arguments: { server_id: "{{again}}" }
-        expect:
-          result-contains: { server_id: "{{again}}", exit_code: 0 }
+    claim: The port is released, so a new server binds the same URL at once, under a new ID, serves its own file, and list_servers shows only the new server, with its own exchange count, 1.
+    program: stop-server.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout-matches: '^started (\S+) on (\S+)\nstopped \1: exit_code 0 \(Ok\)\nstarted a new ID on \2\nfetched: hello again\nrunning: (\S+) on \2, exchange_count 1\nstopped \3: exit_code 0 \(Ok\)\n$'

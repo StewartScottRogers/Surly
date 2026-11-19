@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+# Each case runs serve-and-fetch.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
 schema: 2
 key: http-serve-and-fetch-from-an-agent
 title: Serving and Fetching Files from an Agent
@@ -16,65 +17,49 @@ fixtures: {}
 cases:
   - id: solution
     role: solution
-    claim: An agent starts an HTTP server on port 0 with one file in memory, and curl-mcp's transfer fetches that file from the URL start_server says it bound, status 200.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
-        save: { url: bound_urls.0, server: server_id }
-        expect:
-          result-contains: { listen_urls: ["http://127.0.0.1:0"] }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          result-contains: { statusCode: 200, body: { content: "hello from surl\n", isBase64: false } }
+    claim: An agent starts an HTTP server on port 0 with one file in memory, start_server echoes listen_urls as given and answers the real port in bound_urls, and curl-mcp's transfer fetches the file from that URL, status 200, as text.
+    program: serve-and-fetch.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout-matches: '^listen_urls: http://127\.0\.0\.1:0\nbound_urls: http://127\.0\.0\.1:[1-9]\d*/\nstatusCode: 200\nfailure: null\nisBase64: false\nhello from surl\ntool error: no\n$'
 
   - id: headers-as-a-list
     claim: transfer answers the response headers as a list of name and value pairs, here Content-Type text/plain.
-    mcp:
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          result-contains: { headers: [{ name: Content-Type, value: text/plain }] }
+    program: serve-and-fetch.cs
+    args: [headers]
+    expect:
+      exit: 0
+      stdout: "statusCode: 200\nContent-Type: text/plain\ntool error: no\n"
 
   - id: missing-is-not-an-error
     claim: A path that is not there is answered 404 Not Found, and to transfer that is a successful answer, not a tool error.
-    mcp:
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}missing.txt" }
-        expect:
-          result-contains: { statusCode: 404, failure: null, isError: false }
+    program: serve-and-fetch.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "statusCode: 404\nfailure: null\nisBase64: false\ntool error: no\n"
 
   - id: port-in-use
-    claim: Starting a second server on an address and port already bound is a tool error carrying surl's exit code 45, BindFailed.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["{{url}}"] }
-        expect:
-          is-error: true
-          result-contains: { exit_code: 45, exit_code_name: BindFailed }
+    claim: Starting a second server on an address and port already bound is a tool error carrying surl's exit code 45, BindFailed, and surl's own message.
+    program: serve-and-fetch.cs
+    args: [port-in-use]
+    expect:
+      exit: 1
+      stdout-matches: '^exit_code: 45 \(BindFailed\)\nsurl: \(45\) Could not bind http://127\.0\.0\.1:\d+/: Address already in use\ntool error: yes\n$'
 
   - id: loopback-only
     claim: A listen URL whose host is not loopback is refused, because only whoever starts surl-mcp can allow that, with --allow-non-loopback.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://0.0.0.0:0"] }
-        expect:
-          is-error: true
-          error-contains: "is not loopback"
+    program: serve-and-fetch.cs
+    args: [not-loopback]
+    expect:
+      exit: 1
+      stdout: "refused: the listen host 0.0.0.0 is not loopback; only whoever starts surl-mcp can allow it, with --allow-non-loopback\ntool error: yes\n"
 
   - id: no-file-urls
-    claim: transfer refuses a file URL and names the curl tool, which confines local files to its root, instead.
-    mcp:
-      - host: curl
-        tool: transfer
-        arguments: { url: "file:///etc/hosts" }
-        expect:
-          is-error: true
-          result-contains: { failure: { kind: InvalidRequest } }
-          error-contains: "use the curl tool"
+    claim: transfer refuses a file URL as an invalid request and names the curl tool, which confines local files to its root, instead.
+    program: serve-and-fetch.cs
+    args: [file-url]
+    expect:
+      exit: 1
+      stdout: "statusCode: null\nfailure: InvalidRequest\nInvalid url: file: URLs reach local files, which the transfer tool does not offer; use the curl tool, which confines them to CURL_MCP_ROOT.\ntool error: yes\n"

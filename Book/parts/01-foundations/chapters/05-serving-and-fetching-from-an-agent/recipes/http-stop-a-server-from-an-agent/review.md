@@ -1,10 +1,9 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # Review: http-stop-a-server-from-an-agent
 Verdict: accept with fixes
-Checked against local builds on 2026-11-18 (not releases): surl-mcp 1.0.0 (Surl commit 3c5b39474), curl-mcp 0.1.0.0 (Curl commit b140f6d88c): 5 of 5 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 993aa7072), Curl port 8.22.0 (Curl commit 0afbd10e3b), surl-mcp 1.0.0, curl-mcp 0.1.0.0, dotnet 11.0.100, ModelContextProtocol.Core 2.2.0: 5 of 5 cases pass on windows.
 ## Findings
-1. Fixed: "never the old ID", "as surl exits on Ctrl+C" and the list of every list_servers field had no case, so I removed or trimmed them.
-2. The claim that list_servers no longer shows a stopped server cannot be a case, because result-contains cannot prove absence. The Discussion therefore shows it through the stop-twice and get_exchanges refusals instead.
-3. Only exit code 0 from stop_server is claimed. No way was found to make a clean stop answer anything else.
-4. <<surl-read-the-exit-codes>> is a forward reference to a chapter 3 recipe that is not written yet.
-5. Re-verified after the verify.py byte-exact fixtures fix: no claim here depends on fixture bytes (fixtures: {}; content goes in through start_server's files), so nothing changed.
+1. Rewritten from an mcp: call list to a C# program on the MCP SDK (ADR-0008 item 7, amended 2026-11-19). One program, stop-server.cs, starts and stops a server in every scenario and then does what the argument picks; every earlier claim is still a case. Each pattern captures the server's ID and URL once and requires every later line to name the same ones.
+2. Fixed: earlier finding 2 (list_servers no longer showing a stopped server could not be a case) is resolved: the restart case's anchored pattern allows exactly one running server, the new one, and the Discussion says so. The solution also now checks exchange_count 0 before any request.
+3. Fixed: the restart case now also checks that the new server serves its own file (hello again) and that the program stops it before exiting.
+4. Only exit code 0 from stop_server is claimed. No way was found to make a clean stop answer anything else.

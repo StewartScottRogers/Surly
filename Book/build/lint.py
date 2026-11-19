@@ -21,17 +21,22 @@ def bibliography_keys():
 
 
 def lint_surface(recipe, spec):
-    """One recipe, one surface (ADR-0008 item 1): its solution is that surface's kind of case,
-    and no case is another surface's (a run: case may appear beside either, as a helper)."""
+    """One recipe, one surface (ADR-0008 item 1). A console recipe's solution is a run: line;
+    a csharp recipe's and an mcp recipe's is a C# program: (an mcp recipe's program drives
+    surl-mcp and curl-mcp with the official MCP SDK). A run: case may sit beside either."""
     rel = f"{recipe.relative_to(BOOK).as_posix()}/recipe.yml"
-    kind = {"console": "run", "csharp": "program", "mcp": "mcp"}[spec["surface"]]
+    kind = {"console": "run", "csharp": "program", "mcp": "program"}[spec["surface"]]
     found = []
     if kind not in solution_case(spec):
         found.append(f"{rel}: surface {spec['surface']} needs a solution with {kind}:")
     for c in spec["cases"]:
-        for other, surface in (("program", "csharp"), ("mcp", "mcp")):
-            if other in c and other != kind:
-                found.append(f"{rel}: case {c['id']} uses {other}:, so surface must be {surface}")
+        if "program" in c and spec["surface"] == "console":
+            found.append(f"{rel}: case {c['id']} runs a C# program, so surface must be csharp or mcp")
+        if "mcp" in c:
+            found.append(f"{rel}: case {c['id']} uses the retired mcp: call list; write a C# program on the MCP SDK")
+    if spec["surface"] == "mcp" and any("ModelContextProtocol" not in (recipe / p).read_text(encoding="utf-8")
+                                        for p in programs(spec)):
+        found.append(f"{rel}: an mcp recipe's programs use the MCP SDK (#:package ModelContextProtocol.Core)")
     return found
 
 
@@ -101,7 +106,7 @@ def main():
         for tool in spec.get("mcp-tools", []):
             if f"`{tool}" not in disc:
                 findings.append(f"{rel}: tool {tool} is used but never explained in the Discussion")
-        for tool in mcp_tools_used(spec):
+        for tool in mcp_tools_used(spec, recipe):
             if tool not in spec.get("mcp-tools", []):
                 findings.append(f"{rel}: tool {tool} is called but not listed in mcp-tools")
         findings += lint_surface(recipe, spec)

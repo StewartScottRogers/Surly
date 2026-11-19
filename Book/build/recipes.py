@@ -6,8 +6,8 @@ what the generated files are. Used by build.py, verify.py and lint.py so the
 three cannot disagree.
 
 Schema 1 cases are shell lines (run:). Schema 2 (ADR-0008) adds program:, a C#
-file-based app beside recipe.yml run with `dotnet run`, and mcp:, a list of tool
-calls to surl-mcp and curl-mcp."""
+file-based app beside recipe.yml run with `dotnet run`. An mcp recipe's cases are
+programs too, on the official MCP SDK (ADR-0008 item 7, amended 2026-11-19)."""
 import json, re, sys
 from pathlib import Path
 import yaml
@@ -25,9 +25,7 @@ CASE_KINDS = ["run", "program", "mcp"]
 PACKAGE_LINE = re.compile(r"^#:package\s+([A-Za-z0-9_.-]+)(?:@(\S+))?\s*$", re.M)
 PROJECT_LINE = re.compile(r"^#:project\s+(\S+)", re.M)
 PACKAGES_FILE = Path(__file__).resolve().parent / "packages.yml"
-MCP_HOSTS = {"surl": "surl-mcp", "curl": "curl-mcp"}      # host: in a call -> the program verify starts
-MCP_CALL_KEYS = {"host", "tool", "arguments", "save", "expect"}
-MCP_EXPECT_KEYS = {"result-contains", "is-error", "error-contains"}
+MCP_HOSTS = {"surl": "surl-mcp", "curl": "curl-mcp"}      # the two MCP hosts an mcp recipe's programs start
 
 
 def recipes(only=None):
@@ -75,8 +73,9 @@ def load_spec(recipe_dir):
         if kinds[0] != "run" and spec["schema"] < 2:
             sys.exit(f"{where}: case {c['id']} uses {kinds[0]}:, which needs schema: 2")
         if kinds[0] == "mcp":
-            check_mcp_case(where, c)
-        elif "expect" not in c:
+            sys.exit(f"{where}: case {c['id']}: the mcp: call list is retired (ADR-0008 item 7, amended "
+                     "2026-11-19); write the case as a C# program: on the MCP SDK")
+        if "expect" not in c:
             sys.exit(f"{where}: case {c['id']} lacks 'expect'")
         if kinds[0] == "program":
             program = c["program"]
@@ -95,48 +94,9 @@ def load_spec(recipe_dir):
     return spec
 
 
-def check_mcp_case(where, case):
-    """An mcp: case is a list of calls; each call's own expect: says what it must answer."""
-    if "expect" in case:
-        sys.exit(f"{where}: case {case['id']}: an mcp: case puts expect: on each call, not on the case")
-    calls = case["mcp"]
-    if not isinstance(calls, list) or not calls:
-        sys.exit(f"{where}: case {case['id']}: mcp: must be a list of one or more calls")
-    for i, call in enumerate(calls, 1):
-        at = f"{where}: case {case['id']}, call {i}"
-        if not isinstance(call, dict) or not {"host", "tool"} <= call.keys():
-            sys.exit(f"{at}: needs host: and tool:")
-        if call.keys() - MCP_CALL_KEYS:
-            sys.exit(f"{at}: unknown key(s) {sorted(call.keys() - MCP_CALL_KEYS)}")
-        if call["host"] not in MCP_HOSTS:
-            sys.exit(f"{at}: host must be one of {list(MCP_HOSTS)}")
-        if not isinstance(call.get("arguments", {}), dict):
-            sys.exit(f"{at}: arguments must be a mapping")
-        for name in (call.get("save") or {}):
-            if not re.fullmatch(r"[a-z-]+", name):
-                sys.exit(f"{at}: saved name '{name}' must be lower-case words joined by hyphens")
-        expect = call.get("expect") or {}
-        if expect.keys() - MCP_EXPECT_KEYS:
-            sys.exit(f"{at}: unknown expect key(s) {sorted(expect.keys() - MCP_EXPECT_KEYS)}")
-
-
 def load_verified(recipe_dir):
     p = recipe_dir / "verified.yml"
     return yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {"status": "draft"}
-
-
-def substitute_deep(value, values):
-    """substitute() through every string in a structure of mappings and lists."""
-    if isinstance(value, str):
-        whole = PLACEHOLDER.fullmatch(value)
-        if whole and whole.group(1) in values and not isinstance(values[whole.group(1)], str):
-            return values[whole.group(1)]          # "{{seq}}" alone keeps a saved number's type
-        return substitute(value, values)
-    if isinstance(value, list):
-        return [substitute_deep(v, values) for v in value]
-    if isinstance(value, dict):
-        return {k: substitute_deep(v, values) for k, v in value.items()}
-    return value
 
 
 def substitute(text, values):
@@ -150,12 +110,9 @@ def substitute(text, values):
 
 
 def book_values(spec=None):
-    """Placeholder values as the book shows them (POSIX form). A name an MCP call
-    saves is shown as itself, {{name}}, since its value is known only at run time."""
+    """Placeholder values as the book shows them (POSIX form)."""
     values = {name: str(int(BOOK_PORT) + i) for i, name in enumerate(PORT_NAMES)}
     values["null"] = "/dev/null"
-    if spec:
-        values.update({n: "{{" + n + "}}" for n in saved_names(spec)})
     return values
 
 
@@ -197,33 +154,28 @@ def quote(arg):
     return arg if re.fullmatch(r"[A-Za-z0-9_@%+=:,./{}-]+", arg) else '"' + arg.replace('"', '\\"') + '"'
 
 
-def saved_names(spec):
-    """Every name an mcp: call saves, which later calls use as {{name}}."""
-    return [n for c in spec["cases"] for call in c.get("mcp", []) for n in (call.get("save") or {})]
-
-
 def mcp_hosts(spec):
-    """The MCP hosts a recipe's cases call, as surl-mcp and curl-mcp."""
-    return sorted({MCP_HOSTS[call["host"]] for c in spec["cases"] for call in c.get("mcp", [])})
+    """The MCP hosts a recipe uses: both, for an mcp recipe, whose C# programs start them by
+    name (surl-mcp, curl-mcp) from PATH."""
+    return sorted(MCP_HOSTS.values()) if spec.get("surface") == "mcp" else []
 
 
-def mcp_tools_used(spec):
-    return list(dict.fromkeys(call["tool"] for c in spec["cases"] for call in c.get("mcp", [])))
+CALL_TOOL = re.compile(r'CallToolAsync' + r'\(\s*"([a-z_]+)"')
 
 
-def call_line(call, values):
-    """One call as the book shows it: surl-mcp start_server {"listen_urls": [...]}."""
-    args = json.dumps(substitute_deep(call.get("arguments") or {}, values), ensure_ascii=False)
-    return f"{MCP_HOSTS[call['host']]} {call['tool']} {args}"
+def mcp_tools_used(spec, recipe_dir=None):
+    """The tools a recipe calls: every CallToolAsync("name", ...) in its C# programs."""
+    found = []
+    if recipe_dir is not None:
+        for program in programs(spec):
+            found += CALL_TOOL.findall((Path(recipe_dir) / program).read_text(encoding="utf-8"))
+    return list(dict.fromkeys(found))
 
 
 def case_command(case, values):
-    """The command a case runs, as one line: the shell line, `dotnet run` for a program,
-    or its MCP calls separated by semicolons."""
+    """The command a case runs, as one line: the shell line, or `dotnet run` for a program."""
     if "run" in case:
         return substitute(case["run"], values)
-    if "mcp" in case:
-        return "; ".join(call_line(call, values) for call in case["mcp"])
     args = [quote(substitute(a, values)) for a in case.get("args", [])]
     return " ".join(["dotnet", "run", case["program"]] + (["--"] + args if args else []))
 

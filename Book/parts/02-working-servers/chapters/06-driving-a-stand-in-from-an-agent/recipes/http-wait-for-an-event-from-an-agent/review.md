@@ -1,11 +1,10 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # Review: http-wait-for-an-event-from-an-agent
 Verdict: accept with fixes
-Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl commit a0236e175), Curl port 8.22.0 (Curl commit f4b30d981f), surl-mcp 1.0.0, curl-mcp 0.1.0.0: 8 of 8 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 993aa7072), Curl port 8.22.0 (Curl commit 0afbd10e3b), surl-mcp 1.0.0, curl-mcp 0.1.0.0, dotnet 11.0.100, ModelContextProtocol.Core 2.2.0: 9 of 9 cases pass on windows.
 ## Findings
-1. Title improved to "Waiting for an Upload from an Agent"; key unchanged.
-2. verify runs calls in order, so the solution starts the client before `wait_for_event`; the Discussion says a matching event already kept is answered too, which the solution proves. A wait that is satisfied while blocked cannot be a case.
-3. Fixed: "so an agent cannot wait forever by accident" and a Digest-never-sends-the-password aside had no case; removed. The 403 for Basic is now a case, and the why is left to <<http-refuse-a-password-in-clear>> (not written yet).
-4. Schema limitation: a saved value is substituted as a string, so `after_sequence` (an integer) cannot take a saved `sequence`; surl-mcp answers a string there with a JSON-RPC Internal error. Paging is shown with `max_events` only.
-5. Observed, not claimed: sequence numbers have gaps (1, 5, 7, 8) and `kinds: [exchange_bytes]` answers nothing; the Discussion says only "numbered", never "consecutive".
-6. An empty `events` list cannot be proven by result-contains, so non-matching filters are proven with `wait_for_event` timing out.
+1. Rewritten from an mcp: call list to a C# program on the MCP SDK (ADR-0008 item 7, amended 2026-11-19). One program, `wait.cs`; every claim kept, one added.
+2. Added `wait-first`: a C# program can send `wait_for_event` before the upload and await it after, which the call list could not. It passes, but would also pass if the event were kept before the wait arrived, so it does not prove the wait blocked; the claim says only that it answers the change.
+3. Events are printed as `name=value` without `sequence`, `at`, `client` and the byte counts, which vary per run; `listen_url` prints as `url` when it equals the server's bound URL. `the-whole-story` now matches the four events exactly, not a subset.
+4. Paging with `after_sequence` is now possible (a variable, not a string substitution) but is not added; `max_events` shows the page.
+5. Observed, not claimed: sequence numbers have gaps (1, 5, 7, 9); `login_judged` also answers `is_refused_by_fault` false. The Discussion says only "numbered", never "consecutive".

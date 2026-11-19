@@ -7,22 +7,26 @@ key: mqtt-publish-and-subscribe
 title: Publishing and Subscribing over MQTT
 protocols: [mqtt]
 tier: working-servers
-surl-options: [--allow-anonymous, --user, --allow-plaintext-auth]
+surl-options: [--allow-anonymous, --topic, --user, --allow-plaintext-auth]
 curl-options: [-d, --next, -s, -S, -u]
 exit-codes: [0, 3, 8]
 references: [surl-readme, curl-readme, mqtt311]
 
 # main is the recipe. accounts has an account and no loosening; plaintext adds
 # --allow-plaintext-auth to it, so each refusal and its loosening is a case.
+# bare has no --topic, so it keeps nothing that curl publishes.
 servers:
   main:
-    command: surl --allow-anonymous mqtt://127.0.0.1:{{port}}/
+    command: surl --allow-anonymous --topic "home/#;retain" mqtt://127.0.0.1:{{port}}/
     ready: port
   accounts:
     command: surl --user alice:s3cret mqtt://127.0.0.1:{{port2}}/
     ready: port
   plaintext:
-    command: surl --user alice:s3cret --allow-plaintext-auth mqtt://127.0.0.1:{{port3}}/
+    command: surl --user alice:s3cret --allow-plaintext-auth --topic "home/#;retain" mqtt://127.0.0.1:{{port3}}/
+    ready: port
+  bare:
+    command: surl --allow-anonymous mqtt://127.0.0.1:{{port4}}/
     ready: port
 
 # curl writes each message it receives as two bytes of topic length (big-endian),
@@ -44,7 +48,7 @@ cases:
       stdout-matches: '\A\x00\x11home/kitchen/temp71\Z'
 
   - id: later-subscriber
-    claim: The message stays on the topic; a subscriber that connects later receives it too.
+    claim: Under --topic "home/#;retain" the message stays on the topic; a subscriber that connects later receives it too.
     run: curl -s mqtt://127.0.0.1:{{port}}/home/kitchen/temp
     expect:
       exit: 0
@@ -74,6 +78,20 @@ cases:
   - id: empty-message-clears
     claim: Publishing an empty message clears the topic; a subscriber then receives nothing.
     run: curl -s -d "" mqtt://127.0.0.1:{{port}}/home/kitchen/temp --next -s mqtt://127.0.0.1:{{port}}/home/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: outside-the-filter
+    claim: A topic outside the --topic filter, such as garden/temp, keeps nothing; a subscribe right after the publish receives nothing.
+    run: curl -s -d 5 mqtt://127.0.0.1:{{port}}/garden/temp --next -s mqtt://127.0.0.1:{{port}}/garden/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: not-kept-without-retain
+    claim: On a broker with no --topic retain, a publish from curl, which sends RETAIN 0, is not kept; a subscribe right after it receives nothing, and both exit 0.
+    run: curl -s -d 71 mqtt://127.0.0.1:{{port4}}/home/kitchen/temp --next -s mqtt://127.0.0.1:{{port4}}/home/kitchen/temp
     expect:
       exit: 0
       stdout: ""

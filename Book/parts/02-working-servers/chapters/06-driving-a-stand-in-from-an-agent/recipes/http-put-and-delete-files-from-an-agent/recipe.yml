@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+# Each case runs files.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
 schema: 2
 key: http-put-and-delete-files-from-an-agent
 title: Putting and Deleting Files from an Agent
@@ -18,137 +18,64 @@ cases:
   - id: solution
     role: solution
     claim: put_file writes /reports/a.txt into a running server and the server serves it, status 200; delete_file takes it away again and the same fetch is 404.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
-        save: { url: bound_urls.0, server: server_id }
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /reports/a.txt, text: "quarterly\n" }
-        expect:
-          result-contains: { path: /reports/a.txt, byte_count: 10 }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}reports/a.txt" }
-        expect:
-          result-contains: { statusCode: 200, body: { content: "quarterly\n" } }
-      - host: surl
-        tool: delete_file
-        arguments: { server_id: "{{server}}", path: /reports/a.txt }
-        expect:
-          result-contains: { path: /reports/a.txt }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}reports/a.txt" }
-        expect:
-          result-contains: { statusCode: 404 }
+    program: files.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "put_file /reports/a.txt: {\"path\":\"/reports/a.txt\",\"byte_count\":10}\ntransfer reports/a.txt: 200 quarterly\ndelete_file /reports/a.txt: {\"path\":\"/reports/a.txt\"}\ntransfer reports/a.txt: 404\n"
 
   - id: read-back
     claim: read_file answers a file's size, content type and exact text, and list_files answers a folder's children with their kind, so an agent checks the store without a client.
-    mcp:
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /reports/a.txt, text: "quarterly\n" }
-      - host: surl
-        tool: read_file
-        arguments: { server_id: "{{server}}", path: /reports/a.txt }
-        expect:
-          result-contains: { path: /reports/a.txt, byte_count: 10, content_type: text/plain, text: "quarterly\n" }
-      - host: surl
-        tool: list_files
-        arguments: { server_id: "{{server}}", path: / }
-        expect:
-          result-contains:
-            has_more: false
-            entries:
-              - { name: hello.txt, kind: file, byte_count: 16 }
-              - { name: reports, kind: folder }
+    program: files.cs
+    args: [read-back]
+    expect:
+      exit: 0
+      stdout-matches: '^put_file /reports/a\.txt: \{"path":"/reports/a\.txt","byte_count":10\}\nread_file /reports/a\.txt: \{"path":"/reports/a\.txt","byte_count":10,"modified_at":"[^"]+","content_type":"text/plain","text":"quarterly\\n"\}\nlist_files /: \{"entries":\[\{"name":"hello\.txt","kind":"file","byte_count":16\},\{"name":"reports","kind":"folder"\}\],"has_more":false\}\n$'
 
   - id: overwrite
     claim: put_file on a path that holds a file replaces it.
-    mcp:
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /reports/a.txt, text: "revised\n" }
-        expect:
-          result-contains: { byte_count: 8 }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}reports/a.txt" }
-        expect:
-          result-contains: { statusCode: 200, body: { content: "revised\n" } }
+    program: files.cs
+    args: [overwrite]
+    expect:
+      exit: 0
+      stdout: "put_file /reports/a.txt: {\"path\":\"/reports/a.txt\",\"byte_count\":10}\nput_file /reports/a.txt: {\"path\":\"/reports/a.txt\",\"byte_count\":8}\ntransfer reports/a.txt: 200 revised\n"
 
   - id: bytes-as-base64
     claim: base64 in place of text puts bytes that are not text, and read_file answers them as base64, typed application/octet-stream.
-    mcp:
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /data.bin, base64: "AAEC/w==" }
-        expect:
-          result-contains: { byte_count: 4 }
-      - host: surl
-        tool: read_file
-        arguments: { server_id: "{{server}}", path: /data.bin }
-        expect:
-          result-contains: { byte_count: 4, content_type: application/octet-stream, base64: "AAEC/w==" }
+    program: files.cs
+    args: [bytes-as-base64]
+    expect:
+      exit: 0
+      stdout-matches: '^put_file /data\.bin: \{"path":"/data\.bin","byte_count":4\}\nread_file /data\.bin: \{"path":"/data\.bin","byte_count":4,"modified_at":"[^"]+","content_type":"application/octet-stream","base64":"AAEC/w=="\}\n$'
 
   - id: text-or-base64
     claim: put_file with neither text nor base64 is a tool error.
-    mcp:
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /empty.txt }
-        expect:
-          is-error: true
-          error-contains: "give exactly one of text and base64"
+    program: files.cs
+    args: [text-or-base64]
+    expect:
+      exit: 0
+      stdout: "put_file /empty.txt: error: give exactly one of text and base64\n"
 
   - id: client-needs-a-login
     claim: A client's DELETE of the same server's hello.txt without a login is answered 401 and the file stays; delete_file needs no login.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-X", "DELETE", "-w", "%{http_code}", "{{url}}hello.txt"] }
-        expect:
-          result-contains: { exitCode: 0, standardOutput: { content: "401" } }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          result-contains: { statusCode: 200 }
-      - host: surl
-        tool: delete_file
-        arguments: { server_id: "{{server}}", path: /hello.txt }
-        expect:
-          result-contains: { path: /hello.txt }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          result-contains: { statusCode: 404 }
+    program: files.cs
+    args: [client-needs-a-login]
+    expect:
+      exit: 0
+      stdout: "curl -X DELETE hello.txt: exit 0, 401\ntransfer hello.txt: 200 hello from surl\ndelete_file /hello.txt: {\"path\":\"/hello.txt\"}\ntransfer hello.txt: 404\n"
 
   - id: nothing-to-delete
     claim: delete_file on a path with no file, or on a folder, is a tool error, no file at that path.
-    mcp:
-      - host: surl
-        tool: delete_file
-        arguments: { server_id: "{{server}}", path: /reports/missing.txt }
-        expect:
-          is-error: true
-          error-contains: "no file at /reports/missing.txt"
-      - host: surl
-        tool: delete_file
-        arguments: { server_id: "{{server}}", path: /reports }
-        expect:
-          is-error: true
-          error-contains: "no file at /reports"
+    program: files.cs
+    args: [nothing-to-delete]
+    expect:
+      exit: 0
+      stdout: "put_file /reports/a.txt: {\"path\":\"/reports/a.txt\",\"byte_count\":10}\ndelete_file /reports/missing.txt: error: no file at /reports/missing.txt\ndelete_file /reports: error: no file at /reports\n"
 
   - id: hidden-refused
     claim: A path whose name starts with a dot is hidden, and put_file refuses it, NotPermitted.
-    mcp:
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /.env, text: "SECRET=1\n" }
-        expect:
-          is-error: true
-          error-contains: "was refused: NotPermitted"
+    program: files.cs
+    args: [hidden-refused]
+    expect:
+      exit: 0
+      stdout: "put_file /.env: error: Content: The file /.env was refused: NotPermitted.\n"

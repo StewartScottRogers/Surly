@@ -11,12 +11,16 @@ exit-codes: [0, 2, 8]
 references: [surl-readme, mqtt311]
 
 # main loosens the clear-password refusal for the test; strict is the default, for comparison.
+# unkept is main without --topic, so it keeps nothing curl publishes.
 servers:
   main:
-    command: surl --allow-plaintext-auth --user ann:secret --user bob:hunter2 --user carol:pw --topic-access "shop/#=ann:pubsub,bob:sub" mqtt://127.0.0.1:{{port}}/
+    command: surl --allow-plaintext-auth --user ann:secret --user bob:hunter2 --user carol:pw --topic "shop/#;retain" --topic-access "shop/#=ann:pubsub,bob:sub" mqtt://127.0.0.1:{{port}}/
     ready: port
   strict:
     command: surl --user ann:secret --topic-access "shop/#=ann:pubsub" mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  unkept:
+    command: surl --allow-plaintext-auth --user ann:secret --user bob:hunter2 --topic-access "shop/#=ann:pubsub,bob:sub" mqtt://127.0.0.1:{{port3}}/
     ready: port
 
 cases:
@@ -29,11 +33,18 @@ cases:
       stdout: ""
 
   - id: subscriber-reads-retained
-    claim: Bob, granted sub, subscribes to shop/orders and gets the retained message, prefixed by the topic's two-byte length and name.
+    claim: Bob, granted sub, subscribes to shop/orders and gets the message --topic "shop/#;retain" kept, prefixed by the topic's two-byte length and name.
     run: curl -s -u bob:hunter2 mqtt://127.0.0.1:{{port}}/shop/orders
     expect:
       exit: 0
       stdout-matches: '^\x00\x0bshop/orderspaid$'
+
+  - id: not-kept-without-retain
+    claim: Without --topic retain, Ann's publish, which curl sends with RETAIN 0, is not kept, and Bob's subscription after it receives nothing.
+    run: curl -s -u ann:secret -d paid mqtt://127.0.0.1:{{port3}}/shop/orders --next -s -u bob:hunter2 mqtt://127.0.0.1:{{port3}}/shop/orders
+    expect:
+      exit: 0
+      stdout: ""
 
   - id: sub-only-cannot-publish
     claim: Bob's publish to shop/orders is dropped; curl exits 0 because a QoS 0 publish gets no answer.

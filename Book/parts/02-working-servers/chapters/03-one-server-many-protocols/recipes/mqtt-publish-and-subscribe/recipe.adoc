@@ -11,11 +11,11 @@ A test needs a local MQTT broker to publish a message to and read it back from, 
 
 ==== Solution
 
-Start `surl` on an `mqtt` listen URL that accepts anonymous clients, publish with `curl -d`, and subscribe to the same topic with a plain `curl` of its URL:
+Start `surl` on an `mqtt` listen URL that accepts anonymous clients and keeps the last message published under `home/`, publish with `curl -d`, and subscribe to the same topic with a plain `curl` of its URL:
 
 include::.generated/solution.adoc[]
 
-The first `surl` is all the Solution needs; the other two, one with an account and one that also accepts a password in clear, are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+The first `surl` is all the Solution needs; the other three, one with an account, one that also accepts a password in clear, and one with no `--topic`, are there for the checked claims below. Stop each with kbd:[Ctrl+C].
 
 ==== Discussion
 
@@ -23,7 +23,9 @@ MQTT, once MQ Telemetry Transport, is a publish-and-subscribe protocol: a client
 
 What it writes is not the bare message. For each message `curl` writes the topic's length in two bytes, high byte first, then the topic, then the message: `home/kitchen/temp` is 17 bytes, so the output starts with the bytes `0x00` and `0x11` before `home/kitchen/temp71`. A program reading the output skips the length and the topic to get the message.
 
-A subscribe from `curl` cannot wait for a message that has not been published yet, and `surl` does not make it try: it sends the subscriber the message last published to each matching topic, then ends the connection, and `curl` exits `0`. A topic nothing has been published to gives no output and exit `0`. So publish first and subscribe second, as the Solution does. `surl` keeps the message last published to a topic for every later subscriber, until another publish replaces it or an empty one, `-d ""`, clears it. That is MQTT's retained message (<<mqtt311>>), which `surl` makes of every publish, so that a `curl` subscriber has something to receive; it is held in memory unless `--directory` names a folder (<<surl-readme>>).
+A subscribe from `curl` cannot wait for a message that has not been published yet, and `surl` does not make it try: it sends the subscriber the retained message of each matching topic, then ends the connection, and `curl` exits `0`. A topic with no retained message gives no output and exit `0`. A retained message is MQTT's way of leaving a message on a topic for subscribers that come later: a publish with its RETAIN flag set is kept as the topic's retained message (<<mqtt311>>). `curl` never sets the flag, and a broker must not keep a publish without it, so on a broker left as it is, the fourth server, `bare`, a `curl` publish reaches only subscribers already connected and a `curl` subscribe after it receives nothing.
+
+`--topic "home/#;retain"` is what makes the Solution work. It declares the topic filter `home/#` with the flag `retain`, and `surl` keeps every publish on a matching topic as its retained message, whatever the publisher's flag said; that is the broker's choice, made by whoever starts it (<<surl-readme>>). So publish first and subscribe second, as the Solution does. The latest publish replaces the one before, and an empty one, `-d ""`, clears the topic. A topic outside the filter, such as `garden/temp`, keeps nothing. Retained messages are held in memory unless `--directory` names a folder (<<surl-readme>>).
 
 A topic filter may name many topics: a plus sign matches one level and a hash sign, last in the filter, every level below. In a URL they are written `%2B` and `%23`, since both signs mean other things there; `home/%2B/temp` receives `home/kitchen/temp`'s message, written under its own topic name, and so does `home/%23`. A URL with no topic is refused by `curl` itself, exit `3`, before it connects.
 

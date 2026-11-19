@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+# Each case runs seed.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
 schema: 2
 key: smtp-seed-mail-from-an-agent
 title: Seeding Mail from an Agent
@@ -19,83 +19,40 @@ cases:
   - id: solution
     role: solution
     claim: seed_mail delivers a message into alice's INBOX on a running server, and curl reads it back over IMAP, byte for byte, as UID 1.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["smtp://127.0.0.1:0", "imap://127.0.0.1:0"], arguments: ["--user", "alice:secret"] }
-        save: { server: server_id, smtp: bound_urls.0, imap: bound_urls.1 }
-      - host: surl
-        tool: seed_mail
-        arguments:
-          server_id: "{{server}}"
-          to: alice@example.com
-          message: "From: bob@example.com\r\nTo: alice@example.com\r\nSubject: Hello\r\n\r\nHello from surl.\r\n"
-        expect:
-          result-contains: { delivered: true }
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-u", "alice:secret", "{{imap}}INBOX;UID=1"] }
-        expect:
-          result-contains:
-            exitCode: 0
-            standardOutput: { content: "From: bob@example.com\r\nTo: alice@example.com\r\nSubject: Hello\r\n\r\nHello from surl.\r\n" }
+    program: seed.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "seed_mail alice@example.com: {\"delivered\":true}\ncurl exit 0, output \"From: bob@example.com\\r\\nTo: alice@example.com\\r\\nSubject: Hello\\r\\n\\r\\nHello from surl.\\r\\n\"\n"
 
   - id: imap-marks-it-seen
     claim: Fetching the message over IMAP set its \Seen flag, which list_messages shows with its UID and size.
-    mcp:
-      - host: surl
-        tool: list_messages
-        arguments: { server_id: "{{server}}", owner: alice, mailbox: INBOX }
-        expect:
-          result-contains: { has_more: false, messages: [{ uid: 1, size: 82, flags: ["\\Seen"] }] }
+    program: seed.cs
+    args: [imap-marks-it-seen]
+    expect:
+      exit: 0
+      stdout: "seed_mail alice@example.com: {\"delivered\":true}\ncurl exit 0, output \"From: bob@example.com\\r\\nTo: alice@example.com\\r\\nSubject: Hello\\r\\n\\r\\nHello from surl.\\r\\n\"\nlist_messages: uid 1, size 82, flags [\"\\\\Seen\"]\n"
 
   - id: read-without-a-client
     claim: read_message answers a second seeded message's exact text without a login and sets no flag, so list_mailboxes counts two messages, one unseen.
-    mcp:
-      - host: surl
-        tool: seed_mail
-        arguments:
-          server_id: "{{server}}"
-          to: alice@example.com
-          message: "From: bob@example.com\r\nTo: alice@example.com\r\nSubject: Again\r\n\r\nStill here.\r\n"
-      - host: surl
-        tool: read_message
-        arguments: { server_id: "{{server}}", owner: alice, mailbox: INBOX, uid: 2 }
-        expect:
-          result-contains: { uid: 2, text: "From: bob@example.com\r\nTo: alice@example.com\r\nSubject: Again\r\n\r\nStill here.\r\n" }
-      - host: surl
-        tool: list_mailboxes
-        arguments: { server_id: "{{server}}", owner: alice }
-        expect:
-          result-contains: { mailboxes: [{ name: INBOX, message_count: 2, unseen_count: 1 }] }
+    program: seed.cs
+    args: [read-without-client]
+    expect:
+      exit: 0
+      stdout: "seed_mail alice@example.com: {\"delivered\":true}\ncurl exit 0, output \"From: bob@example.com\\r\\nTo: alice@example.com\\r\\nSubject: Hello\\r\\n\\r\\nHello from surl.\\r\\n\"\nseed_mail alice@example.com: {\"delivered\":true}\nread_message uid 2: \"From: bob@example.com\\r\\nTo: alice@example.com\\r\\nSubject: Again\\r\\n\\r\\nStill here.\\r\\n\"\nlist_mailboxes: INBOX, 2 messages, 1 unseen\n"
 
   - id: smtp-needs-a-login
-    claim: A client sending over SMTP without a login is refused at MAIL with 530 and curl exits 55; with alice's login the same message is delivered as UID 3.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-S", "--mail-from", "alice@example.com", "--mail-rcpt", "alice@example.com", "-T", "note.eml", "{{smtp}}"] }
-        expect:
-          is-error: true
-          result-contains: { exitCode: 55 }
-          error-contains: "MAIL failed: 530"
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-S", "-u", "alice:secret", "--mail-from", "alice@example.com", "--mail-rcpt", "alice@example.com", "-T", "note.eml", "{{smtp}}"] }
-        expect:
-          result-contains: { exitCode: 0 }
-      - host: surl
-        tool: list_messages
-        arguments: { server_id: "{{server}}", owner: alice, mailbox: INBOX, after_uid: 2 }
-        expect:
-          result-contains: { messages: [{ uid: 3 }] }
+    claim: A client sending over SMTP without a login is refused at MAIL with 530 and curl exits 55; with alice's login the same message is delivered, after the seeded one, as UID 2.
+    program: seed.cs
+    args: [smtp-needs-a-login]
+    expect:
+      exit: 0
+      stdout: "seed_mail alice@example.com: {\"delivered\":true}\ncurl exit 55, output \"\", error curl: (55) MAIL failed: 530\ncurl exit 0, output \"\"\nlist_messages: uid 2, size 208, flags []\n"
 
   - id: no-such-account
     claim: seed_mail to an address no account owns is a tool error, NoSuchAccount.
-    mcp:
-      - host: surl
-        tool: seed_mail
-        arguments: { server_id: "{{server}}", to: carol@example.com, message: "Subject: Lost\r\n\r\nNobody.\r\n" }
-        expect:
-          is-error: true
-          error-contains: "was refused: NoSuchAccount"
+    program: seed.cs
+    args: [no-such-account]
+    expect:
+      exit: 0
+      stdout: "seed_mail carol@example.com: error: Mail: Mail for carol@example.com was refused: NoSuchAccount.\n"

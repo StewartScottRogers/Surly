@@ -1,10 +1,9 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # Review: http-reset-and-snapshot-from-an-agent
 Verdict: accept with fixes
-Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl commit a0236e175), Curl port 8.22.0 (Curl commit f4b30d981f), surl-mcp 1.0.0, curl-mcp 0.1.0.0: 6 of 6 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 993aa7072), Curl port 8.22.0 (Curl commit 0afbd10e3b), surl-mcp 1.0.0, curl-mcp 0.1.0.0, dotnet 11.0.100, ModelContextProtocol.Core 2.2.0: 6 of 6 cases pass on windows.
 ## Findings
-1. Title improved to "Resetting a Server Between Tests from an Agent" (7 words); key unchanged.
-2. Fixed: "kept in memory" and "hello.txt and nothing else" had no case; removed or reworded. Absence is proven by 404s.
-3. "The record of exchanges stays" was first matched on get_exchanges' exact request bytes, which need the port; it now uses `list_servers` `exchange_count` 4.
-4. Snapshot IDs are opaque in the recipe (saved, never written as p1).
-5. The `--directory` refusal is a second server in the same recipe, fixture `site/hello.txt`; its reason is the server's own message.
+1. Rewritten from an mcp: call list to a C# program on the MCP SDK (ADR-0008 item 7, amended 2026-11-19). One program, `reset.cs`; every claim kept. Every scenario starts the server, puts `fixture.txt` and takes the snapshot before diverging.
+2. `exchanges-stay` repeats the solution's and the reset's four requests in one run, so `exchange_count` 4 still counts exactly those.
+3. Snapshot and server IDs stay opaque: the program prints "answered the IDs it was given" after checking them, and `newest-four` matches the IDs in the error with `\S+`.
+4. The `--directory` refusal is a second server in the same run, fixture `site/hello.txt`; the exact refusal text is now matched in full.

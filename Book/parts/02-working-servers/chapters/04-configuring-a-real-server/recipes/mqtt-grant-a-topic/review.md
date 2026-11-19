@@ -3,7 +3,7 @@
 
 Verdict: accept with fixes
 
-Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl commit a0236e175), Curl port 8.22.0 (Curl commit f4b30d981f): 8 of 8 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 993aa7072), Curl port 8.22.0 (Curl commit 0afbd10e3b): 9 of 9 cases pass on windows.
 
 ## Findings
 
@@ -12,3 +12,5 @@ Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl comm
 3. Fixed: `--topic "shop/#;retain"` was dropped from the server: over MQTT, with every publish already retained, it had no effect a case could show. `--topic` stays, with a case for its flag check only. A case for an invalid filter was not possible: `--topic "shop/#/orders"` starts instead of exiting 2 (program finding).
 4. `-m` was dropped: curl's MQTT subscribe exits after the first retained message.
 5. The generated Solution text says "`curl` prints what it got", but the publish prints nothing.
+6. Updated 2026-11-19 for Surl commit 993aa7072: surl now honours MQTT 3.1.1 RETAIN, which resolves finding 2: curl's RETAIN 0 publish is no longer kept. The main server now takes `--topic "shop/#;retain"` (restoring what finding 3 had dropped, now with an effect a case shows), and the prose says that is what keeps Ann's message. New case `not-kept-without-retain` on a third server, `unkept`, the same without `--topic`. The "every publish is retained" claim and its citation are gone.
+7. Program finding, still open: `surl --aihelp messages` now says a filter that is not a valid topic filter exits 2 (`topic <filter> is not a valid topic filter`), but `surl --user ann:secret --topic "shop/#/orders" mqtt://127.0.0.1:0/` still starts and serves (probe stopped it after 60 s). So the invalid-filter case from finding 3 is still left out.

@@ -10,7 +10,7 @@ You are writing and maintaining *Surly*, a cookbook in which every recipe pairs 
 
 - `llms.txt` maps the book. `generated/index.json` (after a build) lists every recipe with its metadata; read it before reading any recipe.
 - A recipe is a folder under `parts/<tier>/chapters/<chapter>/recipes/<key>/` holding `recipe.yml` (the executable specification: the recipe), `recipe.adoc` (the prose, which includes generated blocks), `verified.yml` (written by verify, never by hand), and fixtures.
-- `templates/recipe-template/` is the starting point for a console recipe (`surl` and `curl`); `templates/recipe-template-csharp/` for a recipe whose subject is `Surl.Api`, `Curl.Api` or `Libcurl`, run as a C# file-based app; `templates/recipe-template-mcp/` for one whose subject is `surl-mcp` or `curl-mcp`, as tool calls (ADR-0008). `REVIEW.md` is the rubric. `references/bibliography.adoc` holds every off-site source by citation key. `editorial/log.md` is the author's decisions.
+- `templates/recipe-template/` is the starting point for a console recipe (`surl` and `curl`); `templates/recipe-template-csharp/` for a recipe whose subject is `Surl.Api`, `Curl.Api` or `Libcurl`, run as a C# file-based app; `templates/recipe-template-mcp/` for one whose subject is `surl-mcp` or `curl-mcp`, as a C# program on the official MCP SDK (ADR-0008, item 7 as amended). `REVIEW.md` is the rubric. `references/bibliography.adoc` holds every off-site source by citation key. `editorial/log.md` is the author's decisions.
 
 ## To add a recipe
 

@@ -14,26 +14,25 @@ It is built once with `dotnet build <file>.cs`, then each case runs it with
 output is the program's alone. Packages come from the configured NuGet feeds;
 SURLY_NUGET_SOURCE adds one folder or feed (for packages not yet published).
 
-An mcp: case (schema 2, ADR-0008) is a list of tool calls. verify starts each
-MCP host the recipe calls once (surl-mcp with --root, curl-mcp with
-CURL_MCP_ROOT, both at the working directory), shared by the recipe's cases in
-order, so a value one call saves ({{url}}) reaches every later call. Each call
-must not be an error unless its expect: says is-error: true, and its result must
-contain result-contains. The hosts' versions are the ones they report when the
-handshake is done. SURLY_SURL_MCP and SURLY_CURL_MCP name them, as SURLY_SURL does.
+An mcp recipe's cases are C# programs on the official MCP SDK (ADR-0008 item 7,
+amended 2026-11-19) that start surl-mcp and curl-mcp by name. verify finds the
+hosts on PATH or through SURLY_SURL_MCP and SURLY_CURL_MCP, puts shims for them
+first on PATH for those programs, and records the version each host reports in
+the MCP handshake.
 
 Only the tools a recipe uses are needed, and only their versions are recorded.
 
-Usage:  python3 build/verify.py [key ...]     (all recipes when no key is given)
+Usage:  python3 build/verify.py [-j N] [key ...]   (all recipes when no key is given;
+        -j N or SURLY_JOBS=N runs N recipes side by side)
 Exit:   0 when every recipe passed; 1 when any failed or the binaries are missing.
 Then run build.py so the book shows the new status.
 """
 import datetime, os, platform, re, shlex, shutil, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 import yaml
-from recipes import (PORT_NAMES, recipes, substitute, substitute_deep, posix_values, windows_values, programs,
-                     program_packages, mcp_hosts, MCP_HOSTS, PLACEHOLDER)
-from mcp import BridgeHost, Host, McpError, contains, path_value
+from recipes import (PORT_NAMES, recipes, substitute, posix_values, windows_values, programs,
+                     program_packages, mcp_hosts, MCP_HOSTS)
+from mcp import Host, McpError
 
 WINDOWS = os.name == "nt"
 PLATFORM = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}.get(platform.system(), platform.system().lower())
@@ -55,9 +54,45 @@ def tools(spec):
     needed = {h for h in heads if h in ("surl", "curl")}
     if programs(spec):
         needed.add("dotnet")
-    if mcp_hosts(spec) and os.environ.get("SURLY_MCP_CLIENT") != "python":
-        needed.add("dotnet")                     # the C# MCP bridge
+    if mcp_hosts(spec):
+        needed.add("dotnet")                     # an mcp recipe's C# programs
     return needed | set(mcp_hosts(spec))
+
+
+host_shims, host_versions_seen, BINS = {}, {}, {}
+
+
+def hosts_on_path(bins):
+    """A folder with surl-mcp and curl-mcp shims that run the pinned hosts, so a recipe's C#
+    program can start them by name, as a reader's would from PATH. Made once per run."""
+    if "dir" not in host_shims:
+        folder = Path(tempfile.mkdtemp(prefix="surly-mcp-hosts-"))
+        for name in MCP_HOSTS.values():
+            if name in bins:
+                if WINDOWS:
+                    (folder / f"{name}.cmd").write_text(f'@"{bins[name]}" %*' + chr(13) + chr(10), encoding="utf-8")
+                else:
+                    shim = folder / name
+                    shim.write_text(f'#!/bin/sh{chr(10)}exec "{bins[name]}" "$@"{chr(10)}', encoding="utf-8")
+                    shim.chmod(0o755)
+        host_shims["dir"] = folder
+    return host_shims["dir"]
+
+
+def host_version(name, bins):
+    """The version an MCP host reports in the initialize handshake (curl-mcp has no --version)."""
+    if name not in host_versions_seen:
+        root = Path(tempfile.mkdtemp(prefix="surly-mcp-version-"))
+        try:
+            host = Host([bins[name]] + (["--root", str(root)] if name == "surl-mcp" else []), cwd=root,
+                        env=None if name == "surl-mcp" else dict(os.environ, CURL_MCP_ROOT=str(root)))
+            host_versions_seen[name] = host.version
+            host.close()
+        except McpError as e:
+            host_versions_seen[name] = f"unknown ({e})"
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+    return host_versions_seen[name]
 
 
 def version(path):
@@ -114,73 +149,10 @@ def build_program(path, root, bins):
 
 # The MCP client: McpBridge.cs (the official C# SDK) unless SURLY_MCP_CLIENT=python asks for
 # the original standard-library client.
-BRIDGE = Path(__file__).resolve().parent / "McpBridge.cs"
-PYTHON_CLIENT = os.environ.get("SURLY_MCP_CLIENT") == "python"
-bridge_built = {}
 
 
-def mcp_client_name():
-    if PYTHON_CLIENT:
-        return "python (book's own client)"
-    m = re.search(r"^#:package\s+(\S+)@(\S+)", BRIDGE.read_text(encoding="utf-8"), re.M)
-    return f"{m.group(1)} {m.group(2)} (C#)" if m else "C# SDK"
-
-
-def start_host(name, root, bins):
-    """Start an MCP host confined to the working directory, through the chosen client."""
-    host_cmd = [bins[name], "--root", str(root)] if name == "surl-mcp" else [bins[name]]
-    env = None if name == "surl-mcp" else dict(os.environ, CURL_MCP_ROOT=str(root))
-    if PYTHON_CLIENT:
-        return Host(host_cmd, cwd=root, env=env)
-    if "ok" not in bridge_built:
-        why = build_program(BRIDGE, root, bins)
-        if why:
-            raise McpError(f"the MCP bridge would not build: {why}")
-        bridge_built["ok"] = True
-    return BridgeHost([bins["dotnet"], "run", "--no-build", str(BRIDGE)], host_cmd, cwd=root, env=env)
-
-
-def run_mcp_case(case, root, values, bins, hosts, saved):
-    for i, call in enumerate(case["mcp"], 1):
-        at = f"call {i} ({call['tool']})"
-        arguments = call.get("arguments") or {}
-        known = {**values, **saved}
-        missing = sorted(set(PLACEHOLDER.findall(str(arguments))) - known.keys())
-        if missing:
-            return False, f"{at}: nothing saved as {', '.join(missing)}"
-        name = MCP_HOSTS[call["host"]]
-        try:
-            if name not in hosts:
-                hosts[name] = start_host(name, root, bins)
-            filled = substitute_deep(arguments, known)
-            exp = call.get("expect") or {}
-            # The recipe's arguments must fit the tool's published schema, so a renamed or
-            # retyped argument fails here, by name, rather than as a puzzling answer. A call
-            # that expects an error may break the schema on purpose; a missing tool never may.
-            problems = hosts[name].check(call["tool"], filled)
-            if problems and (exp.get("is-error") is not True or call["tool"] not in hosts[name].schemas):
-                return False, f"{at}: does not fit the schema: " + "; ".join(problems)
-            is_error, value, text = hosts[name].call(call["tool"], filled)
-        except McpError as e:
-            return False, f"{at}: {e}"
-        if is_error != exp.get("is-error", False):
-            return False, f"{at}: {'an error' if is_error else 'not an error'}, expected otherwise: {text[:300]}"
-        if "error-contains" in exp and exp["error-contains"] not in text:
-            return False, f"{at}: answer lacks {exp['error-contains']!r}: {text[:300]}"
-        if "result-contains" in exp and not contains(value, substitute_deep(exp["result-contains"], known)):
-            return False, f"{at}: answer {text[:300]} does not contain {exp['result-contains']!r}"
-        for key, path in (call.get("save") or {}).items():
-            got = path_value(value, path)
-            if got is None:
-                return False, f"{at}: nothing at {path} to save as {key}"
-            saved[key] = got
-    return True, ""
-
-
-def run_case(case, recipe, root, values, bins, built, hosts, saved):
+def run_case(case, recipe, root, values, bins, built, program_env=None):
     write_fixtures(root, case.get("fixtures"))
-    if "mcp" in case:
-        return run_mcp_case(case, root, values, bins, hosts, saved)
     if "program" in case:
         path = recipe / case["program"]
         if path not in built:
@@ -193,7 +165,8 @@ def run_case(case, recipe, root, values, bins, built, hosts, saved):
         cmd = resolve(substitute(case["run"], values), bins)
         shell, timeout = True, case.get("timeout", 30)
     try:
-        r = subprocess.run(cmd, shell=shell, cwd=root, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, shell=shell, cwd=root, capture_output=True, text=True, timeout=timeout,
+                           env=program_env if "program" in case else None)
     except subprocess.TimeoutExpired:
         return False, "timed out"
     exp = case["expect"]
@@ -220,7 +193,11 @@ def verify_recipe(recipe, spec, bins):
     ports = {name: free_port() for name in PORT_NAMES}
     values = windows_values(ports) if WINDOWS else posix_values(ports)
     write_fixtures(root, spec.get("fixtures"))
-    procs, results, failures, built, hosts, saved = [], {}, [], {}, {}, {}
+    procs, results, failures, built = [], {}, [], {}
+    # An mcp recipe's programs find surl-mcp and curl-mcp on PATH, as a reader's would.
+    program_env = None
+    if mcp_hosts(spec):
+        program_env = dict(os.environ, PATH=str(hosts_on_path(bins)) + os.pathsep + os.environ.get("PATH", ""))
     try:
         # setup: preparation (certificates, keys) run in the working directory before any
         # server starts. Each must succeed; none is a claim.
@@ -252,61 +229,80 @@ def verify_recipe(recipe, spec, bins):
                 failures.append(f"server {name} exited at start with {p.returncode}")
         if not failures:
             for case in spec["cases"]:
-                ok, why = run_case(case, recipe, root, values, bins, built, hosts, saved)
+                ok, why = run_case(case, recipe, root, values, bins, built, program_env)
                 results[case["id"]] = "pass" if ok else "fail"
                 if not ok:
                     failures.append(f"case {case['id']}: {why}")
     finally:
-        host_versions = {name: host.version for name, host in hosts.items()}
-        for host in hosts.values():
-            host.close()
         for p in procs:
             p.kill()
             p.wait()
         shutil.rmtree(root, ignore_errors=True)
-    return results, failures, host_versions
+    return results, failures
 
 
-def recipe_versions(recipe, spec, tool_versions, host_versions):
+def recipe_versions(recipe, spec, tool_versions):
     """Every version this recipe ran against: its tools and MCP hosts, then each package its programs name."""
     found = {t: tool_versions[t] for t in ("surl", "curl", "dotnet") if t in tools(spec)}
-    found.update({name: host_versions.get(name, "not started") for name in mcp_hosts(spec)})
-    if mcp_hosts(spec):
-        found["mcp-client"] = mcp_client_name()
+    found.update({name: host_version(name, BINS) for name in mcp_hosts(spec)})
     for program in programs(spec):
         for name, ver in program_packages(recipe / program).items():
             found[name] = ver
     return found
 
 
+def check_one(recipe, spec, bins, tool_versions, today):
+    """Verify one recipe and write its verified.yml; returns the lines to print and whether it failed."""
+    lines = []
+    results, failures = verify_recipe(recipe, spec, bins)
+    if any(f.endswith("exited at start with 45") for f in failures):
+        # Another program took a free port between allocation and bind: not the recipe's
+        # fault. Try once more on fresh ports, and say so.
+        lines.append(f"{spec['key']}: a server's port was taken; retrying once on fresh ports")
+        results, failures = verify_recipe(recipe, spec, bins)
+    status = "verified" if not failures else "broken"
+    versions = recipe_versions(recipe, spec, tool_versions)
+    previous = spec["verified"]
+    platforms = sorted(set(previous.get("platforms", []) if previous.get("status") == "verified"
+                           and previous.get("versions") == versions else []) | {PLATFORM}) if status == "verified" else [PLATFORM]
+    record = {"status": status, "versions": versions, "date": today,
+              "platforms": platforms, "cases": results}
+    if failures:
+        record["failures"] = failures
+    (recipe / "verified.yml").write_text(
+        "# Written by build/verify.py. Do not edit; re-run verify.py instead.\n"
+        + yaml.safe_dump(record, sort_keys=False), encoding="utf-8")
+    lines.append(f"{spec['key']}: {status}" + ("" if not failures else "\n  " + "\n  ".join(failures)))
+    return lines, bool(failures)
+
+
 def main():
-    wanted = set(sys.argv[1:])
+    args = sys.argv[1:]
+    jobs = int(os.environ.get("SURLY_JOBS", "1"))
+    if args[:1] in (["-j"], ["--jobs"]):
+        jobs, args = int(args[1]), args[2:]
+    wanted = set(args)
     selected = [(recipe, spec) for _, _, recipe, spec in recipes(wanted or None)]
     bins = {t: binary(t) for t in sorted(set().union(*(tools(spec) for _, spec in selected)))}
+    BINS.update(bins)
     tool_versions = {k: version(v) for k, v in bins.items() if k not in MCP_HOSTS.values()}
     today = datetime.date.today().isoformat()
     any_failed = False
-    for recipe, spec in selected:
-        results, failures, host_versions = verify_recipe(recipe, spec, bins)
-        if any(f.endswith("exited at start with 45") for f in failures):
-            # Another program took a free port between allocation and bind: not the recipe's
-            # fault. Try once more on fresh ports, and say so.
-            print(f"{spec['key']}: a server's port was taken; retrying once on fresh ports")
-            results, failures, host_versions = verify_recipe(recipe, spec, bins)
-        status = "verified" if not failures else "broken"
-        any_failed |= bool(failures)
-        versions = recipe_versions(recipe, spec, tool_versions, host_versions)
-        previous = spec["verified"]
-        platforms = sorted(set(previous.get("platforms", []) if previous.get("status") == "verified"
-                               and previous.get("versions") == versions else []) | {PLATFORM}) if status == "verified" else [PLATFORM]
-        record = {"status": status, "versions": versions, "date": today,
-                  "platforms": platforms, "cases": results}
-        if failures:
-            record["failures"] = failures
-        (recipe / "verified.yml").write_text(
-            "# Written by build/verify.py. Do not edit; re-run verify.py instead.\n"
-            + yaml.safe_dump(record, sort_keys=False), encoding="utf-8")
-        print(f"{spec['key']}: {status}" + ("" if not failures else "\n  " + "\n  ".join(failures)))
+    if jobs <= 1:
+        for recipe, spec in selected:
+            lines, failed = check_one(recipe, spec, bins, tool_versions, today)
+            any_failed |= failed
+            print("\n".join(lines), flush=True)
+    else:
+        # Recipes are independent (own temporary folder, own free ports, own servers), so
+        # they can run side by side; results print in book order as each one finishes.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            futures = [pool.submit(check_one, recipe, spec, bins, tool_versions, today) for recipe, spec in selected]
+            for future in futures:
+                lines, failed = future.result()
+                any_failed |= failed
+                print("\n".join(lines), flush=True)
     sys.exit(1 if any_failed else 0)
 
 

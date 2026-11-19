@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+# Each case runs run-curl.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the curl arguments it sends.
 schema: 2
 key: http-run-curl-from-an-agent
 title: Running curl from an Agent
@@ -17,75 +18,57 @@ fixtures: {}
 cases:
   - id: solution
     role: solution
-    claim: curl-mcp's curl tool runs curl with the arguments given and answers its exit code, 0, and its standard output, the file.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
-        save: { url: bound_urls.0 }
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "{{url}}hello.txt"] }
-        expect:
-          result-contains: { exitCode: 0, standardOutput: { content: "hello from surl\n" }, standardError: { content: "" }, failure: null }
+    claim: curl-mcp's curl tool runs curl with the arguments given and answers its exit code, 0, its standard output, the file, and an empty standard error.
+    program: run-curl.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nstandardOutput: \"hello from surl\\n\"\nstandardError: \"\"\nfailure: null\ntool error: no\n"
 
   - id: status-code
     claim: With -s and -w "%{http_code}", a missing path prints 404 and curl exits 0, so the call is not a tool error.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-w", "%{http_code}", "{{url}}missing.txt"] }
-        expect:
-          result-contains: { exitCode: 0, standardOutput: { content: "404" } }
+    program: run-curl.cs
+    args: [status]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nstandardOutput: \"404\"\nstandardError: \"\"\nfailure: null\ntool error: no\n"
 
   - id: fail-is-a-tool-error
-    claim: With -f the same 404 makes curl exit 22, and a nonzero exit is a tool error whose answer still carries the exit code.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-f", "-s", "{{url}}missing.txt"] }
-        expect:
-          is-error: true
-          result-contains: { exitCode: 22, failure: { kind: CurlExit, exitCode: 22 } }
+    claim: With -f the same 404 makes curl exit 22, and a nonzero exit is a tool error whose answer still carries the exit code, in exitCode and in a failure of kind CurlExit.
+    program: run-curl.cs
+    args: [fail]
+    expect:
+      exit: 1
+      stdout: "exitCode: 22\nstandardOutput: \"\"\nstandardError: \"\"\nfailure: CurlExit, exitCode 22\ncurl exit code 22 (HttpReturnedError)\ntool error: yes\n"
 
   - id: show-error
-    claim: "Adding -S puts curl's own message for that exit, The requested URL returned error: 404, in the answer."
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-f", "-sS", "{{url}}missing.txt"] }
-        expect:
-          is-error: true
-          result-contains: { exitCode: 22 }
-          error-contains: "The requested URL returned error: 404"
+    claim: "Adding -S puts curl's own message for that exit, The requested URL returned error: 404, in standard error and in the failure."
+    program: run-curl.cs
+    args: [show-error]
+    expect:
+      exit: 1
+      stdout-matches: '^exitCode: 22\nstandardOutput: ""\nstandardError: "curl: \(22\) The requested URL returned error: 404(\\r)?\\n"\nfailure: CurlExit, exitCode 22\ncurl: \(22\) The requested URL returned error: 404\ncurl exit code 22 \(HttpReturnedError\)\ntool error: yes\n$'
 
   - id: write-inside-root
     claim: -o writes the body to a file inside the folder CURL_MCP_ROOT names, and standard output then holds only what -w prints, 200.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-o", "hello.txt", "-w", "%{http_code}", "{{url}}hello.txt"] }
-        expect:
-          result-contains: { exitCode: 0, standardOutput: { content: "200" } }
+    program: run-curl.cs
+    args: [write]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nstandardOutput: \"200\"\nstandardError: \"\"\nfailure: null\nhello.txt holds: hello from surl\ntool error: no\n"
 
   - id: path-outside-root-refused
-    claim: An -o path outside that folder is refused before curl runs, so the answer has no exit code at all.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-o", "../hello.txt", "{{url}}hello.txt"] }
-        expect:
-          is-error: true
-          result-contains: { exitCode: null, failure: { kind: PathRefused } }
-          error-contains: "outside CURL_MCP_ROOT"
+    claim: An -o path outside that folder is refused before curl runs, as PathRefused, so the answer has no exit code and no streams at all.
+    program: run-curl.cs
+    args: [outside-root]
+    expect:
+      exit: 1
+      stdout-matches: '^exitCode: null\nstandardOutput: null\nstandardError: null\nfailure: PathRefused, exitCode null\nRefused -o: -o ''\.\./hello\.txt'' resolves to ''[^\n]*'', which is outside CURL_MCP_ROOT \(''[^\n]*''\)\.\ntool error: yes\n$'
 
   - id: unknown-option-refused
     claim: An option curl-mcp does not know is refused the same way, since it cannot tell whether the option names a local path.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["--no-such-option", "{{url}}hello.txt"] }
-        expect:
-          is-error: true
-          result-contains: { exitCode: null, failure: { kind: PathRefused } }
-          error-contains: "is not an option this server knows"
+    program: run-curl.cs
+    args: [unknown]
+    expect:
+      exit: 1
+      stdout: "exitCode: null\nstandardOutput: null\nstandardError: null\nfailure: PathRefused, exitCode null\nRefused --no-such-option: --no-such-option is not an option this server knows, so it cannot tell whether it uses a local path.\ntool error: yes\n"

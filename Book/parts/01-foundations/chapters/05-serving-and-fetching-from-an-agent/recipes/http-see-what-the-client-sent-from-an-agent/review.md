@@ -1,11 +1,10 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # Review: http-see-what-the-client-sent-from-an-agent
 Verdict: accept with fixes
-Checked against local builds on 2026-11-18 (not releases): surl-mcp 1.0.0 (Surl commit 3c5b39474), curl-mcp 0.1.0.0 (Curl commit b140f6d88c): 5 of 5 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 993aa7072), Curl port 8.22.0 (Curl commit 0afbd10e3b), surl-mcp 1.0.0, curl-mcp 0.1.0.0, dotnet 11.0.100, ModelContextProtocol.Core 2.2.0: 5 of 5 cases pass on windows.
 ## Findings
-1. Fixed: the "max_exchanges defaults to 20" claim and the "unless userAgent names one" clause had no case, so I removed both.
-2. Fixed: the second client uses `-A surly-reader` rather than curl's default User-Agent, so the exact-bytes claim does not break on every Curl version bump.
-3. The recipe listens on {{port}} (shown as 8080), not port 0, so that the Host line can be matched exactly. The Discussion says why.
-4. Needs the author (build tooling): build.py's mcp listing substitutes {{port}} in the arguments (shown as 8080) but not in the "answers" lines, which print a literal `{{port}}`. The solution listing and the claims table show the mismatch. The fix belongs in build.py (mcp_listing/mcp_result), not here.
-5. Subset matching cannot prove that a list is empty or that it excludes an item. The scheme/listen_url filter claim is therefore positive only: it keeps exchanges 1 and 2. A refusal by filter (an empty answer) is not claimed.
-6. Re-verified after the verify.py byte-exact fixtures fix: no claim here depends on fixture bytes (fixtures: {}; content goes in through start_server's files), so nothing changed.
+1. Rewritten from an mcp: call list to a C# program on the MCP SDK (ADR-0008 item 7, amended 2026-11-19). One program, read-exchanges.cs, with five scenarios chosen by argument; every earlier claim is still a case. It prints each exchange's first and last chunk with the data as JSON spells it, so the bytes, carriage returns included, are compared exactly.
+2. Fixed: the server now listens on port 0, as an agent's would. The fixed {{port}} is gone (program cases do not substitute placeholders in expectations); each pattern captures the bound port and requires the Host line to name the same one. The old build.py finding about a literal {{port}} in the listing no longer applies here.
+3. Fixed: the filter case now proves the answer is exactly exchanges 1 and 2 (the pattern is anchored), and the page case that it is exactly exchange 1, not merely that they are included.
+4. For the author: with a C# program, an empty answer can now be claimed (for example, scheme https on this http-only server keeping nothing). Not added, to keep the claims as they were.
+5. Earlier findings stand: max_exchanges' default and transfer's userAgent field are not claimed; the second client uses -A surly-reader so the exact bytes do not change with Curl's version.

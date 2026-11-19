@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+# Each case runs reset.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
 schema: 2
 key: http-reset-and-snapshot-from-an-agent
 title: Resetting a Server Between Tests from an Agent
@@ -18,109 +18,48 @@ cases:
   - id: solution
     role: solution
     claim: restore_server puts back the files snapshot_server saved, so a file added after the snapshot is 404 again and a file deleted after it is 200 again.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://127.0.0.1:0"], files: { hello.txt: "hello from surl\n" } }
-        save: { url: bound_urls.0, server: server_id }
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /fixture.txt, text: "set up once\n" }
-      - host: surl
-        tool: snapshot_server
-        arguments: { server_id: "{{server}}" }
-        save: { snapshot: snapshot_id }
-      - host: surl
-        tool: put_file
-        arguments: { server_id: "{{server}}", path: /scratch.txt, text: "left by a test\n" }
-      - host: surl
-        tool: delete_file
-        arguments: { server_id: "{{server}}", path: /hello.txt }
-      - host: surl
-        tool: restore_server
-        arguments: { server_id: "{{server}}", snapshot_id: "{{snapshot}}" }
-        expect:
-          result-contains: { server_id: "{{server}}", snapshot_id: "{{snapshot}}" }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}scratch.txt" }
-        expect:
-          result-contains: { statusCode: 404 }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          result-contains: { statusCode: 200, body: { content: "hello from surl\n" } }
+    program: reset.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "restore_server: answered the IDs it was given\ntransfer scratch.txt: 404\ntransfer hello.txt: 200 hello from surl\n"
 
   - id: reset-to-start
     claim: reset_server returns the files to what start_server gave, so the file put before the snapshot is gone and hello.txt is still served.
-    mcp:
-      - host: surl
-        tool: reset_server
-        arguments: { server_id: "{{server}}" }
-        expect:
-          result-contains: { server_id: "{{server}}" }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}fixture.txt" }
-        expect:
-          result-contains: { statusCode: 404 }
-      - host: curl
-        tool: transfer
-        arguments: { url: "{{url}}hello.txt" }
-        expect:
-          result-contains: { statusCode: 200, body: { content: "hello from surl\n" } }
+    program: reset.cs
+    args: [reset-to-start]
+    expect:
+      exit: 0
+      stdout: "reset_server: answered the IDs it was given\ntransfer fixture.txt: 404\ntransfer hello.txt: 200 hello from surl\n"
 
   - id: snapshot-outlives-reset
     claim: A snapshot outlives a reset, and restoring it brings fixture.txt back.
-    mcp:
-      - host: surl
-        tool: restore_server
-        arguments: { server_id: "{{server}}", snapshot_id: "{{snapshot}}" }
-      - host: surl
-        tool: read_file
-        arguments: { server_id: "{{server}}", path: /fixture.txt }
-        expect:
-          result-contains: { text: "set up once\n" }
+    program: reset.cs
+    args: [snapshot-outlives-reset]
+    expect:
+      exit: 0
+      stdout: "reset_server: answered the IDs it was given\nrestore_server: answered the IDs it was given\nread_file /fixture.txt: \"set up once\\n\"\n"
 
   - id: exchanges-stay
     claim: Reset and restore change the stores, not the record of exchanges; list_servers still counts all four requests made so far.
-    mcp:
-      - host: surl
-        tool: list_servers
-        expect:
-          result-contains: { servers: [{ server_id: "{{server}}", exchange_count: 4 }] }
+    program: reset.cs
+    args: [exchanges-stay]
+    expect:
+      exit: 0
+      stdout: "restore_server: answered the IDs it was given\ntransfer scratch.txt: 404\ntransfer hello.txt: 200 hello from surl\nreset_server: answered the IDs it was given\ntransfer fixture.txt: 404\ntransfer hello.txt: 200 hello from surl\nrestore_server: answered the IDs it was given\nlist_servers: exchange_count 4\n"
 
   - id: newest-four
     claim: Only a server's newest four snapshots are kept; after four more, restoring the first is a tool error.
-    mcp:
-      - { host: surl, tool: snapshot_server, arguments: { server_id: "{{server}}" } }
-      - { host: surl, tool: snapshot_server, arguments: { server_id: "{{server}}" } }
-      - { host: surl, tool: snapshot_server, arguments: { server_id: "{{server}}" } }
-      - { host: surl, tool: snapshot_server, arguments: { server_id: "{{server}}" } }
-      - host: surl
-        tool: restore_server
-        arguments: { server_id: "{{server}}", snapshot_id: "{{snapshot}}" }
-        expect:
-          is-error: true
-          error-contains: "only its newest 4 snapshots are kept"
+    program: reset.cs
+    args: [newest-four]
+    expect:
+      exit: 0
+      stdout-matches: '^restore_server: error: server \S+ has no snapshot \S+; only its newest 4 snapshots are kept\n$'
 
   - id: not-on-disk
     claim: A server whose files are a folder on disk, given with --directory, refuses reset_server and snapshot_server, so a test never empties a real folder.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://127.0.0.1:0"], arguments: ["--directory", "site"] }
-        save: { disk: server_id }
-      - host: surl
-        tool: reset_server
-        arguments: { server_id: "{{disk}}" }
-        expect:
-          is-error: true
-          error-contains: "The content store is on disk (--directory)"
-      - host: surl
-        tool: snapshot_server
-        arguments: { server_id: "{{disk}}" }
-        expect:
-          is-error: true
-          error-contains: "reset, snapshot and restore are refused so a test never empties a real directory"
+    program: reset.cs
+    args: [not-on-disk]
+    expect:
+      exit: 0
+      stdout: "reset_server: error: Content: the store could not be reset. The content store is on disk (--directory): reset, snapshot and restore are refused so a test never empties a real directory.\nsnapshot_server: error: Content: the store could not be snapshotted. The content store is on disk (--directory): reset, snapshot and restore are refused so a test never empties a real directory.\n"

@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
+# Each case runs wait.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
 schema: 2
 key: http-wait-for-an-event-from-an-agent
 title: Waiting for an Upload from an Agent
@@ -19,93 +19,72 @@ cases:
   - id: solution
     role: solution
     claim: After curl uploads report.txt, status 201, wait_for_event answers the change to the content store at /uploads/report.txt, 10 bytes, written by exchange 1.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments:
-          listen_urls: ["http://127.0.0.1:0"]
-          arguments: ["--allow-uploads", "--user", "alice:secret"]
-          files: { uploads/README.txt: "Reports go here.\n" }
-        save: { url: bound_urls.0, server: server_id }
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "--digest", "-u", "alice:secret", "-T", "report.txt", "-w", "%{http_code}", "{{url}}uploads/report.txt"] }
-        expect:
-          result-contains: { exitCode: 0, standardOutput: { content: "201" } }
-      - host: surl
-        tool: wait_for_event
-        arguments: { server_id: "{{server}}", store: content, name: /uploads, timeout_ms: 5000 }
-        expect:
-          result-contains:
-            event: { kind: store_changed, store: content, change: written, name: /uploads/report.txt, byte_count: 10, exchange_id: 1 }
+    program: wait.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, status 201\nwait_for_event: kind=store_changed store=content change=written name=/uploads/report.txt byte_count=10 exchange_id=1\n"
+
+  - id: wait-first
+    claim: A wait_for_event sent before the upload answers the same change when it happens, after curl's 201.
+    program: wait.cs
+    args: [wait-first]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, status 201\nwait_for_event: kind=store_changed store=content change=written name=/uploads/report.txt byte_count=10 exchange_id=1\n"
 
   - id: nothing-yet
     claim: wait_for_event for a change under /reports, which nothing has made, waits timeout_ms and answers timed_out true.
-    mcp:
-      - host: surl
-        tool: wait_for_event
-        arguments: { server_id: "{{server}}", store: content, name: /reports, timeout_ms: 200 }
-        expect:
-          result-contains: { timed_out: true }
+    program: wait.cs
+    args: [nothing-yet]
+    expect:
+      exit: 0
+      stdout: "wait_for_event: {\"timed_out\":true}\n"
 
   - id: whole-segments
     claim: name matches whole path segments, so /upload does not match /uploads/report.txt and the wait times out.
-    mcp:
-      - host: surl
-        tool: wait_for_event
-        arguments: { server_id: "{{server}}", store: content, name: /upload, timeout_ms: 200 }
-        expect:
-          result-contains: { timed_out: true }
+    program: wait.cs
+    args: [whole-segments]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, status 201\nwait_for_event: {\"timed_out\":true}\n"
 
   - id: by-kind
     claim: wait_for_event with kinds login_judged answers the login the upload made, alice by Digest, accepted, in the same exchange.
-    mcp:
-      - host: surl
-        tool: wait_for_event
-        arguments: { server_id: "{{server}}", kinds: [login_judged], timeout_ms: 5000 }
-        expect:
-          result-contains:
-            event: { kind: login_judged, scheme: http, account: alice, mechanism: Digest, is_accepted: true, exchange_id: 1 }
+    program: wait.cs
+    args: [by-kind]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, status 201\nwait_for_event: kind=login_judged exchange_id=1 scheme=http account=alice mechanism=Digest is_accepted=true is_refused_by_fault=false\n"
 
   - id: the-whole-story
-    claim: get_events answers every event kept, oldest first, from the exchange starting to the exchange ending, with has_more false.
-    mcp:
-      - host: surl
-        tool: get_events
-        arguments: { server_id: "{{server}}" }
-        expect:
-          result-contains:
-            has_more: false
-            events:
-              - { kind: exchange_started, exchange_id: 1, scheme: http, listen_url: "{{url}}" }
-              - { kind: login_judged, account: alice }
-              - { kind: store_changed, change: written, name: /uploads/report.txt }
-              - { kind: exchange_ended, exchange_id: 1 }
+    claim: get_events answers every event kept, oldest first, from the exchange starting on the server's listen URL to the exchange ending, with has_more false.
+    program: wait.cs
+    args: [the-whole-story]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, status 201\nget_events: kind=exchange_started exchange_id=1 listen_url=url scheme=http\nget_events: kind=login_judged exchange_id=1 scheme=http account=alice mechanism=Digest is_accepted=true is_refused_by_fault=false\nget_events: kind=store_changed store=content change=written name=/uploads/report.txt byte_count=10 exchange_id=1\nget_events: kind=exchange_ended exchange_id=1\nget_events: has_more false\n"
 
   - id: a-page-at-a-time
     claim: max_events 1 answers only the oldest event, the exchange starting, and has_more true.
-    mcp:
-      - host: surl
-        tool: get_events
-        arguments: { server_id: "{{server}}", max_events: 1 }
-        expect:
-          result-contains: { has_more: true, events: [{ kind: exchange_started }] }
+    program: wait.cs
+    args: [a-page-at-a-time]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, status 201\nget_events: kind=exchange_started exchange_id=1 listen_url=url scheme=http\nget_events: has_more true\n"
 
   - id: timeout-bounds
     claim: timeout_ms outside 1 to 60000 is a tool error.
-    mcp:
-      - host: surl
-        tool: wait_for_event
-        arguments: { server_id: "{{server}}", timeout_ms: 70000 }
-        expect:
-          is-error: true
-          error-contains: "timeout_ms must be 1 to 60000, not 70000"
+    program: wait.cs
+    args: [timeout-bounds]
+    expect:
+      exit: 0
+      stdout: "wait_for_event: error: timeout_ms must be 1 to 60000, not 70000\n"
 
   - id: no-password-in-clear
     claim: The same upload with -u but without --digest sends the password by Basic authentication, and the server answers 403.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-u", "alice:secret", "-T", "report.txt", "-w", "%{http_code}", "{{url}}uploads/report.txt"] }
-        expect:
-          result-contains: { exitCode: 0, standardOutput: { content: "403" } }
+    program: wait.cs
+    args: [no-password-in-clear]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, status 403\n"

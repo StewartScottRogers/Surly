@@ -1,7 +1,8 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
-# verify starts both hosts once and runs the cases in order; a saved value is {{name}} later.
-# {{port}} is a free port verify picks, shown as 8080, so the Host line can be shown exactly.
+# Each case runs read-exchanges.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario. The server listens on port 0, so each pattern
+# captures the bound port once and requires the Host line to name the same one.
 schema: 2
 key: http-see-what-the-client-sent-from-an-agent
 title: Reading the Client's Request from an Agent
@@ -18,69 +19,41 @@ fixtures: {}
 cases:
   - id: solution
     role: solution
-    claim: get_exchanges answers the request transfer sent, byte for byte, and the response surl sent back; transfer sends no User-Agent header.
-    mcp:
-      - host: surl
-        tool: start_server
-        arguments: { listen_urls: ["http://127.0.0.1:{{port}}"], files: { hello.txt: "hello from surl\n" } }
-        save: { server: server_id }
-      - host: curl
-        tool: transfer
-        arguments: { url: "http://127.0.0.1:{{port}}/hello.txt" }
-      - host: surl
-        tool: get_exchanges
-        arguments: { server_id: "{{server}}" }
-        expect:
-          result-contains:
-            exchanges:
-              - exchange_id: 1
-                listen_url: "http://127.0.0.1:{{port}}/"
-                scheme: http
-                chunks:
-                  - { direction: received, layer: wire, encoding: text, data: "GET /hello.txt HTTP/1.1\r\nHost: 127.0.0.1:{{port}}\r\nAccept: */*\r\n\r\n" }
-                  - { direction: sent, data: "hello from surl\n" }
+    claim: get_exchanges answers the request transfer sent, byte for byte, and the response surl sent back, body last; transfer sends no User-Agent header.
+    program: read-exchanges.cs
+    args: [all]
+    expect:
+      exit: 0
+      stdout-matches: '^exchange 1: http via http://127\.0\.0\.1:(\d+)/\n  received wire text: "GET /hello\.txt HTTP/1\.1\\r\\nHost: 127\.0\.0\.1:\1\\r\\nAccept: \*/\*\\r\\n\\r\\n"\n  sent wire text: "hello from surl\\n"\nhas_more: false\n$'
 
   - id: after-an-exchange
     claim: after_exchange_id 1 answers what came after it, here the curl tool's request with the User-Agent that -A names, and has_more false.
-    mcp:
-      - host: curl
-        tool: curl
-        arguments: { args: ["-s", "-A", "surly-reader", "http://127.0.0.1:{{port}}/hello.txt"] }
-      - host: surl
-        tool: get_exchanges
-        arguments: { server_id: "{{server}}", after_exchange_id: 1 }
-        expect:
-          result-contains:
-            has_more: false
-            exchanges:
-              - exchange_id: 2
-                chunks:
-                  - { direction: received, data: "GET /hello.txt HTTP/1.1\r\nHost: 127.0.0.1:{{port}}\r\nUser-Agent: surly-reader\r\nAccept: */*\r\n\r\n" }
+    program: read-exchanges.cs
+    args: [after]
+    expect:
+      exit: 0
+      stdout-matches: '^exchange 2: http via http://127\.0\.0\.1:(\d+)/\n  received wire text: "GET /hello\.txt HTTP/1\.1\\r\\nHost: 127\.0\.0\.1:\1\\r\\nUser-Agent: surly-reader\\r\\nAccept: \*/\*\\r\\n\\r\\n"\n  sent wire text: "hello from surl\\n"\nhas_more: false\n$'
 
   - id: a-page-at-a-time
     claim: max_exchanges 1 answers the oldest exchange and has_more true, so an agent reads a long record a page at a time.
-    mcp:
-      - host: surl
-        tool: get_exchanges
-        arguments: { server_id: "{{server}}", max_exchanges: 1 }
-        expect:
-          result-contains: { has_more: true, exchanges: [{ exchange_id: 1 }] }
+    program: read-exchanges.cs
+    args: [page]
+    expect:
+      exit: 0
+      stdout-matches: '^exchange 1: [^\n]*\n  received [^\n]*\n  sent [^\n]*\nhas_more: true\n$'
 
   - id: filtered-by-listener
-    claim: scheme, matched without regard to case, and listen_url, spelled as bound_urls spells it, keep the exchanges that came through that listener.
-    mcp:
-      - host: surl
-        tool: get_exchanges
-        arguments: { server_id: "{{server}}", scheme: HTTP, listen_url: "http://127.0.0.1:{{port}}/" }
-        expect:
-          result-contains: { exchanges: [{ exchange_id: 1 }, { exchange_id: 2 }] }
+    claim: scheme, matched without regard to case, and listen_url, spelled as bound_urls spells it, keep the exchanges that came through that listener, here both.
+    program: read-exchanges.cs
+    args: [filter]
+    expect:
+      exit: 0
+      stdout-matches: '^exchange 1: http via [^\n]*\n  received [^\n]*\n  sent [^\n]*\nexchange 2: http via [^\n]*\n  received [^\n]*User-Agent: surly-reader[^\n]*\n  sent [^\n]*\nhas_more: false\n$'
 
   - id: unknown-server
     claim: A server ID this host is not running is a tool error, no running server has ID s9.
-    mcp:
-      - host: surl
-        tool: get_exchanges
-        arguments: { server_id: s9 }
-        expect:
-          is-error: true
-          error-contains: "no running server has ID s9"
+    program: read-exchanges.cs
+    args: [unknown]
+    expect:
+      exit: 1
+      stdout: "no running server has ID s9\n"
