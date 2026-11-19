@@ -167,7 +167,7 @@ def write_recipe_files(recipe, spec):
     (recipe / "run.sh").chmod(0o755)
     # Setup lines run through cmd, so a redirect writes bytes, not Windows PowerShell 5.1's UTF-16.
     ps = [head.rstrip(), "Set-Location $PSScriptRoot"] + [
-        "cmd /c '" + c.replace("{{null}}", "NUL").replace("'", "''") + "'" for c in setup]
+        "cmd /c '" + c.replace("'", "''") + "'" for c in setup_commands(spec, {**values, "null": "NUL"})]
     for i, s in enumerate(servers):
         exe, *args = s.replace("{{null}}", "NUL").split()
         ps.append(f"$server{i} = Start-Process {exe} -ArgumentList {', '.join(repr(a) for a in args)} -PassThru -NoNewWindow")

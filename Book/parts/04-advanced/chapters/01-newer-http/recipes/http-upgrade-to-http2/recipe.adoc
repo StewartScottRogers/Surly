@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-upgrade-to-http2]]
+=== Upgrading from HTTP/1.1 to HTTP/2
+
+==== Problem
+
+You want to test a client that starts in HTTP/1.1 on a plain `http://` URL and asks the server to switch to HTTP/2 on the same connection.
+
+==== Solution
+
+Serve a file with `surl` on `http`, and fetch it with `curl --http2`, here with `-w` to print the version the answer came in:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Hypertext Transfer Protocol version 2 (HTTP/2) without Transport Layer Security (TLS) is called `h2c`, HTTP/2 over cleartext. There are two ways to start it. The client can open with the HTTP/2 preface and assume the server understands, which is prior knowledge (<<http-choose-the-http-version>>). Or it can send an ordinary HTTP/1.1 request that asks to switch, and let the server decide; that is the upgrade, and this recipe. Nothing on the `surl` side turns it on: an `http` listener answers HTTP/1.1, prior knowledge and the upgrade alike, and `--directory site` serves the files under `site` (<<surl-readme>>).
+
+`--http2` on an `http://` URL makes `curl` ask. Its first request is HTTP/1.1 and carries `Upgrade: h2c`, an `HTTP2-Settings` header holding its HTTP/2 settings, and `Connection: Upgrade, HTTP2-Settings`, which `-v` prints on standard error. `surl` answers `101 Switching Protocols` with `Upgrade: h2c`, and from there the connection is HTTP/2: the answer to that same request comes back in HTTP/2 (<<rfc9110>>, <<curl-readme>>). `-i` prints both heads, the `101` in HTTP/1.1 and then `HTTP/2 200` with lower-case header names and no reason phrase, before the body. `-w "HTTP/%{http_version}\n"` prints the version after the body, `HTTP/2`; in the checked claims `-s` keeps `curl` quiet and `-o` throws the body away (`/dev/null`, or `NUL` on Windows). The connection stays HTTP/2: a second URL in the same command goes over it as a second stream, and `%{num_connects}` is `0` for it. Without `--http2`, `curl` asks for nothing and gets HTTP/1.1.
+
+`--http2-prior-knowledge` is the contrast. It skips the question, so there is no `101` and no HTTP/1.1 at all, only `HTTP/2 200`. The upgrade costs an extra head, and in return the client learns whether the server takes HTTP/2 before it commits to it: a server that ignores the request answers in HTTP/1.1, as the two refusals below show. The specification of HTTP/2 now calls the upgrade deprecated, because it was never widely used, so prior knowledge is the road most clients take to `h2c` (<<rfc9113>>). Over `https`, `--http2` does neither: the version is agreed in the TLS handshake (<<https-serve-http2>>).
+
+`surl` ignores an upgrade it should not take, and answers in HTTP/1.1 instead. A request with a body is one: `-d x` gives `curl`'s request a body, and the answer comes back in HTTP/1.1 although `curl` asked to upgrade. A request whose `HTTP2-Settings` does not decode is another; here `-H` sends the three headers by hand, with `!!!` for the settings, and the answer is an ordinary `HTTP/1.1 200 OK` (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-choose-the-http-version>> for HTTP/2 with prior knowledge.
+* <<https-serve-http2>> for HTTP/2 agreed during the TLS handshake.
+* <<https-serve-http3>> for HTTP/3 over QUIC.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9113>>, <<rfc9110>>.

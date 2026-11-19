@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-offer-weak-algorithms-for-old-clients]]
+=== Letting an Old Secure Shell Client Connect
+
+==== Problem
+
+An old Secure Shell (SSH) client, one that knows only old ciphers such as AES-CBC, cannot connect to your test SSH File Transfer Protocol (SFTP) server, and you need it to.
+
+==== Solution
+
+Start `surl` with `--allow-weak-ssh-algorithms`. Here the old client is OpenSSH's `sftp`, told to use nothing but the cipher `aes128-cbc`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The two ends of an SSH connection each list the algorithms they will use, for key exchange, host keys, ciphers and Message Authentication Codes (MACs), and settle on the first of the client's that the server also offers (<<rfc4251>>). An old client lists only old algorithms. If the server offers none of them, there is nothing to settle on, and the connection ends before any login.
+
+By default `surl` offers only algorithms nobody has broken: ciphers such as `chacha20-poly1305@openssh.com`, AES-GCM and AES-CTR (the Advanced Encryption Standard in Galois/Counter and Counter modes), and MACs built on SHA-2 (Secure Hash Algorithm 2). `--allow-weak-ssh-algorithms` adds the old ones: SHA-1 and MD5 (Message Digest 5) MACs, AES in Cipher Block Chaining (CBC) mode, RC4, Triple DES (the Data Encryption Standard three times), 1,024-bit Diffie-Hellman key exchange, and RSA (Rivest-Shamir-Adleman) host keys shorter than 2,048 bits (<<surl-readme>>).
+
+`curl` has no option that narrows the algorithms it offers, so the solution plays the old client with OpenSSH's `sftp`, which `ssh-keygen` comes with. `-o Ciphers=aes128-cbc` lets it use that one cipher, as an old client would. Against `surl` without the option it finds `no matching cipher found` and exits `255`; against `surl` with it, it logs in and fetches the file. Left to its defaults, the same client still connects to the loosened server: the option adds algorithms and takes none away. `-b get.sftp` runs the batch file's one command, `get hello.txt got.txt`, which saves the file as `got.txt`; `sftp` echoes the command and exits `0` only if it succeeded, and `-q` keeps the rest quiet. `-P` names the port, `-i client_key` is the client's login key, and the three other `-o` settings skip the host-key check, which a test of ciphers does not need.
+
+On the server, `--hostkey host_key` is the host key the setup made, `--authorized-keys alice:client_key.pub` lets `alice` log in with the client's key (<<rfc4252>>), and `--directory site` serves the files under `site`. The default server in the claims has no `--directory`, since its client never gets as far as a file, and two `surl` processes cannot share one.
+
+`curl` speaks the old algorithms too. The claims run a third `surl` narrowed to the old ones: `--ssh-ciphers aes128-cbc` and `--ssh-macs hmac-sha1` offer that one cipher and that one MAC, so a client must agree to them or go, and `--hostkey old_key` serves a 1,024-bit RSA key. Old clients sign with such keys using `ssh-rsa`, RSA over SHA-1, which <<rfc8332>> replaced with SHA-2. `curl` fetches its file: `--user alice:s3cret` gives that server an account, `-u alice:s3cret` logs in to it with the password, and `-k` skips `curl`'s host-key check. In the claims `-s` hides the progress meter and `-S` still shows an error.
+
+Without `--allow-weak-ssh-algorithms`, `surl` will not be talked into weakness piece by piece: a weak cipher in `--ssh-ciphers`, a weak MAC in `--ssh-macs`, and a 1,024-bit RSA host key are each refused at start, naming the option they need, with exit `2`. The option is off by default because what it adds can be broken by someone who records the connection, or forged: SHA-1 signatures and 1,024-bit keys are within reach of a well-funded attacker, and CBC and RC4 have known attacks on them. It widens what any client may do, not only the old one, which is why `surl` writes `surl: warning: --allow-weak-ssh-algorithms: ...` to standard error on every start while it is on. The claim sees the warning by starting a second `surl` on a port already taken: the warning comes first, then the failure to listen, exit `45`. Use the option for a test of an old client, and not for a server anyone else can reach.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-serve-with-a-throwaway-host-key>> for the host key and `-k`.
+* <<sftp-log-in-with-a-public-key>> for `--authorized-keys`.
+* <<scp-serve-a-host-certificate>> for another thing only some clients understand.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4251>>, <<rfc4252>>, <<rfc8332>>.

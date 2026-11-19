@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[rtsp-play-a-stream-with-libcurl]]
+=== Playing a Real Time Streaming Protocol Stream with Libcurl
+
+==== Problem
+
+Your program plays a stream from a Real Time Streaming Protocol (RTSP) server with libcurl's `CURLOPT_RTSP_REQUEST`, now from C#, and you want a server that takes it through `DESCRIBE`, `SETUP`, `PLAY` and `TEARDOWN` with media you can check byte for byte.
+
+==== Solution
+
+Start `surl` serving a directory on an `rtsp://` URL, then pass a file's URL and an output file to a program that plays it and saves the stream:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The `curl` tool sends one RTSP request, `OPTIONS *`, whatever the URL; every other method is libcurl's, chosen with `CURLOPT_RTSP_REQUEST` before each `curl_easy_perform` on the same handle <<rfc2326>>. `surl` with `--directory site` answers all of them, and it serves every file as a presentation of one stream whose Real-time Transport Protocol (RTP) payloads are the file's bytes, in order <<surl-readme>>. It has no codecs; the point is media a program can compare with the file it came from.
+
+The program is the libcurl sequence through `Libcurl`, which keeps libcurl's calls and names them in C#. `CurlGlobal.Init` is `curl_global_init` and returns a `CurlLibrary`; `library.EasyInit()` is `curl_easy_init` and returns a `CurlEasy`; disposing each is its cleanup. `SetOption` is `curl_easy_setopt`, taking a `CurlOption`, and every call answers a `CurlCode`, libcurl's `CURLcode`. The program sets `CurlOption.Url` and `CurlOption.RtspStreamUri` to the file's URL once, then for each step sets `CurlOption.RtspRequest` to an `RtspRequest`, libcurl's `CURL_RTSPREQ_*` with the same numbers, calls `Perform`, and reads the status code with `GetInfo` and `CurlInfo.ResponseCode`, `curl_easy_getinfo` with `CURLINFO_RESPONSE_CODE`.
+
+`DESCRIBE` is the one step with a body, a Session Description Protocol (SDP) description that reaches the `WriteCallback` set as `CurlOption.Writefunction`, `CURLOPT_WRITEFUNCTION`. The callback gets a span where C gets a pointer, size and count, returns how many bytes it took, and carries its data in its closure instead of `CURLOPT_WRITEDATA`. The program prints the description's media line: one stream, `application`, payload type 96.
+
+`SETUP` needs `CurlOption.RtspTransport`. The program asks for `RTP/AVP/TCP;unicast;interleaved=0-1`: RTP packets on channel 0 and RTP Control Protocol (RTCP) packets on channel 1, both inside the RTSP connection's own Transmission Control Protocol (TCP) stream. The answer carries a session ID, which `GetInfo` reads as `CurlInfo.RtspSessionId` (the program writes it to standard error, since it changes every run) and libcurl sends on every later request by itself. `surl` streams only interleaved: a `SETUP` asking for RTP over the User Datagram Protocol (UDP) is answered `461 Unsupported Transport`, and the program, like `curl -f`, stops at any status but 200 and exits 22. So does a `DESCRIBE` of a file that is not there, `404 Not Found`.
+
+`PLAY` answers 200 and the packets follow it on the connection. They are read by `RtspRequest.Receive`, `CURL_RTSPREQ_RECEIVE`, which sends nothing, and handed to the `InterleaveCallback` set as `CurlOption.Interleavefunction`, one whole frame per call: `$`, the channel, a two-byte length, then the packet. On channel 0 the program skips the 12-byte RTP header <<rfc3550>>, keeps the payload, and watches the header's marker bit, which `surl` sets on the last packet only; it repeats `Receive` until it has seen it. A 1500-byte file arrives as two packets, and the joined payloads are the file. After the last RTP packet comes one RTCP packet on channel 1, which the program counts and otherwise ignores. `TEARDOWN` ends the session with 200 and the program saves the payloads to the output file.
+
+A port nothing listens on fails the first `Perform` with `CouldntConnect`, 7, which the program prints with `ErrorText` and exits with.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<rtsp-ask-what-a-server-offers>> for the one request the `curl` tool sends.
+* <<ws-echo-messages-with-libcurl>> for the other protocol here that only programs can drive.
+* <<http-port-a-c-program-with-libcurl>> for the easy handle on its own, ported call for call.
+* <<surl-readme>>, <<rfc2326>>, <<rfc3550>>.
+* <<libcurl-api>> for the C calls and options each line of the program stands for.

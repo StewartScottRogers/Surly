@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: sftp-offer-weak-algorithms-for-old-clients
+title: Letting an Old Secure Shell Client Connect
+protocols: [sftp]
+tier: advanced
+surl-options: [--allow-weak-ssh-algorithms, --directory, --hostkey, --user, --authorized-keys, --ssh-ciphers, --ssh-macs]
+curl-options: [-k, -u, -s, -S]
+exit-codes: [0, 2, 45, 255]
+references: [surl-readme, curl-readme, rfc4251, rfc4252, rfc8332]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  old/hello.txt: "hello from an old surl\n"
+  get.sftp: "get hello.txt got.txt\n"
+
+# A host key of today's size, an old 1,024-bit one, and the old client's own login key.
+setup:
+  - ssh-keygen -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -t rsa -b 1024 -N "" -f old_key
+  - ssh-keygen -t ed25519 -N "" -f client_key
+
+servers:
+  strict:
+    command: surl --hostkey host_key --authorized-keys alice:client_key.pub sftp://127.0.0.1:{{port}}/
+    ready: port
+  weak:
+    command: surl --allow-weak-ssh-algorithms --directory site --hostkey host_key --authorized-keys alice:client_key.pub sftp://127.0.0.1:{{port2}}/
+    ready: port
+  old:
+    command: surl --allow-weak-ssh-algorithms --ssh-ciphers aes128-cbc --ssh-macs hmac-sha1 --directory old --hostkey old_key --user alice:s3cret sftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: An OpenSSH sftp client allowed only the aes128-cbc cipher, as an old client is, logs in with its key and fetches hello.txt from surl with --allow-weak-ssh-algorithms; sftp -b echoes the batch command and exits 0 only when every command succeeded.
+    run: sftp -q -b get.sftp -P {{port2}} -i client_key -o Ciphers=aes128-cbc -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1
+    expect:
+      exit: 0
+      stdout: "sftp> get hello.txt got.txt\n"
+
+  - id: refused-by-default
+    claim: The same client against surl without --allow-weak-ssh-algorithms finds no cipher in common, says so, and exits 255 before logging in.
+    run: sftp -b get.sftp -P {{port}} -i client_key -o Ciphers=aes128-cbc -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1
+    expect:
+      exit: 255
+      stdout: ""
+      stderr-contains: "no matching cipher found"
+
+  - id: modern-client-unaffected
+    claim: A client left to its defaults still connects to the loosened server and fetches the file, exit 0.
+    run: sftp -q -b get.sftp -P {{port2}} -i client_key -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1
+    expect:
+      exit: 0
+      stdout: "sftp> get hello.txt got.txt\n"
+
+  - id: curl-speaks-old
+    claim: curl agrees to an old server too; narrowed to the cipher aes128-cbc and the MAC hmac-sha1 with a 1,024-bit RSA host key, surl serves it the file, exit 0.
+    run: curl -s -S -k -u alice:s3cret sftp://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from an old surl\n"
+
+  - id: weak-cipher-needs-option
+    claim: Without --allow-weak-ssh-algorithms, surl refuses to name a weak cipher in --ssh-ciphers and exits 2 at start.
+    run: surl --ssh-ciphers aes128-cbc --hostkey host_key sftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "--ssh-ciphers: aes128-cbc needs --allow-weak-ssh-algorithms"
+
+  - id: weak-mac-needs-option
+    claim: The same goes for a weak MAC in --ssh-macs, exit 2.
+    run: surl --ssh-macs hmac-sha1 --hostkey host_key sftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "--ssh-macs: hmac-sha1 needs --allow-weak-ssh-algorithms"
+
+  - id: short-key-needs-option
+    claim: Without --allow-weak-ssh-algorithms, a 1,024-bit RSA host key is refused at start, exit 2.
+    run: surl --hostkey old_key sftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "Host key old_key: RSA keys of 1024 bits need --allow-weak-ssh-algorithms"
+
+  - id: warns-at-start
+    claim: surl warns on standard error at start while --allow-weak-ssh-algorithms is on, naming what it offers, before it listens; here the port is taken, so it then exits 45.
+    run: surl --allow-weak-ssh-algorithms --hostkey host_key sftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 45
+      stderr-contains: "surl: warning: --allow-weak-ssh-algorithms: SHA-1, MD5, CBC, RC4, 3DES and 1024-bit Diffie-Hellman SSH algorithms are offered"

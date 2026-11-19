@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: http-limit-connections
+title: Limiting How Many Clients Connect at Once
+protocols: [http]
+tier: advanced
+surl-options: [--directory, --max-connections, --max-connections-per-address, --fault]
+curl-options: [-s, -Z, --parallel-immediate, -o, -w, -D]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  site/slow.txt: "slow\n"
+  per/slow.txt: "slow\n"
+  free/slow.txt: "slow\n"
+
+# Each server delays every request for /slow.txt by two seconds, so a fetch of it holds its
+# connection open while a second one arrives. One surl holds a folder at a time.
+# main: one connection at once, across its two listeners.
+# per: one connection at once from each address; localhost listens on 127.0.0.1 and ::1.
+# free: the default limits.
+servers:
+  main:
+    command: surl --directory site --max-connections 1 --fault "delay;stage=command;path=/slow.txt;ms=2000" http://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+  per:
+    command: surl --directory per --max-connections-per-address 1 --fault "delay;stage=command;path=/slow.txt;ms=2000" http://localhost:{{port3}}/
+    ready: port
+  free:
+    command: surl --directory free --fault "delay;stage=command;path=/slow.txt;ms=2000" http://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --max-connections 1, of two fetches started at once, one is refused at once with 503 Service Unavailable and the other is served, 200, two seconds later.
+    run: curl -s -Z --parallel-immediate -o {{null}} -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port}}/slow.txt http://127.0.0.1:{{port}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "503\n200\n"
+
+  - id: refusal-closes
+    claim: The refusal is 503 Service Unavailable with Connection close and an empty body.
+    run: curl -s -Z --parallel-immediate -o {{null}} -o {{null}} -D - http://127.0.0.1:{{port}}/slow.txt http://127.0.0.1:{{port}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 503 Service Unavailable\r?\nServer: surl\r?\nContent-Length: 0\r?\nConnection: close\r?\n\r?\nHTTP/1\.1 200 OK\r?\n'
+
+  - id: all-listeners
+    claim: The limit counts every listener together; a connection to the second listen URL is refused while one to the first is open.
+    run: curl -s -Z --parallel-immediate -o {{null}} -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port}}/slow.txt http://127.0.0.1:{{port2}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "503\n200\n"
+
+  - id: server-goes-on
+    claim: The refusal ends only the refused connection; once the open one is done, the next fetch is served.
+    run: curl -s http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: per-address
+    claim: With --max-connections-per-address 1, a second connection from 127.0.0.1 is refused 503 while the first is open.
+    run: curl -s -Z --parallel-immediate -o {{null}} -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port3}}/slow.txt http://127.0.0.1:{{port3}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "503\n200\n"
+
+  - id: other-address
+    claim: With --max-connections-per-address 1, one connection from 127.0.0.1 and one from ::1 are both served, since each address has one.
+    run: curl -s -Z --parallel-immediate -o {{null}} -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port3}}/slow.txt http://[::1]:{{port3}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "200\n200\n"
+
+  - id: default-allows-two
+    claim: With the default limits, the same two fetches at once are both served.
+    run: curl -s -Z --parallel-immediate -o {{null}} -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port4}}/slow.txt http://127.0.0.1:{{port4}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "200\n200\n"
+
+  - id: defaults
+    claim: The defaults are 1024 connections at once in all and 100 from one address, and 0 means no limit.
+    run: surl --aihelp limits
+    expect:
+      exit: 0
+      stdout-matches: 'Each limit is 0 for no limit:.*connections at once, all listeners together; default 1024\.\r?\n- `--max-connections-per-address <number>`: connections at once from one address; default 100\.'

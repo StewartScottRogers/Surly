@@ -1,0 +1,78 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-port-a-c-program-with-libcurl]]
+=== Porting a libcurl C Program to C#
+
+==== Problem
+
+You have a C program that fetches a URL with libcurl's easy interface, and you want the same program in C# with the same calls in the same order, so the port can be checked line by line.
+
+==== Solution
+
+Translate each libcurl call to its `Libcurl` method, then run the port against `surl` serving a directory over Hypertext Transfer Protocol (HTTP):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+This is the C program the port starts from, the shape of most libcurl code: initialise, set the URL and a write callback, perform, read the response code, clean up.
+
+[source,c]
+----
+#include <stdio.h>
+#include <curl/curl.h>
+
+static size_t write_cb(char *data, size_t size, size_t nmemb, void *userdata)
+{
+  fwrite(data, size, nmemb, (FILE *)userdata);
+  return size * nmemb;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *curl;
+  CURLcode res;
+  long response_code;
+
+  if(argc != 2) {
+    fprintf(stderr, "usage: fetch <url>\n");
+    return 2;
+  }
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  curl_easy_setopt(curl, CURLOPT_URL, argv[1]);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, stdout);
+  res = curl_easy_perform(curl);
+  if(res != CURLE_OK)
+    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+  else {
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+    fprintf(stderr, "response code %ld\n", response_code);
+  }
+  curl_easy_cleanup(curl);
+  curl_global_cleanup();
+  return (int)res;
+}
+----
+
+`Libcurl` is the libcurl application programming interface (API) one call for one call, so the port is a translation, not a redesign; each line of `fetch.cs` names the C it stands for. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, and `CurlGlobalFlags` has libcurl's flag values. It returns a `CurlLibrary`, the handle C does not have: easy handles are made from it, and disposing it is `curl_global_cleanup`. `library.EasyInit()` is `curl_easy_init` and returns a `CurlEasy`; disposing it is `curl_easy_cleanup`. The two `using` declarations dispose in reverse order as the program returns, so the cleanups run in the order the C program calls them. `EasyInit` does not return `NULL`, so the C program's null check has nothing to port.
+
+`SetOption` is `curl_easy_setopt`. The option is a `CurlOption`, named after its `CURLOPT_` constant with the prefix dropped and one capital per word: `CurlOption.Url`, `CurlOption.Writefunction`. The value is an `object`, so, as with C's varargs, the compiler does not check its type; `SetOption` answers a `CurlCode` like any libcurl call, and a careful port checks it as a careful C program checks `curl_easy_setopt`. A numeric option takes an `int` or a `long`, as the C call takes a `long`.
+
+The write callback is a `WriteCallback` delegate. Where C gets a pointer, a size and a count, it gets a `ReadOnlySpan<byte>`; it returns the number of bytes it took, `size * nmemb` in C. C passes the destination through `CURLOPT_WRITEDATA` and the callback's `userdata` pointer; in C# the lambda captures the standard output stream, so the port has no `CURLOPT_WRITEDATA` line.
+
+`Perform` is `curl_easy_perform` and answers a `CurlCode`, libcurl's `CURLcode` with the same numbers, so returning `(int)res` exits as the C program does. `CurlErrorText.Easy` is `curl_easy_strerror`, with libcurl's own texts. `GetInfo` is `curl_easy_getinfo`: it takes a `CurlInfo`, here `CurlInfo.ResponseCode` for `CURLINFO_RESPONSE_CODE`, and gives the value as an `out object?`, a boxed `long` for a long info, which the port unboxes where C passes `&response_code`.
+
+The cases are the C program's own behaviour. A file `surl` serves with `--directory site` comes back through the write callback, with response code 200. A path the directory does not hold is answered `404 Not Found` <<rfc9110>>, and that is still a finished transfer: `curl_easy_perform` returns `CURLE_OK`, the response code is 404, nothing is written, and the program exits 0, as the `curl` tool does without `-f`. A port nothing listens on is `CURLE_COULDNT_CONNECT`, 7, `Could not connect to server`; a scheme libcurl has no protocol for is `CURLE_UNSUPPORTED_PROTOCOL`, 1, `Unsupported protocol`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fetch-from-a-surl-process>> for the same fetch with `Curl.Api`, the interface for new .NET code.
+* <<ws-echo-messages-with-libcurl>> and <<rtsp-play-a-stream-with-libcurl>> for protocols only libcurl programs can drive.
+* <<surl-readme>>, <<rfc9110>>.
+* <<libcurl-api>> for the C calls and options each line of the program stands for.

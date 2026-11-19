@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-serve-http2]]
+=== Serving HTTP/2 over TLS
+
+==== Problem
+
+You want to test a client against an `https://` server that answers in HTTP/2, and see that the two sides agreed on HTTP/2 rather than assume it.
+
+==== Solution
+
+Give `surl` a certificate and an `https` listen URL, and fetch with `curl --http2`, here with `-w` to print the version the answer came in:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Hypertext Transfer Protocol version 2 (HTTP/2) over `https` is agreed during the Transport Layer Security (TLS) handshake, before a byte of HTTP is sent. The client lists the protocols it can speak in an Application-Layer Protocol Negotiation (ALPN) extension; the server picks one. `h2` is HTTP/2 over TLS, and `http/1.1` is what it says (<<rfc9113>>, <<rfc8446>>). There is no option on the `surl` side: an `https` listener offers `h2` first and `http/1.1` second, and answers in whichever the handshake settled (<<surl-readme>>).
+
+`--http2` asks `curl` for HTTP/2. Over `https`, `curl` offers `h2,http/1.1`, so a server that cannot do HTTP/2 still gets a choice; `-v` prints both sides on standard error, `ALPN: curl offers h2,http/1.1` and `ALPN: server accepted h2`. That last line is the proof that the handshake, not a guess, settled the version. Over `https` the option changes nothing here: with no version option at all `curl` offers `h2` too, and the answer is HTTP/2 the same (<<curl-readme>>). `--http2` is worth writing when the point of the test is HTTP/2, so the command says so.
+
+`-w "HTTP/%{http_version}\n"` prints the version the answer came in after the body, `HTTP/2`; in the checked claims `-s` keeps `curl` quiet and `-o` throws the body away (`/dev/null`, or `NUL` on Windows). `-I` sends a `HEAD` request and prints the head, which shows HTTP/2's look: no reason phrase after the status code, and lower-case header names (<<rfc9113>>). Two URLs in one `curl` command share one HTTP/2 connection: `%{num_connects}` is `1` for the first request and `0` for the second, which went as a second stream on the connection already open.
+
+`--http1.1` makes `curl` offer only `http/1.1`; `surl` accepts it, and the answer is HTTP/1.1. The other road to HTTP/2, an `Upgrade: h2c` header in an HTTP/1.1 request, is for plain `http://` only (<<http-upgrade-to-http2>>). Sent over `https`, here with `-H` adding the three headers by hand, it is ignored, and the request is answered `200` in HTTP/1.1: over TLS the version is the handshake's business, and the handshake said `http/1.1` (<<surl-readme>>, <<rfc9110>>). `-i` prints the head with the body.
+
+`--cert server.pem` and `--key server.key` are the certificate and key `surl` serves, made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting that certificate; `--directory site` serves the files under `site`. Without `--cacert`, `curl` cannot verify the certificate, and stops in the handshake with exit `60`, before any version is used, so a failed handshake says nothing about HTTP/2. This recipe uses a real certificate rather than `--self-signed` and `curl -k` so that the handshake whose ALPN it shows is a verified one (<<https-serve-with-your-own-certificate>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-upgrade-to-http2>> for HTTP/2 on `http://` by an upgrade from HTTP/1.1.
+* <<http-choose-the-http-version>> for HTTP/2 with prior knowledge, no TLS at all.
+* <<https-serve-http3>> for HTTP/3 over QUIC.
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9113>>, <<rfc8446>>, <<rfc9110>>.

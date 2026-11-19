@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[scp-serve-a-host-certificate]]
+=== Serving a Secure Shell Host Certificate
+
+==== Problem
+
+Your Secure Shell (SSH) clients trust a certificate authority instead of each server's key, and you want a test server they accept the same way.
+
+==== Solution
+
+Sign the host key with the authority, give `surl` the key and its certificate, and connect with a client that trusts the authority; here that is OpenSSH's `sftp`, since `curl` cannot check a host certificate:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+An SSH server proves who it is with its host key (<<rfc4251>>), and a client that checks keys has to know each server's key beforehand. An OpenSSH host certificate moves that trust up a level: a certificate authority (CA), itself a key pair, signs the host's public key along with the names it may answer to, and a client that trusts the authority accepts any host whose certificate it signed (<<openssh-certkeys>>).
+
+The setup makes all of it with `ssh-keygen`. `ssh-keygen -t ed25519 -N "" -C "" -f ca` makes the authority, `ca` and `ca.pub`. `ssh-keygen -t rsa -b 3072 -N "" -f host_key` makes a Rivest-Shamir-Adleman (RSA) host key. `ssh-keygen -s ca -I surl-host -h -n 127.0.0.1 host_key.pub` signs it: `-s ca` with the authority, `-I` giving the certificate an identity, `-h` making it a host certificate rather than a user's, and `-n 127.0.0.1` naming the host it is for. It writes `host_key-cert.pub`.
+
+`--hostkey host_key` gives `surl` the private key, and `--hostcert host_key-cert.pub` the certificate for it. `surl` then offers the key twice, as a certificate under the `-cert-v01@openssh.com` algorithms and as the plain key, and a client that asks for the certificate receives it as the host key (<<surl-readme>>). `surl` does not judge the certificate: whether the authority's signature is good and the names fit is the client's business. It does check that the file is the right kind. A `--hostcert` file that cannot be read stops it with exit `37`; a plain public key, or a host certificate for a key that is not one of the `--hostkey` keys, is refused with exit `2`, naming the file.
+
+The client trusts the authority through one line in a `known_hosts` file: `@cert-authority`, a host pattern, and the authority's public key. The setup writes it with `curl`, so the same line works in every shell: `--variable ca_key@ca.pub` reads `ca.pub` into a variable, and `--expand-write-out` is `--write-out` with the variable put in, writing the line to standard output once `curl` has fetched an empty file, `file:///` followed by the null device, into `-o` the null device again. The line starts with a space because a `--write-out` value that starts with `@` names a file to read the format from; OpenSSH skips the space, as `ssh-keygen -F 127.0.0.1 -f known_hosts` shows by finding the line as a CA. The `+*+` makes the authority good for every host; the certificate's own `-n` still names the one host it is for.
+
+`sftp` is the client. `-o UserKnownHostsFile=known_hosts` makes that file its only source of trust, `-o GlobalKnownHostsFile=` the null device keeps the machine's own file out, and `-o StrictHostKeyChecking=yes` makes it refuse any host the file does not vouch for. It accepts `surl`; with `-v` it says the host `is known and matches the RSA-CERT host certificate`. Trusting another authority instead, it refuses: `Host key verification failed.`, exit `255`, before any login. `-b get.sftp` runs the batch file's one command, `get hello.txt got.txt`, `sftp` echoes it and exits `0` only if it succeeded, and `-q` keeps the rest quiet. `-P` names the port, and `-i client_key` is the client's login key, which `--authorized-keys alice:client_key.pub` lets `alice` log in with; `--directory site` serves the files under `site`.
+
+`curl` cannot do any of this. It does not ask for the certificate, so it receives the plain host key and judges it as it would any other: `--hostpubsha256`, a pin of the plain key's SHA-256 hash, lets it in, which a pin could not do had it received the certificate. `--variable "host_sha256[12-54]@fingerprint.txt"` reads the hash from the fingerprint the setup wrote with `ssh-keygen -lf host_key.pub`, and `--expand-hostpubsha256` is `--hostpubsha256` with the variable put in, as <<scp-pin-the-host-key>> explains. Given the `known_hosts` file that trusts the authority, `--knownhosts known_hosts`, `curl` finds no key for the host in it, and refuses the server with exit `60` (<<curl-readme>>). `--user alice:s3cret` gives the server a password account for `curl`, and `-u alice:s3cret` logs in to it; in the claims `-s` hides the progress meter and `-S` still shows an error. A certificate, then, costs `curl` nothing and gives it nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<scp-pin-the-host-key>> for pinning the plain key, which `curl` can do.
+* <<sftp-log-in-with-a-public-key>> for `--authorized-keys`.
+* <<sftp-offer-weak-algorithms-for-old-clients>> for the other thing only some clients need.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<openssh-certkeys>>, <<rfc4251>>.

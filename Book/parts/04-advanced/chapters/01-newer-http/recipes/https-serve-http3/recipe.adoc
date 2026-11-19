@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-serve-http3]]
+=== Serving HTTP/3 over QUIC
+
+==== Problem
+
+You want to test a client against an `https://` server that answers in HTTP/3, over QUIC instead of TCP.
+
+==== Solution
+
+Give `surl` a certificate, an `https` listen URL and `--http3`, and fetch with `curl --http3-only`, here with `-w` to print the version the answer came in:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run a second `surl` on port `8081`, the same server without `--http3`, to show what the option adds. You do not need it. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Hypertext Transfer Protocol version 3 (HTTP/3) runs over QUIC, a transport on User Datagram Protocol (UDP) rather than Transmission Control Protocol (TCP), with Transport Layer Security (TLS) 1.3 built into its handshake (<<rfc9114>>, <<rfc9000>>, <<rfc8446>>). `--http3` makes `surl` serve it as well as everything else: for every `https` listen URL it opens a UDP listener at the same address and port as the TCP one. The `Listening on` line names that one port for both (<<surl-readme>>). The TCP listener goes on answering HTTP/1.1 and HTTP/2 as before; asked for nothing, `curl` gets HTTP/2 from it.
+
+`--http3-only` makes `curl` speak HTTP/3 and nothing else: QUIC to the port, no TCP. `-w "HTTP/%{http_version}\n"` prints the version after the body, `HTTP/3`; in the checked claims `-s` keeps `curl` quiet and `-o` throws the body away (`/dev/null`, or `NUL` on Windows), and `-I` shows the head, which looks like HTTP/2's, no reason phrase and lower-case names. A `curl` without HTTP/3 support cannot do any of this; `curl -V` (`-V`, `--version`) prints its version and features, and lists `HTTP3` under `Features` when it can, as this one does, Windows included (<<curl-readme>>).
+
+`--http3` is the softer request on the `curl` side: try QUIC, and fall back to TCP if it does not answer. Against the second `surl`, which has no `--http3` and so no UDP listener, `curl --http3` falls back and gets HTTP/2, while `curl --http3-only` has nowhere to go and fails with exit `56`, a failure receiving network data, and nothing on standard output.
+
+`surl` also tells TCP clients that HTTP/3 is there. Under `--http3`, its answers over TCP carry `Alt-Svc: h3=":8080"; ma=86400`, alternative service HTTP/3 on the same port, good for a day (<<rfc9114>>); without it, answers carry no `Alt-Svc` at all, which `-w "%header{alt-svc}"` shows as nothing between the brackets. A client that honours it can move to HTTP/3 on a later connection (<<rfc9114>>).
+
+`--cert server.pem` and `--key server.key` are the certificate and key `surl` serves on both transports, made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting it; `--directory site` serves the files under `site`, and the second `surl` serves `plain`, since two `surl` processes cannot share one directory. The QUIC handshake checks the certificate as the TCP one does: without `--cacert`, `curl --http3-only` stops with exit `60`.
+
+`--http3` is off by default, and it needs what QUIC needs. With no `https` listen URL it is refused at start as an option badly used, exit `2`. With `--tls-max` below `1.3`, the highest TLS version `surl` would accept, it is refused the same way, because QUIC is TLS 1.3 only (<<rfc9000>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-http2>> for HTTP/2 agreed during the TLS handshake.
+* <<https-serve-with-your-own-certificate>> for making and trusting the certificate.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9114>>, <<rfc9000>>, <<rfc8446>>.

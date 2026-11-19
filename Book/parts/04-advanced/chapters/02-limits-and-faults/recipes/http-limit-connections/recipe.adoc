@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-limit-connections]]
+=== Limiting How Many Clients Connect at Once
+
+==== Problem
+
+You want a Hypertext Transfer Protocol (HTTP) server that accepts only so many connections at once, so you can see what your client does when it is turned away for being one too many.
+
+==== Solution
+
+Give `surl` `--max-connections 1`, hold one connection open with a slow request, and start a second fetch beside it with `curl -Z`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--max-connections 1` lets one connection in at a time, counted across every listen URL the server has. To have a connection to hold open, the recipe slows one path down: `--fault "delay;stage=command;path=/slow.txt;ms=2000"` makes `surl` wait two seconds before it answers a request for `/slow.txt` (see <<http-inject-a-fault>>). `--directory site` serves the folder `site`, where `slow.txt` and `hello.txt` are.
+
+`-Z` makes `curl` run its transfers side by side instead of one after another, and `--parallel-immediate` makes it open a connection for each at once rather than wait to see whether the first can carry both. Both fetch `/slow.txt`. One connection gets in and waits out its two seconds; the other is accepted, answered `503 Service Unavailable` (<<rfc9110>>) with `Connection: close` and an empty body, and closed at once. `-Z` prints each transfer's `-w "%{http_code}\n"` as it finishes, so the refusal comes first and the `200` two seconds later, whichever connection won. The two `-o` options send each body nowhere, one per URL; `-s` keeps `curl` quiet, and `-D -` prints the response headers in place of the status. `curl` exits `0`: a `503` is still an answer.
+
+The limit counts listeners together: with a connection open on the first listen URL, one to the second is refused the same way. A refusal ends only the connection it refuses. When the slow fetch is done, the next one is served; `surl` never stops for a limit. `curl` does not try again after the `503` unless `--retry` asks it to, as <<http-inject-a-fault>> shows.
+
+`--max-connections-per-address 1` counts connections from each client address apart. The second server, `per`, listens on `http://localhost:8082/`, which `surl` binds on both `127.0.0.1` and the Internet Protocol version 6 (IPv6) loopback, `::1`. Two connections from `127.0.0.1` at once are one too many and the second is refused `503`; one from `127.0.0.1` and one from `::1` are one each, and both are served. A test uses it to stop one noisy client from crowding out the rest.
+
+Neither limit is a loosening: the defaults are 1024 connections at once in all and 100 from one address, as `surl --aihelp limits` prints, so two fetches at once from the third server, `free`, are both served. Each option takes `0` for no limit. Lower them to test a client against a crowded server; raise them for a harness that opens more than a hundred connections from one machine.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-time-out-an-idle-client>> for the time limits on a connection.
+* <<http-inject-a-fault>> for `--fault`, which holds the connection open here.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

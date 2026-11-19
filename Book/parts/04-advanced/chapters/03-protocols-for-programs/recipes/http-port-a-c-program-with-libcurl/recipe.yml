@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-port-a-c-program-with-libcurl
+title: Porting a libcurl C Program to C#
+protocols: [http]
+tier: advanced
+surface: csharp
+surl-options: [--directory]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlEasy, CurlOption, WriteCallback, CurlCode, CurlInfo, CurlErrorText]
+exit-codes: [0, 1, 7]
+references: [surl-readme, rfc9110, libcurl-api]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The program is only the client: the server is a surl process, started before the cases
+# and stopped after them, as in a console recipe.
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The ported program fetches a file over HTTP, its write callback copies the body to standard output, CURLINFO_RESPONSE_CODE reads 200, and it exits with curl_easy_perform's result, 0.
+    program: fetch.cs
+    args: ["http://127.0.0.1:{{port}}/hello.txt"]
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+      stderr-contains: "response code 200"
+
+  - id: not-found
+    claim: A path the directory does not hold is still a finished transfer, so curl_easy_perform returns CURLE_OK, CURLINFO_RESPONSE_CODE reads 404, nothing reaches the write callback's output, and the program exits 0.
+    program: fetch.cs
+    args: ["http://127.0.0.1:{{port}}/missing.txt"]
+    expect:
+      exit: 0
+      stdout: ""
+      stderr-contains: "response code 404"
+
+  - id: nothing-listening
+    claim: A port nothing listens on makes curl_easy_perform return CURLE_COULDNT_CONNECT, 7, whose curl_easy_strerror text is "Could not connect to server", and the program exits 7.
+    program: fetch.cs
+    args: ["http://127.0.0.1:1/hello.txt"]
+    expect:
+      exit: 7
+      stdout: ""
+      stderr-contains: "curl_easy_perform() failed: Could not connect to server"
+
+  - id: unsupported-scheme
+    claim: A scheme curl has no protocol for makes curl_easy_perform return CURLE_UNSUPPORTED_PROTOCOL, 1, whose text is "Unsupported protocol".
+    program: fetch.cs
+    args: ["nosuch://127.0.0.1:{{port}}/hello.txt"]
+    expect:
+      exit: 1
+      stdout: ""
+      stderr-contains: "curl_easy_perform() failed: Unsupported protocol"

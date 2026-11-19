@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: http-upgrade-to-http2
+title: Upgrading from HTTP/1.1 to HTTP/2
+protocols: [http]
+tier: advanced
+surl-options: [--directory]
+curl-options: [--http2, --http2-prior-knowledge, -i, -v, -s, -o, -w, -d, -H]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9113, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --http2 on an http URL, hello.txt comes back over HTTP/2, exit 0.
+    run: curl --http2 -w "HTTP/%{http_version}\n" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\nHTTP/2\n"
+
+  - id: shows-the-switch
+    claim: curl asks in HTTP/1.1 to upgrade; surl answers 101 Switching Protocols with Upgrade h2c, then the answer in HTTP/2.
+    run: curl --http2 -s -i http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 101 Switching Protocols\n(?:[^\n]+\n)*Upgrade: h2c\n(?:[^\n]+\n)*\nHTTP/2 200 \n(?:[^\n]+\n)*\nhello from surl\n$'
+
+  - id: upgrade-request
+    claim: The first request is HTTP/1.1 and names Upgrade and HTTP2-Settings in its Connection header.
+    run: curl --http2 -v -s -o {{null}} http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stderr-contains: "> Connection: Upgrade, HTTP2-Settings"
+
+  - id: default-is-http1-1
+    claim: Without --http2, curl asks for no upgrade and the answer is HTTP/1.1.
+    run: curl -s -o {{null}} -w "%{http_version}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "1.1"
+
+  - id: connection-stays-http2
+    claim: After the upgrade the connection is HTTP/2, so a second URL in the same command goes over it with no new connect.
+    run: curl --http2 -s -o {{null}} -o {{null}} -w "%{http_version} %{num_connects}\n" http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "2 1\n2 0\n"
+
+  - id: prior-knowledge-skips-the-upgrade
+    claim: With --http2-prior-knowledge, curl starts in HTTP/2 with no upgrade, so there is no 101 before the answer.
+    run: curl --http2-prior-knowledge -s -i http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/2 200 \n(?:[^\n]+\n)*\nhello from surl\n$'
+
+  - id: body-ignores-the-upgrade
+    claim: A request with a body is answered in HTTP/1.1 even when it asks to upgrade.
+    run: curl --http2 -d x -s -o {{null}} -w "%{http_version}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "1.1"
+
+  - id: bad-settings-ignores-the-upgrade
+    claim: An upgrade whose HTTP2-Settings does not decode is ignored, and the request is answered 200 in HTTP/1.1.
+    run: 'curl -s -i -H "Connection: Upgrade, HTTP2-Settings" -H "Upgrade: h2c" -H "HTTP2-Settings: !!!" http://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 200 OK\n(?:[^\n]+\n)*\nhello from surl\n$'

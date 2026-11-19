@@ -1,0 +1,148 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: http-inject-a-fault
+title: Making a Server Fail on Purpose
+protocols: [http]
+tier: advanced
+surl-options: [--directory, --fault, --allow-uploads, --user]
+curl-options: [-s, -o, -w, --retry, -m, --digest, -u, -T]
+exit-codes: [0, 2, 28, 56]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  flaky/hello.txt: "hello from surl\n"
+  flaky/slow.txt: "slow\n"
+  flaky/gone.txt: "never sent\n"
+  accounts/hello.txt: "hello from surl\n"
+  accounts/uploads/readme.txt: "uploads land here\n"
+  notes.txt: "uploaded by curl\n"
+
+# main: the next HTTP request is answered 503, once.
+# flaky: /slow.txt is held two seconds, /gone.txt drops the connection, and the first other
+#   request is answered 503. Rules are tried in the order given, first match wins.
+# accounts: bob's logins are refused and uploads under /uploads find the store full.
+# One surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory site --fault "error;scheme=http;reply=503 Service Unavailable;times=1" http://127.0.0.1:{{port}}/
+    ready: port
+  flaky:
+    command: surl --directory flaky --fault "delay;stage=command;path=/slow.txt;ms=2000" --fault "drop;stage=command;path=/gone.txt" --fault "error;scheme=http;reply=503 Service Unavailable;times=1" http://127.0.0.1:{{port2}}/
+    ready: port
+  accounts:
+    command: surl --directory accounts --allow-uploads --user alice:s3cret --user bob:s3cret --fault "refuse-login;account=bob" --fault "out-of-space;path=/uploads" http://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With an error fault, the next HTTP request is answered 503 Service Unavailable though the file is there.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "503"
+
+  - id: once-only
+    claim: With times=1 the rule applies once; the next request is served.
+    run: curl -s http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: retry-recovers
+    claim: curl --retry 1 treats the 503 as transient, tries again once, and gets the file.
+    run: curl -s --retry 1 -w "%{num_retries}\n" http://127.0.0.1:{{port2}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "hello from surl\n1\n"
+
+  - id: delay
+    claim: A delay rule holds a request for /slow.txt two seconds before it is answered 200.
+    run: curl -s -o {{null}} -w "%{http_code} %{time_total}" http://127.0.0.1:{{port2}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: '^200 [2-9]\.\d+$'
+
+  - id: delay-times-out
+    claim: With -m 1, curl gives up on the delayed request after one second and exits 28.
+    run: curl -s -m 1 http://127.0.0.1:{{port2}}/slow.txt
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: ""
+
+  - id: drop
+    claim: A drop rule cuts the connection when the request for /gone.txt arrives; curl gets nothing and exits 56.
+    run: curl -s http://127.0.0.1:{{port2}}/gone.txt
+    expect:
+      exit: 56
+      stdout: ""
+
+  - id: refuse-login
+    claim: A refuse-login rule for bob answers his right password 401 Unauthorized.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u bob:s3cret http://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: other-account
+    claim: Alice, whom no rule names, logs in and gets the file.
+    run: curl -s --digest -u alice:s3cret http://127.0.0.1:{{port3}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: out-of-space
+    claim: An out-of-space rule for /uploads answers an upload there 413 Content Too Large, as a full store would.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T notes.txt http://127.0.0.1:{{port3}}/uploads/notes.txt
+    expect:
+      exit: 0
+      stdout: "413"
+
+  - id: space-elsewhere
+    claim: An upload outside /uploads is stored, 201 Created.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T notes.txt http://127.0.0.1:{{port3}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "201"
+      files:
+        accounts/notes.txt: "uploaded by curl\n"
+
+  - id: reply-must-fit
+    claim: An error reply that is not an HTTP error status is refused at start, exit 2.
+    run: surl --fault "error;scheme=http;reply=200 OK" http://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --fault: key reply does not fit the http error shape"
+
+  - id: unknown-kind
+    claim: An unknown kind is refused at start, exit 2.
+    run: surl --fault "explode" http://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --fault: unknown kind explode"
+
+  - id: needs-scheme
+    claim: An error rule with neither scheme nor listener is refused at start, exit 2.
+    run: surl --fault "error;reply=503 Service Unavailable" http://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --fault: kind error needs key scheme or key listener"
+
+  - id: path-needs-command-stage
+    claim: A drop rule scoped by path without stage=command is refused at start, exit 2, since at accept there is no path yet.
+    run: surl --fault "drop;path=/gone.txt" http://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --fault: key path cannot be given at stage accept"
+
+  - id: keys-and-limit
+    claim: A rule's keys include listener, command and after-bytes, and a server takes at most 256 rules.
+    run: surl --aihelp testing
+    expect:
+      exit: 0
+      stdout-matches: '`--fault <kind>\[;<key>=<value>\]` \(repeatable, at most 256\).*keys and flags account=<value>, after-bytes=<value>, command=<value>, listener=<value>'

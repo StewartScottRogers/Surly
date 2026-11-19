@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-echo-messages-with-libcurl]]
+=== Echoing WebSocket Messages with Libcurl
+
+==== Problem
+
+Your program sends and receives WebSocket messages with libcurl's `curl_ws_send` and `curl_ws_recv`, now from C#, and you want a server that answers every message so you can watch both directions work.
+
+==== Solution
+
+Start `surl` with `--ws-echo`, then pass the URL and the messages to a program that sends each one and prints what comes back:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The `curl` tool can receive WebSocket messages but sends none of its own, so the sending half of the protocol <<rfc6455>> is for programs. `--ws-echo` makes `surl` the server such a program wants: it answers the Hypertext Transfer Protocol (HTTP) upgrade with `101 Switching Protocols`, does not look the path up, sends nothing of its own, and sends every complete message back whole, text as text, until the client closes. A path that names no file is upgraded and echoed like any other.
+
+The program is libcurl's WebSocket application programming interface (API) through `Libcurl`, which keeps libcurl's calls and names them in C#. `CurlGlobal.Init` is `curl_global_init`; it returns a `CurlLibrary`, and disposing that is `curl_global_cleanup`. `library.EasyInit()` is `curl_easy_init` and returns a `CurlEasy`, whose disposal is `curl_easy_cleanup`. `SetOption` is `curl_easy_setopt`, taking a `CurlOption`: `CurlOption.Url` for the URL and `CurlOption.ConnectOnly` set to `2L`, as `CURLOPT_CONNECT_ONLY` is set to `2` in C, so that `Perform`, `curl_easy_perform`, makes the upgrade and stops there instead of reading a download. Every call answers a `CurlCode`, libcurl's `CURLcode` with the same numbers, and when `Perform` or a WebSocket call answers anything but `Ok`, the program exits with that code.
+
+The WebSocket calls are extension methods on the handle, in `CurlEasyWebSocket`. `WebSocketSend` is `curl_ws_send`: the bytes, an `out` count of bytes sent, the fragment size (`0` for a whole frame) and the frame's `CurlWebSocketFlags`, here `Text`. `WebSocketRecv` is `curl_ws_recv`: it fills the buffer, gives the count, and gives a `CurlWebSocketFrame`, libcurl's `struct curl_ws_frame`, whose `Flags` say what kind of frame the bytes belong to and whose `BytesLeft` says how much of it has still to come. Two habits of the C interface carry over unchanged. A receive with nothing yet to read does not wait; it answers `CurlCode.Again`, so the program sleeps ten milliseconds and asks again. And a message larger than the buffer comes in pieces: the program's buffer is 64 bytes, on purpose, and a 102-byte message comes back whole only because `ReceiveMessage` keeps reading until `BytesLeft` is `0` and the frame is not marked `Continuation`.
+
+To finish, the program sends a `CLOSE` frame (`CurlWebSocketFlags.Close`) whose payload is the status code 1000, normal closure, and `surl` answers with a `CLOSE` echoing it. A `CLOSE` arriving in place of an echo means the server ended the conversation; the program prints its status code and exits `1`, its own choice. `--max-message 64` shows one: the same 102-byte message, past the limit, is not echoed but answered with status code 1009, message too big.
+
+Without `--ws-echo`, `surl` is a WebSocket file server instead, as the `files` server, started with `--directory site`, shows: it pays no attention to what the program sends, sends the file at the path as one binary message (`Binary` among the flags), then a `CLOSE` with no status code. A path it does not hold is refused `404 Not Found` before any upgrade, so `Perform` itself fails with `CURLE_HTTP_RETURNED_ERROR`, 22, and `ErrorText`, libcurl's `CURLOPT_ERRORBUFFER`, says `Refused WebSocket upgrade: 404`. A port nothing listens on fails `Perform` with `CouldntConnect`, 7.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-receive-a-file-as-a-message>> for the file server with the `curl` tool as the client.
+* <<http-port-a-c-program-with-libcurl>> for the easy handle on its own, ported call for call.
+* <<rtsp-play-a-stream-with-libcurl>> for the other protocol here that only programs can drive.
+* <<surl-readme>>, <<rfc6455>>.
+* <<libcurl-api>> for the C calls and options each line of the program stands for.

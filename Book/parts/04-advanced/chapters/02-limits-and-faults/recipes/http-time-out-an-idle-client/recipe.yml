@@ -1,0 +1,77 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: http-time-out-an-idle-client
+title: Timing Out an Idle Client
+protocols: [http]
+tier: advanced
+surl-options: [--directory, --idle-timeout, --max-time, --fault]
+curl-options: [-s, --rate, -o, -w]
+exit-codes: [0, 52]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  plain/hello.txt: "hello from surl\n"
+  capped/hello.txt: "hello from surl\n"
+  stalled/hello.txt: "hello from surl\n"
+
+# The limits are short and the pauses between fetches long, so no claim is a race.
+# main: an idle timeout of one second. plain: the defaults.
+# capped: a maximum exchange time of three seconds.
+# stalled: a maximum exchange time of one second, and every request held for three.
+# One surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory site --idle-timeout 1 http://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --directory plain http://127.0.0.1:{{port2}}/
+    ready: port
+  capped:
+    command: surl --directory capped --max-time 3 http://127.0.0.1:{{port3}}/
+    ready: port
+  stalled:
+    command: surl --directory stalled --max-time 1 --fault "delay;stage=command;ms=3000" http://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --idle-timeout 1, a connection left idle for three seconds between two fetches is closed by surl, so curl's second fetch connects again, and both are served 200.
+    run: curl -s --rate 1/3s -o {{null}} -o {{null}} -w "%{http_code} %{num_connects}\n" http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "200 1\n200 1\n"
+
+  - id: default-keeps-it
+    claim: With the default idle timeout, the same two fetches three seconds apart share one connection, so the second makes no new one.
+    run: curl -s --rate 1/3s -o {{null}} -o {{null}} -w "%{http_code} %{num_connects}\n" http://127.0.0.1:{{port2}}/hello.txt http://127.0.0.1:{{port2}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "200 1\n200 0\n"
+
+  - id: max-time-busy
+    claim: With --max-time 3, a connection busy every two seconds is kept at two seconds and closed by four, so the third of three fetches two seconds apart connects again.
+    run: curl -s --rate 1/2s -o {{null}} -o {{null}} -o {{null}} -w "%{http_code} %{num_connects}\n" http://127.0.0.1:{{port3}}/hello.txt http://127.0.0.1:{{port3}}/hello.txt http://127.0.0.1:{{port3}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "200 1\n200 0\n200 1\n"
+
+  - id: max-time-mid-request
+    claim: A request still unanswered when --max-time runs out is closed with no bytes, and curl exits 52, an empty reply.
+    run: curl -s http://127.0.0.1:{{port4}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 52
+      stdout: ""
+
+  - id: defaults
+    claim: The defaults are an idle timeout of 120 seconds and a maximum exchange time of 3600, and 0 means no limit.
+    run: surl --aihelp limits
+    expect:
+      exit: 0
+      stdout-matches: 'Each limit is 0 for no limit:.*an exchange idle this long is closed; default 120\.\r?\n- `-m, --max-time <seconds>`: the longest one exchange may take; default 3600\.'

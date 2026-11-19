@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: https-serve-http2
+title: Serving HTTP/2 over TLS
+protocols: [https]
+tier: advanced
+surl-options: [--directory, --cert, --key]
+curl-options: [--http2, --cacert, --http1.1, -v, -s, -o, -w, -I, -i, -H]
+exit-codes: [0, 60]
+references: [surl-readme, curl-readme, rfc9113, rfc8446, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key https://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --http2 over https, hello.txt comes back over HTTP/2, verified against server.pem, exit 0.
+    run: curl --http2 --cacert server.pem -w "HTTP/%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\nHTTP/2\n"
+
+  - id: server-accepts-h2
+    claim: In the TLS handshake, surl accepts h2 from curl's ALPN offer.
+    run: curl --http2 --cacert server.pem -v -s -o {{null}} https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stderr-contains: "ALPN: server accepted h2"
+
+  - id: curl-offers-both
+    claim: curl offers h2 first and http/1.1 second, so a server without HTTP/2 could still answer.
+    run: curl --http2 --cacert server.pem -v -s -o {{null}} https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stderr-contains: "ALPN: curl offers h2,http/1.1"
+
+  - id: http2-is-the-default
+    claim: Over https, curl offers h2 without being asked, so the same fetch with no version option is HTTP/2 too.
+    run: curl --cacert server.pem -s -o {{null}} -w "%{http_version}" https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "2"
+
+  - id: http2-head
+    claim: The HTTP/2 head has no reason phrase and lower-case header names.
+    run: curl --http2 --cacert server.pem -s -I https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/2 200 \n(?:[^\n]+\n)*content-length: 16\n'
+
+  - id: one-connection-two-requests
+    claim: Two URLs in one curl command share one HTTP/2 connection; the second needs no new connect.
+    run: curl --http2 --cacert server.pem -s -o {{null}} -o {{null}} -w "%{http_version} %{num_connects}\n" https://127.0.0.1:{{port}}/hello.txt https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "2 1\n2 0\n"
+
+  - id: http1-1-on-request
+    claim: With --http1.1, curl offers only http/1.1, surl accepts it, and the answer is HTTP/1.1.
+    run: curl --http1.1 --cacert server.pem -v -s -o {{null}} -w "%{http_version}" https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "1.1"
+      stderr-contains: "ALPN: server accepted http/1.1"
+
+  - id: no-h2c-over-tls
+    claim: Over https an Upgrade to h2c is ignored, and the request is answered 200 in HTTP/1.1.
+    run: 'curl --http1.1 --cacert server.pem -s -i -H "Connection: Upgrade, HTTP2-Settings" -H "Upgrade: h2c" -H "HTTP2-Settings: AAMAAABkAAQAAQAAAAIAAAAA" https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 200 OK\n(?:[^\n]+\n)*\nhello from surl\n$'
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate and stops in the handshake, before any HTTP version is used, exit 60.
+    run: curl --http2 https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""
