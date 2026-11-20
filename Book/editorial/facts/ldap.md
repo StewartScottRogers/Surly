@@ -20,9 +20,10 @@ server for a refusal case runs with no `--directory` (an empty directory; the ro
 ## Secure by default
 - Simple bind over `ldap://`: `confidentialityRequired`, unchecked; curl exit 38.
 - NTLM bind without `--auth ntlm`: `authMethodNotSupported`; exit 38 (Windows).
-- Wrong password: `invalidCredentials`; exit 38 (simple bind, all platforms).
-- `-u :` (anonymous bind): `inappropriateAuthentication`; exit 38. No `-u`: `Authentication Method
-  Not Supported`, exit 38, on all three platforms (Windows binds Negotiate as the Windows user).
+- Wrong password: `invalidCredentials`; exit 38 on Windows, exit 67 `Login denied` on Linux and macOS.
+- `-u :` (anonymous bind): `inappropriateAuthentication`; exit 38. No `-u`: exit 38 everywhere; Windows
+  binds Negotiate as the Windows user (`Authentication Method Not Supported`), Linux and macOS bind anonymously.
+- Only WinLDAP names the server's result; Linux and macOS say `LDAP: cannot bind`. See `platforms.md`.
 
 ## Client: curl
 URL `ldap://host:port/<base>?<attrs>?<scope>?<filter>` (RFC 4516); no base reads the root DSE.
@@ -38,11 +39,12 @@ curl-mcp: `curl(args)` as the command line.
 ## Gotchas
 - Error wording is the library's: Windows `LDAP remote: No Such Object`, Linux `LDAP remote: search
   failed No such object`. Check exit codes, or `2>&1` with `(?i:no such object)`.
-- Under `surl --auth ntlm`, a simple bind's refusal reads `Confidentiality Required` on Windows but
-  `LDAP: cannot bind` on Linux and macOS (exit 38 both). Without `--auth`, both say `Confidentiality Required`.
+- Every refused simple bind other than a wrong password reads `LDAP: cannot bind` on Linux and macOS (exit 38),
+  with or without `--auth` (CI run 44662810792).
 - `curl --ntlm` and `--negotiate` binds succeed only on Windows (WinLDAP). On Linux and macOS the
   Curl port exits 67 `Login denied`: mark those cases `platforms: [windows]`.
-- `curl --ntlm` against `--auth negotiate` is refused `Authentication Method Not Supported`, exit 38, everywhere.
+- `curl --ntlm` against `--auth negotiate` is refused `Authentication Method Not Supported`, exit 38, on Windows;
+  on Linux and macOS `--ntlm` is exit 67 `Login denied` against any server (the OpenLDAP build has SASL DIGEST-MD5 only).
 
 ## LDAPS
 - `ldaps://` needs `--cert`/`--key` (or `--self-signed`); without, surl exits 58. A simple bind is checked over `ldaps://` with nothing loosened; the same account on `ldap://` of the same surl is `Confidentiality Required`. One surl can hold both listeners on one directory.
@@ -50,7 +52,7 @@ curl-mcp: `curl(args)` as the command line.
 
 ## Surl.Api / Curl.Api / MCP
 - Seeding: Surl.Api `await server.Directory.AddEntriesAsync(ldif)` (LDIF text, all or none); surl-mcp `add_ldap_entries(server_id, ldif)` answers `{"entry_count":N}`.
-- Client: a GET of `ldap://127.0.0.1:port/<base>?<attrs>?<scope>?<filter>` with `Authentication = new CurlAuthenticationOptions { UserPassword = ":" }` is the anonymous bind (no member says anonymous). Body = curl's text. Failures throw `CurlException`: missing base 39 `LdapSearchFailed`, bind refused 38 `LdapCannotBind` (message holds `Confidentiality Required` / `Invalid Credentials` / `Inappropriate Authentication`, wording otherwise the platform's, `LDAP local: bind via ldap_win_bind ...` on Windows).
+- Client: a GET of `ldap://127.0.0.1:port/<base>?<attrs>?<scope>?<filter>` with `Authentication = new CurlAuthenticationOptions { UserPassword = ":" }` is the anonymous bind (no member says anonymous). Body = curl's text. Failures throw `CurlException`: missing base 39 `LdapSearchFailed`, bind refused 38 `LdapCannotBind` (on Linux and macOS a wrong password is 67 `LoginDenied` and the message is only `LDAP: cannot bind`; on Windows the message holds `Confidentiality Required` / `Invalid Credentials` / `Inappropriate Authentication`, wording otherwise the platform's, `LDAP local: bind via ldap_win_bind ...` on Windows).
 - `server.BoundUrls` entries are `Uri`; `.ToString()` before concatenating a search.
 - curl-mcp `transfer` has no LDAP or login options: use the `curl` tool (`args`), answer JSON with `standardOutput.content`, `standardError.content`, `exitCode`.
 

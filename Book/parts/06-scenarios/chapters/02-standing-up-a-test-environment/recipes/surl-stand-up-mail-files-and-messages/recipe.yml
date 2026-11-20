@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# seed: is the app's side, shown in the Solution before the test's checks.
+schema: 2
+key: surl-stand-up-mail-files-and-messages
+title: Standing Up Mail, Files and Messages
+protocols: [smtp, imap, http, mqtt]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox, --allow-uploads, --allow-plaintext-auth, --topic]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, -T, --digest, -d, --next, -o, -w]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, rfc5321, rfc9051, rfc7616, mqtt311]
+
+# What the app sends when order 7 ships: a mail to the customer, an invoice file, an event.
+fixtures:
+  shipped.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Order 7 shipped\n\nOrder 7 is on its way.\n"
+  invoice-7.txt: "Invoice 7: 3 widgets, 42.00\n"
+
+# main: one surl, four listeners, one account for the app on SMTP, HTTP and MQTT, and ann's mailbox.
+# strict: the same without --allow-plaintext-auth, there for one claim.
+servers:
+  main:
+    command: surl --allow-plaintext-auth --allow-uploads --mail-domain example.com --mailbox "app@example.com:apppass;protocols=smtp,http,mqtt" --mailbox ann@example.com:annpass --topic "orders/#;retain" smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/ http://127.0.0.1:{{port3}}/ mqtt://127.0.0.1:{{port4}}/
+    ready: port
+  strict:
+    command: surl --allow-uploads --mail-domain example.com --mailbox "app@example.com:apppass;protocols=smtp,http,mqtt" --topic "orders/#;retain" mqtt://127.0.0.1:{{port5}}/
+    ready: port
+
+# The app's three sends: SMTP, HTTP PUT, MQTT publish.
+seed:
+  - curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T shipped.eml smtp://127.0.0.1:{{port}}/example.com --next --digest -u app@example.com:apppass -T invoice-7.txt http://127.0.0.1:{{port3}}/invoice-7.txt --next -u app@example.com:apppass -d shipped mqtt://127.0.0.1:{{port4}}/orders/7
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the app's three sends, one curl reads back what landed in each store - the mail's From, To and Subject over IMAP, the invoice over HTTP, and the retained event over MQTT into event.bin, which holds the topic and the payload - and exits 0.
+    run: 'curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(FROM%20TO%20SUBJECT)" --next --digest -u app@example.com:apppass http://127.0.0.1:{{port3}}/invoice-7.txt --next -u app@example.com:apppass -o event.bin mqtt://127.0.0.1:{{port4}}/orders/7'
+    expect:
+      exit: 0
+      stdout: "From: app@example.com\nTo: ann@example.com\nSubject: Order 7 shipped\n\nInvoice 7: 3 widgets, 42.00\n"
+      files:
+        event.bin: "\0\borders/7shipped"
+
+  - id: app-sends-answered
+    claim: Each of the app's sends is answered as a test would want - 250 for the mail and 204 No Content for the invoice, which replaces the one already stored.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T shipped.eml -w "%{response_code}\n" smtp://127.0.0.1:{{port}}/example.com --next --digest -u app@example.com:apppass -T invoice-7.txt -o {{null}} -w "%{response_code}\n" http://127.0.0.1:{{port3}}/invoice-7.txt
+    expect:
+      exit: 0
+      stdout: "250\n204\n"
+
+  - id: files-need-a-login
+    claim: With an account configured, an HTTP GET with no login is answered 401, so the invoice is not open to anyone on the machine.
+    run: curl -s -o {{null}} -w "%{response_code}" http://127.0.0.1:{{port3}}/invoice-7.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: protocols-limit-the-account
+    claim: ann's mailbox account logs in on the mail schemes only, so her login over HTTP is refused 401.
+    run: curl -s --digest -u ann@example.com:annpass -o {{null}} -w "%{response_code}" http://127.0.0.1:{{port3}}/invoice-7.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: topic-outside-the-filter
+    claim: A publish on a topic outside --topic orders/# is not kept, so a later subscribe to it gets nothing.
+    run: curl -sS -u app@example.com:apppass -d paid mqtt://127.0.0.1:{{port4}}/invoices/7 --next -u app@example.com:apppass mqtt://127.0.0.1:{{port4}}/invoices/7
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: mqtt-needs-plaintext
+    claim: Without --allow-plaintext-auth the broker refuses the app's MQTT password unchecked with CONNACK 5, and curl exits 8.
+    run: curl -sS -u app@example.com:apppass -d shipped mqtt://127.0.0.1:{{port5}}/orders/7
+    expect:
+      exit: 8
+      stderr-contains: "Expected 0000 but got 0005"
+
+  - id: mail-login-still-cram
+    claim: --allow-plaintext-auth does not weaken the mail login curl chooses; it still logs in to SMTP with CRAM-MD5.
+    run: curl -sv --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T shipped.eml smtp://127.0.0.1:{{port}}/example.com 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '> AUTH CRAM-MD5\s'

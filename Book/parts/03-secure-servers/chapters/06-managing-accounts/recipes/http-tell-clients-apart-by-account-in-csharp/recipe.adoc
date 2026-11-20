@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-clients-apart-by-account-in-csharp]]
+=== Telling Accounts Apart in C#
+
+==== Problem
+
+Several services share one test server, each with its own account, and a test must say which one fetched what. You want your C# test to read, from the server's own records and log, the account behind every request.
+
+==== Solution
+
+Host the server with `Surl.Api`, one `SurlAccount` per service and `RecordExchanges` on; let each service fetch through its own `CurlClient`; then ask the server for its login events and the exchanges they belong to:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `Accounts` holds one `SurlAccount` per service, the spelling of `--user billing:b1-secret`, and once any account exists every request needs a login. `Files` puts the two files in memory. `SurlServer.StartAsync` starts the server on a free port, and `BoundUrl` is where it listens.
+
+Each service is a `CurlClient` of its own, sending a `CurlRequest` whose `CurlAuthenticationOptions` carry its user name and password, with `HttpAuthentication` set to `HttpAuthenticationMethods.Digest`, `curl --digest` (<<rfc7616>>). `CurlResponse.StatusCode` is what the program prints for each fetch. A third client claims to be `search` with a wrong password and is answered `401 Unauthorized`.
+
+`RecordExchanges` keeps what the server saw. `FindEvents` takes a `SurlEventQuery`; with `Kind` set to `SurlEventKind.LoginJudged` it returns one `SurlEvent` per login the server judged, each a `LoginJudgedEvent` carrying `ExchangeId`, `Mechanism` (`Digest`), `Account` and `IsAccepted`. A wrong password is an event too, refused, under the account the caller claimed. `FindExchanges`, with the query's `Account` set, returns the `SurlExchangeRecord` of every exchange in which a login for that account was judged; `Received` is the bytes the client sent, so its `GET` lines are what was asked for. Keeping only the exchanges whose login was accepted gives the answer the test wants: `billing` fetched `/invoices.csv` and `search` fetched `/index.html`.
+
+An exchange is one connection, not one request. With `one-client`, all three requests go through one `CurlClient`, which reuses its connection: every login lands in exchange 1, and both accounts then appear to have fetched both files. Give each service its own client, as services have in practice, when a test must tell them apart by exchange.
+
+`RecordExchanges` is off by default, and then `FindEvents` throws `InvalidOperationException`, since nothing was kept. `Log` takes any `TextWriter` and `LogLevel.Verbose` is `-v`: the log has the line `Login accepted: Digest billing` and never a password, the wrong guess included.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-clients-apart-by-account>> for the same task on the console, from the log.
+* <<http-tell-clients-apart-by-account-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>.

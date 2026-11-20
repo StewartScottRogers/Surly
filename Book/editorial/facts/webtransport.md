@@ -18,7 +18,7 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-19
 ## Client: curl
 - `-d data webtransport://host:port/path`: bidirectional stream, the echo written with no newline. `?wt=uni` and `?wt=datagram` for the other modes.
 - `-u user:pass` logs in. `--http3-only https://...` to the port is not a session: 405.
-- Nothing listening on the UDP port: exit 7 at once on Windows (ICMP); may differ elsewhere.
+- Nothing listening on the UDP port: exit 7 at once on Windows (ICMP); exit 55 on Linux and macOS (CI run 44662810792).
 - `--retry 5 --retry-all-errors --retry-delay 1` waits out surl's start.
 
 ## MCP

@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs task-accounts.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: surl-give-each-task-its-own-account
+title: Giving Each Task Its Own Account
+protocols: [http, imap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_account, remove_account, delete_file, put_file, list_files, get_events, curl]
+curl-options: [-s, --digest, -u, -T, -o, -w]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc7616, rfc9051]
+
+fixtures:
+  result.txt: "task result\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two tasks run in turn, each with an account add_account made for it; each uploads its result over HTTP with Digest (201) and reads it back (200), then the agent deletes its file and removes its account. Afterwards task-1's login is refused 401, no file is left, and the accounts store records each account added and removed.
+    program: task-accounts.cs
+    args: [right]
+    expect:
+      exit: 0
+      stdout: "task-1: account added, upload 201, read back 200\ntask-1: file deleted, account removed\ntask-2: account added, upload 201, read back 200\ntask-2: file deleted, account removed\ntask-1 logs in afterwards: HTTP 401\nfiles left: 0\naccounts store: account_added task-1, account_removed task-1, account_added task-2, account_removed task-2\n"
+
+  - id: files-are-shared
+    claim: Accounts do not divide the content store; while both exist, task-2 reads the file task-1 uploaded, 200, which is why the agent deletes each task's files and runs tasks that must not see each other in turn.
+    program: task-accounts.cs
+    args: [overlap]
+    expect:
+      exit: 1
+      stdout: "task-2 reads task-1.txt: task result (200)\n"
+
+  - id: keep-a-standing-account
+    claim: On a server started with no --user, adding a task account makes a GET with no login 401, and removing the last account makes it 200 again, so the agent keeps an account of its own for the server's whole life.
+    program: task-accounts.cs
+    args: [no-standing]
+    expect:
+      exit: 1
+      stdout: "while task-1 exists, GET with no login: HTTP 401\nafter the last account is removed, GET with no login: HTTP 200\n"
+
+  - id: imap-has-no-mailbox
+    claim: Over IMAP an account from add_account logs in (curl exit 0, login accepted) but has no INBOX, so selecting it fails with curl exit 67; after remove_account the login itself is refused, as the third login_judged event shows.
+    program: task-accounts.cs
+    args: [imap]
+    expect:
+      exit: 1
+      stdout: "task-1 IMAP login, no mailbox named: curl exit 0\ntask-1 IMAP INBOX: curl exit 67\ntask-1 IMAP login after remove_account: curl exit 67\nlogin_judged: true, true, false\n"

@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-clients-apart-by-account]]
+=== Telling Clients Apart by Account
+
+==== Problem
+
+Several services share one test server, each with its own account, and a test must say which one fetched what. You want the log to name the account behind every request.
+
+==== Solution
+
+Give each service its own `--user` account, start `surl` with `-v` and a `--log-file`, and let each service log in as itself; here the billing service fetches its file:
+
+include::.generated/solution.adoc[]
+
+Then read the log. `grep` comes with any POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+grep -E "\* (Login|GET)" surl.log
+----
+
+==== Discussion
+
+Each `--user name:password` adds one account, and once any account exists every request needs a login. `billing` and `search` are two accounts on one server, so each service proves who it is with its own password. `--directory site` serves the files. `curl` logs in with `--digest`, Digest access authentication (<<rfc7616>>), as the account `-u billing:b1-secret` names, which `surl` accepts over plain Hypertext Transfer Protocol (HTTP) because no password crosses the wire in clear. The `search` service does the same with its own account and gets `index.html`; the wrong password for `search` is answered `401 Unauthorized`, which `-s`, `-o` to nowhere and `-w "%{http_code}"` print as the status alone.
+
+`-v` sets the log level to verbose, a line for every exchange event, and `--log-file surl.log` appends those lines to a file instead of standard error. Every line starts with the exchange number, `#2`, and an exchange is one connection. The line `Login accepted: Digest billing` names the method and the account; the next line with the same number, `GET /invoices.csv: 200, 14 bytes of ...`, names what that login fetched, so matching the numbers tells the services apart. A wrong password is `Login refused: Digest search`: the account it claimed to be, then the `401`. Each Digest fetch also shows a first `401, a login is needed`, the challenge `curl` asks for before it sends its answer. The rest of each `GET` line is the file's path on disk.
+
+The log names accounts, never passwords: neither password, nor the wrong guess, appears anywhere in `surl.log`. At the default log level, without `-v`, the log has one `Exchange opened` line per exchange and no login lines, so it cannot say who fetched what; keep `-v` on for a test that needs to.
+
+The C# and agent versions of this recipe read the same facts as structured events instead of log lines.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-clients-apart-by-account-in-csharp>> for the same check from a C# test, through recorded events.
+* <<http-tell-clients-apart-by-account-from-an-agent>> for the same check from an agent.
+* <<http-log-in-with-digest>> for the Digest login itself.
+* <<surl-readme>>, <<rfc7616>>.

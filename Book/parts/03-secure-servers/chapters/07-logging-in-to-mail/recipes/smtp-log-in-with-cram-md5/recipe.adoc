@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-log-in-with-cram-md5]]
+=== Logging In to SMTP with CRAM-MD5
+
+==== Problem
+
+Your mail client must log in over plain Simple Mail Transfer Protocol (SMTP) without ever sending its password in clear; you want the server to accept CRAM-MD5 there while it refuses PLAIN and LOGIN unchecked.
+
+==== Solution
+
+Give `surl` a mail domain and a mailbox and nothing else; without Transport Layer Security (TLS) it offers only CRAM-MD5, and `curl -u` uses it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--mail-domain example.com` serves mail for that domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address (<<surl-readme>>). On the `curl` side, `-u` is the login, `--mail-from` and `--mail-rcpt` the envelope (<<rfc5321>>), `-T hi.eml` the message to upload, `--crlf` the line ends mail needs, `-s` no progress meter, `-S` error messages all the same, and `-w "%{response_code}\n"` prints the server{apos}s last reply, `250` for a mail accepted.
+
+CRAM-MD5 is a challenge and response. The `-v` trace in the `only-cram-offered` case shows it: the server{apos}s reply to `EHLO` ends `250 AUTH CRAM-MD5`, the only mechanism on offer; `curl` sends `AUTH CRAM-MD5`, the server answers `334` with a challenge, `curl` answers with one line, and the server says `235 2.7.0 Authentication successful`. Both lines are base64. The script `decode-login.sh` logs in once with `-v` and decodes them; it needs a POSIX shell (Git Bash on Windows):
+
+[source,shell]
+----
+include::decode-login.sh[]
+----
+
+The challenge decodes to a one-time string in angle brackets, ending `@surl>`, and the answer to the user name, a space and 32 hexadecimal digits: a digest the client computes from the challenge and the password, and the server checks against its own. The password is not in either line. A wrong password still fails, and `curl` exits `67`, `Login denied`; no login at all gets `MAIL` refused with `530` and exit `55`.
+
+PLAIN and LOGIN would send the password itself, base64-encoded, which is no protection on an open connection. `surl` does not offer them, and `curl` does not try what is not offered: told `--login-options AUTH=PLAIN`, it finds no mechanism in common, sends no `AUTH` command and exits `67`. A client that sends PLAIN or LOGIN anyway is turned away before the password is looked at. The `plain.smtp` fixture sends `EHLO`, `AUTH PLAIN` with the right password, `AUTH PLAIN` with a wrong one, `AUTH LOGIN` and `QUIT`, and `curl -T plain.smtp telnet://...` writes it to the SMTP port and prints every reply. Each attempt is answered `538 5.7.11 Encryption required for requested authentication mechanism`, the right password and the wrong one alike, so the reply tells an eavesdropper nothing.
+
+`--allow-plaintext-auth` is the loosening, for a client that cannot do CRAM-MD5, such as .NET{apos}s `SmtpClient`; `surl` warns when it is on (<<surl-readme>>). With it, `EHLO` also offers `OAUTHBEARER`, `XOAUTH2`, `PLAIN` and `LOGIN`, and the same `AUTH PLAIN` with the right password is accepted `235`. `curl` still chooses CRAM-MD5 on its own; only when told `AUTH=PLAIN` does it send `AGFubkBleGFtcGxlLmNvbQBhbm5wYXNz`, which is Ann{apos}s user name and password for anyone to decode. Leave the option off unless a client needs it, and then use it only on the loopback address.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-log-in-with-cram-md5-in-csharp>> for the same check in C#.
+* <<smtp-log-in-with-cram-md5-from-an-agent>> for the same check run by an agent.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for an app on `SmtpClient`, which needs the loosening.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

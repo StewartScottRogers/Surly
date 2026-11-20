@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-read-a-files-size-and-date-from-an-agent]]
+=== Reading FTP Sizes from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to ask a File Transfer Protocol (FTP) server for a file{apos}s size and date with `curl -I` before it decides whether to download, and to keep that date on a copy it does download.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP listener over a folder with one dated file, calls `curl` with `-I`, and calls `get_exchanges` to see what the server received:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution. Before it starts either host the program writes `site/report.csv` and sets its time to 2 January 2024, 15:04:05 Coordinated Universal Time (UTC).
+
+FTP (<<rfc959>>) has no headers, so `curl -I` builds them from two commands: `SIZE` asks for the length in bytes and becomes `Content-Length`, and `MDTM` asks for the modification time, as 14 digits in UTC, and becomes `Last-Modified`, written as the Hypertext Transfer Protocol writes dates. Neither opens a data connection, so the file is not downloaded.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port. `arguments` is `surl`{apos}s other options in its own words: `--directory site` serves the folder, a path under the host{apos}s root, and `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only. The answer is structured content with `server_id` and `bound_urls`, the real address.
+
+`curl` runs `curl` with `args` as its command line; `-s` keeps the progress meter out of the answer. The answer is text, JSON, with `exitCode` and, for each stream, a `content`. `-I` makes `standardOutput` the headers, with line ends in `\r\n` that the program turns to `\n`. `-R -o copy.csv` writes the file into the folder `curl-mcp` is confined to and gives it the server{apos}s time, which the program reads back; the same download without `-R` is dated when it was written.
+
+`get_exchanges` answers what each client sent the server and what it answered, byte for byte. An exchange has `chunks`, each with a `direction`, `sent` or `received`, and its `data`; the program keeps the `received` ones, which are the commands, and prints `MDTM`, `SIZE` and any `RETR` or passive command. There is no `RETR`: that is the agent{apos}s evidence that asking cost nothing but two replies.
+
+A file that is not there is answered `550` to `SIZE`, and `curl -I` exits `78`, remote file not found, with no headers. Without `--allow-anonymous` the server refuses the login and `curl` exits `67`, login denied. That is the server being surly on purpose.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-read-a-files-size-and-date>> for the same two questions on the console.
+* <<ftp-read-a-files-size-and-date-in-csharp>> for the same two questions asked from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

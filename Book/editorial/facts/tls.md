@@ -21,7 +21,8 @@ Any TLS scheme (`https`, `mqtts`, `ftps`, `wss`, ...) needs a certificate; `read
 ## Client: curl
 - `--cacert server.pem` trusts a self-signed certificate (it is its own authority); without it curl exits 60. A name the certificate lacks (`localhost` vs `IP:127.0.0.1`) also exits 60.
 - `--tls-max 1.2` against a `--tlsv1.3` server, and `--tlsv1.3` against `--tls-max 1.2`: exit 35, stdout empty. The wording (`Recv failure: Connection was reset` or `SEC_E_ILLEGAL_MESSAGE`) is the TLS library's (schannel here): match `curl: (35)` only.
-- `curl` with no version option works against a `--tlsv1.3` server (it offers 1.3).
+- `curl` with no version option works against a `--tlsv1.3` server (it offers 1.3), on Windows and Linux.
+- macOS: surl serves TLS 1.2 at most (SslStream; Surl ADR-0010); any TLS 1.3 handshake is exit 35. See `platforms.md`.
 - `-w '%{ssl_version}'` is not a variable in this curl.
 
 ## MCP

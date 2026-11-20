@@ -1,0 +1,70 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-tell-clients-apart-by-account
+title: Telling Clients Apart by Account
+protocols: [http]
+tier: secure-servers
+surl-options: [-v, --log-file, --directory, --user]
+curl-options: [--digest, -u, -s, -o, -w]
+exit-codes: [0, 1]
+references: [surl-readme, rfc7616]
+
+fixtures:
+  site/invoices.csv: "id,total\n1,40\n"
+  site/index.html: "<p>search index</p>\n"
+  quiet/invoices.csv: "id,total\n1,40\n"
+
+# main logs every exchange event to surl.log; quiet is the same server at the default log level.
+# Each serves its own folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --user billing:b1-secret --user search:s1-secret http://127.0.0.1:{{port}}/
+    ready: port
+  quiet:
+    command: surl --log-file info.log --directory quiet --user billing:b1-secret http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The billing service logs in as billing with Digest and fetches invoices.csv, exit 0.
+    run: curl --digest -u billing:b1-secret http://127.0.0.1:{{port}}/invoices.csv
+    expect:
+      exit: 0
+      stdout: "id,total\n1,40\n"
+
+  - id: second-service
+    claim: The search service logs in to the same server as search, with its own password, and fetches index.html.
+    run: curl -s --digest -u search:s1-secret http://127.0.0.1:{{port}}/index.html
+    expect:
+      exit: 0
+      stdout: "<p>search index</p>\n"
+
+  - id: wrong-password
+    claim: A request that names search with the wrong password is answered 401 Unauthorized.
+    run: curl -s --digest -u search:guess -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/invoices.csv
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: log-names-the-account
+    claim: With -v, the log has a Login accepted line naming the method and the account, and the request line after it carries the same exchange number, so billing fetched invoices.csv and search fetched index.html; the wrong password is a Login refused line naming search, followed by a 401.
+    run: grep -E "\* (Login|GET)" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '#(\d+) \* GET /invoices\.csv: 401, a login is needed\n#\1 \* Login accepted: Digest billing\n#\1 \* GET /invoices\.csv: 200, 14 bytes of [^\n]*invoices\.csv\n#(\d+) \* GET /index\.html: 401, a login is needed\n#\2 \* Login accepted: Digest search\n#\2 \* GET /index\.html: 200, 20 bytes of [^\n]*index\.html\n#(\d+) \* GET /invoices\.csv: 401, a login is needed\n#\3 \* Login refused: Digest search\n#\3 \* GET /invoices\.csv: 401, a login is needed\n$'
+
+  - id: no-password-in-the-log
+    claim: The log names the account but never the password.
+    run: grep -c -e b1-secret -e s1-secret -e guess surl.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: info-level-names-nobody
+    claim: At the default log level the log has one line per exchange and no login lines, so it cannot say which account fetched what.
+    run: curl -s -o {{null}} --digest -u billing:b1-secret http://127.0.0.1:{{port2}}/invoices.csv && grep -c Login info.log
+    expect:
+      exit: 1
+      stdout: "0\n"

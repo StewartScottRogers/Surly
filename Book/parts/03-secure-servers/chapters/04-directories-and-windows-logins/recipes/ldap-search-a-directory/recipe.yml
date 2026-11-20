@@ -103,7 +103,8 @@ cases:
       stdout-matches: '\Acurl: \(39\) LDAP remote: [^\n]*(?i:no such object)[^\n]*\n\Z'
 
   - id: wrong-password
-    claim: A wrong password is refused invalidCredentials, and curl exits 38, the code for a failed bind.
+    claim: A wrong password is refused invalidCredentials, and curl on Windows (WinLDAP) exits 38, the code for a failed bind, naming the result.
+    platforms: [windows]
     run: curl -s -S -u alice:wrong "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
     expect:
       exit: 38
@@ -111,7 +112,8 @@ cases:
       stderr-contains: "Invalid Credentials"
 
   - id: strict-refuses-clear-password
-    claim: Without --allow-plaintext-auth, the right password over ldap:// is refused confidentialityRequired without being checked, and curl exits 38.
+    claim: Without --allow-plaintext-auth, the right password over ldap:// is refused confidentialityRequired without being checked, and curl exits 38; WinLDAP names the result.
+    platforms: [windows]
     run: curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port2}}/dc=example,dc=com"
     expect:
       exit: 38
@@ -119,7 +121,8 @@ cases:
       stderr-contains: "Confidentiality Required"
 
   - id: anonymous-bind-refused
-    claim: An anonymous bind (-u with an empty name and password) is refused inappropriateAuthentication, and curl exits 38.
+    claim: An anonymous bind (-u with an empty name and password) is refused inappropriateAuthentication, and curl exits 38; WinLDAP names the result.
+    platforms: [windows]
     run: 'curl -s -S -u : "ldap://127.0.0.1:{{port}}/"'
     expect:
       exit: 38
@@ -127,9 +130,46 @@ cases:
       stderr-contains: "Inappropriate Authentication"
 
   - id: no-user-binds-as-windows
-    claim: With no -u at all, curl does not bind anonymously; it tries a login method this server has not been told to accept (on Windows, Negotiate as the Windows user), and exits 38.
+    claim: With no -u at all, curl on Windows does not bind anonymously; WinLDAP tries Negotiate as the Windows user, a login method this server has not been told to accept, and curl exits 38.
+    platforms: [windows]
     run: curl -s -S "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
     expect:
       exit: 38
       stdout: ""
       stderr-contains: "Authentication Method Not Supported"
+
+  - id: wrong-password-on-openldap
+    claim: On Linux and macOS, curl's OpenLDAP build turns the invalidCredentials answer into exit 67, Login denied.
+    platforms: [linux, macos]
+    run: curl -s -S -u alice:wrong "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Login denied"
+
+  - id: strict-refuses-clear-password-on-openldap
+    claim: On Linux and macOS the same refusal of a password sent in clear is exit 38, worded LDAP cannot bind, without the server's result.
+    platforms: [linux, macos]
+    run: curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port2}}/dc=example,dc=com"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "LDAP: cannot bind"
+
+  - id: anonymous-bind-refused-on-openldap
+    claim: On Linux and macOS the anonymous bind (-u :) is refused too, exit 38, worded LDAP cannot bind.
+    platforms: [linux, macos]
+    run: 'curl -s -S -u : "ldap://127.0.0.1:{{port}}/"'
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "LDAP: cannot bind"
+
+  - id: no-user-binds-anonymously-on-openldap
+    claim: On Linux and macOS, with no -u at all, the bind is refused the same way, exit 38, worded LDAP cannot bind; there is no Windows user to log in as.
+    platforms: [linux, macos]
+    run: curl -s -S "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "LDAP: cannot bind"

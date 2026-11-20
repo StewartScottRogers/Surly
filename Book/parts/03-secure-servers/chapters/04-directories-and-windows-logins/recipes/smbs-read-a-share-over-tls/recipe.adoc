@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smbs-read-a-share-over-tls]]
+=== Reading an SMB Share over TLS
+
+==== Problem
+
+Your client reads files from a Server Message Block (SMB) share, and you want the whole session inside Transport Layer Security (TLS). You want an `smbs` server with your own certificate, a login it accepts, and to see what the client does when it does not trust the certificate.
+
+==== Solution
+
+Make a certificate and key with `openssl`, serve a directory over `smbs` with them, and read a file with `curl`, trusting that certificate:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C]. The checked claims below also run a second `surl` on port `8081`, with a throwaway certificate.
+
+==== Discussion
+
+`smbs` is the SMB server over TLS from the first byte (<<surl-readme>>), so unlike `smb` it will not start without a certificate: `--cert` and `--key` name the PEM files, and with neither, and without `--self-signed`, `surl` exits `58` and says it needs a certificate. The `openssl` command puts the address in as a subject alternative name, `IP:127.0.0.1`, because `curl` checks the address it connects to against the certificate; the file is its own authority, so `--cacert server.pem` is all the trust `curl` needs, and the read exits `0`. Both `smb` and `smbs` listen on port `445` unless the URL says otherwise.
+
+`--directory site` serves `site`, and each folder directly under it is a share, named by the first segment of the URL path, as in <<smb-read-a-share>>. `-u alice:s3cret` adds the account, and `--auth ntlmv1` accepts the login `curl` makes in an SMB session setup, NTLMv1, the first version of Windows NT LAN Manager{apos}s challenge and response (<<ms-smb>>). A wrong password makes `curl` exit `67`, login denied, exactly as without TLS. TLS is what protects that exchange: an NTLMv1 response is open to offline cracking by anyone who sees one, and inside `smbs` nobody on the path does.
+
+Without `--cacert`, `curl` has no reason to trust a certificate that no authority signed, and exits `60` before it sends a login. `-s` hides its progress meter and `-S` keeps the error, which is where the claims below read it; the wording after `(60)` is the TLS library{apos}s, so they match only the code. A plain `smb://` client on the `smbs` port speaks SMB where TLS is expected and gets no answer it can use; on Windows `curl` exits `56`, receive failure.
+
+`--self-signed` is the shortcut for a test: `surl` makes a throwaway certificate at start and warns that it did. Nobody can trust it, so `curl` exits `60` until it is told to skip the check with `-k`, and then reads the same file. It is a loosening, and the one to leave out wherever the client can be given the real certificate, as `--cacert` does here.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smbs-read-a-share-over-tls-in-csharp>> for the same task from C#.
+* <<smbs-read-a-share-over-tls-from-an-agent>> for the same task with an agent.
+* <<smb-read-a-share>> for the same read without TLS.
+* <<surl-readme>>, <<ms-smb>>, <<rfc8446>>.

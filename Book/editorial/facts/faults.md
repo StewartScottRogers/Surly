@@ -1,0 +1,53 @@
+<!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
+# faults facts
+Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), surl-mcp 1.0.0, curl-mcp 0.1.0.0, Surl.Api 1.0.0, Curl.Api 0.2.0, 2026-11-19, windows.
+surl's fault injection (`--fault`) and the HTTP request-head limit, and what curl sees. Limits and timeouts in general: `http.md`.
+
+## Listen URLs and readiness
+Any listen URL; HTTP here, `ready: port`. An `accept`-stage rule with `times` is spent by verify's readiness connection (it opens and closes with no byte), so `times` rules in console recipes use `stage=command`; or add the rule after start (`add_fault`, `SurlServer.Faults.Add`).
+
+## Server options that matter
+- `--fault <kind>[;<key>=<value>]...`, repeatable, at most 256; loosens ("yes, for tests only"), writes `surl: warning: --fault: N fault rule(s) make this server misbehave on purpose` on start. Quote it (`;`). Kinds: `delay` (`ms=0..600000`, at accept or `stage=command`), `drop` (at accept, `stage=command`, or `after-bytes=<n>`), `refuse-login`, `error` (`reply=` in the scheme's error shape; needs `scheme=` or `listener=`), `out-of-space`. Scope keys: `listener`, `scheme`, `account`, `path`, `command`; `times=1..1000000`. Rules tried in order, first match wins. `surl --aihelp testing` lists it all.
+- `path=` matches by whole segments: `path=/slow` holds `/slow/report.txt`, not `/slowness.txt`. `path` needs `stage=command` for delay/drop (at accept there is no path): exit 2, `key path cannot be given at stage accept`.
+- A `delay` stops the `--idle-timeout` clock while it waits; `--max-time` still counts it.
+- `--max-request-head <bytes>` (http, rtsp, s3, oci, websocket): default 100k, suffixes k m g t p (1024 each), 0 no limit, loosens nothing. `1x` -> exit 2, `surl: option --max-request-head: is badly used here`.
+
+## Secure by default
+Over the head limit: `HTTP/1.1 431 Request Header Fields Too Large`, headers Date, Server, `Content-Length: 0`, `Connection: close`; returned even for a 200,000-byte header mid-send (no reset seen). curl exits 0, `-f` 22. The default log level logs nothing about it (only `Exchange N opened`).
+
+## Client: curl
+- `drop;stage=command`: curl exit 56 `Recv failure: Connection was reset` (Windows; surl aborts, so RST). `--retry 1` alone does NOT retry it (exit 56, `%{num_retries}` 0); `--retry 1 --retry-all-errors` does (exit 0, `num_retries` 1). With `-sS`, the curl port prints the first attempt's `curl: (56) ...` line even when the retry succeeds.
+- `delay` + `-m 1`: exit 28, `Operation timed out after 1006 milliseconds with 0 bytes received`. No limit: 200 after the hold; `%{time_total}` shows it.
+- `-Z` with two URLs on one host over http: WITHOUT `--parallel-immediate`, the second transfer waits for the first connection (PIPEWAIT), so a fast path behind a delayed one also times out (both `000 28`). With `--parallel-immediate` the fast one is 200 at once. Whole command exits 28 if any transfer did; `-w "%{url.path} %{http_code} %{exitcode}\n"` gives a line per transfer in completion order.
+- `-H @file` reads header lines from a file: keeps big cookies off the command line.
+
+## MCP
+- `start_server(arguments: ["--fault", "..."])` or `["--max-request-head", "1k"]`: options as surl's words.
+- `add_fault(server_id, fault)` -> `{fault_id: "f1"}`; refusal is a tool error with surl's text. `list_faults` -> `{faults: [{fault_id, item, remaining}]}` (remaining null = no limit). `remove_fault(server_id, fault_id)`.
+- `get_events(kinds: ["fault_applied"])` -> events with `rule_id`, `fault_kind`, `stage`, `target` (the path). One per time a rule acted.
+- `list_servers` -> per server `exchange_count` (connections for HTTP); counts the dropped one.
+- `get_exchanges`: chunks with `direction` (`received`/`sent`) and `data`; join `sent` data to see `HTTP/1.1 431 ...`.
+- curl-mcp `transfer`: one attempt per call, no retry. Drop -> tool error, `failure.exitCode` 56. `timeoutSeconds` -> failure exitCode 28, tool error. `headers` must be a `JsonArray` of `JsonObject {name, value}` (a `Dictionary<string,string>[]` or anonymous type fails: no JSON type info in the SDK's serializer). Two `transfer` calls at once on one McpClient run side by side.
+- curl-mcp `curl(args)` runs real curl options: `--retry 1 --retry-all-errors -w %{num_retries}` works; answer `{exitCode, standardOutput{content}, standardError{content}}`.
+
+## Surl.Api (in-process, C#)
+- `SurlFault.DropConnection()`, `.Delay(TimeSpan)`, `.RefuseLogin()`, `.ProtocolError(reply)`, `.OutOfSpace()`; narrow with `with { Stage = FaultStage.Command, Path = "/x", Times = 1 }`. `FaultStage` (namespace `Surl.Protocol.Abstractions`): Accept, Login, Command, StoreWrite.
+- `SurlServerOptions.Faults.Add(rule)` at start (ids f1, f2...); `server.Faults.Add/Remove/List/Clear` while serving; `List()` gives `SurlFaultRule {Id, Item, Remaining}`.
+- No `SurlServerOptions` property for `--max-request-head`: use `AdditionalArguments.Add("--max-request-head"); ...Add("1k")`.
+- `RecordExchanges = true` then `server.Exchanges.Count` (2 after a drop and a retry; no readiness connection in-process) and `server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.FaultApplied }).Count`.
+
+## Curl.Api
+- Dropped connection: `SendAsync` throws `CurlException` (`Curl.Api.Errors`), `Code` is `Curl.Api.Codes.CurlCode` `RecvError` (56). Timeout: `OperationTimedOut` (28). No retry option seen; retry in the program.
+- `CurlClientOptions.Timeout` is a `TimeSpan` (not nullable): leave it unset for no limit. `CurlClient.Create(options)`.
+- Two `SendAsync` at once on one client run side by side (no PIPEWAIT hold-up).
+- `CurlRequest { Headers = [new("Cookie", "...")] }`. A 431 is a `CurlResponse`, no exception.
+- First transfer of a cold program can take 1 to 2 s more (engine start); time claims need margins of seconds, measured per transfer.
+
+## Gotchas
+- In Python heredocs through the Bash tool, `\\n` in a string came out as a real newline in the file: write YAML with `\n` escapes through the Write/Edit tools.
+- RFC 6585 (which defines 431) is not in `references/bibliography.adoc`.
+
+## Recipes
+http-refuse-an-oversized-request-head (+ -in-csharp, -from-an-agent)
+http-recover-from-a-dropped-connection (+ -in-csharp, -from-an-agent)
+http-slow-down-one-path (+ -in-csharp, -from-an-agent)

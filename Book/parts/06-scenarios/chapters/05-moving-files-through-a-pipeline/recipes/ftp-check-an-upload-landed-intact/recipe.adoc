@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-check-an-upload-landed-intact]]
+=== Checking an Upload Landed Intact
+
+==== Problem
+
+A pipeline step puts a file on a File Transfer Protocol (FTP) server, and the next step trusts it. You want an artificial intelligence (AI) agent to upload a file, read the stored copy back, and prove that every byte arrived, and to see what a failed upload looks like.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts an FTP server that accepts uploads, uploads a binary file with the `curl` tool, reads the stored copy with `read_file`, downloads it again, compares the three by their SHA-256 hashes, and reads the server{apos}s commands with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+The file is chosen to be hard to move: every byte value from 0 to 255 once, then two carriage-return and line-feed pairs, which a text-mode transfer would rewrite. A hash is the right comparison, because a file that is the right length can still be wrong, and the program prints only whether the hashes are the same.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port, and `arguments` is `surl`{apos}s other options in its own words. Two of them loosen `surl`, so the run names only what it needs. `--allow-uploads` lets a client write; without it the server refuses the write. `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; without it the login is refused. `surl` warns on start while `--allow-anonymous` is on. `--max-filesize 100` is not a loosening but a limit, the largest upload accepted, in bytes.
+
+`curl` runs `curl` with `args` as its command line: `-T blob.bin` uploads the local file to the URL, `-o back.bin` downloads into the folder `curl-mcp` is confined to, and `-s` keeps the progress meter out of the answer. The answer is text, JSON, with `exitCode`, which is the whole story of a failed step: `0` is success, `25` upload failed (the server refused the write), `70` remote disk full (the server refused the size) and `67` login denied. A failed `curl` is an answer, not an exception, so the agent must read `exitCode`; the program prints it before doing anything with the file.
+
+`read_file` reads a file from the running server{apos}s own store, the one its FTP server serves, without going through FTP at all. That is what makes the check independent: the stored copy is read from the store, not from the protocol that wrote it. The answer has `byte_count` and, for a file that is not text, `base64`; an error answer means there is no file, which is what a refused upload leaves. `put_file` writes a file into the store as an upload would, here to replace the stored copy with one that differs by a single byte, so the program can show that the check says `False` when it should.
+
+`get_exchanges` answers what each client sent the server, byte for byte. An exchange has `chunks`, each with a `direction`, `sent` or `received`, and its `data`. The program keeps the received lines `TYPE` and `STOR`: `TYPE I` is a binary transfer, which is why the carriage-return and line-feed pairs arrive as they left, and `STOR` is the upload itself.
+
+The program takes the steps in this order. The exit code comes first, then the stored copy, then the download, and only then the record and each is a separate fact: what `curl` was told, what the store holds, what a consumer would receive, and what the server saw.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-download-anonymously>> for the download this recipe ends with, on the console.
+* <<ftp-list-and-upload>> for uploads and listings on the console.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

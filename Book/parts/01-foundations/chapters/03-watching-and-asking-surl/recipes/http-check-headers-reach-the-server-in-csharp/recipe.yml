@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-check-headers-reach-the-server-in-csharp
+title: Checking Headers Reach the Server in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two requests that each carry the API key and a trace ID once are recorded with each header exactly once, beside the one Accept header the client adds of its own, and the test exits 0.
+    program: check-headers.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "GET /hello.txt HTTP/1.1\n  X-Api-Key: 1 [X-Api-Key: k123]\n  X-Trace-Id: 1 [X-Trace-Id: 7f3a9c-1]\n  Accept: 1 [Accept: */*]\nGET /hello.txt HTTP/1.1\n  X-Api-Key: 1 [X-Api-Key: k123]\n  X-Trace-Id: 1 [X-Trace-Id: 7f3a9c-2]\n  Accept: 1 [Accept: */*]\neach header arrived once\n"
+
+  - id: duplicate-caught
+    claim: CurlRequest.Headers sends duplicates as given, so a trace ID added twice arrives twice, in order, and the test fails with exit 1.
+    program: check-headers.cs
+    args: [twice]
+    expect:
+      exit: 1
+      stdout-matches: '  X-Trace-Id: 2 \[X-Trace-Id: 7f3a9c-1 \| X-Trace-Id: from-the-caller\]\n.*a header did not arrive exactly once\n$'
+
+  - id: empty-value
+    claim: A header with an empty value is sent as the name and a colon with nothing after it, and a count alone does not notice.
+    program: check-headers.cs
+    args: [empty]
+    expect:
+      exit: 0
+      stdout-matches: '  X-Api-Key: 1 \[X-Api-Key:\]\n.*each header arrived once\n$'
+
+  - id: removed-header
+    claim: CurlRequest.RemovedHeaders naming Accept stops the client sending the Accept header it adds of its own.
+    program: check-headers.cs
+    args: [no-accept]
+    expect:
+      exit: 0
+      stdout-matches: '^GET /hello\.txt HTTP/1\.1\n  X-Api-Key: 1 \[X-Api-Key: k123\]\n  X-Trace-Id: 1 \[X-Trace-Id: 7f3a9c-1\]\n  Accept: 0 \[\]\n'

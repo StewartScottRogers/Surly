@@ -37,7 +37,10 @@ Do not read the Surl or Curl READMEs or `--aihelp` end to end; look up one thing
   hosts by name with `StdioClientTransport` and roots in `SURL_MCP_ROOT` / `CURL_MCP_ROOT`.
 - Prose: plain, direct, dry; spell out each acronym once per recipe; `` `name`{apos}s `` not
   `` `name`'s ``; wrap `=>` and `<=` in `` `+...+` ``; no "simply", "just" or exclamation marks.
-- Windows-only behaviour (WinLDAP, NTLM, SSPI) is stated as such in the claim.
+- Behaviour that differs by platform (WinLDAP, NTLM, SSPI, the TLS library) gets `platforms:` on its
+  case and is stated as such; read `facts/platforms.md` first. Only Windows runs locally; CI runs Linux and macOS.
+- A console recipe may run a short `sh` script (a fixture shown with `include::`) when one command will not
+  do; its Solution says it needs a POSIX shell (Git Bash on Windows). Prefer single commands.
 - Never stop processes you did not start; never `timeout N` a surl; never write `> NUL` in Git Bash.
 
 ## Done means

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-stand-up-mail-files-and-messages-from-an-agent]]
+=== Standing Up Mail, Files and Messages
+
+==== Problem
+
+As an artificial intelligence (AI) agent running an app{apos}s integration test, you need a mail server, a file server and a Message Queuing Telemetry Transport (MQTT) broker; you want one server process for all three, and the test checking what landed in each.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). One `start_server` call on `surl-mcp` stands up all four listeners; `curl-mcp`{apos}s `curl` tool plays the app; `list_messages`, `read_message`, `read_file` and `read_retained_message` check each store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+`start_server` takes four `listen_urls` on port 0, Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP), Hypertext Transfer Protocol (HTTP) and MQTT, and answers `bound_urls` with the real ports in the same order. One server holds them all, over one mail store, one content store and one message bus (<<surl-readme>>), and one `server_id` names it for every later call. `arguments` is `surl`{apos}s options, one array item each. `--mail-domain example.com` and the two `--mailbox` entries make the mail side; `protocols=smtp,http,mqtt` lets the app{apos}s account log in on those three schemes, while Ann{apos}s keeps the default, mail only. `--allow-uploads` lets a logged-in client store files, and `--topic orders/#;retain` keeps the last message on each topic under `orders/` (<<mqtt311>>). `--allow-plaintext-auth` is for MQTT, whose login carries the password as it is; it is a loosening, and `surl` warns when it is on (<<surl-readme>>).
+
+The `curl` tool runs `curl`{apos}s arguments and answers in text that is JavaScript Object Notation (JSON); the program reads its `exitCode`, as the app would see it. The mail is `-u`, `--mail-from`, `--mail-rcpt` and `-T shipped.eml` (<<rfc5321>>) with `--crlf`; the invoice is `-T invoice-7.txt` to the HTTP URL with `--digest`, an HTTP Digest login (<<rfc7616>>); the event is `-d shipped` to `mqtt://.../orders/7`, a publish. `-s` keeps the progress meter out.
+
+The checks need no client. `list_messages`, given the `owner` and `mailbox`, lists Ann{apos}s `INBOX`, and `read_message` with a `uid` returns the message as `text`, from which the program takes the `Subject`. `read_file` with a `path` returns the stored invoice as `text`. `read_retained_message` with a `topic` returns the retained message{apos}s `topic`, `qos` and payload `text`, or `retained` `false` when nothing is kept. The program prints each value, or `FAIL` with what it got and wanted.
+
+The two failures show why the agent reads the stores instead of trusting exit codes. An event published on `invoices/7`, outside the retained filter, is not kept, yet `curl` exits `0`; only `retained` `false` on `orders/7` gives it away. Started without `--allow-plaintext-auth`, the server still takes the mail and the upload, neither of which sends the password, but refuses the MQTT login unchecked, and the publish exits `8`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-stand-up-mail-files-and-messages>> for the same environment on the console.
+* <<surl-stand-up-mail-files-and-messages-in-csharp>> for the same environment in a C# test.
+* <<surl-give-each-task-its-own-account>> for giving each of an agent{apos}s tasks its own login on such a server.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc7616>>, <<mqtt311>>.

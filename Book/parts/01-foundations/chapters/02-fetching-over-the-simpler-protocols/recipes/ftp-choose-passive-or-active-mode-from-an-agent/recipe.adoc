@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-choose-passive-or-active-mode-from-an-agent]]
+=== Choosing the FTP Mode from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to fetch a file over File Transfer Protocol (FTP) in passive and in active mode, through Model Context Protocol (MCP) tool calls, and to report from the server{apos}s own record which data-connection commands each fetch used.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP listener with `--allow-anonymous`, calls `curl` four times with different mode options, and after each calls `get_exchanges` to read the commands the server received:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in. They are environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+FTP moves a file over a second connection, the data connection, and someone has to open it (<<rfc959>>). In passive mode the client does, after asking the server for a port with `EPSV` or the older `PASV`; in active mode the server does, after the client names its own address and port with `EPRT` or the older `PORT`.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port, and `files` puts one file in memory. `arguments` is `surl`{apos}s other options in its own words: `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only. The answer is structured content with `server_id`, which the other `surl-mcp` tools take, and `bound_urls`, the real address.
+
+`curl` runs `curl` with `args` as its command line, so the mode is chosen with the options `curl` has: nothing for the default, `--disable-epsv` for `PASV`, `-P -` for active mode with `EPRT`, and `-P - --disable-eprt` for `PORT`. The answer is text, JSON, with `exitCode`, `standardOutput` and `standardError`, each with its `content`. The program reads the exit code and the file. The program adds `-s` so the progress meter is not in `standardError`, and `-v` shows the commands from the client{apos}s side in it.
+
+`get_exchanges` answers what each client sent the server and what it answered, byte for byte, oldest first. Every `curl` call makes a connection and so an exchange; the program passes `after_exchange_id`, the last it saw, so it reads only the new one. An exchange has `chunks`, each with a `direction`, `sent` or `received`, and its `data`; the program keeps the `received` ones, the commands, and prints those that open a data connection. That is the agent{apos}s evidence of which mode ran, and it does not depend on what `curl` said.
+
+Active mode is the one `surl` is careful with. It connects back only to the client that asks: `EPRT` naming another address is answered `501`, `curl` falls back to `PORT`, which fails too, and the tool answers `exitCode` 30, FTP port command failed. Without `--allow-anonymous` the login itself is refused, `exitCode` 67, and the server records no data-connection command at all. That is the server being surly on purpose.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-choose-passive-or-active-mode>> for the same choice on the console.
+* <<ftp-choose-passive-or-active-mode-in-csharp>> for the same choice made in `CurlFtpOptions`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

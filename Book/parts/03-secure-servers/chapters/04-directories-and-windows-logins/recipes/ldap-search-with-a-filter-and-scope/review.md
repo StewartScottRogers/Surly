@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 1. Searches are anonymous (`-u :` against `--allow-anonymous`), so the recipe does not need `--allow-plaintext-auth`; the existing recipe covers the password bind. `-u :` works on Windows; the `strict` server shows the refusal without the option.
 2. Patterns allow the OpenLDAP extra blank line (`\n?` after each entry); only Windows was run here. Linux and macOS not checked: if OpenLDAP words the anonymous-bind refusal differently from "Inappropriate Authentication", case `anonymous-refused` needs `platforms:`, as the existing recipe's identical case did not.
 3. The start-up warning of `--allow-anonymous` is cited to the README.
+- Platform (2026-11-19, CI run 44662810792): anonymous-refused is [windows] (Inappropriate Authentication); new [linux, macos] case checks exit 38 LDAP: cannot bind. Prose states both.

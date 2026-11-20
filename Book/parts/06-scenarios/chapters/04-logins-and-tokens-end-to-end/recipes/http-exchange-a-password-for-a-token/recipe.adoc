@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-exchange-a-password-for-a-token]]
+=== Exchanging a Password for a Token
+
+==== Problem
+
+Your client logs in with Basic to fetch a token, then calls the API with it as a Bearer token. You want the whole flow tested over Hypertext Transfer Protocol Secure (HTTPS), refusals included.
+
+==== Solution
+
+Give `surl` one password account and one Bearer token, serve the token as a file only a login can read, and run the client's two steps against it. The flow is a short script and needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::login-then-call.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` does not issue tokens. It holds accounts, and an account with an empty user name, `--user :tok-7f3a9c`, is a Bearer token (<<rfc6750>>). The token endpoint here is the file `token.txt` holding that same token, so a test plays the identity provider by choosing the token before the server starts. `--user app:s3cret` is the client's password account. Once any account exists every request needs a login, so `token.txt` is served only to a caller who logged in. `--directory site` serves the two files. `--cert server.pem` and `--key server.key` serve Transport Layer Security (<<rfc8446>>) with the certificate and key `setup` made, and `--cacert server.pem` makes `curl` trust exactly that certificate.
+
+The script is the client. `-u app:s3cret`, with no method named, sends Basic (<<rfc7617>>), and over HTTPS `surl` checks it; the body that comes back is the token, and `$(...)` drops its line end. `--oauth2-bearer` sends it as `Authorization: Bearer`, and the API answers the orders. `-s` keeps `curl` quiet, `-f` turns an error status into exit 22 and `-S` prints why, so the script stops at the step that failed and passes on `curl`{apos}s code. Without a login the API answers `401 Unauthorized`, and among its challenges are `Basic` and `Bearer`; `-D -` prints the response headers, `-o` sends the body nowhere, and `--http1.1` keeps the header names in their usual case. `-w "%{http_code}"` prints the status alone in the other checks.
+
+The failure paths are the client's: a wrong password stops the flow at its first step with a `401` and exit 22, and the API is never called; a token `surl` does not hold is answered `401`. Over `http://`, by default, `surl` refuses Basic unchecked with `403 Forbidden`, the right password included, because it would cross the network in clear; `--allow-plaintext-auth` would loosen that for a test, and <<http-refuse-a-password-in-clear>> shows it.
+
+What the server recorded is in `surl.log`: `-v` logs every exchange event and `--log-file` puts the log in a file. The Basic login is `Login accepted: Basic app` followed, under the same exchange number, by `GET /token.txt: 200`; the Bearer login is a separate exchange, `Login accepted: Bearer bearer token`, followed by `GET /api/orders.json: 200`. A Bearer login is logged as `bearer token`, never by the token itself.
+
+One difference from a real identity provider matters: `surl` does not scope an account to paths, so `app:s3cret` alone also fetches the API. A test that must prove the client uses the token reads the log, or the events in the C# and agent versions, rather than counting on a refusal.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-exchange-a-password-for-a-token-in-csharp>> for the same flow from a C# test.
+* <<http-exchange-a-password-for-a-token-from-an-agent>> for the same flow from an agent.
+* <<http-accept-a-bearer-token>> for the Bearer token on its own.
+* <<surl-readme>>, <<rfc7617>>, <<rfc6750>>, <<rfc8446>>, <<rfc9110>>.

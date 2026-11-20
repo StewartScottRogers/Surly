@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-snapshot-before-a-risky-step]]
+=== Snapshotting Before a Risky Step
+
+==== Problem
+
+An agent is about to run a step that may wreck the test data on a server. You want it to take a snapshot first and restore it if the step fails.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it calls `surl-mcp`{apos}s `snapshot_server` before the step, runs the step through `curl-mcp`, and calls `restore_server` when the step fails:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` serves two files in memory over Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP), one store behind both, with `--allow-anonymous` and `--allow-uploads` in `arguments` so the step can write without an account. `snapshot_server` copies the server's files, mail, messages and accounts, keeps the copy in `surl-mcp`{apos}s memory, and answers its `snapshot_id`, `p1`.
+
+The risky step is two `curl` calls through `curl-mcp`, each with `-s`, quiet, and `-T broken.json`, an upload: the first, over FTP (<<rfc959>>), overwrites `users.json`, which succeeds, and then uploads into `archive/`, a folder that is not there, which fails with exit 9, the server refusing the path. The step has failed halfway, which is the case a snapshot is for: `transfer` over HTTP (<<rfc9110>>) shows `users.json` already holding the broken contents. The agent reads `exitCode` in each `curl` answer and, on a failure, calls `restore_server` with the server's ID and the snapshot's. The server's contents are replaced by the snapshot, and `users.json` is back.
+
+`get_events` with `kinds` `store_changed` and `store` `content` is what the server recorded: the step's write to `/users.json`, then the restore of `/`. The failed upload changed nothing, so it is not there.
+
+A snapshot has limits an agent must plan around. Only the newest four snapshots of a server are kept; after five, `restore_server` refuses the first with a tool error. A snapshot restores only into the server that took it; another server answers that it has no such snapshot. A server whose files are on disk, started with `--directory`, refuses `snapshot_server` outright, so an agent can never roll back, or wipe, a real directory. For such a server, take the copy outside `surl`, as <<surl-reset-by-copying-a-clean-directory>> does.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-seed-a-site-from-fixture-files-from-an-agent>> for `reset_server`, which returns to the state at start.
+* <<http-reset-and-snapshot-in-process>> for snapshots from a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc9110>>.

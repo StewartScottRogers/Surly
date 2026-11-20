@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-catch-a-seed-the-server-refuses]]
+=== Catching a Seed the Server Refuses
+
+==== Problem
+
+A test seeds mail and files into the server before it runs. A seed to an unknown mailbox or a reserved path must fail loudly, and you want the test to catch the refusal and read why.
+
+==== Solution
+
+Seed through `Surl.Api`{apos}s `Mail` and `Files`, and catch `SurlSeedRefusedException`: its `Store` and `Refusal` say which store refused and why:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A running `SurlServer` has a store per kind of data, and a test seeds them directly: `Mail`, a `SurlServerMail`, delivers with `DeliverAsync` as Simple Mail Transfer Protocol (SMTP, <<rfc5321>>) would after `RCPT TO`; `Files`, a `SurlServerFiles`, writes with `PutAsync` as an upload would. `SurlServerOptions` sets up what they check against: `MailDomains` and `Mailboxes` are `--mail-domain example.com` and `--mailbox ann@example.com:secret`, and `MaxFileSize` is `--max-filesize 64`, a limit on any file or message.
+
+A seed is checked by the store's own rules, and a refusal is never silent: each one throws `SurlSeedRefusedException`. `Store` is a `StoreKind` naming the store, and `Refusal` is the store's own word for the reason. Mail to `bob@example.com`, for whom the domain has no mailbox, is `Mail`, `NoSuchAccount`; mail to `not-an-address` is `Mail`, `InvalidAddress`. A file under `/.surl`, where `surl` keeps its own state, is `Content`, `NotPermitted`; a 100-byte file past the 64-byte limit is `Content`, `TooLarge`. `Message` says the same in a sentence, for a test's failure report.
+
+A path that is not rooted, `seed.txt` without its leading slash, is a different failure: no request could name it, so it is the test's own mistake and throws `ArgumentException`. Catch the two apart and a test can tell "the server said no" from "the test is wrong".
+
+A refused seed leaves nothing behind. With `RecordExchanges` on, `FindEvents` and a `SurlEventQuery` whose `Kind` is `SurlEventKind.StoreChanged` return one `StoreChangedEvent` per change, and the only one is the mail the store took, `Seeded` into `ann@example.com`{apos}s `INBOX`.
+
+A client meets the same rule. `Accounts` holds one `SurlAccount`, `--user tester:secret`. A `CurlRequest` sent through a `CurlClient`, logged in by `CurlAuthenticationOptions` with `HttpAuthenticationMethods.Digest` as that account, uploads to `/.surl/seed.txt` with `AllowUploads` on, and its `CurlResponse` is `409 Conflict` (<<rfc9110>>): the seed and the client are refused the same path.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-seed-a-mailbox-before-a-test-in-csharp>> for a seed that is taken, and a client that reads it.
+* <<http-seed-a-site-from-fixture-files-in-csharp>> for seeding files at start.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9110>>.

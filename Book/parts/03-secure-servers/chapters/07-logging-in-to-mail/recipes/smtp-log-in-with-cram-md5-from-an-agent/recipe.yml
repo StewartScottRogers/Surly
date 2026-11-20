@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs log-in.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-log-in-with-cram-md5-from-an-agent
+title: SMTP Logins with CRAM-MD5 from an Agent
+protocols: [smtp]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges]
+curl-options: [-s, --crlf, -u, --login-options, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  hi.eml: "From: ann@example.com\r\nTo: bob@example.com\r\nSubject: Lunch\r\n\r\nNoon at the usual place.\r\n"
+  plain.smtp: "EHLO client\r\nAUTH PLAIN AGFubkBleGFtcGxlLmNvbQBhbm5wYXNz\r\nAUTH PLAIN AGFubkBleGFtcGxlLmNvbQB3cm9uZw==\r\nAUTH LOGIN\r\nQUIT\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool sends as ann over plain SMTP and exits 0; get_events shows one CRAM-MD5 login for ann, accepted, and get_exchanges shows AUTH CRAM-MD5 with no password, plain or base64.
+    program: log-in.cs
+    args: [cram]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nlogin_judged: CRAM-MD5 ann@example.com is_accepted true\nget_exchanges: AUTH CRAM-MD5; password on the wire: False\n"
+
+  - id: wrong-password
+    claim: A wrong password fails the CRAM-MD5 login; curl exits 67 and the login_judged event is not accepted.
+    program: log-in.cs
+    args: [wrong]
+    expect:
+      exit: 1
+      stdout: "curl exit 67\nlogin_judged: CRAM-MD5 ann@example.com is_accepted false\nget_exchanges: AUTH CRAM-MD5; password on the wire: False\n"
+
+  - id: curl-will-not-send-plain
+    claim: Told --login-options AUTH=PLAIN, curl sends no AUTH because the server does not offer PLAIN, and exits 67; the server judged no login.
+    program: log-in.cs
+    args: [plain]
+    expect:
+      exit: 1
+      stdout: "curl exit 67\nget_exchanges: (no AUTH); password on the wire: False\n"
+
+  - id: server-refuses-plain-unchecked
+    claim: Written to the SMTP port over telnet, AUTH PLAIN with the right password, with a wrong one, and AUTH LOGIN are each answered 538 Encryption required, after an EHLO that offers only CRAM-MD5.
+    program: log-in.cs
+    args: [raw]
+    expect:
+      exit: 0
+      stdout: "250 AUTH CRAM-MD5\n538 5.7.11 Encryption required for requested authentication mechanism\n538 5.7.11 Encryption required for requested authentication mechanism\n538 5.7.11 Encryption required for requested authentication mechanism\n"
+
+  - id: loosened-plain
+    claim: With --allow-plaintext-auth in start_server's arguments, the same AUTH=PLAIN send exits 0, the login is judged PLAIN and accepted, and the password crossed the wire in base64.
+    program: log-in.cs
+    args: [loose]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nlogin_judged: PLAIN ann@example.com is_accepted true\nget_exchanges: AUTH PLAIN; password on the wire: True\n"

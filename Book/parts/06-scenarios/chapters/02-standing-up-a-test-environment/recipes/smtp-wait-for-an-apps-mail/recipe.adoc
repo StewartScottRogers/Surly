@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-wait-for-an-apps-mail]]
+=== Waiting for an App's Mail
+
+==== Problem
+
+Your artificial intelligence (AI) agent triggers an app that sends mail over Simple Mail Transfer Protocol (SMTP) some time later; you want the agent to wait for the delivery event instead of polling the mailbox, with a timeout.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). Start the mail server with `surl-mcp`{apos}s `start_server`, trigger the app, then call `wait_for_event` for a change to the recipient{apos}s mail with a `timeout_ms`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario. `start_server` runs one SMTP listener on port 0 serving `example.com` with three mailboxes, each also the account that logs in to it (<<surl-readme>>).
+
+The app is a stand-in: a task that sleeps, then sends `receipt.eml` through `curl-mcp`{apos}s `curl` tool with a login (`-u`), an envelope (`--mail-from`, `--mail-rcpt`, <<rfc5321>>) and the file (`-T`), `--crlf` for the line ends and `-s` for quiet. A real app would be told to act and would send on its own schedule; the agent does not know when.
+
+`wait_for_event` is the wait. It takes the `server_id` and the same filters as `get_events`: `kinds` `store_changed` for changes to a store, `store` `mail` for the mail store, and `name` `ann@example.com`, which matches a name exactly or as a leading segment, so it takes every mailbox and message of Ann{apos}s and nothing of anyone else{apos}s. `timeout_ms` caps the wait at 10 seconds here (the tool allows 1 to 60000 milliseconds, 10000 by default, <<surl-readme>>). The call returns the first matching event as soon as it happens: `kind` `store_changed`, `change` `delivered` and `name` `ann@example.com/INBOX/;UID=1`, the mailbox and the unique identifier (UID) of the new message, which `read_message` would fetch. It came back once the app had sent, two seconds in, not at the timeout; there is no polling loop to tune.
+
+When nothing matches in time, the answer is `{"timed_out":true}`. That is a normal result, not a tool error, so the agent decides what a timeout means, usually a failed test. The event that arrives afterwards is not lost: the server keeps its events, and the `timeout` case{apos}s second wait returns the late delivery at once. The same keeping makes the order of calls safe. A wait that starts after the mail is already delivered returns the kept event immediately, so an agent cannot miss a delivery by waiting too late. To wait only for what comes next, pass the last `sequence` seen as `after_sequence` (<<surl-readme>>).
+
+The filter is also the check. When the app mails Bob instead of Ann, the server delivers it, but the wait for Ann{apos}s name sees nothing and times out after three seconds; the agent learns the app mailed the wrong person without reading anyone{apos}s mailbox.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-route-mail-through-aliases-from-an-agent>> for reading the delivered events after the fact.
+* <<smtp-check-the-mail-an-app-sent-from-an-agent>> for checking the mail once it has arrived.
+* <<surl-stand-up-mail-files-and-messages-from-an-agent>> for an environment with files and messages too.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

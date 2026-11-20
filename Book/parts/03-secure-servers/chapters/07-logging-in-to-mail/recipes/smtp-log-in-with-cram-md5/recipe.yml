@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smtp-log-in-with-cram-md5
+title: Logging In to SMTP with CRAM-MD5
+protocols: [smtp]
+tier: secure-servers
+surl-options: [--mail-domain, --mailbox, --allow-plaintext-auth]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, -s, -S, -v, -w, --login-options]
+exit-codes: [0, 55, 67]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  hi.eml: "From: ann@example.com\nTo: bob@example.com\nSubject: Lunch\n\nNoon at the usual place.\n"
+  # What a client that ignores the offer would send: PLAIN with the right password, PLAIN with a
+  # wrong one, then LOGIN. Each PLAIN argument is base64 of NUL user NUL password.
+  plain.smtp: "EHLO client\r\nAUTH PLAIN AGFubkBleGFtcGxlLmNvbQBhbm5wYXNz\r\nAUTH PLAIN AGFubkBleGFtcGxlLmNvbQB3cm9uZw==\r\nAUTH LOGIN\r\nQUIT\r\n"
+  decode-login.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Sends hi.eml once with curl -v on the port given, then decodes the two lines of the CRAM-MD5
+    # login: the server's challenge and curl's answer to it.
+    curl -v --crlf -u ann@example.com:annpass --mail-from ann@example.com --mail-rcpt bob@example.com \
+      -T hi.eml "smtp://127.0.0.1:$1/example.com" 2>&1 |
+      tr -d '\r' | sed -n -e '/^> AUTH CRAM-MD5$/{n;s/^< 334 //p;n;s/^> //p;}' |
+      while read -r line; do printf '%s' "$line" | base64 -d; echo; done
+
+# main is secure by default; loose adds --allow-plaintext-auth, there for the comparison only.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass smtp://127.0.0.1:{{port}}/
+    ready: port
+  loose:
+    command: surl --allow-plaintext-auth --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass smtp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over plain SMTP, curl logs in as ann with CRAM-MD5, the only mechanism offered, and the mail is accepted 250, exit 0.
+    run: curl -sS --crlf -u ann@example.com:annpass --mail-from ann@example.com --mail-rcpt bob@example.com -T hi.eml -w "%{response_code}\n" smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 0
+      stdout: "250\n"
+
+  - id: only-cram-offered
+    claim: The EHLO reply offers AUTH CRAM-MD5 alone; curl answers AUTH CRAM-MD5, gets a 334 challenge, sends one line and is told 235 Authentication successful.
+    run: curl -sv --crlf -u ann@example.com:annpass --mail-from ann@example.com --mail-rcpt bob@example.com -T hi.eml smtp://127.0.0.1:{{port}}/example.com 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '< 250 AUTH CRAM-MD5\s+> AUTH CRAM-MD5\s+< 334 \S+\s+> \S+\s+< 235 2\.7\.0 Authentication successful'
+
+  - id: no-password-on-the-wire
+    claim: Decoded, the challenge is a one-time string from the server and curl's answer is the user name and a 32-digit hexadecimal digest; the password itself is not in either.
+    run: sh decode-login.sh {{port}}
+    expect:
+      exit: 0
+      stdout-matches: '\A<[^>\s]+@surl>\nann@example\.com [0-9a-f]{32}\n\Z'
+
+  - id: wrong-password
+    claim: A wrong password fails the CRAM-MD5 login; curl exits 67, Login denied.
+    run: curl -sS --crlf -u ann@example.com:wrong --mail-from ann@example.com --mail-rcpt bob@example.com -T hi.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: no-login
+    claim: With no login at all the server refuses MAIL with 530, and curl exits 55.
+    run: curl -sS --crlf --mail-from ann@example.com --mail-rcpt bob@example.com -T hi.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) MAIL failed: 530"
+
+  - id: curl-will-not-send-plain
+    claim: Told to use PLAIN with --login-options AUTH=PLAIN, curl finds no overlap with what the server offers, sends no AUTH at all, and exits 67.
+    run: curl -sv --crlf -u ann@example.com:annpass --login-options AUTH=PLAIN --mail-from ann@example.com --mail-rcpt bob@example.com -T hi.eml smtp://127.0.0.1:{{port}}/example.com 2>&1
+    expect:
+      exit: 67
+      stdout-matches: '\A(?![\s\S]*> AUTH)[\s\S]*SASL: no overlap between offered and configured auth mechanisms'
+
+  - id: server-refuses-plain-unchecked
+    claim: A client that sends PLAIN or LOGIN anyway is answered 538 Encryption required each time, the right password and a wrong one alike, so the password is never checked.
+    run: curl -s -T plain.smtp telnet://127.0.0.1:{{port}}
+    expect:
+      exit: 0
+      stdout: "220 surl ESMTP ready\n250-surl Hello\n250-SIZE 104857600\n250-8BITMIME\n250-SMTPUTF8\n250-PIPELINING\n250-ENHANCEDSTATUSCODES\n250 AUTH CRAM-MD5\n538 5.7.11 Encryption required for requested authentication mechanism\n538 5.7.11 Encryption required for requested authentication mechanism\n538 5.7.11 Encryption required for requested authentication mechanism\n221 2.0.0 Bye\n"
+
+  - id: loosened-offers-plain
+    claim: With --allow-plaintext-auth the server also offers PLAIN and LOGIN (and OAUTHBEARER and XOAUTH2), and the same PLAIN with the right password is accepted 235.
+    run: curl -s -T plain.smtp telnet://127.0.0.1:{{port2}}
+    expect:
+      exit: 0
+      stdout-matches: '250 AUTH CRAM-MD5 OAUTHBEARER XOAUTH2 PLAIN LOGIN\n235 2\.7\.0 Authentication successful\n'
+
+  - id: loosened-curl-still-picks-cram
+    claim: Offered every mechanism, curl still picks CRAM-MD5 unless told otherwise.
+    run: curl -sv --crlf -u ann@example.com:annpass --mail-from ann@example.com --mail-rcpt bob@example.com -T hi.eml smtp://127.0.0.1:{{port2}}/example.com 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '> AUTH CRAM-MD5\s+'
+
+  - id: loosened-plain-is-the-password
+    claim: Told AUTH=PLAIN on the loosened server, curl sends the user name and password as one base64 line, which anyone who sees it can decode.
+    run: curl -sv --crlf -u ann@example.com:annpass --login-options AUTH=PLAIN --mail-from ann@example.com --mail-rcpt bob@example.com -T hi.eml smtp://127.0.0.1:{{port2}}/example.com 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '> AUTH PLAIN\s+< 334\s+> AGFubkBleGFtcGxlLmNvbQBhbm5wYXNz\s+< 235 '

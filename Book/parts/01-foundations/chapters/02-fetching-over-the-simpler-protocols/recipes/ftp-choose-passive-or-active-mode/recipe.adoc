@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-choose-passive-or-active-mode]]
+=== Choosing Passive or Active FTP
+
+==== Problem
+
+Your client sits where one kind of File Transfer Protocol (FTP) data connection is blocked, and you want to fetch a file passive or active, and see in `surl`{apos}s log which one happened.
+
+==== Solution
+
+Serve a directory with anonymous logins accepted, and fetch a file with `--disable-epsv`, which makes `curl` ask for a passive data connection with `PASV`; `-P -` in place of it makes the data connection active:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+FTP uses two connections. Commands travel on the control connection; the file itself travels on a second, the data connection, and someone has to open it. In passive mode the client does: it asks the server for a port, and connects to it. In active mode the server does: the client opens a port, says which, and the server connects back (<<rfc959>>). A firewall that lets the client dial out but not be dialled blocks active mode; one that blocks the client from reaching a random server port blocks passive.
+
+`curl` tries passive first. With no option it sends `EPSV`, extended passive mode, and `surl` answers `229` with the port. `--disable-epsv` leaves out `EPSV` and sends the older `PASV`, whose answer is the address and port as six decimal numbers. `-P -` (`--ftp-port`) turns to active mode: `curl` listens on a port of its own and sends `EPRT`, the extended form, naming the address and port; adding `--disable-eprt` makes it send the older `PORT` instead. `-P` takes an address in place of `-`, and `curl` then names that address. `-v` shows each command and reply on standard error, so the command that picked the mode is on screen; `-s` keeps the progress meter away and `-o` sends the file to nowhere while you read the commands.
+
+`--directory site` serves the files under `site` at their relative paths. `surl` answers whichever mode the client sends. `--log-file` and `-v` together write every exchange and data connection to a file, here `site/surl.log` inside the served directory, so the log can be read back with `curl` over the same FTP server. It records the second file as `Data connection opened: passive` and the third as `active`, each after the commands that led to it. Reading the log is itself an exchange, so a log read this way ends with the read.
+
+Active mode is the one `surl` is careful with. It connects back only to the client that asks, and only to a port from 1024 up: `EPRT` naming another address is answered `501`, and `curl` exits `30`, FTP port command failed. That is the server being surly on purpose: an active mode that connected anywhere would let any client make `surl` dial a third party.
+
+`--allow-anonymous` is what lets `curl`{apos}s anonymous login in, as in <<ftp-download-anonymously>>: it accepts every login, checking nothing, which is fine on your own machine and nowhere else. `surl` warns on start while it is on. A second `surl` started without it refuses the same login, whichever mode `curl` asks for, and `curl` exits `67`, login denied.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-choose-passive-or-active-mode-in-csharp>> for the same choice made in `CurlFtpOptions`.
+* <<ftp-choose-passive-or-active-mode-from-an-agent>> for the same choice made by an agent.
+* <<ftp-download-anonymously>> for the anonymous login this recipe relies on.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

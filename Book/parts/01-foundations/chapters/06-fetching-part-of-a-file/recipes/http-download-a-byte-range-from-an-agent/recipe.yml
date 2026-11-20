@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs read-slice.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its arguments pick the curl-mcp tool and the range.
+schema: 2
+key: http-download-a-byte-range-from-an-agent
+title: Fetching a Byte Range from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, transfer, curl]
+curl-options: [-f, -s, -r, -w]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: transfer with a Range header of bytes=100-199 answers statusCode 206, a Content-Range of bytes 100-199/300 among its headers, and a body of exactly those 100 bytes.
+    program: read-slice.cs
+    args: [transfer, 100-199]
+    expect:
+      exit: 0
+      stdout: "statusCode: 206\nContent-Range: bytes 100-199/300\ntotalBytes: 100\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nfailure: null\ntool error: no\n"
+
+  - id: past-the-end
+    claim: A range that starts past the end is answered statusCode 416 with Content-Range bytes */300 and an empty body, and to transfer that is an answer, not a tool error.
+    program: read-slice.cs
+    args: [transfer, 400-499]
+    expect:
+      exit: 0
+      stdout: "statusCode: 416\nContent-Range: bytes */300\ntotalBytes: 0\nfailure: null\ntool error: no\n"
+
+  - id: ignored-range
+    claim: A range with its end before its start is ignored, and transfer answers the whole file, statusCode 200 and no Content-Range.
+    program: read-slice.cs
+    args: [transfer, 200-100]
+    expect:
+      exit: 0
+      stdout-matches: '^statusCode: 200\nContent-Range: \(none\)\ntotalBytes: 300\nrecord 00\n'
+
+  - id: several-ranges
+    claim: Two ranges in one header are answered 206 with no Content-Range of its own; the body is multipart, each part carrying its own Content-Range.
+    program: read-slice.cs
+    args: [transfer, "0-9,290-299"]
+    expect:
+      exit: 0
+      stdout-matches: '^statusCode: 206\nContent-Range: \(none\)\ntotalBytes: \d+\n--SURL_BYTERANGES\r?\nContent-Type: text/plain\r?\nContent-Range: bytes 0-9/300\r?\n\r?\nrecord 00\n.*Content-Range: bytes 290-299/300\r?\n\r?\nrecord 29\n\r?\n--SURL_BYTERANGES--'
+
+  - id: curl-tool-past-the-end
+    claim: Through the curl tool, -f -r 400-499 makes curl exit 22 on the 416, a tool error with a failure of kind CurlExit, while -w still prints 416.
+    program: read-slice.cs
+    args: [curl, 400-499]
+    expect:
+      exit: 1
+      stdout: "exitCode: 22\nstandardOutput: 416\nfailure: CurlExit\ntool error: yes\n"
+
+  - id: curl-tool-slice
+    claim: The curl tool with -r 100-109 writes those ten bytes, record 10, to its standard output and exits 0.
+    program: read-slice.cs
+    args: [curl, 100-109]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nstandardOutput: record 10\n206\nfailure: null\ntool error: no\n"

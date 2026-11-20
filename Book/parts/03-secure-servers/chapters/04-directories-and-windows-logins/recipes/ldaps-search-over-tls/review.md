@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 2. Program finding: on Windows `curl --cacert server.pem ldaps://...` still fails with 60 (SEC_E_UNTRUSTED_ROOT): the WinLDAP path uses the Windows store and ignores `--cacert`. So the solution uses `-k`, and the Discussion says so. Cased as `cacert-windows` and `untrusted`, both `platforms: [windows]`.
 3. Not run, so not claimed: what OpenLDAP-based `curl` on Linux and macOS does with `--cacert` and with no `-k` (exit code unknown). `-k` on those platforms is assumed to work like on Windows; CI will show.
 4. `ldaps` needs `--cert`; without it surl exits 58 (cased).
+- Platform (2026-11-19, CI run 44662810792): plain-refuses and wrong-password are [windows]; [linux, macos] twins check exit 38 LDAP: cannot bind and exit 67 Login denied. Prose states both.

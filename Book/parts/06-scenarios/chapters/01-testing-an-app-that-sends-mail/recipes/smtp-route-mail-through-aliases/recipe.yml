@@ -1,0 +1,96 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-route-mail-through-aliases
+title: Routing Mail Through Aliases
+protocols: [smtp, imap]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox, --mail-alias]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, --next]
+exit-codes: [0, 2, 67]
+references: [surl-readme, curl-readme, rfc5321, rfc9051]
+
+# The two mails the app sends: one to support@, one to alerts@. forwarded.eml goes to help@.
+fixtures:
+  help.eml: "From: app@example.com\nTo: support@example.com\nSubject: Cannot log in\n\nPlease reset my password.\n"
+  alert.eml: "From: app@example.com\nTo: alerts@example.com\nSubject: Disk full\n\nDisk 2 is nearly full.\n"
+  forwarded.eml: "From: app@example.com\nTo: help@example.com\nSubject: Forwarded twice\n\nThis went to help@.\n"
+
+# One surl: SMTP for the app, IMAP for the test. support@ goes to ann and bob, alerts@ to ops,
+# and help@ to support@. Only app, ann, bob and ops are mailboxes; the aliases are not.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox ops@example.com:opspass --mail-alias "support@example.com=ann@example.com,bob@example.com" --mail-alias "alerts@example.com=ops@example.com" --mail-alias "help@example.com=support@example.com" smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The app's two sends, shown before the test in the Solution.
+seed:
+  - curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt support@example.com -T help.eml smtp://127.0.0.1:{{port}}/example.com --next --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt alerts@example.com -T alert.eml smtp://127.0.0.1:{{port}}/example.com
+
+# The cases run in order against the same server.
+cases:
+  - id: solution
+    role: solution
+    claim: After the app mails support@ and alerts@, an IMAP SEARCH finds the support mail in ann's and in bob's INBOX and the alert in ops's, each as UID 1.
+    run: 'curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Cannot%20log%20in%22" --next -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Cannot%20log%20in%22" --next -u ops@example.com:opspass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Disk%20full%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n* SEARCH 1\n* SEARCH 1\n"
+
+  - id: alert-not-to-support
+    claim: The alert reached only the mailbox its alias names; the same SEARCH in ann's INBOX finds nothing.
+    run: 'curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Disk%20full%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: to-field-kept
+    claim: The stored copy is the message the app sent; its To field still names the alias, support@example.com.
+    run: 'curl -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(TO)"'
+    expect:
+      exit: 0
+      stdout: "To: support@example.com\n\n"
+
+  - id: alias-of-an-alias
+    claim: An alias may name another alias; mail to help@ follows help@ to support@ and lands in bob's INBOX as UID 2.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt help@example.com -T forwarded.eml smtp://127.0.0.1:{{port}}/example.com --next -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Forwarded%20twice%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 2\n"
+
+  - id: one-copy-per-mailbox
+    claim: One message to support@ and to ann@ reaches ann once, not twice; her INBOX goes from two messages to three.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt support@example.com --mail-rcpt ann@example.com -T help.eml smtp://127.0.0.1:{{port}}/example.com --next -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 2 3\n"
+
+  - id: alias-is-not-an-account
+    claim: An alias is an address, not a mailbox or an account; logging in to IMAP as support@example.com is denied, exit 67.
+    run: 'curl -u support@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 67
+
+  - id: target-must-be-a-mailbox
+    claim: An alias whose target names no mailbox, a typo such as anne@example.com, is refused at start with exit 2, so the mail cannot vanish silently.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mail-alias support@example.com=anne@example.com smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: \(2\) option --mail-alias: target anne@example\.com names no mailbox\n'
+
+  - id: target-inside-the-domain
+    claim: An alias cannot forward outside every --mail-domain; a target at elsewhere.org is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mail-alias support@example.com=ann@elsewhere.org smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: \(2\) option --mail-alias: target ann@elsewhere\.org is not in any --mail-domain\n'
+
+  - id: alias-is-not-a-mailbox-too
+    claim: An address cannot be both an alias and a mailbox; an alias for ann@example.com, which is a --mailbox, is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mail-alias ann@example.com=bob@example.com smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --mail-alias: alias ann@example\.com is also a mailbox\n'

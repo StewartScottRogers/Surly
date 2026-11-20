@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-clients-apart-by-account-from-an-agent]]
+=== Telling Accounts Apart from an Agent
+
+==== Problem
+
+Several services share one test server, each with its own account, and a test must say which one fetched what. You want your artificial intelligence (AI) agent to read, from what the server recorded, the account behind every request.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts a server with one account per service through `surl-mcp`, lets each service fetch through `curl-mcp`{apos}s `curl` tool, then calls `get_events` for the logins and `get_exchanges` for what each login asked for:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s own options in `arguments`: each `--user name:password` adds one account, and once any account exists every request needs a login. `files` puts the two files in memory, and the answer's `bound_urls` holds the real port. `surl-mcp` records every server it starts; there is nothing to turn on.
+
+`curl` runs `curl` with the argument list given. `--digest -u billing:b1-secret` logs in with Digest access authentication (<<rfc7616>>), which `surl` accepts over plain Hypertext Transfer Protocol (HTTP) because no password crosses the wire in clear; `-w "%{http_code}"` puts the status code at the end of `standardOutput`. Each call is its own `curl` process and so its own connection. The third call claims to be `search` with a wrong password and is answered `401 Unauthorized`.
+
+`get_events` answers the events the server kept, oldest first. With `kinds` set to `login_judged`, each event has `exchange_id`, `mechanism` (`Digest`), `account` and `is_accepted`; a wrong password is an event too, refused, under the account the caller claimed. `get_exchanges` answers what each client sent and what the server sent back; `after_exchange_id` one less than an exchange's number and `max_exchanges` 1 pick that exchange alone, and the `data` of its `received` chunks holds the `GET` lines. Reading only the exchanges whose login was accepted gives the answer: `billing` fetched `/invoices.csv`, `search` fetched `/index.html`.
+
+`get_events` filters by `account` as well: for `billing` it keeps that exchange's `exchange_started`, `login_judged` and `exchange_ended` and nothing of the others. An account no request named answers an empty list rather than a tool error, so an agent checking that a service never called reads an empty list as "never".
+
+An exchange is one connection, so a client that reused one connection for two accounts would put both logins in one exchange; <<http-tell-clients-apart-by-account-in-csharp>> shows that case.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-clients-apart-by-account>> for the same task on the console, from the log.
+* <<http-tell-clients-apart-by-account-in-csharp>> for the same task from a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>.

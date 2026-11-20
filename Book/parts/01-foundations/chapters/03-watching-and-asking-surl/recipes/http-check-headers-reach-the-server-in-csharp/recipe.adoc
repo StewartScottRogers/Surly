@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-check-headers-reach-the-server-in-csharp]]
+=== Checking Headers Reach the Server in C#
+
+==== Problem
+
+Your C# client adds an application programming interface (API) key and a trace ID header to every Hypertext Transfer Protocol (HTTP) request it makes. You want a test that reads the requests as the server received them and fails unless each header arrived exactly once.
+
+==== Solution
+
+Start a `SurlServer` that records its exchanges, make two requests through the code under test, then split what the server received into request heads and count each header in each:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.RecordExchanges` makes the in-process server keep every byte of every exchange; it is off by default, and reading `SurlServer.Exchanges` with it off throws. Each `SurlExchangeRecord` is one connection, so the two requests here, sent by one `CurlClient` over a kept-alive connection, may share one record. The test does not care: it joins the `Received` bytes of every record and splits them at the blank line that ends each request head. These requests have no body, so what lies between two blank lines is exactly one head.
+
+`Build` stands in for the code under test. It makes each `CurlRequest` with `Headers`, a list of name and value pairs that `CurlClient` sends in that order and with that casing, beside the one `Accept` header it adds of its own. `CurlResponse.Body` is drained before the next request, so the connection is free for it.
+
+`Headers` is sent as given, duplicates included; nothing merges two entries of the same name. When the caller adds a trace ID the helper already added, both arrive, in order, and the test exits `1`. That is the failure this test is for: a header added at two layers of a client reaches the server twice, and the server may keep either value.
+
+An empty value goes on the wire as the name, a colon and nothing else, `X-Api-Key:`. The count still finds one, so a test that cares whether the key is right must compare the value too. `RemovedHeaders` names default headers the client should not send: `["Accept"]` leaves the request with no `Accept` at all, as `-H "Accept:"` does on the console.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-check-headers-reach-the-server>> for the same check on the console.
+* <<http-check-headers-reach-the-server-from-an-agent>> for the same check from an agent.
+* <<http-record-what-the-client-sent>> for what else a recorded exchange holds.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs risky-step.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-snapshot-before-a-risky-step
+title: Snapshotting Before a Risky Step
+protocols: [http, ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, snapshot_server, restore_server, get_events, curl, transfer]
+curl-options: [-s, -T]
+exit-codes: [0, 1, 9]
+references: [surl-readme, curl-readme, rfc959, rfc9110]
+
+# broken.json is what the risky step writes; data/ is the folder the on-disk scenario serves.
+fixtures:
+  broken.json: "{not json\n"
+  data/users.json: "[{\"name\":\"alice\"}]\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent snapshots the server, runs a step that overwrites users.json over FTP and then fails with curl exit 9, restores the snapshot, and users.json is back as it was; the server recorded the write and then the restore.
+    program: risky-step.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "snapshot: p1\nstep: overwrite users.json, curl exit 0; archive it, curl exit 9\nafter the step: users.json is {not json\nrestored: p1\nafter the restore: users.json is [{\"name\":\"alice\"}]\nrecorded: written /users.json\nrecorded: restored /\n"
+
+  - id: half-done-is-visible
+    claim: A step that fails halfway leaves its first change in place; the upload into a missing folder fails with curl exit 9 while users.json already holds the broken contents.
+    program: risky-step.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstep: overwrite users\.json, curl exit 0; archive it, curl exit 9\nafter the step: users\.json is \{not json\n'
+
+  - id: newest-four-kept
+    claim: Only the newest four snapshots of a server are kept, so after five the first is gone and restore_server refuses it.
+    program: risky-step.cs
+    args: [five-snapshots]
+    expect:
+      exit: 1
+      stdout: "snapshot: p1\nrestore_server refused: server s1 has no snapshot p1; only its newest 4 snapshots are kept\n"
+
+  - id: snapshot-belongs-to-its-server
+    claim: A snapshot restores only into the server that took it; another server answers that it has no such snapshot.
+    program: risky-step.cs
+    args: [other-server]
+    expect:
+      exit: 1
+      stdout: "snapshot: p1\nrestore_server refused: server s2 has no snapshot p1; only its newest 4 snapshots are kept\n"
+
+  - id: on-disk-refused
+    claim: A server whose files are on disk, given --directory, refuses the snapshot, so an agent never rolls back a real directory.
+    program: risky-step.cs
+    args: [on-disk]
+    expect:
+      exit: 1
+      stdout: "snapshot_server refused: Content: the store could not be snapshotted. The content store is on disk (--directory): reset, snapshot and restore are refused so a test never empties a real directory.\n"

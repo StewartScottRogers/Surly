@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smbs-read-a-share-over-tls-in-csharp]]
+=== Reading Shares over SMBS in C#
+
+==== Problem
+
+Your client reads files from a Server Message Block (SMB) share and you want the session inside Transport Layer Security (TLS). From a C# test you want an `smbs` server with your certificate, a login it accepts, and to see the failure when the client does not trust it.
+
+==== Solution
+
+The program serves a share over `smbs` with `Surl.Api`, reads a file from it with `Curl.Api`, trusting the certificate `openssl` wrote:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServer` is the server in this process, and `SurlServerOptions` is its command line as properties. `ListenUrls` holds `smbs://127.0.0.1:0`, port `0` taking a free one, and `server.BoundUrl` has the port it took. `CertificateFile` and `KeyFile` are `--cert` and `--key`, the PEM files `setup` made with the address as a subject alternative name. `Accounts` takes a `SurlAccount`, which is `-u alice:s3cret`, and `AuthenticationMethods` is `--auth`: `ntlmv1` is the login `curl` makes in an SMB session setup, the first version of Windows NT LAN Manager{apos}s challenge and response. `Files["docs/readme.txt"]` serves a file in memory, and its first folder, `docs`, is the share.
+
+The client is a `CurlClient` made with `CurlClientOptions`, whose `Tls` is a `CurlTlsOptions` and whose `Origin` is a `CurlTlsPeerOptions`: `CertificateAuthorityFile` is `--cacert`, and `VerifyPeer = false` is `-k`. A `CurlRequest` carries the `smbs://` URL and a `CurlAuthenticationOptions` with the user name and password; a `CurlResponse` has a `Body` stream. When the transfer fails, `SendAsync` throws a `CurlException` whose `Code` is curl{apos}s exit code. A client that trusts nothing gets `60`, `PeerFailedVerification`, because no authority signed the certificate. A trusting client with the wrong password gets `67`, `LoginDenied`, as on plain SMB: TLS adds the tunnel and does not change the login.
+
+Without `CertificateFile` and without `SelfSigned`, `SurlServer.StartAsync` throws `SurlServerStartException`, whose `Message` names both ways out; the program exits `58`, the code `surl` itself uses for it. `SelfSigned` is `--self-signed`: the server makes a throwaway certificate and warns, and a client that verifies gets `60` again, so the test must turn `VerifyPeer` off. That is a loosening, and the real certificate with `CertificateAuthorityFile` is the one to keep where the client can be given it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smbs-read-a-share-over-tls>> for the same task on the console.
+* <<smbs-read-a-share-over-tls-from-an-agent>> for the same task with an agent.
+* <<surl-readme>>, <<curl-readme>>, <<ms-smb>>, <<rfc8446>>.

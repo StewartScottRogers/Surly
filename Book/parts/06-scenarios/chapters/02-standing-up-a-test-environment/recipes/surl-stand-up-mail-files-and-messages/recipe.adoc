@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-stand-up-mail-files-and-messages]]
+=== Standing Up Mail, Files and Messages
+
+==== Problem
+
+Your app{apos}s integration test needs a mail server, a file server and a Message Queuing Telemetry Transport (MQTT) broker; you want one server process for all three, and the test checking what landed in each.
+
+==== Solution
+
+Start one `surl` with four listen URLs, Simple Mail Transfer Protocol (SMTP) and Internet Message Access Protocol (IMAP) for mail, Hypertext Transfer Protocol (HTTP) for files and MQTT for messages, and one account the app uses on all of them. Let the app send, then read back each store with one `curl`:
+
+include::.generated/solution.adoc[]
+
+The first `curl` is the app: when order 7 ships it mails the customer, uploads the invoice and publishes an event. In a real test the app does that against ports `8080`, `8082` and `8083`, and the test runs the second command.
+
+==== Discussion
+
+One `surl` serves every listen URL it is given, and its servers share their stores: the SMTP and IMAP servers one mail store, the HTTP server the content store, the MQTT broker the message bus (<<surl-readme>>). One process to start and stop is the point; the ports are what tell the protocols apart.
+
+The options set up the three stores and one set of logins. `--mail-domain example.com` serves mail for the domain. `--mailbox "app@example.com:apppass;protocols=smtp,http,mqtt"` adds the app{apos}s mailbox and account, and `protocols=` lists the schemes it may log in on, here every one the app uses; Ann{apos}s `--mailbox` keeps the default, the mail schemes only. `--allow-uploads` lets a logged-in client store files with `PUT`. `--topic "orders/#;retain"` keeps the last message published on every topic under `orders/` for later subscribers (<<mqtt311>>). Quote both values with `;` in them.
+
+`--allow-plaintext-auth` is there for MQTT, whose login sends the password as it is; without the option the broker refuses it unchecked, `CONNACK` 5, and `curl` exits `8`, as the `strict` server shows. It is a loosening, and `surl` warns when it is on (<<surl-readme>>). It does not weaken the other logins: `curl` still logs in to SMTP with `CRAM-MD5`, which never sends the password, and to HTTP with Digest (`--digest`, <<rfc7616>>).
+
+The app{apos}s command is three transfers joined by `--next`, each with its own options. The mail is `-u`, `--mail-from`, `--mail-rcpt` and `-T shipped.eml` (<<rfc5321>>), with `--crlf` for the line ends mail needs. The invoice is `-T invoice-7.txt` to an HTTP URL, a `PUT`. The event is `-d shipped` to `mqtt://.../orders/7`, a publish. Sent again with `-w "%{response_code}\n"`, and `-o` sending the HTTP answer{apos}s body to nowhere, the mail is answered `250` and the invoice `204 No Content`, because it replaces the copy the first run stored.
+
+The test{apos}s command reads each store back the way a client would, with `-s` for no progress meter and `-S` for errors all the same. The IMAP URL fetches the `From`, `To` and `Subject` fields of Ann{apos}s first message (<<rfc9051>>); the HTTP `GET`, with the app{apos}s Digest login, returns the invoice as stored; and an MQTT URL with no `-d` subscribes, gets the retained message and ends. `curl` writes a received MQTT message as the topic{apos}s length in two bytes, the topic and the payload, so `-o event.bin` puts it in a file rather than on the terminal: the file holds two bytes that do not print, then `orders/7shipped`. A test compares the printed fields and invoice, and the file, with what it expects.
+
+Each store is surly in its own way. With an account configured, the HTTP server answers a `GET` with no login `401`, so the invoice is not open to anything else on the machine; and Ann{apos}s login is refused there too, since her mailbox logs in on mail only. A publish on a topic outside `--topic orders/#`, such as `invoices/7`, is not kept, so a later subscribe receives nothing: an app that publishes on the wrong topic shows up as an empty answer, not an error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-stand-up-mail-files-and-messages-in-csharp>> for the same environment in a C# test.
+* <<surl-stand-up-mail-files-and-messages-from-an-agent>> for the same environment run by an agent.
+* <<surl-run-a-fixture-from-a-config-file>> for keeping a command line like this one in a file.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9051>>, <<rfc7616>>, <<mqtt311>>.

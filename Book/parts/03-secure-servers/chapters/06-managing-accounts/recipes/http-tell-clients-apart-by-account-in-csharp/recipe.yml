@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-tell-clients-apart-by-account-in-csharp
+title: Telling Accounts Apart in C#
+protocols: [http]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, SurlEvent, LoginJudgedEvent, SurlExchangeRecord, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc7616]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two services log in to one server with their own accounts and a third caller guesses search's password; the login events name the exchange, method and account of each, and the exchanges whose login was accepted show billing fetched invoices.csv and search fetched index.html.
+    program: who-fetched.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "billing GET /invoices.csv: 200\nsearch GET /index.html: 200\nsearch, wrong password, GET /invoices.csv: 401\nexchange 1: Digest billing accepted\nexchange 2: Digest search accepted\nexchange 3: Digest search refused\nbilling fetched: /invoices.csv\nsearch fetched: /index.html\nlog: 1 line(s) Login accepted: Digest billing\nlog holds a password: no\n"
+
+  - id: refused-login-is-an-event
+    claim: A wrong password is a LoginJudged event too, with IsAccepted false and the account the caller claimed.
+    program: who-fetched.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nexchange 3: Digest search refused\n'
+
+  - id: log-names-not-passwords
+    claim: The verbose log the program keeps in a StringWriter has a Login accepted line naming the account, and no password, the wrong one included.
+    program: who-fetched.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlog: 1 line\(s\) Login accepted: Digest billing\nlog holds a password: no\n$'
+
+  - id: one-connection-mixes-accounts
+    claim: An exchange is one connection, so when one client carries both accounts' requests every login lands in exchange 1, and the exchange no longer says which account fetched which file.
+    program: who-fetched.cs
+    args: [one-client]
+    expect:
+      exit: 0
+      stdout-matches: '\nexchange 1: Digest billing accepted\nexchange 1: Digest search accepted\nexchange 1: Digest search refused\nbilling fetched: /invoices\.csv, /index\.html\nsearch fetched: /invoices\.csv, /index\.html\n'
+
+  - id: recording-is-off-by-default
+    claim: With RecordExchanges false, the default, FindEvents throws InvalidOperationException, because nothing was recorded.
+    program: who-fetched.cs
+    args: [not-recorded]
+    expect:
+      exit: 1
+      stdout-matches: '\nFindEvents: InvalidOperationException\n$'

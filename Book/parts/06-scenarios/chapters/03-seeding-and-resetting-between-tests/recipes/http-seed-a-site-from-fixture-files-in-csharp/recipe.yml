@@ -1,0 +1,77 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-seed-a-site-from-fixture-files-in-csharp
+title: Seeding a Site from Fixture Files
+protocols: [http, ftp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFolderPage, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110, rfc959]
+
+# fixtures/ stands for the folder the repository keeps.
+fixtures:
+  fixtures/users.json: "[{\"name\":\"alice\"}]\n"
+  fixtures/orders/1.json: "{\"id\":1}\n"
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The program reads every file under fixtures into Files, a test replaces users.json and adds orders/2.json over HTTP and FTP reads the change, the files on disk stay as they were, and ResetAsync puts back exactly the fixtures.
+    program: seed-from-fixtures.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "seeded: orders/1.json, users.json\nHTTP PUT users.json: 204\nHTTP PUT orders/2.json: 201\nFTP GET users.json: []\nfixtures/users.json on disk: [{\"name\":\"alice\"}]\nfixtures/orders on disk: 1.json\nafter reset, HTTP GET users.json: [{\"name\":\"alice\"}]\nafter reset, orders/: 1.json\n"
+
+  - id: put-replaces-and-adds
+    claim: An anonymous HTTP PUT over a seeded file is answered 204 No Content and one of a new path 201 Created.
+    program: seed-from-fixtures.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nHTTP PUT users\.json: 204\nHTTP PUT orders/2\.json: 201\n'
+
+  - id: ftp-reads-the-same-store
+    claim: The FTP listener serves the same in-memory store, so it reads the users.json the HTTP PUT wrote.
+    program: seed-from-fixtures.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nFTP GET users\.json: \[\]\n'
+
+  - id: disk-untouched
+    claim: The files in memory are copies, so the fixtures on disk keep their contents and gain no file.
+    program: seed-from-fixtures.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nfixtures/users\.json on disk: \[\{"name":"alice"\}\]\nfixtures/orders on disk: 1\.json\n'
+
+  - id: strict-refuses
+    claim: With AllowAnonymous and AllowUploads left off and no account, both PUTs are answered 401 Unauthorized and the anonymous FTP login is refused, CurlException LoginDenied.
+    program: seed-from-fixtures.cs
+    args: [strict]
+    expect:
+      exit: 0
+      stdout-matches: '\nHTTP PUT users\.json: 401\nHTTP PUT orders/2\.json: 401\nFTP GET users\.json: CurlException LoginDenied\n'
+
+  - id: no-uploads-refuses
+    claim: With AllowAnonymous on and AllowUploads left off, both PUTs are answered 405 Method Not Allowed and FTP still reads the seeded users.json.
+    program: seed-from-fixtures.cs
+    args: [no-uploads]
+    expect:
+      exit: 0
+      stdout-matches: '\nHTTP PUT users\.json: 405\nHTTP PUT orders/2\.json: 405\nFTP GET users\.json: \[\{"name":"alice"\}\]\n'
+
+  - id: not-both
+    claim: Files cannot seed a server that also serves a DataDirectory; StartAsync throws ArgumentException before anything listens.
+    program: seed-from-fixtures.cs
+    args: [on-disk]
+    expect:
+      exit: 1
+      stdout: "ArgumentException: DataDirectory and Files cannot both be given. (Parameter 'options')\n"
