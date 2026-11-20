@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-time-each-phase-of-a-download]]
+=== Timing Each Phase of a Download
+
+==== Problem
+
+A fetch over Hypertext Transfer Protocol (HTTP) is slower than you expect, and you want to know where the time goes: finding the host, connecting, the server thinking, or the bytes arriving.
+
+==== Solution
+
+Fetch the file with `curl` and have `-w` print the time at which each phase ended:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Each `%{time_...}` variable of `-w` is a moment, in seconds since the transfer began, not a duration, so the phases are the differences between neighbours:
+
+* `time_namelookup`: the host name is resolved.
+* `time_connect`: the Transmission Control Protocol (TCP) connection is open. On loopback that is well under a second.
+* `time_appconnect`: the Transport Layer Security (TLS) handshake is done. Over plain `http://` there is none, and it prints `0.000000`.
+* `time_pretransfer`: the request is about to go.
+* `time_starttransfer`: the first byte of the answer has arrived. The gap from `time_pretransfer` to here is the server working on the request.
+* `time_total`: the last byte has arrived and the transfer is over. The gap from `time_starttransfer` is the body coming in.
+
+Each server serves its own folder with `--directory`, since one `surl` holds a folder at a time. `-s` keeps the progress meter out of the way and `-o` sends the body to nowhere, so the output is only the timings.
+
+To see a slow server show up in the right place, the `slow` server in this recipe holds every request for 1.5 seconds with `--fault "delay;stage=command;ms=1500"`, which `surl` warns about when it starts, as it does for every fault rule. The connection is made as fast as ever: `time_pretransfer` stays under a second. `time_starttransfer` is 1.5 seconds or more, so the whole wait sits between the two, where a slow handler would sit. Against a real server the same reading says the time is the server's, not the network's.
+
+Over `https://` the handshake gets its own mark. `surl` serves the `tls` folder with `--cert` and `--key`, a certificate and key made in setup for `127.0.0.1`, and `--cacert server.pem` makes `curl` trust it; `time_appconnect` is then more than zero, and the handshake is the gap from `time_connect` to it.
+
+A connection that is reused costs nothing to open. With two URLs on one command line, each with its own `-o`, `curl` keeps the first connection alive for the second: the first transfer's `time_connect` is a fraction of a second and the second's is `0.000000`. A test that times one request in a series measures less than the first request paid.
+
+These are timings, so the cases ask for ranges and zeros, never for exact numbers: a slow machine moves every mark later.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-limit-download-speed>> for slowing the body down on the client side and reading the speed with `-w`.
+* <<http-slow-down-one-path>> for a delay on one path only.
+* <<http-time-out-a-hanging-server>> for giving up on a server that never answers.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

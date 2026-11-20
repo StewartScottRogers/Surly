@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-read-answers-as-json]]
+=== Reading DNS Answers as JSON
+
+==== Problem
+
+Your script checks the MX, TXT and AAAA records of a domain and wants them machine-readable, not dig-style text to be cut apart with `awk`. You want each record type looked up and written as JavaScript Object Notation (JSON), and a name outside the zone refused.
+
+==== Solution
+
+Put the zone in a master file under `.surl/dns` in the directory `surl` serves, start `surl` as a Domain Name System (DNS) server over it, and ask for the MX records with `curl --dns-json`. The zone file is shown with the commands:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Upstream `curl` has no `dns` scheme; the Curl port adds one, and `surl` an authoritative DNS server to answer it (<<curl-readme>>, <<surl-readme>>). The URL is the shape RFC 4501 gives a DNS query: the host and port name the server, the path the name, and `type=` the record type, `MX` here (<<rfc4501>>). The type defaults to `A`.
+
+`surl` reads its zones from master files (<<rfc1035>>, section 5), once at start. A file named `<apex>.zone` under `.surl/dns` in the `--directory` holds the zone for that apex, here `example.test`. A test seeds its zones by writing the file before `surl` starts. The file here has the zone's start of authority (SOA) record, one name server, two MX records, a TXT record of two character-strings, an AAAA record and the address of the mail host.
+
+`--dns-json` is the whole point. It writes the answer as one line of JSON followed by a line feed: the header's `id`, `opcode`, `status` and `flags`, then the `question` and the `answer`, `authority` and `additional` sections, each a list of records. Every record has `name`, `type`, `class`, `ttl` and a `data` object whose fields are named for the record type, not left as one string to be split. An MX record has `preference` as a number and `exchange` as a name, so a script reads `.answer[0].data.preference` and finds `10`. A TXT record has `txt`, an array of its character-strings in the order the zone gives them, and an AAAA record has `address`. Names end in a dot, as they do in a zone file. The `id` is random for every query, which is why the claims below match it with a pattern.
+
+The answer is authoritative: the flags include `aa`, and the server answers no recursive query (<<surl-readme>>). Two answers that are not records are the ones a script has to tell apart. A name in no zone the server holds is answered `REFUSED` with all three sections empty. A name the zone does hold, asked for a type it has no record of, is answered `NOERROR` with an empty `answer` and the zone's SOA record in `authority`, which says the name exists and holds nothing of that type. Both are complete answers, so `curl` exits `0` for each, as `dig` does: the exit code says the query was answered, and `status` says how. A script that wants a refusal to be a failure has to read `status`. A server started with no zone, the second one in the claims below, holds nothing to answer from, and refuses every name.
+
+`-s` keeps `curl` quiet. By default the query goes over UDP, and a UDP answer larger than 512 bytes is truncated (<<surl-readme>>); `--dns-transport tcp` sends it over TCP instead, and one `dns` listen URL serves both on the same address and port. Without `--dns-json`, `curl` writes the same answer as text in `dig`{apos}s layout, a header line, then one tab-separated line per record, which a script would have to parse by hand.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-read-answers-as-json-in-csharp>> for the same lookups from a C# program.
+* <<dns-read-answers-as-json-from-an-agent>> for an agent that reads the zone back and asks the same questions.
+* <<rfc1035>>, <<rfc4501>>, <<surl-readme>>, <<curl-readme>>.

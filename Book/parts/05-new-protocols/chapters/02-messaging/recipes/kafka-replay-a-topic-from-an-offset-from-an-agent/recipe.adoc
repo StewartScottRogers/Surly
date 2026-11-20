@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-replay-a-topic-from-an-offset-from-an-agent]]
+=== Replaying Kafka from Offsets from an Agent
+
+==== Problem
+
+Your consumer restarts from a saved offset and must not see the records before it. You want an artificial intelligence (AI) agent to read a Kafka topic from an offset, to see the end of the log read as empty, and to see an offset past the end refused, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a Kafka broker with `start_server`, fills the topic, and consumes it with the `curl` tool from the saved offset:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` starts a broker that answers as `surl` with the same options would: `listen_urls` is `kafka://127.0.0.1:0`, port 0 for a free port, and `arguments` is `["--allow-anonymous"]`, the option that accepts a client with no login. It loosens the defaults, for a broker that holds nothing private, and the answer's `log_lines` carries the warning `surl` writes on start (<<surl-readme>>). The answer's `server_id` names the broker for the other `surl-mcp` tools, and `bound_urls` has the real port.
+
+A Kafka topic is a log: each record has an offset, 0 for the first, and a consumer reads from the offset it asks for to the end (<<kafka-protocol>>). The program fills `orders` two ways. `publish_message` appends a record to a topic of the broker: `a`, `b` and `c`. The `curl` tool runs `curl` in-process with the arguments an agent gives it, as the command line would, and `-d d` on a `kafka:` URL produces the record `d`, then `e`. The log holds all five, and the `read-log` scenario shows `d` and `e` at offsets 3 and 4 whichever way they got there.
+
+Without `-d`, the `curl` tool consumes, and `?offset=3` is the first offset to read: the answer's `standardOutput.content` is `d` and `e`, each with a newline, and the three records before them are not in it. `-s` keeps the progress meter out, and `-S` keeps the error message in. The answer is text, as JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`, each with its `content`. With no offset, and with `?offset=0`, the read starts at the first record and answers all five. The agent is not told offsets by `curl`: the consumer keeps the count of records it has read, and that count is the offset to ask for next.
+
+The offset equal to the number of records is the end of the log. The read is an answer with `exitCode` 0 and empty output, not a tool error: a consumer that has caught up. After `publish_message` adds `f`, the same offset, 5, answers `f`. An offset past the end, 9 here, is answered by the broker with error `1`, `OFFSET_OUT_OF_RANGE`; `curl` exits `8`, and the tool call is marked as a tool error, with the message on `standardError`. An offset that is not a number, `abc`, is refused by `curl` before it connects, exit `3`, naming the form `offset=<number>`. An empty answer means wait, and a tool error means the saved offset no longer fits the log.
+
+`read_log` is the broker's own view, with the offsets: `server_id`, `topic` and `from_offset`, and `limit`, the most records to return. From offset 3 it answers `d` and `e` with `next_offset` 5 and `has_more` false; from 0 with a `limit` of 2 it answers `a` and `b`, `next_offset` 2 and `has_more` true, which is how an agent pages through a long log. An offset past the end is a tool error whose text says the log holds 0 to 5, not an empty page.
+
+The log is in memory. The `fresh-broker` scenario starts a second broker, which has an empty log, and consumes with the saved offset 5: it is past the end of an empty log, so it is the same tool error with exit `8`. A consumer in that position reads from 0 again, or the agent produces the records again first.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-replay-a-topic-from-an-offset>> for the same task on the console.
+* <<kafka-replay-a-topic-from-an-offset-in-csharp>> for the same task in a C# test.
+* <<kafka-produce-and-consume>> for producing, and the login rules.
+* <<surl-readme>>, <<curl-readme>>, <<kafka-protocol>>.

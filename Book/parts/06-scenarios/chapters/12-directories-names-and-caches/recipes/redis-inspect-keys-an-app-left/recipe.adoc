@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-inspect-keys-an-app-left]]
+=== Inspecting Keys an App Left Behind
+
+==== Problem
+
+After a run you want an artificial intelligence (AI) agent to list the keys an app left in Redis, read their values and expiry, and flag any without one: a cache key that never expires is a leak. You want it done with Model Context Protocol (MCP) tool calls and no shell, and you want to see what the server itself recorded of the app{apos}s writes.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a Redis server, plays the app with the `curl` tool, and then reads the store back with `list_keys` and `read_key`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here one `redis` listener on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--user app:pw` is the account the app logs in with, and `--allow-plaintext-auth` lets that password cross a `redis://` connection, which has no encryption. That loosening is for a test on one machine. The keys live in memory and go when the server stops (<<surl-readme>>).
+
+The `curl` tool is the app. It takes `curl`{apos}s own arguments, and the URL path is the Redis command and its arguments (<<curl-readme>>, <<curl-protocols>>, <<redis-resp>>). The program makes five writes, one run each, as the account `app`: `SET/app:session:1/s1/EX/3600` and the same for `session:2` give two keys an hour of life; `app:cache:home` and `app:config` are set with no expiry, which is the mistake the agent is looking for; and `other:x` is another program{apos}s key. `-u` logs in with the account, `-s` keeps the progress meter out of the answer, and `-S` still shows an error.
+
+`list_keys` takes a Redis `KEYS` glob, here `app:*`, and answers the matching keys in order, with their type and size. It gives `expires_at` only for a key that has an expiry, so a key with none is one without the field. That is all the agent needs to flag one, and the program prints `NO EXPIRY` for it and counts them: two of four. `read_key` reads a value by name. `other:x` does not match the glob, and is not listed. `limit` cuts a page short, with `has_more` true, and `after_key` starts the next page after the key given, so an agent can walk a store of any size.
+
+`get_events` is what the server recorded, not what the app says it did. Filtered to `kinds` `store_changed` and the `keyspace` store, it lists each write as a change and the database and key, `0/app:session:1`: five of them, in order, `other:x` included, so a key written outside the namespace shows up here although `app:*` hides it. Filtered to `login_judged` and the account, it counts a login per run, all accepted.
+
+The failure path is an app that runs with the wrong password. The server refuses the login before any command, `curl` exits `67` and its error names `WRONGPASS`. That refusal is kept on purpose, and the console recipe for expiry shows it without the loosening (<<redis-expire-a-key>>). The record shows the login judged and not accepted, `list_keys` finds none of the app{apos}s keys, and `read_key` of one is a tool error, `No such key.` An agent inspecting after a run should read both: an empty list can mean an app that wrote nothing as well as one that was refused, and `login_judged` says which.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-seed-keys-from-an-agent>> for seeding keys with `set_key`.
+* <<redis-expire-a-key-from-an-agent>> for setting an expiry and reading a key after it has gone.
+* <<redis-resp>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

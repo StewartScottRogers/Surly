@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-check-a-mail-attachment-in-csharp]]
+=== Checking a Mail's Attachment in C#
+
+==== Problem
+
+In a C# test, your app sends a report as a Multipurpose Internet Mail Extensions (MIME) attachment; you want the test to fetch the stored message and compare the attachment{apos}s bytes with the report.
+
+==== Solution
+
+Start a `SurlServer` with Simple Mail Transfer Protocol (SMTP) and Internet Message Access Protocol (IMAP) listeners, let the app send its report with .NET{apos}s `SmtpClient`, then fetch the attachment{apos}s part with a `CurlClient`, decode it and compare it with the report byte for byte:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `smtp://` and an `imap://` URL on port 0, two servers over one mail store (<<surl-readme>>); `MailDomains` is `--mail-domain`, and each `Mailboxes` entry is a `--mailbox`, a mailbox and the account that logs in to it by its whole address. `SurlServer.StartAsync` returns once both are bound, and `BoundUrls` gives them in that order.
+
+The app is played by `SmtpClient` from `System.Net.Mail`, as a .NET app would send: a `MailMessage` with the note as its body and an `Attachment` made from the report{apos}s bytes, named `report.csv`, type `text/csv`. `SmtpClient` builds the MIME message itself: the note as part 1 and the report, in base64, as part 2. It needs one loosening on the server, `AllowPlaintextAuthentication`, `--allow-plaintext-auth`: without Transport Layer Security (TLS) `surl` offers only `CRAM-MD5`, a login that never sends the password (<<rfc2195>>), which `SmtpClient` cannot do, so it sends no login and the server refuses the mail with `5.7.0 Authentication required`. Turn it on for a loopback test only.
+
+The test fetches the part by number (<<rfc9051>>), with one `CurlClient` for both requests. A `CurlRequest` for `INBOX;UID=1;SECTION=2.MIME` returns only part 2{apos}s header, where the program reads the `Content-Type` line, `text/csv` named `report.csv`; one for `INBOX;UID=1;SECTION=2` returns the part{apos}s body as stored, still base64. `CurlAuthenticationOptions` is Ann{apos}s login, and each `CurlResponse` `Body` is read to a string. `Convert.FromBase64String` decodes it, skipping the line ends, and `SequenceEqual` compares the bytes with the report. A match prints the size and exits `0`.
+
+Both mistakes are delivered without complaint, so only the test finds them. An older report decodes to 69 bytes, not 85, and the comparison fails. A mail with no attachment has no part 2, and asking for one is not an error: both fetches succeed with empty bodies, so the program checks for an empty part before decoding and fails with `no attachment`. The exit codes are the program{apos}s own choice.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-a-mail-attachment>> for the same test on the console.
+* <<smtp-check-a-mail-attachment-from-an-agent>> for the same test run by an agent.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for checking the sender, recipient and subject.
+* <<surl-readme>>, <<rfc2195>>, <<rfc9051>>.

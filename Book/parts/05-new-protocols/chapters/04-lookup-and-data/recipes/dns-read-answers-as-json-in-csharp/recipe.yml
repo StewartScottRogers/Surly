@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: dns-read-answers-as-json-in-csharp
+title: DNS Answers as JSON in C#
+protocols: [dns]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerZones, SurlSeedRefusedException, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc1035, rfc4501]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A zone seeded with Zones.AddZoneAsync is queried through Curl.Api for MX, TXT and AAAA, and the program writes each answer as a line of JSON; the MX answer holds both exchanges with their TTL, and the status is NOERROR.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "{\"name\":\"example.test\",\"type\":\"MX\",\"status\":\"NOERROR\",\"answers\":[{\"ttl\":300,\"data\":\"10 mail.example.test.\"},{\"ttl\":300,\"data\":\"20 mail2.example.test.\"}]}\n{\"name\":\"example.test\",\"type\":\"TXT\",\"status\":\"NOERROR\",\"answers\":[{\"ttl\":300,\"data\":\"\\\"v=spf1 mx -all\\\" \\\"second string\\\"\"}]}\n{\"name\":\"example.test\",\"type\":\"AAAA\",\"status\":\"NOERROR\",\"answers\":[{\"ttl\":300,\"data\":\"2001:db8::25\"}]}\n"
+
+  - id: outside-the-zone
+    claim: A name in no zone the server holds is answered REFUSED with no records; SendAsync throws nothing, and the program reads the refusal from the status.
+    program: program.cs
+    args: [outside-the-zone]
+    expect:
+      exit: 0
+      stdout: "{\"name\":\"nope.invalid\",\"type\":\"A\",\"status\":\"REFUSED\",\"answers\":[]}\n"
+
+  - id: no-such-type
+    claim: A name the zone holds, asked for a type it has no record of, is answered NOERROR with no records, so the program tells it from a refusal by the status.
+    program: program.cs
+    args: [no-such-type]
+    expect:
+      exit: 0
+      stdout: "{\"name\":\"example.test\",\"type\":\"SRV\",\"status\":\"NOERROR\",\"answers\":[]}\n"
+
+  - id: no-zone
+    claim: A server given no zone refuses every name, example.test included.
+    program: program.cs
+    args: [no-zone]
+    expect:
+      exit: 0
+      stdout: "{\"name\":\"example.test\",\"type\":\"MX\",\"status\":\"REFUSED\",\"answers\":[]}\n"
+
+  - id: read-back
+    claim: Zones.ReadAsync answers the seeded zone as master-file text, a record a line, with absolute names and the TTL and class on every line.
+    program: program.cs
+    args: [read-back]
+    expect:
+      exit: 0
+      stdout: "example.test. 300 IN SOA ns1.example.test. hostmaster.example.test. 1 3600 600 86400 300\nexample.test. 300 IN NS ns1.example.test.\nexample.test. 300 IN MX 10 mail.example.test.\nexample.test. 300 IN MX 20 mail2.example.test.\nexample.test. 300 IN TXT \"v=spf1\\032mx\\032-all\" \"second\\032string\"\nexample.test. 300 IN AAAA 2001:db8::25\nmail.example.test. 300 IN A 192.0.2.25\n"
+
+  - id: second-zone
+    claim: A second zone for an apex the server already holds is refused with SurlSeedRefusedException, store Zones, and the program exits 1.
+    program: program.cs
+    args: [second-zone]
+    expect:
+      exit: 1
+      stdout: "seed refused: Zones a second zone for example.test\n"
+
+  - id: no-dns-server
+    claim: Seeding a zone into a server with no DNS listener, here an HTTP one, is refused with SurlSeedRefusedException, because the instance holds no DNS zones.
+    program: program.cs
+    args: [no-dns-server]
+    expect:
+      exit: 1
+      stdout: "seed refused: Zones This instance holds no DNS zones\n"

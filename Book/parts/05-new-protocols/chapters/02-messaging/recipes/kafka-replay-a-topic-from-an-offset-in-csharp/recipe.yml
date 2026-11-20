@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: kafka-replay-a-topic-from-an-offset-in-csharp
+title: Replaying Kafka from Offsets in C#
+protocols: [kafka]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlMessages, SurlLogPage, SurlLogRecord, SurlReadRefusedException, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, kafka-protocol]
+triplet: kafka-replay-a-topic-from-an-offset
+
+fixtures: {}
+
+# No servers: block. The program hosts its own brokers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Surl.Api Kafka broker holding the records a to e, read by Curl.Api from the saved offset 3, gives d and e and none of the three before them.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^saved offset 3: \[d, e\]\n'
+
+  - id: whole-log
+    claim: With no offset in the URL, and with ?offset=0, the read gives the whole log, the old records too; ?offset=2 starts in the middle.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno offset: \[a, b, c, d, e\]\noffset 0: \[a, b, c, d, e\]\noffset 2: \[c, d, e\]\n'
+
+  - id: caught-up
+    claim: An offset equal to the record count, 5, gives an empty answer and no exception; after one more record the same offset gives only that record.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ncaught up at 5: \[\]\nresume at 5: \[f\]\n'
+
+  - id: past-the-end
+    claim: An offset past the end, 7 for six records, throws CurlException with code 8, WeirdServerReply, whose message names error 1, OFFSET_OUT_OF_RANGE.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npast the end at 7: CurlException 8 WeirdServerReply: Kafka broker answered error 1 \(OFFSET_OUT_OF_RANGE\) for topic orders partition 0\n'
+
+  - id: not-a-number
+    claim: An offset that is not a number throws CurlException with code 3, UrlMalformat, before anything is sent.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nnot a number: CurlException 3 UrlMalformat: Kafka URL query is offset=<number>\n'
+
+  - id: server-side-log
+    claim: The server can read its own log with offsets, which the client never sees; from offset 4 it has e and f at offsets 4 and 5, and the next offset is 6, and a read from 7 is refused with SurlReadRefusedException.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlog from 4: 4=e 5=f, next 6\nlog from 7: SurlReadRefusedException\n'
+
+  - id: after-a-restart
+    claim: A new server has an empty log, so the saved offset 6 is past its end and the read throws the same CurlException 8.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter a restart at 6: CurlException 8 WeirdServerReply: Kafka broker answered error 1 \(OFFSET_OUT_OF_RANGE\) for topic orders partition 0\n$'

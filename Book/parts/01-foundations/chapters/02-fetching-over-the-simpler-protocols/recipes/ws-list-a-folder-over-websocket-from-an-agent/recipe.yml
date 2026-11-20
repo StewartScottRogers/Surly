@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs list-folder.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ws-list-a-folder-over-websocket-from-an-agent
+title: Listing Folders over WebSocket from an Agent
+protocols: [ws, http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, curl, transfer, get_exchanges]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc6455]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts a WebSocket server on port 0 with --list-directories and three files in memory, curl-mcp's curl tool reads the root and answers exit 0 with the listing, hello.txt and notes/ one per line and no dot file, and get_exchanges shows the upgrade, one text frame of 17 bytes and then a close frame.
+    program: list-folder.cs
+    args: [list]
+    expect:
+      exit: 0
+      stdout: "/ exit: 0\nhello.txt\nnotes/\nreceived: GET / HTTP/1.1\nsent: HTTP/1.1 101 Switching Protocols\nsent: text frame, 17 bytes\nsent: close frame\n"
+
+  - id: folders
+    claim: A sub-folder is listed with or without the closing slash, and a path that is a file comes back as the file.
+    program: list-folder.cs
+    args: [folders]
+    expect:
+      exit: 0
+      stdout: "/notes/ exit: 0\ntoday.txt\n/notes exit: 0\ntoday.txt\n/hello.txt exit: 0\nhello from surl\n"
+
+  - id: transfer-tool
+    claim: The transfer tool reads the same listing as a response with statusCode 101, the status of the upgrade, and the listing in the body; that is not a tool error.
+    program: list-folder.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "statusCode: 101\nfailure: Null\nhello.txt\nnotes/\ntool error: no\n"
+
+  - id: listings-off
+    claim: A server started without --list-directories refuses the upgrade for the root, the curl tool answers exit code 22, HttpReturnedError, and get_exchanges shows the server answered 404 Not Found.
+    program: list-folder.cs
+    args: ["off"]
+    expect:
+      exit: 0
+      stdout: "/ exit: 22\ncurl exit code 22 (HttpReturnedError)\nreceived: GET / HTTP/1.1\nsent: HTTP/1.1 404 Not Found\n"
+
+  - id: missing
+    claim: A path that is not there and a dot file the server holds are refused alike, exit code 22, HttpReturnedError, so the refusal does not say which of the three it was.
+    program: list-folder.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "/nowhere/ exit: 22\ncurl exit code 22 (HttpReturnedError)\n/.secret exit: 22\ncurl exit code 22 (HttpReturnedError)\n"

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-test-a-shared-team-folder-in-csharp]]
+=== Testing a Shared Team Folder in C#
+
+==== Problem
+
+In a C# test, your team inbox is a shared Internet Message Access Protocol (IMAP) folder; you want two accounts sharing it and a test that both see, and one can flag, a message delivered to it.
+
+==== Solution
+
+Start a `SurlServer` that shares a folder named `team` between Ann and Bob, append the notice to it as Ann, read it as both with a `CurlClient`, flag it as Bob, and check that Ann{apos}s search, and the server{apos}s store, show the flag:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `smtp://` and an `imap://` URL on port 0, two servers over one mail store; `MailDomains` is `--mail-domain`, and each `Mailboxes` entry is a `--mailbox`, a mailbox and the account that logs in to it by its whole address. `SharedFolders` is `--shared-folder`: `team=ann@example.com,bob@example.com` creates one folder and gives it to those two (<<surl-readme>>). Each member sees it as `Shared/team`, and they use it as equals, because the folder and its flags are stored once. `SurlServer.StartAsync` returns once both servers are bound; `BoundUrls[1]` is the IMAP one.
+
+Reading is `Curl.Api`{apos}s part: one `CurlClient` sends every request. A `CurlRequest` with `HttpMethod.Get` and the URL `Shared/team;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)` fetches that field of the message whose unique identifier (UID) is 1; `Shared/team?FLAGGED` is a `SEARCH` for flagged messages, answered `* SEARCH 1` (<<rfc9051>>). `CurlAuthenticationOptions` holds each member{apos}s login, and the `CurlResponse` `Body` the answer. Bob and Ann read the same subject, and after Bob flags the message, Ann{apos}s search finds it.
+
+Writing is not. `Curl.Api` 0.2.0 sends a `PUT` with a `CurlContent.FromStream` body as an upload, which works for Simple Mail Transfer Protocol (SMTP), but an IMAP `APPEND` must state the message{apos}s size first, and the length given to `FromStream` does not reach it: `SendAsync` throws `CurlException` 25, `Cannot APPEND with unknown input file size`. A `STORE` cannot be asked for at all, since an `HttpMethod` is one word and `new HttpMethod("STORE 1 +FLAGS (\Flagged)")` throws `FormatException`. So the program speaks IMAP itself for those two commands, in the `Imap` class at its end: it logs in with `CRAM-MD5`, a challenge answered with a keyed digest of the password, so the password never crosses the wire and no loosening option is needed (<<rfc2195>>); then it selects the folder and sends `STORE`, or sends `APPEND` with the message as a literal. The `STORE` answer is the message{apos}s flags, `\Flagged` and `\Seen`.
+
+The server{apos}s own record agrees. `SurlServer.Mail`, a `SurlServerMail`, reads the store without a client and sets no flag: `ListMessagesAsync("ann@example.com", "Shared/team")` lists UID 1 with `\Seen` and `\Flagged`, as Ann{apos}s view of the folder. A test can assert on that instead of a second search.
+
+The folder is closed to everyone else, by default. Carol has a mailbox on the same server but is not a member: her read throws `CurlException` 67, `Select failed`, and `ListMailboxesAsync` lists `Shared/team` for Ann and not for Carol. The folder also has no address, so it cannot be seeded as mail: `DeliverAsync("team@example.com", ...)` throws `SurlSeedRefusedException`, `NoSuchAccount`. Over SMTP the same address is accepted and discarded, which is <<imap-test-a-shared-team-folder>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-test-a-shared-team-folder>> for the same test on the console, where `curl` appends and flags.
+* <<imap-test-a-shared-team-folder-from-an-agent>> for the same test run by an agent.
+* <<smtp-log-in-with-cram-md5-in-csharp>> for the CRAM-MD5 login on its own.
+* <<surl-readme>>, <<rfc2195>>, <<rfc9051>>.

@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-expire-a-key]]
+=== Expiring a Redis Key
+
+==== Problem
+
+Your cache sets keys with a time to live and must treat an expired key as missing. You want a key set to expire, read before and after, and read back as null.
+
+==== Solution
+
+Start `surl` as a Redis server with one account, and run a short script that sets a key with a two-second life, reads it, waits, and reads it again. The script needs a POSIX shell (Git Bash on Windows), because it waits between its two `curl` runs, which one command cannot do:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` serves Redis at `redis://`; its keys live in memory and go when it stops (<<surl-readme>>). A client logs in: `--user alice:s3cret` is the account, and `--allow-plaintext-auth` lets that password cross a `redis://` connection, which has no encryption. That is a loosening, so `surl` prints a warning for it, and it is for a test on one machine. The second server in the claims below, `strict`, has the account but not the option: the same login is refused, `curl` exits `67`, and the error is `WRONGPASS`. That refusal is kept on purpose, and the secure form is `rediss://`, the same server inside Transport Layer Security (<<surl-readme>>).
+
+The URL path is the Redis command and its arguments: `redis://127.0.0.1:8080/SET/session/abc/PX/2000` is `SET session abc PX 2000`, and `PX` is the time to live in milliseconds (`EX` is seconds). `-u alice:s3cret` logs in, `-s` keeps the progress meter out of the output, and `-S`, which the refusal below adds, still shows an error. `curl` writes what the server answers, one value per line (<<curl-readme>>, <<curl-protocols>>, <<redis-resp>>). Several URLs in one `curl` run share one connection, so the script{apos}s first run sets the key and reads its value and its remaining life, in milliseconds with `PTTL`, with no gap between them. While the key lives, `GET` answers `abc` and the remaining life is positive.
+
+The script then waits three seconds, longer than the life it gave the key, and reads again. The key is gone. `GET` answers null, which `curl` writes as an empty line, and exit `0`, so the script prints `after: []`. `PTTL` answers `-2`, Redis{apos}s word for no such key, and `EXISTS` answers `0`. An expired key and one never set read the same, which is the point: a cache treats both as a miss. The time to live tells a key that has no limit from one that is gone: `-1` is a key with no expiry, `-2` no key (the second claim shows both).
+
+A limit can also come after the key. `EXPIRE` takes seconds and answers `1` when it set one, so `TTL` then counts down from it; `PERSIST` takes the limit off again and answers `1`, and the time to live is `-1` once more. `EXPIRE` on a key that does not exist answers `0` and creates nothing. A script that sets a key without a limit by mistake finds out with `TTL`: `-1` is a key that will never go.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-expire-a-key-in-csharp>> for the same expiry from a C# program.
+* <<redis-expire-a-key-from-an-agent>> for an agent that sets the limit with `set_key` and reads the key back.
+* <<redis-resp>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[signalr-stream-items-from-a-hub]]
+=== Streaming Items from a Hub
+
+==== Problem
+
+Your client consumes a SignalR stream: one invocation, and the hub answers with a run of items, not one result. You want a counted stream read item by item, ending on its own, and an unknown method refused.
+
+==== Solution
+
+Start `surl` as a SignalR hub, and have `curl` make a stream invocation of the hub{apos}s `Count` method:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+SignalR is Microsoft{apos}s library for exchanging messages between a server and its clients. A client negotiates over the Hypertext Transfer Protocol (HTTP), opens a WebSocket (<<rfc6455>>), and then exchanges JavaScript Object Notation (JSON) messages with a _hub_, each naming a method, its `target`, and carrying its `arguments` (<<signalr-hub-protocol>>). Upstream `curl` has no `signalr` scheme; the Curl port adds it, and `surl` serves the hub at `/` (<<curl-protocols>>, <<surl-readme>>).
+
+`-d` is the one message `curl` sends after the handshake. `type` `4` makes it a _stream invocation_: the hub answers with one message per item, then a completion that ends the stream. `Count` with the argument `5` is the hub{apos}s counted stream, so the items are `1` to `5`. `curl` writes each item on its own line as it arrives, and the completion is what ends the run, with exit `0`. That is the deterministic way to consume a stream: a stream that has an end ends the command, and no `-m` is needed. `-s` keeps `curl` quiet and `-S` still shows an error.
+
+A stream can be empty. `Count` with `0` completes without an item, so `curl` writes nothing and exits `0`; an empty stream is a success, not a failure to receive.
+
+The hub checks that the kind of invocation fits the method. `Count` streams, so an ordinary invocation, `type` `1`, of it is refused with `The method was invoked with the wrong message type.`, and so is a stream invocation of `Echo`, which returns one result. The arguments are checked too: `Count` with `-1` is refused with `Invalid arguments for the hub method.` A method the hub does not have is answered with a completion carrying an error, `Unknown hub method.` In each case `curl` prints the hub{apos}s words on stderr after `SignalR hub method failed:`, writes no item, and exits `22`.
+
+`--allow-anonymous` lets a client with no credentials negotiate. The second server in the claims below, `plain`, has neither an account nor `--allow-anonymous`, and refuses the negotiate request with `401 Unauthorized`, so `curl` exits `22` before any item moves. That is the default because a hub that accepts anyone streams to anyone. The loosening is for tests; the secure form, with accounts, is `signalrs`, the same hub inside Transport Layer Security (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<signalr-receive-a-message>> for invocations, `Echo` and `Broadcast`, and for listening with `-m`.
+* <<signalr-stream-items-from-a-hub-in-csharp>> for the same stream from a C# program.
+* <<signalr-stream-items-from-a-hub-from-an-agent>> for an agent that streams from the hub with `curl-mcp`.
+* <<signalr-hub-protocol>>, <<rfc6455>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

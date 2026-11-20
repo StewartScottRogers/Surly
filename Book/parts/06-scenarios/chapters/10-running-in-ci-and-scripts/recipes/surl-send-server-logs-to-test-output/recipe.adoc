@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-send-server-logs-to-test-output]]
+=== Sending Server Logs to Test Output
+
+==== Problem
+
+You want the server's log lines written to the test framework's output, so each failing test shows what the server saw.
+
+==== Solution
+
+Give each test{apos}s `SurlServer` a `Log` that hands every whole line to the test{apos}s output, such as xUnit{apos}s `ITestOutputHelper.WriteLine`, at `LogLevel.Verbose`. The program carries a small runner in place of the framework, which keeps each test{apos}s output and prints it only for a failure, as the common .NET frameworks do:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Log` is where `surl` would write its log, any `TextWriter`; it is null by default, and the server then writes nothing. `TestOutputWriter` is the adapter: it collects characters until a line end, drops the carriage return, and passes the line, marked `[surl]`, to the `Action<string>` it was given. A test framework{apos}s output takes whole lines, and the lock keeps them whole should the server write from more than one thread at once. Each test starts its own server with its own writer, so a test{apos}s output holds only its own server{apos}s lines.
+
+`LogLevel` is `surl`{apos}s `--log-level`, `Info` unless set. At `Info` the failing test{apos}s output holds the `Listening on` line and `Exchange 1 opened`, which says a client connected and nothing about what it asked. `LogLevel.Verbose` is `surl -v`: every event and every line received (`#1 < `) and sent (`#1 > `), line ends shown as `\r\n`. There the failure explains itself: the request was `GET /summary.csv`, the event line says `404, nothing exists at` the path, and the reply was `HTTP/1.1 404 Not Found`. The path in the event is where an in-memory file would be, not a file on disk.
+
+The test is ordinary `Curl.Api`: a `CurlRequest` on a `CurlClient`, its `CurlResponse` checked for a `StatusCode` of 200. `await using` stops the server before the test returns, even when it throws, so the last lines, `Exchange 1 ended`, are in the output before the runner prints it. The passing test{apos}s lines are kept and never shown. The runner exits 1 because a test failed, as a test run would.
+
+The verbose log holds what clients sent, a password or token in a request header included; output kept by a continuous integration (CI) system is readable by whoever can read the job (<<surl-keep-the-server-log-for-a-failed-run-in-csharp>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-keep-the-server-log-for-a-failed-run-in-csharp>> for keeping the log as a file, without secrets.
+* <<http-print-the-failing-exchange>> for printing one recorded exchange instead of the whole log.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

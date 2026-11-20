@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-assert-mail-in-an-xunit-fixture]]
+=== Asserting Mail in an xUnit Fixture
+
+==== Problem
+
+Your C# tests exercise an app that sends mail over Simple Mail Transfer Protocol (SMTP); you want a reusable xUnit fixture that starts the server once, gives each test a fresh mailbox and asserts on exactly what the app sent.
+
+==== Solution
+
+Write a `MailFixture` class that starts a `SurlServer` when it is created, resets the server{apos}s store before each test, and compares every message in the store with the list the test expects. The program below holds the fixture, two tests and, at the top, the few lines of a runner that use them as xUnit would:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`MailFixture` is the reusable part. `StartAsync` builds `SurlServerOptions`, `surl`{apos}s command line as properties: one `smtp://` listen URL on port 0, so each run gets a free port, `MailDomains` for `--mail-domain example.com`, and a `Mailboxes` entry, `--mailbox`, for the app and for each person it mails (<<surl-readme>>). `SurlServer.StartAsync` returns once the server is bound, and the fixture hands the app its `BoundUrl`. The server is started once, for every test of the class, and stopped when the fixture is disposed, so the cost of a start is paid once.
+
+A fresh mailbox for each test is a reset, not a new server. `SurlServer.ResetAsync` returns the server{apos}s mail, files and accounts to their state at start: the same mailboxes, all empty (<<surl-readme>>). The runner calls it before each test. Without it, the first test{apos}s mail is still there when the second test looks, and the second test fails although its app did nothing wrong.
+
+`AssertMailAsync` checks exactly what the app sent, nothing more and nothing less. `SurlServer.Mail`, a `SurlServerMail`, reads the store without a client: `ListMessagesAsync` returns a `SurlMessagePage` of each mailbox{apos}s `INBOX`, a `SurlMessageSummary` per message with its `Uid`, and `ReadMessageAsync` returns the `SurlMailMessage` with its exact `Bytes`, from which the fixture takes the `Subject`. It lists every message of every mailbox as `owner: subject` and compares the whole list with the expected one, so a mail sent twice, to the wrong person or left over from another test fails the assertion, and the message shows what the server holds next to what was wanted. Reading the store sets no flag and needs no login.
+
+The app under test is `SignupMailer`, which sends a welcome mail with `Curl.Api`: a `CurlClient`, and a `CurlRequest` with `HttpMethod.Put` to the SMTP URL, `CurlAuthenticationOptions` with the app{apos}s login, `CurlMailOptions` for the envelope sender and recipient, and the message as `CurlContent.FromStream`, a stream body, which `Curl.Api` uploads as the mail; the `CurlResponse` is the server{apos}s reply (<<rfc5321>>). A test of a real app hands it `fixture.Smtp` in its configuration instead.
+
+In an xUnit project the same class serves as a class fixture: a test class that declares it receives the one instance in its constructor, and calls `ResetAsync` before each test, from its own setup. The runner at the top of the program does what xUnit would, so the program runs with only the two packages it names. It prints `PASS` or `FAIL` with the reason for each test and exits `1` if any failed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-collect-mail-as-it-arrives>> for collecting mail as it is delivered rather than reading the store afterwards.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for checking one mail{apos}s fields over Internet Message Access Protocol (IMAP).
+* <<surl-readme>>, <<rfc5321>>.

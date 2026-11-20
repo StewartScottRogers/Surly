@@ -1,0 +1,53 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs team-folder.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-test-a-shared-team-folder-from-an-agent
+title: Testing a Shared Team Folder
+protocols: [imap, smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_mailboxes, list_messages, seed_mail]
+curl-options: [-s, -S, -u, -T, -X]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc9051]
+
+# The notice for the team folder, in CRLF lines: an IMAP APPEND sends the exact size first.
+fixtures:
+  notice.eml: "From: app@example.com\r\nTo: team@example.com\r\nSubject: Server maintenance tonight\r\n\r\nThe build server is down from 22:00.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool appends notice.eml to Shared/team as ann, bob reads its Subject and flags it (the STORE answers \Flagged \Seen), ann's SEARCH FLAGGED finds UID 1, list_messages for ann's Shared/team lists UID 1 with \Seen and \Flagged, and the program exits 0.
+    program: team-folder.cs
+    args: [test]
+    expect:
+      exit: 0
+      stdout: 'ann appends: curl exit 0
+        
+        bob reads: Subject: Server maintenance tonight
+        
+        bob flags: * 1 FETCH (FLAGS (\Flagged \Seen))
+        
+        ann searches: * SEARCH 1
+        
+        list_messages: uid 1, flags \Seen \Flagged
+        
+        '
+
+  - id: non-member
+    claim: carol is not a member; the curl tool's read of Shared/team as carol exits 67, Select failed, and list_mailboxes lists Shared/team for ann and only INBOX for carol.
+    program: team-folder.cs
+    args: [non-member]
+    expect:
+      exit: 1
+      stdout: "ann appends: curl exit 0\ncarol reads: curl exit 67, curl: (67) Select failed\nlist_mailboxes ann@example.com: INBOX, Shared/team\nlist_mailboxes carol@example.com: INBOX\n"
+
+  - id: seed
+    claim: The folder has no address; seed_mail to team@example.com is a tool error, NoSuchAccount.
+    program: team-folder.cs
+    args: [seed]
+    expect:
+      exit: 1
+      stdout: "seed_mail: error True, Mail: Mail for team@example.com was refused: NoSuchAccount.\n"

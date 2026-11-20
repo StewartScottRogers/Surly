@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-call-with-a-proto-file-from-an-agent]]
+=== Calling gRPC with Protos from an Agent
+
+==== Problem
+
+Your production server has no reflection, so the client must call with the `.proto` file. You want an artificial intelligence (AI) agent to make the same call with the proto file and with reflection, with the same answer, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a gRPC server with `start_server`, and calls its `Echo` method with the `curl` tool, giving the file with `--grpc-proto` and the request as JSON with `-d`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in, which holds the `.proto` files the recipe lists as fixtures. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+gRPC (gRPC Remote Procedure Calls) runs each call as one HTTP/2 (Hypertext Transfer Protocol version 2) request: a `POST` to `/<service>/<method>`, whose body is the request message in the Protocol Buffers binary encoding, and whose answer is the reply messages followed by trailers carrying `grpc-status` (<<grpc-http2>>). Upstream curl has no `grpc` scheme; the Curl port adds it, and `surl` serves it (<<surl-readme>>, <<curl-readme>>).
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `grpc://127.0.0.1:0`, port 0 for a free port, and `arguments` is `["--allow-anonymous"]`, the option that lets a call with no credentials in. It loosens the defaults, for a server that holds nothing private, and `surl` warns on start while it is on. The answer's `server_id` names the server for the other `surl-mcp` tools, and `bound_urls` has the real port.
+
+The `curl` tool runs `curl` in-process with the arguments an agent gives it, as the command line would. `-s` keeps the progress meter out and `-S` the error message in. `-d` gives the request message as JSON, and to turn it into the binary message `curl` needs the method's types. Without `--grpc-proto` it asks the server by gRPC server reflection; with `--grpc-proto echo.proto` it reads them from the file and does not ask, which is the only way to call a server that has no reflection. `surl` always serves reflection, so the claims cannot turn it off; they show the file is what `curl` reads instead. The answer is text, as JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`, each with its `content`, and `isError`, which the program prints as the tool error; a reply is printed on one line.
+
+With the file and by reflection the reply is the same, `hello`. They differ on the server. `get_events` lists what the server saw, and each exchange ends with an event that carries the bytes it sent. The call by reflection made the server send more, because it also answered the reflection request, whose answer is the service's compiled descriptor; the program prints only whether the second number is larger, since the sizes are the server's business. `Expand`, a method that answers with a stream, works the same way with the file: with a `count` of 2 it answers two messages, each its own JSON object, and the first leaves out the `index` of 0, the field's default, as the Protocol Buffers JSON mapping says.
+
+The file decides the names. `renamed.proto`, a client's own copy of the service, calls field 1 `text` where the server calls it `message`; on the wire a field is its number, so the request `{"text":"hello"}` is sent and the reply is printed as `text`. `{"message":"hello"}` is then refused by `curl` before it calls anything, exit `2`, `UnknownField`, naming the file's type `surl.test.Ask`, and without the file `{"text":"hello"}` is refused, naming the server's `surl.test.EchoRequest`. Each refusal is a tool error that carries `curl`{apos}s exit code. A method the file does not declare, `Chat`, is refused before the call, exit `2`, though the server has it. A file that is not there, or that does not parse, is exit `26`, a read error, and the message gives the file, and for the second the line and column and what was expected.
+
+`curl` trusts the file for what it names, and the server judges the call. `other.proto` declares a service `shop.Echo`; `curl` makes the call and the server answers `UNIMPLEMENTED` (12), unknown service, which `curl` reports with exit `22`, as it does for any `grpc-status` other than 0. Reflection protects against this mistake, since the types come from the server that will answer.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-call-with-a-proto-file>> for the same task on the console.
+* <<grpc-call-with-a-proto-file-in-csharp>> for the same task in a C# test.
+* <<grpc-call-a-method>> for the call by reflection and the login rules.
+* <<grpc-http2>>, <<surl-readme>>, <<curl-readme>>.

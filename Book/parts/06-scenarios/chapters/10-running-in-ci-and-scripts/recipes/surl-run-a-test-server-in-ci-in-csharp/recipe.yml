@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-run-a-test-server-in-ci-in-csharp
+title: Running a Test Server in CI
+protocols: [http, smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlExitCode, SurlMessagePage, CurlClient, CurlRequest, CurlResponse, CurlException, CurlMailOptions, CurlAuthenticationOptions, CurlContent]
+exit-codes: [0, 45, 67]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The run starts HTTP and SMTP on free ports and reports both bound URLs, the tests fetch the greeting and mail it (SMTP 250), the server has stored the one message, StopAsync returns Ok, and the run exits 0.
+    program: run-in-ci.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP_URL=http://127\.0\.0\.1:[1-9]\d*/\nSMTP_URL=smtp://127\.0\.0\.1:[1-9]\d*/\nmailed: Welcome aboard\. \(SMTP 250\)\nserver stored 1 message\(s\)\nserver stopped: Ok \(0\)\n$'
+
+  - id: tests-fail
+    claim: When a test fails, here an SMTP login with the wrong password that Curl.Api throws as CurlException LoginDenied (67), nothing is stored, the server is still stopped with Ok, and the run exits 67.
+    program: run-in-ci.cs
+    args: [wrong-password]
+    expect:
+      exit: 67
+      stdout-matches: '\ntest failed: 67 LoginDenied\nserver stored 0 message\(s\)\nserver stopped: Ok \(0\)\n$'
+
+  - id: port-taken
+    claim: When the server cannot start, here because the HTTP port asked for is held by another listener, StartAsync throws SurlServerStartException with ExitCode BindFailed (45), no test runs, and the run exits 45.
+    program: run-in-ci.cs
+    args: [port-taken]
+    expect:
+      exit: 45
+      stdout: "server did not start: BindFailed (45)\n"

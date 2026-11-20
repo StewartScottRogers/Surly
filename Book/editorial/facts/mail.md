@@ -24,6 +24,13 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   catch-all nobody@example.com includes itself`). A real mailbox is not caught. One message to several
   unknown addresses is stored ONCE in the catch-all.
 - `--mail-alias a=b,c`, `--mailbox-file` CSV, `--shared-folder`: see `surl --aihelp mail`.
+- `--shared-folder team=ann@example.com,bob@example.com`: one folder (reserved owner `:shared`); each member sees
+  `Shared/team` (LIST adds a `\Noselect \HasChildren` `Shared`; NAMESPACE `(("" "/")) NIL (("Shared/" "/"))`).
+  Members are equals: APPEND, read, STORE (flags are shared: one member's \Flagged shows for the other), MOVE in.
+  NO ADDRESS: SMTP to team@ is 250 and discarded; seed_mail / Mail.DeliverAsync to it -> NoSuchAccount.
+  Non-member: not in LIST, SELECT `NO [NONEXISTENT]` (curl 67 `Select failed`), APPEND `NO [TRYCREATE]` (curl 25
+  `Upload failed`). `DELETE Shared/team` -> `NO [NOPERM] A shared folder cannot be deleted` (curl 21).
+  Surl.Api/MCP read it as owner = the member, mailbox `Shared/team`; owner `:shared` -> not found.
 - `--mail-alias "support@example.com=ann@example.com,bob@example.com"`: each target gets its own copy; the
   stored message is unchanged (its `To:` still names the alias; no Delivered-To added). An alias may name
   another alias (help@ -> support@ -> ann, bob). One message whose recipients reach a mailbox twice is
@@ -70,7 +77,14 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
 - IMAP: `INBOX;UID=1` whole message (has `Return-Path: <envelope-from>` and a dated `Received` line);
   `;SECTION=TEXT` body; `;SECTION=HEADER.FIELDS%20(FROM%20TO%20SUBJECT)` those fields in message order
   plus a blank line; `INBOX?FROM%20x%20SUBJECT%20%22a%20b%22` -> `* SEARCH 1 2` or `* SEARCH`
-  (substring match); `INBOX?ALL`. Missing UID: exit 78.
+  (substring match); `INBOX?ALL`. Missing UID: exit 78. An empty `* SEARCH` is exit 0: a poll loop reads the answer.
+- IMAP APPEND: `curl -u .. -T msg.eml imap://h:p/Folder` sends `APPEND Folder (\Seen) {size}`, so appended mail is
+  always \Seen. `--crlf` with APPEND: exit 25 `Cannot APPEND with CRLF conversion making size unknown`; use CRLF fixtures.
+- `-X "STORE 1 +FLAGS (\Flagged)" imap://h:p/Folder` selects, then prints `* 1 FETCH (FLAGS (\Flagged \Seen))`.
+  `-X "MOVE 1 Shared/team" imap://h:p/INBOX` works (prints nothing). `Folder?FLAGGED` searches flags.
+- MIME parts: `;SECTION=2` is part 2's body as stored (base64 text, no trailing CRLF); `;SECTION=2.MIME` its own header
+  plus a blank line; `-X "FETCH 1 BODYSTRUCTURE"` on `.../INBOX` the whole structure. A part that does not exist:
+  exit 0, 0 bytes. Decode in sh: `tr -d '\r' < part | base64 -d`, compare with `cmp -s`.
 - POP3: `pop3://h:p/` LIST `1 <octets>` per line (empty maildrop prints a lone CRLF); `/1` RETR;
   `-X "DELE n"`, `-X UIDL`, `-X RSET`; `-X STAT` prints nothing, `-v` shows `< +OK <count> <octets>`.
   `--next` POP3 transfers share one session; DELEs commit at QUIT, and a failing DELE later in the chain
@@ -91,6 +105,15 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   delivers to the accepted recipients, then throws (curl abandons the message instead).
 - Curl.Api reads IMAP/POP3 fine: `CurlRequest(HttpMethod.Get, url)` + `CurlAuthenticationOptions`; a
   missing UID throws `CurlException` 78 `Remote file not found`.
+- Curl.Api 0.2.0 CANNOT IMAP APPEND: Put + `CurlContent.FromStream(stream, length)` -> CurlException 25 `Cannot APPEND
+  with unknown input file size` (StreamContent sets POSTFIELDSIZE, not INFILESIZE). Nor STORE/MOVE: `new HttpMethod(
+  "STORE 1 +FLAGS (\Flagged)")` throws FormatException (one token only). Raw TcpClient IMAP with CRAM-MD5 by hand
+  (hex HMACMD5(password, challenge)) works: imap-test-a-shared-team-folder-in-csharp.
+- SmtpClient + `new Attachment(stream, "report.csv", "text/csv")`: part 2, base64, `Content-Type: text/csv;
+  name=report.csv`, `Content-Disposition: attachment` with no filename. `Convert.FromBase64String` skips CRLFs.
+- `server.OnEvent(new SurlEventQuery { Kind = SurlEventKind.StoreChanged, Store = StoreKind.Mail }, cb)`: one
+  `StoreChangedEvent` per delivery (`Change` Delivered, `Name` `owner/INBOX/;UID=n`), in order; alias to two -> two;
+  a discarded address -> none. `server.ResetAsync()` empties every mailbox and keeps them.
 - Surl.Api: `MailDomains`, `Mailboxes` ("addr:pw"), `MailCatchAlls` ("domain=addr"), `MailAliases`,
   `Accounts` (`SurlAccount`), `AllowPlaintextAuthentication`. `BoundUrls` are `Uri` (use `$"{u}"`).
   `server.Mail.DeliverAsync/ListMailboxesAsync(owner)/ListMessagesAsync/ReadMessageAsync`;
@@ -137,6 +160,16 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
 - IMAP `-X "STATUS INBOX (MESSAGES)"` on `imap://h:p/` -> `* STATUS INBOX (MESSAGES 3)`.
   `INBOX;UID=[1-3];SECTION=...` (a curl URL glob) fetches three messages.
 - curl prints a progress meter on stderr for multi-transfer IMAP/POP3 commands without `-s`.
+- Ad hoc probes from Git Bash: start a background surl with `< /dev/null`, or it exits (code 1) after a client or two.
+- No-login "does it answer" checks (2026-11-20): `curl -X NOOP smtp://h:p/` exit 0, `%{response_code}` 250;
+  `curl -X NOOP imap://h:p/` exit 0 but `%{response_code}` 000 (curl gives no IMAP code); plain `curl imap://h:p/`
+  with no login is exit 21. FTP always logs in first: anonymous 530, exit 67, code 530. Curl.Api
+  `new CurlRequest(new HttpMethod("NOOP"), url)`: SMTP and IMAP both `StatusCode` 0 (curl CLI says 250 for SMTP:
+  reported); FTP throws `LoginDenied`. surl -v logs `#N < NOOP
+
+` (SMTP), `#N < A002 NOOP
+
+` (IMAP).
 
 ## Recipes
 smtp-send-and-read-it-over-imap, pop3-retrieve-and-delete-a-message, smtp-serve-a-mail-domain,
@@ -145,4 +178,6 @@ smtp-check-the-mail-an-app-sent (+ -in-csharp, -from-an-agent), smtp-catch-every
 surl-seed-a-mailbox-before-a-test (+ twins), surl-hand-bound-ports-to-the-app (+ twins),
 smtp-route-mail-through-aliases (+ twins), smtp-log-in-with-cram-md5 (+ twins),
 surl-stand-up-mail-files-and-messages (+ twins), smtp-send-a-batch-of-mails-from-files,
-smtp-wait-for-an-apps-mail, surl-give-each-task-its-own-account.
+smtp-wait-for-an-apps-mail, surl-give-each-task-its-own-account, surl-smoke-test-every-listener (+ twins), surl-run-a-test-server-in-ci (+ twins),
+imap-test-a-shared-team-folder (+ twins), smtp-check-a-mail-attachment (+ twins), imap-poll-until-the-mail-arrives,
+smtp-assert-mail-in-an-xunit-fixture, smtp-collect-mail-as-it-arrives.

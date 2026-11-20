@@ -1,0 +1,152 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# No servers: block. with-surl.sh starts its own surl on port 0 and stops it.
+schema: 1
+key: surl-start-and-stop-in-a-shell-script
+title: Starting and Stopping in a Shell Script
+protocols: [http]
+tier: scenarios
+surl-options: [--directory]
+curl-options: [-f, -s, -S, -o]
+exit-codes: [0, 22, 37, 143]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  with-surl.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Starts surl on a free port to serve <directory>, runs <command> with SURL_URL set to the
+    # server's URL, and stops surl however the script ends: the command passing or failing, or
+    # the script itself interrupted. Exits with the command's exit code.
+    # Usage: sh with-surl.sh <directory> <command> [<argument>...]
+    dir=$1; shift
+    : > surl.out
+    surl --directory "$dir" http://127.0.0.1:0/ > surl.out 2> surl.err &
+    surl_pid=$!
+    command_pid=
+
+    stop() {   # on any exit: end the command if it still runs, then stop surl and wait for it
+      status=$?
+      [ -z "$command_pid" ] || kill "$command_pid" 2>/dev/null
+      kill "$surl_pid" 2>/dev/null
+      wait "$surl_pid"
+      echo "stopped surl: exit $?" >&2
+      exit "$status"
+    }
+    trap stop EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    # surl writes "Listening on <url>" once it has bound. If it exits first, it refused to
+    # start: show why and pass its exit code on.
+    tries=0
+    until grep -q '^Listening on ' surl.out; do
+      if ! kill -0 "$surl_pid" 2>/dev/null; then
+        wait "$surl_pid"; status=$?
+        cat surl.err >&2
+        trap - EXIT
+        exit "$status"
+      fi
+      tries=$((tries + 1))
+      if [ "$tries" -ge 100 ]; then echo "surl wrote no Listening on line" >&2; exit 1; fi
+      sleep 0.1
+    done
+    SURL_URL=$(sed -n 's|^Listening on ||p' surl.out)
+    export SURL_URL
+
+    # Run the command in the background and wait for it, so a signal to this script is acted on
+    # at once rather than when the command ends.
+    "$@" &
+    command_pid=$!
+    wait "$command_pid"
+    status=$?
+    command_pid=
+    exit "$status"
+  tests.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Stands in for the tests: fetches one path from the server with-surl.sh started.
+    # Usage: sh tests.sh <path>
+    curl -fsS "${SURL_URL}$1"
+  interrupt.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Stands in for a CI runner cancelling the job: starts with-surl.sh with a command that would
+    # run for a minute, sends the script SIGTERM once surl listens, then checks surl is gone.
+    rm -f surl.out
+    sh with-surl.sh site sleep 60 2> interrupt.err &
+    script=$!
+    until grep -q '^Listening on ' surl.out 2>/dev/null; do sleep 0.1; done
+    kill "$script"
+    wait "$script"
+    echo "with-surl.sh: exit $?"
+    sh check-stopped.sh
+  check-stopped.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Tries the URL of the last surl that with-surl.sh started; curl exit 7 means nothing listens.
+    curl -s -o /dev/null "$(sed -n 's|^Listening on ||p' surl.out)"
+    echo "after: curl exit $?"
+
+cases:
+  - id: solution
+    role: solution
+    claim: with-surl.sh starts surl on a free port, hands the tests its URL in SURL_URL, and stops surl when the tests end; the script exits with the tests' exit code, 0.
+    run: sh with-surl.sh site sh tests.sh hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+      stderr-contains: "stopped surl: exit "
+
+  - id: nothing-left-listening
+    claim: Once the script has ended, nothing listens on the port surl had; curl exits 7, could not connect.
+    run: sh check-stopped.sh
+    expect:
+      exit: 0
+      stdout: "after: curl exit 7\n"
+
+  - id: failing-tests
+    claim: When the tests fail, surl is stopped all the same and the script exits with the tests' exit code, here curl's 22 for a 404.
+    run: sh with-surl.sh site sh tests.sh missing.txt
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "stopped surl: exit "
+
+  - id: interrupted
+    claim: When the script itself is sent SIGTERM mid-run, as a cancelled CI job is, it ends the command, stops surl and exits 143; nothing listens afterwards.
+    run: sh interrupt.sh
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "with-surl.sh: exit 143\nafter: curl exit 7\n"
+
+  - id: refused-start
+    claim: When surl refuses to start, here because the directory does not exist, it writes no Listening on line and exits 37; the script shows surl's message, never runs the tests, and exits 37.
+    run: sh with-surl.sh nowhere sh tests.sh hello.txt
+    timeout: 30
+    expect:
+      exit: 37
+      stdout: ""
+      stderr-contains: "surl: (37) Could not open directory nowhere"
+
+  - id: surl-exit-code-unix
+    platforms: [linux, macos]
+    claim: On Linux and macOS surl handles the SIGTERM the script sends and exits 0.
+    run: sh with-surl.sh site true
+    timeout: 30
+    expect:
+      exit: 0
+      stderr-contains: "stopped surl: exit 0"
+
+  - id: surl-exit-code-windows
+    platforms: [windows]
+    claim: On Windows, Git Bash's kill ends surl outright rather than signalling it, so the shell reports 143, the code for a process ended by SIGTERM.
+    run: sh with-surl.sh site true
+    timeout: 30
+    expect:
+      exit: 0
+      stderr-contains: "stopped surl: exit 143"

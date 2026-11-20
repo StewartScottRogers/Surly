@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-test-server-in-ci-from-an-agent]]
+=== Running a Test Server in CI
+
+==== Problem
+
+As an artificial intelligence (AI) agent: your continuous integration (CI) job needs servers that start, report their ports, serve the tests and stop with a clean exit code every time, on every runner.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts the servers with `start_server` on port 0, prints the bound URLs, runs the tests through `curl`, reads the mailbox with `list_mailboxes`, and in a `finally` calls `stop_server` and checks with `list_servers` that nothing is left running:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from `PATH` over standard input and output, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client (<<mcp-spec>>).
+
+`start_server` takes `listen_urls`, here a Hypertext Transfer Protocol (HTTP) and a Simple Mail Transfer Protocol (SMTP, <<rfc5321>>) URL on port 0, `arguments` in `surl`{apos}s own words, `--mail-domain example.com` and `--mailbox app@example.com:secret` for one mailbox and its login, and `files` for the greeting. Its answer holds `server_id` and `bound_urls`, in the order of `listen_urls` with the ports the system picked; the program prints them as `HTTP_URL=...` and `SMTP_URL=...` for the job{apos}s log. A server that cannot start is a tool error whose answer holds `surl`{apos}s `exit_code` and `exit_code_name`: 45, `BindFailed`, when a port asked for is held, here by a listener the program opened to stand in for anything else on the runner. The run exits 45 before any test.
+
+The tests go through `curl-mcp`{apos}s `curl` tool, `curl`{apos}s command line run in-process: `-f` fails on an error status, `-sS` keeps quiet but for an error, and `-o` writes the greeting into the folder; then `-u` logs in as the mailbox, `--mail-from` and `--mail-rcpt` are the envelope, `-T` sends the greeting as the message and `--crlf` gives it the line ends SMTP needs. The answer{apos}s `exitCode` is the code `curl` would exit with; the first that is not 0 ends the tests and becomes the run{apos}s exit code, 67 for the wrong password. `list_mailboxes` answers each of the mailbox{apos}s folders with its `message_count`: what the server recorded, one message after a passing run and none after the refused login.
+
+`stop_server` sits in `finally`, so the server stops whether the tests passed or failed, and releases its ports. The program counts a tool error from it as a failed run. `list_servers` then answers the servers this host still runs, none: nothing is left for the next run to trip over. The host has no signals to send and no process to end per server, so the stop is the same on Windows, Linux and macOS.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-test-server-in-ci>> for the same job on the console.
+* <<surl-run-a-test-server-in-ci-in-csharp>> for the same job from a C# test.
+* <<surl-smoke-test-every-listener-from-an-agent>> for checking every listener answers before the tests.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<rfc5321>>.

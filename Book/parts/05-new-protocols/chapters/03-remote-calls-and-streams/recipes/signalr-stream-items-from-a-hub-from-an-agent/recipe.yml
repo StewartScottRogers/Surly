@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: signalr-stream-items-from-a-hub-from-an-agent
+title: Streaming from a Hub from an Agent
+protocols: [signalr]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, get_events, curl]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, curl-protocols, signalr-hub-protocol, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts a hub with --allow-anonymous, which start_server answers with surl's warning for it; the curl tool's stream invocation of Count with 5 answers the five items as one text, exit 0 and no tool error; and get_events shows the hub saw two exchanges, the negotiate request and the WebSocket.
+    program: program.cs
+    args: [stream]
+    expect:
+      exit: 0
+      stdout: "surl: warning: --allow-anonymous: every request and login is accepted without checking credentials\nCount: exit 0, output \"1\\n2\\n3\\n4\\n5\\n\", tool error no\nhub saw 2 exchanges, scheme signalr\n"
+
+  - id: empty-stream
+    claim: A stream of no items, Count with 0, answers an empty output, exit 0 and no tool error.
+    program: program.cs
+    args: [empty]
+    expect:
+      exit: 0
+      stdout: "Count: exit 0, output \"\", tool error no\n"
+
+  - id: unknown-method
+    claim: A stream invocation of a method the hub does not have is a tool error; curl's exit code is 22 and its standard error names the hub's words, Unknown hub method.
+    program: program.cs
+    args: [unknown-method]
+    expect:
+      exit: 1
+      stdout: "Shout: exit 22, output \"\", error curl: (22) SignalR hub method failed: Unknown hub method., tool error yes\n"
+
+  - id: wrong-message-type
+    claim: Count streams, so an ordinary invocation of it is refused with The method was invoked with the wrong message type., and so is a stream invocation of Echo; each is a tool error with exit 22.
+    program: program.cs
+    args: [wrong-type]
+    expect:
+      exit: 1
+      stdout: "Count: exit 22, output \"\", error curl: (22) SignalR hub method failed: The method was invoked with the wrong message type., tool error yes\nEcho: exit 22, output \"\", error curl: (22) SignalR hub method failed: The method was invoked with the wrong message type., tool error yes\n"
+
+  - id: invalid-argument
+    claim: Count with -1 is refused with Invalid arguments for the hub method., exit 22, as a tool error.
+    program: program.cs
+    args: [invalid-arg]
+    expect:
+      exit: 1
+      stdout: "Count: exit 22, output \"\", error curl: (22) SignalR hub method failed: Invalid arguments for the hub method., tool error yes\n"
+
+  - id: refused-by-default
+    claim: A hub started without --allow-anonymous refuses the negotiate request 401 Unauthorized; curl exits 22 before any item, and the call is a tool error.
+    program: program.cs
+    args: [refused]
+    expect:
+      exit: 1
+      stdout: "Count: exit 22, output \"\", error curl: (22) SignalR: The negotiate request failed with HTTP status 401., tool error yes\n"

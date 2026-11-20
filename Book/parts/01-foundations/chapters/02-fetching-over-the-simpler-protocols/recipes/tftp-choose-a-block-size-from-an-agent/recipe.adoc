@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-choose-a-block-size-from-an-agent]]
+=== Choosing TFTP Block Sizes from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to fetch a file over Trivial File Transfer Protocol (TFTP) with a block size it chooses, and to read from the server{apos}s record which options `surl` acknowledged, instead of trusting that the size it asked for is the size it got.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with a TFTP listen URL and a binary file, calls `curl` with `--tftp-blksize`, and reads the datagrams back with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `tftp://127.0.0.1:0`: port 0 asks for a free User Datagram Protocol (UDP) port, and the program fetches from `bound_urls`, never from what it asked for. `files` takes text only, so a binary file goes in `files_base64`, here 3,000 random bytes made when the program starts, so a dropped or repeated block cannot match by accident.
+
+`curl` runs `curl` with `args` as its command line, so every option of `curl` is available. `-v` puts the trace in `standardError`, and the program picks out the lines that say which options the server acknowledged. `--tftp-blksize 1024` asks for blocks of that size. TFTP sends a file in blocks, one datagram each, 512 bytes unless both sides agree otherwise (<<rfc1350>>), and the block size is negotiated: the client puts options after the file name and mode in its read request, and the server answers with an option acknowledgement (OACK) that lists the ones it accepts. The trace gives `tsize` 3000, the size of the file the client asked for with `0`, and `blksize` 1024. An answer to `curl` is text, JSON, with `exitCode`, `standardOutput` and `standardError` and, when `curl` fails, a `failure` with the exit code in words; a failed `curl` is an answer, not an exception.
+
+`get_exchanges` answers what each client sent and what the server answered, byte for byte, one exchange for the one fetch. A TFTP exchange is not text, so each chunk has `encoding` `base64` and a `direction`, `received` or `sent`. The first two bytes of a datagram are its opcode: 1 is the read request, 6 the OACK, 3 a data block and 5 an error. The first chunk is the request, which carries `tsize` `0` and the `blksize` the agent asked for; the second is the OACK, with the real size and the block size the server agreed to. Counting the chunks the server sent with opcode 3 shows what the choice does: 3 data blocks at 1,024 bytes, 6 at the default of 512, and the same bytes in every case, which the program compares with the copy `-o` wrote into the folder `curl-mcp` is confined to.
+
+`--tftp-no-options` sends no options, and the server then answers with data block 1 and no OACK. A block size of 70000 goes out, and comes back, as 65464, the largest the server accepts. `transfer`, the tool that describes a request by fields, has no option for TFTP: it fetches at the default block size, answers `statusCode` 0 because TFTP has no status, and puts the file in `body`. A file that is not there is answered with TFTP error 1, opcode 5, and `curl` exits `68`, file not found.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-choose-a-block-size>> for the same task on the console.
+* <<tftp-choose-a-block-size-in-csharp>> for the same task from C#.
+* <<tftp-download-a-file-from-an-agent>> for a TFTP download, a refused write and the read request.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>.

@@ -1,0 +1,96 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: imap-poll-until-the-mail-arrives
+title: Polling Until the Mail Arrives
+protocols: [imap, smtp]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-s, -S, -u, --crlf, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1, 67]
+references: [surl-readme, curl-manual, rfc9051]
+
+# reset.eml is the mail the app sends. slow-app.sh stands in for the app: it answers at once and
+# sends the mail a few seconds later. wait-for-mail.sh is the test's wait.
+fixtures:
+  reset.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Reset your password\n\nFollow the link to choose a new password.\n"
+  slow-app.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Stands in for an app that mails a user some seconds after a request: it returns at once
+    # and sends the message in the background after the delay.
+    # Usage: sh slow-app.sh <smtp port> <seconds> <recipient> <message file>
+    (
+      sleep "$2"
+      curl -s --crlf -u app@example.com:apppass --mail-from app@example.com \
+        --mail-rcpt "$3" -T "$4" "smtp://127.0.0.1:$1/example.com"
+    ) > /dev/null 2>&1 &
+  wait-for-mail.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Runs an IMAP SEARCH once a second until it finds a message or the tries run out.
+    # Usage: sh wait-for-mail.sh <user:password> <search URL> <tries>
+    tries=$3
+    while [ "$tries" -gt 0 ]; do
+      found=$(curl -sS -u "$1" "$2") || exit $?
+      found=$(printf '%s' "$found" | tr -d '\r')
+      case $found in
+        "* SEARCH "[0-9]*)
+          echo "found: UID ${found#\* SEARCH }"
+          exit 0 ;;
+      esac
+      tries=$((tries - 1))
+      if [ "$tries" -gt 0 ]; then
+        sleep 1
+      fi
+    done
+    echo "no matching mail after $3 tries"
+    exit 1
+
+# One surl: SMTP for the app, IMAP for the test, one mail store.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox carol@example.com:carolpass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app answers at once and sends the reset mail three seconds later; wait-for-mail.sh searches ann's INBOX once a second, for at most ten tries, and finds it as UID 1, exit 0.
+    run: 'sh slow-app.sh {{port}} 3 ann@example.com reset.eml && sh wait-for-mail.sh ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Reset%20your%20password%22" 10'
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "found: UID 1\n"
+
+  - id: one-search-is-too-early
+    claim: A single SEARCH made right after the request, before the app has sent, answers no UID and exits 0, so a test that searches once fails though the app works.
+    run: 'sh slow-app.sh {{port}} 3 bob@example.com reset.eml && curl -s -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Reset%20your%20password%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: arrives-later
+    claim: The same mail is in bob's INBOX a few seconds later; wait-for-mail.sh finds it as UID 1.
+    run: 'sh wait-for-mail.sh bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Reset%20your%20password%22" 10'
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "found: UID 1\n"
+
+  - id: deadline
+    claim: When the mail never comes, the wait ends after its last try; for carol, with three tries, the script says so and exits 1.
+    run: 'sh wait-for-mail.sh carol@example.com:carolpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Reset%20your%20password%22" 3'
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "no matching mail after 3 tries\n"
+
+  - id: login-fails-at-once
+    claim: A wrong password is not waited out; the first search fails, curl exits 67, Login denied, and the script exits with 67 at once.
+    run: 'sh wait-for-mail.sh ann@example.com:wrong "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Reset%20your%20password%22" 10'
+    timeout: 8
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "curl: (67) Login denied"

@@ -59,3 +59,5 @@ curl-mcp `transfer(url, method, headers, ...)` or `curl(args)`. No surl-mcp tool
 
 ## Recipes
 http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http-log-in-with-ntlm, http-require-a-login, http-refuse-a-password-in-clear, http-tell-clients-apart-by-account (and its twins), http-exchange-a-password-for-a-token (and its twins).
+
+- Decided by Surl (2026-11-20): `--auth basic` over plain `http://` answers 403 with no `WWW-Authenticate`, because a 401 must carry a challenge and offering Basic in clear invites the password (Surl ADR-0032 step 5).

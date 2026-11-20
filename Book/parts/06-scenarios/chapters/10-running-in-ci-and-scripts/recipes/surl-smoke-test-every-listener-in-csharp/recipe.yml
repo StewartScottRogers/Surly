@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-smoke-test-every-listener-in-csharp
+title: Smoke-Testing Every Listener in C#
+protocols: [http, ftp, smtp, imap]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlExchangeRecord, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlException, CurlCode]
+exit-codes: [0, 7, 28]
+references: [surl-readme, curl-readme, rfc9110, rfc959, rfc5321, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Every listener answers its one request, HTTP with 404 for the root, FTP refusing the anonymous login (LoginDenied, 67), SMTP and IMAP completing a NOOP with a response whose StatusCode is 0; the server recorded one exchange per listener, and the check exits 0.
+    program: smoke.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ok http: 404\nok ftp: refused, LoginDenied (67)\nok smtp: 0\nok imap: 0\nexchanges: http 1, ftp 1, smtp 1, imap 1\n"
+
+  - id: hung-listener
+    claim: A listener that accepts the connection but never answers fails the check after the client's 3-second Timeout with CurlException OperationTimedOut (28), and the listener after it is not tried.
+    program: smoke.cs
+    args: [hung]
+    expect:
+      exit: 28
+      stdout-matches: '^ok http: 404\nFAIL smtp://127\.0\.0\.1:\d+/: OperationTimedOut \(28\)\n$'
+
+  - id: nothing-listening
+    claim: A URL where nothing listens any more fails the check at once with CurlException CouldntConnect (7).
+    program: smoke.cs
+    args: [gone]
+    expect:
+      exit: 7
+      stdout-matches: '^FAIL http://127\.0\.0\.1:\d+/: CouldntConnect \(7\)\n$'

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[signalr-stream-items-from-a-hub-from-an-agent]]
+=== Streaming from a Hub from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to stand up a SignalR hub and consume a counted stream from it, item by item, with Model Context Protocol (MCP) tool calls and no shell, and to see an unknown method refused.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a hub with `start_server`, and has the `curl` tool make a stream invocation of `Count`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario.
+
+`start_server` takes `listen_urls`, here `signalr://127.0.0.1:0` for a hub on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--allow-anonymous` lets a client with no credentials negotiate. It is a loosening, so `surl` prints a warning for it, and `start_server` returns that warning as the first of its `log_lines`, where an agent can see it (<<surl-readme>>). The last scenario leaves the option out.
+
+The `curl` tool takes `curl`{apos}s own arguments, so the call is the console one. `-d` is the one message sent after the handshake, and `type` `4` makes it a stream invocation: the hub answers one message per item and then a completion that ends the stream (<<signalr-hub-protocol>>, <<curl-protocols>>). `curl` writes each item on its own line and exits `0` at the completion, so the answer holds `1` to `5` in `standardOutput.content`, one per line, and the program prints it as a JSON string so the line feeds show. `-s` keeps the progress meter out of `standardError`, and `-S` still shows an error. A stream of no items is a success with an empty output.
+
+`curl-mcp` answers in text that is JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`, each with its `content`. A refusal is the other half. A method the hub does not have, an ordinary invocation (`type` `1`) of the streaming `Count`, a stream invocation of `Echo` and an argument `Count` cannot count, `-1`, are each a completion carrying an error. The `curl` tool answers them as a tool error, with `exitCode` `22` and the hub{apos}s words in `standardError` after `SignalR hub method failed:`, and the program counts a tool error as a failure and exits `1`. An agent reads `exitCode` and `standardError`, not only whether it got text back.
+
+A hub started without `--allow-anonymous` refuses the negotiate request with `401 Unauthorized`. `curl` exits `22` before any item moves, and the tool error says so. That is the default because a hub that accepts anyone streams to anyone.
+
+`get_events` shows what the hub saw. Filtered to `exchange_started`, it lists two exchanges for the one stream, both with the scheme `signalr`: the negotiate request, then the WebSocket that carried the hub messages. A test reads that to know the client reached the hub, whatever the client says.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<signalr-stream-items-from-a-hub>> for the same task on the console.
+* <<signalr-stream-items-from-a-hub-in-csharp>> for the same stream from a C# program.
+* <<signalr-hub-protocol>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

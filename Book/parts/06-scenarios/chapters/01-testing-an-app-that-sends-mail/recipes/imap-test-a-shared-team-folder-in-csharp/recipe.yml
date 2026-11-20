@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-test-a-shared-team-folder-in-csharp
+title: Testing a Shared Team Folder in C#
+protocols: [imap, smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlSeedRefusedException, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc2195, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: ann appends the notice to Shared/team, bob and ann both read its Subject with Curl.Api, bob's STORE answers \Flagged, ann's SEARCH FLAGGED finds UID 1, the store lists UID 1 with \Seen and \Flagged, and the program exits 0.
+    program: team-folder.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^ann appends: a3 OK \[APPENDUID \d+ 1\] APPEND completed\nbob reads: Subject: Server maintenance tonight\nann reads: Subject: Server maintenance tonight\nbob flags: \* 1 FETCH \(FLAGS \(\\Flagged \\Seen\)\)\nann searches: \* SEARCH 1\nstore: UID 1 \\Seen \\Flagged\n$'
+
+  - id: non-member
+    claim: carol is not a member, so Curl.Api's read of Shared/team throws CurlException 67, Select failed, and the store lists Shared/team among ann's mailboxes and not among carol's.
+    program: team-folder.cs
+    args: [non-member]
+    expect:
+      exit: 1
+      stdout-matches: '\ncarol reads: curl error 67: Select failed\nann@example\.com has: INBOX, Shared/team\ncarol@example\.com has: INBOX\n$'
+
+  - id: deliver
+    claim: The folder has no address; SurlServerMail.DeliverAsync to team@example.com throws SurlSeedRefusedException, NoSuchAccount.
+    program: team-folder.cs
+    args: [deliver]
+    expect:
+      exit: 1
+      stdout: "not delivered: Mail: Mail for team@example.com was refused: NoSuchAccount.\n"
+
+  - id: curl-append
+    claim: Curl.Api 0.2.0 does not APPEND; a PUT with a stream body of known length to Shared/team throws CurlException 25, Cannot APPEND with unknown input file size.
+    program: team-folder.cs
+    args: [curl-append]
+    expect:
+      exit: 1
+      stdout: "Curl.Api appends: curl error 25: Cannot APPEND with unknown input file size\n"
+
+  - id: curl-store
+    claim: Curl.Api cannot send STORE either; an HttpMethod holding an IMAP command with arguments throws FormatException before any request.
+    program: team-folder.cs
+    args: [curl-store]
+    expect:
+      exit: 1
+      stdout: "FormatException: The format of the HTTP method is invalid.\n"

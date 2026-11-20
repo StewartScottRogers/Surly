@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: surl-smoke-test-every-listener
+title: Smoke-Testing Every Listener
+protocols: [http, ftp, smtp, imap]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --mail-domain, --mailbox, --fault]
+curl-options: [-s, -m, -X, -o, -w]
+exit-codes: [0, 7, 28]
+references: [surl-readme, curl-manual, rfc9110, rfc959, rfc5321, rfc9051]
+
+fixtures:
+  site/health.txt: "ok\n"
+  smoke.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Smoke-tests listeners: one quick request to each URL in turn, in its own protocol. A
+    # listener passes if it answers at all, a refusal included. The first that does not answer
+    # within 3 seconds ends the run with curl's exit code; the rest are not tried.
+    # Usage: sh smoke.sh <url>...
+    for url in "$@"; do
+      case $url in
+        http*) ask= ;;              # a GET; any status will do
+        *)     ask="-X NOOP" ;;     # FTP, SMTP, IMAP: a command that changes nothing
+      esac
+      got=$(curl -s -m 3 $ask -o /dev/null -w '%{response_code} %{num_connects}' "$url")
+      status=$?
+      code=${got% *}; connects=${got#* }
+      if [ "$status" -ne 0 ] && [ "$code" = 000 ]; then
+        if [ "$connects" -eq 0 ]; then how="no connection"; else how="connected, no reply"; fi
+        echo "FAIL $url: curl exit $status, $how"
+        exit "$status"
+      fi
+      if [ "$code" = 000 ]; then echo "ok ${url%%:*}: curl exit $status"
+      else echo "ok ${url%%:*}: curl exit $status, reply $code"; fi
+    done
+
+servers:
+  # The test environment: four listeners on one surl, logging every line to surl.log.
+  main:
+    command: surl -v --log-file surl.log --directory site --mail-domain example.com --mailbox app@example.com:secret http://127.0.0.1:{{port}}/ ftp://127.0.0.1:{{port2}}/ smtp://127.0.0.1:{{port3}}/ imap://127.0.0.1:{{port4}}/
+    ready: port
+  # A listener that accepts connections and then says nothing for a minute.
+  hung:
+    command: surl --fault "delay;ms=60000" smtp://127.0.0.1:{{port5}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Every listener of the environment answers its one request, HTTP with a status, FTP refusing the anonymous login with 530, SMTP and IMAP completing a NOOP, and the smoke test exits 0.
+    run: sh smoke.sh http://127.0.0.1:{{port}}/ ftp://127.0.0.1:{{port2}}/ smtp://127.0.0.1:{{port3}}/ imap://127.0.0.1:{{port4}}/
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "ok http: curl exit 0, reply 404\nok ftp: curl exit 67, reply 530\nok smtp: curl exit 0, reply 250\nok imap: curl exit 0\n"
+
+  - id: server-saw-each-request
+    claim: surl's log shows the one request each listener received, the GET, the FTP USER, the SMTP NOOP and the tagged IMAP NOOP.
+    run: grep -E "< (GET|USER|NOOP|A[0-9]+ NOOP)" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ < GET / HTTP/1\.1\\r\\n\n#\d+ < USER anonymous\\r\\n\n#\d+ < NOOP\\r\\n\n#\d+ < A\d+ NOOP\\r\\n\n$'
+
+  - id: hung-listener
+    claim: A listener that accepts the connection but never answers fails the smoke test after 3 seconds with curl's exit 28, and the listeners after it are not tried.
+    run: sh smoke.sh http://127.0.0.1:{{port}}/ smtp://127.0.0.1:{{port5}}/ imap://127.0.0.1:{{port4}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout-matches: '^ok http: curl exit 0, reply 404\nFAIL smtp://127\.0\.0\.1:\d+/: curl exit 28, connected, no reply\n$'
+
+  - id: nothing-listening
+    claim: A URL where nothing listens fails the smoke test at once with curl's exit 7, could not connect.
+    run: sh smoke.sh http://127.0.0.1:{{port6}}/ ftp://127.0.0.1:{{port2}}/
+    timeout: 30
+    expect:
+      exit: 7
+      stdout-matches: '^FAIL http://127\.0\.0\.1:\d+/: curl exit 7, no connection\n$'

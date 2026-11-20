@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs build-url.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario. The program prints the bound port as PORT.
+schema: 2
+key: http-build-a-url-from-parts-from-an-agent
+title: Building a URL from Parts
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, build_url, transfer, get_exchanges]
+exit-codes: [0, 1]
+references: [curl-readme, surl-readme, rfc3986]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: build_url with UrlEncode and AppendQuery turns the space in the path into %20 and the one in the query into +, keeps the query's =, and transfer fetches that URL with 200; the server received exactly that request line.
+    program: build-url.cs
+    args: [encode]
+    expect:
+      exit: 0
+      stdout: "url: http://127.0.0.1:PORT/reports/q3%20sales.csv?region=north+east\nstatusCode: 200\nrequests the server received: 1\n  GET /reports/q3%20sales.csv?region=north+east HTTP/1.1\ntool error: no\n"
+
+  - id: raw-parts
+    claim: Without flags build_url sets the parts as given, spaces and all, and transfer of that URL fails with curl exit code 3 as a tool error before any request reaches the server.
+    program: build-url.cs
+    args: [raw]
+    expect:
+      exit: 1
+      stdout: "url: http://127.0.0.1:PORT/reports/q3 sales.csv?region=north east\ntransfer failed: CurlExit, exit code 3\nrequests the server received: 0\ntool error: yes\n"
+
+  - id: equals-encoded
+    claim: UrlEncode without AppendQuery encodes the query's = as %3D as well, so the query no longer reads as region set to a value.
+    program: build-url.cs
+    args: [equals]
+    expect:
+      exit: 0
+      stdout: "url: http://127.0.0.1:PORT/reports/q3%20sales.csv?region%3Dnorth+east\n"
+
+  - id: bad-port
+    claim: A port that is not a number is refused by build_url as a tool error, failure UrlRefused naming the port part and BadPortNumber, and no URL is returned.
+    program: build-url.cs
+    args: [bad-port]
+    expect:
+      exit: 1
+      stdout: "build_url failed: UrlRefused: The URL parser refused port: CURLUcode 4 (BadPortNumber)\ntool error: yes\n"
+
+  - id: no-scheme
+    claim: Parts with no scheme are refused as NoScheme, since a URL needs one.
+    program: build-url.cs
+    args: [no-scheme]
+    expect:
+      exit: 1
+      stdout: "build_url failed: UrlRefused: The URL parser refused url: CURLUcode 10 (NoScheme)\ntool error: yes\n"

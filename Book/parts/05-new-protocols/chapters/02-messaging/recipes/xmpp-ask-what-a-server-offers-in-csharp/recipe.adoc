@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[xmpp-ask-what-a-server-offers-in-csharp]]
+=== Asking What XMPP Offers in C#
+
+==== Problem
+
+Your chat client checks what a server offers with service discovery before it relies on a feature. You want the server's disco info and items answers written out, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts an XMPP server with a certificate and two accounts, asks it nine questions with a `CurlClient`, then starts a second server and writes the stanzas by hand to read the items answer:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The Extensible Messaging and Presence Protocol (XMPP) is the protocol of Jabber chat: a client opens a stream to a server's domain, logs in with the Simple Authentication and Security Layer (SASL), binds a resource, and exchanges stanzas (<<rfc6120>>). Service discovery is a question and its answer in an IQ stanza: `disco#info` asks what an entity is and which features it answers, `disco#items` asks which entities are under it.
+
+`SurlServerOptions` asks for an `xmpp://` listener on port `0`, so the system picks a free port, with `CertificateFile` and `KeyFile`, the options `--cert` and `--key`, made by the `openssl` line in setup, and two `SurlAccount` values, the option `--user`. With a certificate the server offers `STARTTLS` and requires it before a login (<<rfc8446>>). `SurlServer` is the running server, and its `BoundUrl` names the port it got.
+
+The client is a `CurlClient`. `CurlClientOptions` with `Tls`, a `CurlTlsOptions` whose `Origin` is a `CurlTlsPeerOptions` with `CertificateAuthorityFile` set to `server.pem`, makes it trust that certificate, as `curl --cacert` does; without it the client would stop at the certificate, as `curl` does with exit `60`. A question is a `CurlRequest`, a `GET` of an `xmpp://` URL whose path is the entity to ask, and `Authentication`, a `CurlAuthenticationOptions` with `UserName` and `Password`, is the login. `SendAsync` logs in, asks, and returns a `CurlResponse` whose `Body` is the answer as text. For `127.0.0.1`, the server's own domain, it is an identity of category `server` and type `im`, an instant-messaging server, and the features `disco#info`, `disco#items` and `urn:xmpp:ping`; for `alice@127.0.0.1` an identity of category `account` and type `registered` and the two discovery features, with no ping. `?disco` and `?disco;items` after the domain still ask for info, and the answer is the same: the library, like `curl`, asks info and nothing else.
+
+A refusal is a `CurlException`. Its `Code` is the number `curl` would exit with, and its `Message` names what the server said. A node the server does not have, `?disco;node=x`, is `item-not-found`; `bob`, an account with no stream bound, is `service-unavailable`, since the server answers for the streams it holds; `example.com` is `remote-server-not-found`, since it talks to no other server. Each is code `8`, `WeirdServerReply`, a reply the client could not use. A wrong password is `not-authorized` with code `67`, `LoginDenied`, and no login at all is the same code with the message that the server does not offer SASL `ANONYMOUS`, which `surl` does not offer here: the question is asked after the login.
+
+To read the items answer, the program writes the stanzas itself. The second `SurlServer` sets `AllowPlaintextAuthentication`, the option `--allow-plaintext-auth`, which takes a password with no TLS; it loosens the defaults, for a test, and `surl` warns on start while it is on (<<surl-readme>>). A `TcpClient` opens the stream, logs in with SASL `PLAIN`, binds the resource `r`, and sends three IQ questions. The info answer is the one `Curl.Api` printed, and the items answers, for the server and for the account, are a `query` with nothing in it: the server has no entities under it to list. The program reads until the server pauses for half a second; that is enough for a local test, not a way to read XMPP.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<xmpp-ask-what-a-server-offers>> for the same questions on the command line.
+* <<xmpp-ask-what-a-server-offers-from-an-agent>> for the same task from an agent.
+* <<xmpp-send-a-message>> for logging in and sending a message.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6120>>, <<rfc8446>>.

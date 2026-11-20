@@ -1,0 +1,117 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: xmpp-ask-what-a-server-offers
+title: Asking What XMPP Offers
+protocols: [xmpp]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --mail-domain]
+curl-options: [--cacert, -u, -s, -S]
+exit-codes: [0, 3, 8, 60, 67]
+references: [surl-readme, curl-readme, curl-protocols, rfc6120, rfc8446]
+triplet: xmpp-ask-what-a-server-offers
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main has two accounts. named gives the server a domain of its own beside its address.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret --user bob:hunter2 xmpp://127.0.0.1:{{port}}/
+    ready: port
+  named:
+    command: surl --cert server.pem --key server.key --user alice:s3cret --mail-domain chat.example xmpp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Asking the server's own domain, curl logs in as alice and prints the disco info answer, a server identity of category server and type im, and three features, info, items and ping, exit 0.
+    run: curl -sS --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: account
+    claim: Asking an account's bare JID, alice@127.0.0.1, answers an identity of category account and type registered and only the info and items features, no ping.
+    run: curl -sS --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port}}/alice@127.0.0.1
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"account\" type=\"registered\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /></query>\n"
+
+  - id: query-disco
+    claim: ?disco says the same as no query, the disco info answer.
+    run: curl -sS --cacert server.pem -u alice:s3cret "xmpp://127.0.0.1:{{port}}/127.0.0.1?disco"
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: items-not-asked
+    claim: A second word after ?disco;, such as items, does not change the question; curl still asks for info and prints the info answer, so it cannot read the items answer.
+    run: curl -sS --cacert server.pem -u alice:s3cret "xmpp://127.0.0.1:{{port}}/127.0.0.1?disco;items"
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: unknown-node
+    claim: A node the server does not have, ?disco;node=x, is answered with the stanza error item-not-found, and curl exits 8.
+    run: curl -sS --cacert server.pem -u alice:s3cret "xmpp://127.0.0.1:{{port}}/127.0.0.1?disco;node=x"
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "XMPP stanza error: item-not-found"
+
+  - id: not-online
+    claim: Asking bob, an account with no stream bound, is answered with the stanza error service-unavailable, since surl answers for the streams it holds, and curl exits 8.
+    run: curl -sS --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port}}/bob@127.0.0.1
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "XMPP stanza error: service-unavailable"
+
+  - id: other-domain
+    claim: Asking a domain surl does not serve is answered remote-server-not-found, and curl exits 8.
+    run: curl -sS --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "XMPP stanza error: remote-server-not-found"
+
+  - id: mail-domain
+    claim: With --mail-domain chat.example the server answers as the server under that name and under its listen host, with the same answer.
+    run: curl -sS --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port2}}/chat.example --next --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port2}}/127.0.0.1
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: not-another-query
+    claim: A query curl does not know, such as ?items, is refused by curl before it connects, exit 3, naming the type.
+    run: curl -sS --cacert server.pem -u alice:s3cret "xmpp://127.0.0.1:{{port}}/127.0.0.1?items"
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "Unsupported XMPP query type: items"
+
+  - id: no-login
+    claim: With no -u, curl asks for SASL ANONYMOUS, which this server does not offer, so it gets no answer and exits 67; the question is asked after the login, not before.
+    run: curl -sS --cacert server.pem xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "XMPP server does not offer SASL ANONYMOUS"
+
+  - id: wrong-password
+    claim: A wrong password is answered not-authorized and curl exits 67, with no disco answer.
+    run: curl -sS --cacert server.pem -u alice:wrong xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "XMPP authentication failed: not-authorized"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate after STARTTLS and stops before it logs in, exit 60.
+    run: curl -s -u alice:s3cret xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 60
+      stdout: ""

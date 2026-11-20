@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: tftp-choose-a-block-size-in-csharp
+title: Choosing a TFTP Block Size in C#
+protocols: [tftp]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, SurlExchangeChunk, CurlClient, CurlRequest, CurlResponse, CurlTftpOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc1350]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own TFTP server through Surl.Api, on a free UDP port.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A CurlTftpOptions with BlockSize 1024 sends a read request that carries tsize 0 and blksize 1024, the server answers with an option acknowledgement, opcode 6, of tsize 3000 and blksize 1024, and the 3,000 bytes arrive identical in 3 data blocks.
+    program: block-size.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "3000 bytes, identical\nrequest: opcode 1, big.bin octet tsize 0 blksize 1024 timeout 6\nreply: opcode 6, tsize 3000 blksize 1024 timeout 6\ndata blocks: 3\n"
+
+  - id: default-size
+    claim: With no CurlTftpOptions the request asks for blksize 512 and the same file takes 6 data blocks.
+    program: block-size.cs
+    args: [default]
+    expect:
+      exit: 0
+      stdout: "3000 bytes, identical\nrequest: opcode 1, big.bin octet tsize 0 blksize 512 timeout 6\nreply: opcode 6, tsize 3000 blksize 512 timeout 6\ndata blocks: 6\n"
+
+  - id: largest-size
+    claim: The largest block size CurlTftpOptions takes, 65464, is agreed as asked and carries the whole file in one data block.
+    program: block-size.cs
+    args: [max]
+    expect:
+      exit: 0
+      stdout: "3000 bytes, identical\nrequest: opcode 1, big.bin octet tsize 0 blksize 65464 timeout 6\nreply: opcode 6, tsize 3000 blksize 65464 timeout 6\ndata blocks: 1\n"
+
+  - id: out-of-range
+    claim: Setting BlockSize to 70000 throws an ArgumentOutOfRangeException at once, before any request, because the block size must be between 8 and 65464.
+    program: block-size.cs
+    args: [range]
+    expect:
+      exit: 0
+      stdout: "BlockSize ('70000') must be less than or equal to '65464'.\n"
+
+  - id: no-options
+    claim: With NoOptions the request holds only the file name and mode, the server answers with data block 1 and no option acknowledgement, and the file still arrives in 512-byte blocks, 6 of them.
+    program: block-size.cs
+    args: [none]
+    expect:
+      exit: 0
+      stdout: "3000 bytes, identical\nrequest: opcode 1, big.bin octet\nreply: opcode 3, block 1\ndata blocks: 6\n"
+
+  - id: missing-file
+    claim: A file the server does not have is answered with TFTP error 1, and SendAsync throws a CurlException with code TftpNotFound, 68.
+    program: block-size.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "TftpNotFound (68)\nrequest: opcode 1, nope.bin octet tsize 0 blksize 512 timeout 6\nreply: opcode 5, error 1\ndata blocks: 0\n"

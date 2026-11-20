@@ -1,0 +1,157 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: grpc-call-with-a-proto-file
+title: Calling gRPC with a Proto File
+protocols: [grpc]
+tier: new-protocols
+surl-options: [--allow-anonymous]
+curl-options: [-s, -S, -d, --grpc-proto]
+exit-codes: [0, 2, 22, 26]
+references: [surl-readme, curl-readme, curl-protocols, grpc-http2]
+triplet: grpc-call-with-a-proto-file
+
+# echo.proto is the service surl serves, as its documentation prints it. renamed.proto is a client's own
+# copy that gives the same fields other names. other.proto names a service the server does not serve.
+# bad.proto is not a proto file.
+fixtures:
+  echo.proto: |
+    syntax = "proto3";
+
+    package surl.test;
+
+    message EchoRequest {
+      string message = 1;
+      uint32 count = 2;
+      int32 status_code = 3;
+      string status_message = 4;
+      uint32 delay_milliseconds = 5;
+    }
+
+    message EchoReply {
+      string message = 1;
+      uint32 index = 2;
+    }
+
+    service Echo {
+      rpc Echo (EchoRequest) returns (EchoReply);
+      rpc Expand (EchoRequest) returns (stream EchoReply);
+      rpc Collect (stream EchoRequest) returns (EchoReply);
+      rpc Chat (stream EchoRequest) returns (stream EchoReply);
+    }
+  renamed.proto: |
+    syntax = "proto3";
+
+    package surl.test;
+
+    message Ask {
+      string text = 1;
+      uint32 times = 2;
+    }
+
+    message Answer {
+      string text = 1;
+      uint32 position = 2;
+    }
+
+    service Echo {
+      rpc Echo (Ask) returns (Answer);
+      rpc Expand (Ask) returns (stream Answer);
+    }
+  other.proto: |
+    syntax = "proto3";
+
+    package shop;
+
+    message Ask {
+      string text = 1;
+    }
+
+    service Echo {
+      rpc Echo (Ask) returns (Ask);
+    }
+  bad.proto: |
+    syntax = "proto3"; service {
+
+servers:
+  main:
+    command: surl --allow-anonymous grpc://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --grpc-proto echo.proto, curl reads the method's types from the file and calls surl.test.Echo/Echo with the request {"message":"hello"}; it prints the reply message as JSON and exits 0.
+    run: curl -s -S --grpc-proto echo.proto -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"hello\"\n}\n"
+
+  - id: reflection
+    claim: Without --grpc-proto, curl asks the server for the types by reflection and the same call prints the same reply.
+    run: curl -s -S -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"hello\"\n}\n"
+
+  - id: streaming-with-proto
+    claim: A server-streaming method is called the same way with the file; Expand with a count of 2 answers two messages, each printed as its own JSON object, and the index 0 of the first is left out.
+    run: curl -s -S --grpc-proto echo.proto -d "{\"message\":\"hi\",\"count\":2}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"hi\"\n}\n{\n  \"message\": \"hi\",\n  \"index\": 1\n}\n"
+
+  - id: names-from-the-file
+    claim: The file decides the field names. renamed.proto calls field 1 text, and the request {"text":"hello"} gets the reply printed with text, though the server calls the field message.
+    run: curl -s -S --grpc-proto renamed.proto -d "{\"text\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"text\": \"hello\"\n}\n"
+
+  - id: file-names-only
+    claim: With renamed.proto the server's own name message is no longer a field; curl refuses the request before the call, exit 2, UnknownField, naming the file's type surl.test.Ask.
+    run: curl -s -S --grpc-proto renamed.proto -d "{\"message\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "the data is not a surl.test.Ask message as JSON (UnknownField)"
+
+  - id: reflection-names-only
+    claim: Without the file the names are the server's, and the request {"text":"hello"} is refused before the call, exit 2, UnknownField, naming the server's type surl.test.EchoRequest.
+    run: curl -s -S -d "{\"text\":\"hello\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "the data is not a surl.test.EchoRequest message as JSON (UnknownField)"
+
+  - id: method-not-in-the-file
+    claim: A method the file does not declare is refused before the call, exit 2, even though the server has it; renamed.proto has no Chat.
+    run: curl -s -S --grpc-proto renamed.proto -d "{}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Chat
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "--grpc-proto: service surl.test.Echo has no method Chat"
+
+  - id: file-not-found
+    claim: A file that is not there is refused with exit 26, a read error, naming the file.
+    run: curl -s -S --grpc-proto missing.proto -d "{}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 26
+      stdout: ""
+      stderr-contains: "File \"missing.proto\" was not found"
+
+  - id: not-a-proto-file
+    claim: A file that does not parse as a proto file is refused with exit 26, naming the file, the line and column and what was expected.
+    run: curl -s -S --grpc-proto bad.proto -d "{}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 26
+      stdout: ""
+      stderr-contains: "bad.proto:1:28: Expected a service name"
+
+  - id: wrong-service
+    claim: curl trusts the file; other.proto declares a service shop.Echo, the call is made, and the server answers UNIMPLEMENTED (12), unknown service, exit 22.
+    run: curl -s -S --grpc-proto other.proto -d "{\"text\":\"x\"}" grpc://127.0.0.1:{{port}}/shop.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 12 (UNIMPLEMENTED): unknown service"

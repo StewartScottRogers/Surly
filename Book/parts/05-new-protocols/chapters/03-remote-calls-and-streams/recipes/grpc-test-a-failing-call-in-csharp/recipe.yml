@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: grpc-test-a-failing-call-in-csharp
+title: Failing a gRPC Call in C#
+protocols: [grpc]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, grpc-http2]
+triplet: grpc-test-a-failing-call
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A request that sets status_code 5 and status_message "no such order" is answered by the Surl.Api server with no reply and the trailers grpc-status 5 (NOT_FOUND) and that message, which the program reads, and curl would exit 22.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^not found: status 5 \(NOT_FOUND\), message \[no such order\], replies 0, curl exit 22\n'
+
+  - id: other-statuses
+    claim: Status 3 is INVALID_ARGUMENT with its message, and status 14, UNAVAILABLE, with no status_message has an empty message; both have no replies.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ninvalid: status 3 \(INVALID_ARGUMENT\), message \[quantity must be positive\], replies 0, curl exit 22\nno message: status 14 \(UNAVAILABLE\), message \[\], replies 0, curl exit 22\n'
+
+  - id: zero-is-ok
+    claim: status_code 0 is OK; the call has one reply and ends with status 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nzero: status 0 \(OK\), message \[\], replies 1, curl exit 0\n'
+
+  - id: percent-and-range
+    claim: A message with a percent sign is percent-encoded in grpc-message and read back whole after decoding, and a status number outside 0 to 16, 99, is turned into INVALID_ARGUMENT with the message request field out of range.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npercent: status 9 \(FAILED_PRECONDITION\), message \[disk 100% full\], replies 0, curl exit 22\nout of range: status 3 \(INVALID_ARGUMENT\), message \[request field out of range\], replies 0, curl exit 22\n'
+
+  - id: part-way
+    claim: Expand with count 3 and status_code 13 sends its three replies and then ends INTERNAL with the message, so a client reads the replies and the status.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npart way: status 13 \(INTERNAL\), message \[boom\], replies 3, curl exit 22\nserver deadline: status 4 \(DEADLINE_EXCEEDED\), message \[\], replies 0, curl exit 22\n'
+
+  - id: client-gives-up
+    claim: A call the server holds back with delay_milliseconds 3000, cancelled by the client after one second, has no status at all; the client sees a cancelled call, not a gRPC failure.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nclient gives up: no status, the call was cancelled after 1 s\n$'

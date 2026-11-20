@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[signalr-stream-items-from-a-hub-in-csharp]]
+=== Streaming from a Hub in C#
+
+==== Problem
+
+Your client consumes a SignalR stream invocation, and you want a test of it in C#: a counted stream read item by item, and an unknown method refused, against a hub that lives and dies with the test.
+
+==== Solution
+
+Start a `SurlServer` with a `signalr` listener, negotiate with it, open the WebSocket it names, send a stream invocation of `Count` and read each message until the completion:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `signalr://127.0.0.1:0`, a hub on a free port. `AllowAnonymous` is `--allow-anonymous`: it lets a client with no credentials negotiate, and without it the hub refuses (<<surl-readme>>).
+
+A SignalR client does three things before it can call a method (<<signalr-hub-protocol>>). It posts to `/negotiate` over the Hypertext Transfer Protocol (HTTP); the hub answers JavaScript Object Notation (JSON) holding a `connectionToken`. It opens a WebSocket on `/?id=` and the token (<<rfc6455>>). And it sends the handshake, `{"protocol":"json","version":1}`, to which the hub answers `{}`. Every hub message is a JSON text ended by the record separator, `U+001E`, which the program adds on sending and trims on receiving. The program does this by hand with `HttpClient` and `ClientWebSocket`: the one thing this recipe needs from a client is the stream, and the hub protocol is short enough to read.
+
+A stream invocation is the message with `type` `4`, an `invocationId`, the `target` method and its `arguments`. The hub answers one message of `type` `2` per item, each carrying its `item`, then a message of `type` `3`, the completion, which ends the stream. The program prints each item as it is read, so `Count` with `5` prints the items `1` to `5` and then the completion. A stream of no items, `Count` with `0`, is a completion straight away.
+
+A completion can carry an `error` in place of ending cleanly, and that is how the hub refuses. A method it does not have is `Unknown hub method.` `Count` streams, so an ordinary invocation of it, `type` `1`, is refused with `The method was invoked with the wrong message type.`, and so is a stream invocation of `Echo`, which returns one result. An argument `Count` cannot count, `-1`, is `Invalid arguments for the hub method.` None of these throws: the refusal is a message, and the program reads it and exits `22`, the code `curl` exits with for the same refusals on the console.
+
+A hub started without `AllowAnonymous` refuses the first step: the negotiate request is answered `401 Unauthorized`, and the program stops before it opens a WebSocket. That is the default because a hub that accepts anyone streams to anyone; the secure form, with accounts, is `signalrs`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<signalr-stream-items-from-a-hub>> for the same stream on the console, with `curl -d`.
+* <<signalr-stream-items-from-a-hub-from-an-agent>> for an agent that streams from the hub with `curl-mcp`.
+* <<signalr-hub-protocol>>, <<rfc6455>>, <<surl-readme>>.

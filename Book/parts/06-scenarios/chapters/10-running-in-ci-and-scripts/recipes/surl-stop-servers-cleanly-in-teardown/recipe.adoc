@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-stop-servers-cleanly-in-teardown]]
+=== Stopping Servers Cleanly in Teardown
+
+==== Problem
+
+You want every server stopped and its ports freed in teardown, even when a test throws, so the next run never finds a port in use.
+
+==== Solution
+
+Keep every server the set-up starts in a list, and in a `finally` dispose the clients first, then call `StopAsync` on each server in its own `try`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The set-up starts two `SurlServer` instances, each from `SurlServerOptions` with one listen URL on port 0: Hypertext Transfer Protocol (HTTP, <<rfc9110>>) and File Transfer Protocol (FTP, <<rfc959>>), both serving `hello.txt` from memory. The test fetches from each with one `CurlClient`. The HTTP `CurlRequest` gets a `CurlResponse` with 200; the FTP one throws, because no account is configured and FTP logs in before anything: `CurlException` with `Code` `LoginDenied`, 67. That is the test throwing halfway, the case teardown exists for.
+
+The `finally` runs whether the test passed or threw. It disposes the client first. A `CurlClient` keeps its connection open for the next request, and a server being stopped waits for open connections before it returns: with the client still holding its HTTP connection, the two stops take more than 3 seconds; with the client gone, under 3. Then it stops each server with `StopAsync`, which returns the `SurlExitCode` a `surl` process would exit with, `Ok` here for both. Each stop sits in its own `try`, so a stop that throws is reported and does not keep the rest from running. A test framework{apos}s teardown, xUnit{apos}s `DisposeAsync` or NUnit{apos}s `[TearDown]`, is where this `finally` would go.
+
+A stopped server has released its ports. The next run asks for the very ports the first run had, and both servers start there. Without the teardown the first run{apos}s servers are still listening, and the next run{apos}s `StartAsync` throws `SurlServerStartException` with `ExitCode` `BindFailed`, 45, the code `surl` exits with when it cannot bind. Port 0 makes that clash rare between runs, not impossible, and a server never stopped keeps its port for as long as the test process lives.
+
+`await using` on a server stops it as well, and suits one server in one method; it throws the exit code away. The list and the explicit stops suit a fixture that starts servers in one place and stops them in another.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-stop-a-server-and-read-its-exit-code>> for `StopAsync` on its own.
+* <<surl-run-a-test-server-in-ci-in-csharp>> for a continuous integration (CI) run that fails on a stop that is not `Ok`.
+* <<surl-start-and-stop-in-a-shell-script>> for the same guarantee from a shell script.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc959>>.

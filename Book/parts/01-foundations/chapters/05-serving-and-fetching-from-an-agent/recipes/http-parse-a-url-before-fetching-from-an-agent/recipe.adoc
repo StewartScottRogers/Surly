@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-parse-a-url-before-fetching-from-an-agent]]
+=== Checking a URL Before Fetching
+
+==== Problem
+
+A user hands your artificial intelligence (AI) agent a URL to fetch from a test server, and you want the agent to check it with `parse_url` first, catching a wrong scheme or port, or a URL that is not one, before any request is made.
+
+==== Solution
+
+Write the agent's side as a C# program on the Model Context Protocol (MCP) software development kit (SDK): it starts the server with `surl-mcp`, takes the user{apos}s URL apart with `curl-mcp`{apos}s `parse_url`, compares the parts with the server{apos}s bound URL, and calls `transfer` only when they match:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` on `surl-mcp` starts a plain Hypertext Transfer Protocol (HTTP) server on a free port and answers `bound_urls` in structured content: the scheme, host and port the agent can trust. The program takes the user{apos}s URL as its argument and puts the real port where it says `PORT`, as if the user had typed it, and prints that port back as `PORT` so the output does not change between runs.
+
+`parse_url` runs a URL through `curl`{apos}s own URL parser (<<curl-readme>>) and answers, in text, a JavaScript Object Notation (JSON) object: `url` as the parser rebuilt it, `parts` with `scheme`, `host`, `port`, `path`, `query` and the rest, and `failure`. It sends nothing. `flags` changes how it parses; `DefaultPort` fills in the scheme{apos}s port when the URL leaves it out, so the agent always has a port to compare.
+
+The agent then compares. A good URL matches on scheme, host and port, and `transfer` fetches it: `200`, and `list_servers` on `surl-mcp`, which answers each server{apos}s `exchange_count`, shows the one exchange. Every other case below stops before `transfer`, and the count stays at 0:
+
+* `https://` for a server that speaks `http` parses cleanly; only the comparison catches it.
+* `http://127.0.0.1/hello.txt`, with the port left out, parses with port `80` thanks to `DefaultPort`, which is not the server{apos}s port.
+* A port of `99999` is beyond what a URL may hold (<<rfc3986>>), and `parse_url` is a tool error whose `failure` is `UrlRefused`, `BadPortNumber`, with `parts` null.
+* `htp://`, a slip of the keyboard, is refused as `UnsupportedScheme`: `curl` speaks no such protocol.
+* `127.0.0.1:8080/hello.txt`, with no scheme, is refused as `BadScheme`: `parse_url` does not guess a scheme.
+
+Parsing does not tell an agent the URL is the right one, only that it is a URL and what it says. The comparison with what `start_server` bound is the agent{apos}s own, and it is where the wrong port and the wrong scheme are caught.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-build-a-url-from-parts-from-an-agent>> for putting a URL together with `build_url` instead.
+* <<http-tell-a-dead-server-from-a-missing-file-from-an-agent>> for what a fetch to the wrong place answers.
+* <<http-serve-and-fetch-from-an-agent>> for `start_server` and `transfer` on their own.
+* <<curl-readme>>, <<surl-readme>>, <<rfc3986>>.

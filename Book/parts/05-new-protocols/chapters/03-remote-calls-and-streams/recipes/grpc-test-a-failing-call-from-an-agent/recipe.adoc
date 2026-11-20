@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-test-a-failing-call-from-an-agent]]
+=== Failing a gRPC Call from an Agent
+
+==== Problem
+
+Your client must handle a gRPC status other than OK. You want an artificial intelligence (AI) agent to make a server fail a call with the status and message you choose, and to read the client's exit and error, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a gRPC server with `start_server`, and calls its `Echo` method with the `curl` tool, putting the status in the request as `statusCode` and its message as `statusMessage`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+gRPC (gRPC Remote Procedure Calls) runs each call as one HTTP/2 (Hypertext Transfer Protocol version 2) request, and ends it with trailers that carry `grpc-status`, a number from 0 to 16, and `grpc-message`, text for a person to read. A call is a success when the status is `0`, `OK`; any other status is a failure the client has to handle (<<grpc-http2>>). Upstream curl has no `grpc` scheme; the Curl port adds it, and `surl` serves it (<<surl-readme>>, <<curl-readme>>).
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `grpc://127.0.0.1:0`, port 0 for a free port, and `arguments` is `["--allow-anonymous"]`, the option that lets a call with no credentials in. It loosens the defaults, for a server that holds nothing private, and `surl` warns on start while it is on. The answer's `bound_urls` has the real port.
+
+The `curl` tool runs `curl` in-process with the arguments an agent gives it, as the command line would. `-d` gives the request as JavaScript Object Notation (JSON), and `curl` finds the method's types by reflection. `-s` keeps the progress meter out and `-S` the error message in. The answer is text, as JSON, with `exitCode`, `standardOutput` and `standardError`, each with its `content`, and the call is marked as a tool error whenever `curl` does not exit `0`. The built-in `surl.test.Echo` service has two request fields for a test: `statusCode` is the status to end the call with and `statusMessage` its message. For the Solution the call ends `NOT_FOUND` (5): the reply is empty, `standardError` says `grpc-status 5 (NOT_FOUND): no such order` behind `curl: (22)`, and the exit is `22`, which is how `curl` exits for every status other than `0`. An agent reads the number to know the call failed and the text to know which status it was.
+
+The status can be any of them. `INVALID_ARGUMENT` (3) is a client mistake that retrying will not mend, and `UNAVAILABLE` (14) is the status a client retries on; with no `statusMessage` it has an empty message. `statusCode` `0` is `OK`: the call succeeds, the reply is the output, the exit is `0` and it is not a tool error, so an agent can send the field on every call and fail only when it asks to. A message with a percent sign arrives whole, though gRPC percent-encodes `grpc-message` on the wire, and a number that is not a status, `99`, is refused by the server as `INVALID_ARGUMENT`, `request field out of range`, not made into a status of that number.
+
+A failure can come part way. `Expand` answers one reply for each `count`; with a `count` of 3 and `statusCode` 13, `INTERNAL`, the output holds all three replies and the call still ends with the status and exit `22`, so an agent has to read both. The server can answer `DEADLINE_EXCEEDED` (4) by itself, as it can any status, which is not the client running out of time: `delayMilliseconds` makes the server hold a reply back for three seconds, and with `-m 1` `curl` gives up after a second, exit `28`, timed out, with no status because none ever arrived.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-test-a-failing-call>> for the same task on the console.
+* <<grpc-test-a-failing-call-in-csharp>> for the same task in a C# test.
+* <<grpc-call-a-method>> for calling a method, the call shapes and the login rules.
+* <<grpc-http2>>, <<surl-readme>>, <<curl-readme>>.

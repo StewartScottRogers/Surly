@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-test-a-failing-call-in-csharp]]
+=== Failing a gRPC Call in C#
+
+==== Problem
+
+Your client must handle a gRPC status other than OK. You want the server to fail a call with the status and message you choose, and to see the status and the client's exit, from a C# test with `Surl.Api`.
+
+==== Solution
+
+One program starts a gRPC server, makes eight calls that ask for a status, reads each status back, and makes a ninth the client gives up on:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for a `grpc://` listener on port `0`, so the system picks a free port, and `AllowAnonymous`, the option `--allow-anonymous`, which lets a call with no credentials in. It loosens the defaults, for a server that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). `SurlServer` is the running server and its `BoundUrl` names the port it got.
+
+gRPC (gRPC Remote Procedure Calls) runs each call as one HTTP/2 (Hypertext Transfer Protocol version 2) request: a `POST` to `/<service>/<method>` whose body is a length-prefixed message in the Protocol Buffers binary encoding. The answer is the reply messages and then trailers carrying `grpc-status`, a number from 0 to 16, and `grpc-message`, text for a person (<<grpc-http2>>). A call that fails before any reply sends them in the headers instead, and the program reads whichever it finds. A call is a success only when the status is `0`; the program prints the exit code `curl` would give, `0` or `22` (<<curl-readme>>), which is its own rule here, not the library's. The program uses the framework's `HttpClient` over HTTP/2 with prior knowledge, which is how the `grpc` listener starts every connection, and encodes the messages itself, so it can set the fields a status needs.
+
+The built-in `surl.test.Echo` service has two request fields for this: `status_code`, field 3, is the status to end the call with and `status_message`, field 4, its message. `Text` and `Number` write a field as its number and value, a few bytes of Protocol Buffers. A request for status `5`, `NOT_FOUND`, with `no such order`, is answered with no reply and the trailers `grpc-status: 5` and that message. `3`, `INVALID_ARGUMENT`, is a client mistake that retrying will not mend, and `14`, `UNAVAILABLE`, which has no message here because none was asked for, is the status a client retries on. `0` is `OK`: the call has one reply and ends with status `0`, so a test can send the field on every call and fail only when it asks to.
+
+`grpc-message` is percent-encoded on the wire, and `Uri.UnescapeDataString` undoes it, so `disk 100% full` is read back whole. A number that is not a status, `99`, is not made into one: the server refuses the request as `INVALID_ARGUMENT`, `request field out of range`. A failure can come part way. `Expand` answers one reply for each `count`; with a count of 3 and `status_code` 13, `INTERNAL`, the program reads three replies and then the status, so a client has to keep what arrived before it. The server can answer `DEADLINE_EXCEEDED` (4) by itself, like any status.
+
+That is not the client's own deadline. With `delay_milliseconds`, field 5, the server holds the reply back for three seconds, and the program cancels the call after one with a `CancellationTokenSource`. No status ever arrives: `HttpClient.SendAsync` throws an `OperationCanceledException`, the program's equivalent of `curl -m 1` exiting `28`, timed out. A test that handles failures needs both: a status it was told, and an absence of one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-test-a-failing-call>> for the same task on the command line.
+* <<grpc-test-a-failing-call-from-an-agent>> for the same task from an agent.
+* <<grpc-call-with-a-proto-file-in-csharp>> for building the messages by hand from a `.proto` file's numbers.
+* <<grpc-http2>>, <<surl-readme>>, <<curl-readme>>.

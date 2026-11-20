@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-choose-a-block-size-in-csharp]]
+=== Choosing a TFTP Block Size in C#
+
+==== Problem
+
+Your C# device simulator fetches boot files over Trivial File Transfer Protocol (TFTP). You want to set the block size from code with `CurlTftpOptions`, and to confirm from the datagrams the server recorded what was asked for and what was agreed.
+
+==== Solution
+
+Start a `SurlServer` that records its exchanges, fetch a 3,000-byte file with `BlockSize` 1024, and read the request, the reply and the data blocks back from the recorded exchange:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `tftp://127.0.0.1:0`, and port 0 asks the system for a free User Datagram Protocol (UDP) port; `Files` holds `big.bin`, random bytes made when the program starts, so a block that was dropped or repeated cannot match by accident. `RecordExchanges` makes the `SurlServer` keep what it saw, and `SurlServer.BoundUrl` is the address to fetch from. `SurlServer` stops when the `await using` ends. `CurlClient` sends a `CurlRequest` and returns a `CurlResponse` whose `Body` is a stream, which the program copies into memory and compares with the image.
+
+`CurlRequest.Tftp` takes a `CurlTftpOptions`, and `BlockSize` is the spelling of `curl --tftp-blksize`. TFTP sends a file in blocks, one datagram each, 512 bytes unless both sides agree otherwise (<<rfc1350>>), and the block size is negotiated: the client puts options after the file name and mode in its read request, and the server answers with an option acknowledgement that lists the ones it accepts. The program reads that from `SurlServer.Exchanges`. There is one `SurlExchangeRecord` for the one fetch, and its `Chunks` are the datagrams, each a `SurlExchangeChunk` with a `Direction` and its `Bytes`. The first two bytes of a datagram are its opcode: 1 is the read request, 6 the option acknowledgement, 3 a data block, 5 an error. The request carries `tsize` `0`, which asks the server for the size of the file, and the `blksize` the code set; the answer, opcode 6, gives the real `tsize`, 3000, and the `blksize` the server agreed to, here the one asked for. Counting the data blocks the server sent shows the effect: 3 at 1,024 bytes against 6 at the default of 512, and one at 65464 bytes. In every case the bytes that arrive are the same.
+
+`CurlTftpOptions` refuses a block size outside 8 to 65464: `BlockSize` throws an `ArgumentOutOfRangeException` as soon as it is set, before any request is sent. `NoOptions` is the spelling of `curl --tftp-no-options`: the request carries no options, the server answers with data block 1 instead of an option acknowledgement, and the transfer runs in 512-byte blocks.
+
+A file the server does not have is answered with TFTP error 1, opcode 5. Nothing is returned for it: `SendAsync` throws a `CurlException` whose `Code` is `TftpNotFound`, which is `curl` exit `68`. The recorded exchange shows the request and the error, and no data blocks.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-choose-a-block-size>> for the same task on the console.
+* <<tftp-choose-a-block-size-from-an-agent>> for the same task from an agent.
+* <<tftp-move-a-firmware-fetch-to-http-in-csharp>> for a TFTP fetch beside an HTTP one.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-test-a-failing-call]]
+=== Testing a Failing gRPC Call
+
+==== Problem
+
+Your client must handle a gRPC status other than OK. You want the server to fail a call with the status and message you choose, and you want to see the client's exit code and its error.
+
+==== Solution
+
+Start `surl` as a gRPC server, and call its `Echo` method with `curl`, putting the status you want in the request as `statusCode` and its message as `statusMessage`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+gRPC (gRPC Remote Procedure Calls) runs each call as one HTTP/2 (Hypertext Transfer Protocol version 2) request, and ends it with trailers that carry `grpc-status`, a number from 0 to 16, and `grpc-message`, text for a person to read. A call is a success when the status is `0`, `OK`; any other status is a failure the client has to handle, whatever else came back (<<grpc-http2>>). Upstream curl has no `grpc` scheme; the Curl port adds it, and `surl` serves it (<<curl-protocols>>, <<surl-readme>>).
+
+The built-in `surl.test.Echo` service exists for tests, and its request has two fields for this: `statusCode` is the status to end the call with and `statusMessage` the message. `curl` takes the request as JavaScript Object Notation (JSON) with `-d`, finding the method's types by reflection. For the Solution, the call ends `NOT_FOUND` (5) with `no such order`: `curl` prints no reply, writes `grpc-status 5 (NOT_FOUND): no such order` on standard error behind `curl: (22)`, and exits `22`, which is how it exits for every status other than `0`. A test reads the number to know the call failed, and the text to know which status it was. `-s` keeps `curl` quiet and `-S` still shows the error.
+
+The status can be any of them. `INVALID_ARGUMENT` (3) is a client mistake that retrying will not mend, and `UNAVAILABLE` (14) is the status a client retries on. A status with no `statusMessage` has an empty one, and `curl` writes the name with nothing after it. `statusCode` `0` is `OK`: the call succeeds, prints its reply and exits `0`, so a test can send the field on every call and fail only when it asks to. A number that is not a status, `99`, is not turned into one; the server refuses the request as `INVALID_ARGUMENT`, `request field out of range`. A message with a percent sign, `disk 100% full`, arrives whole: gRPC percent-encodes `grpc-message` on the wire, and `curl` decodes it.
+
+A failure can come part way. `Expand` answers a stream of replies, one for each of `count`; with `count` 3 and `statusCode` 13, `INTERNAL`, it sends all three, `curl` prints them, and then the call ends with the status and `curl` exits `22`. A client that reads a stream has to keep what arrived before the status. The server can also answer `DEADLINE_EXCEEDED` (4) by itself, as it can any status, which is not the same as the client running out of time. `delayMilliseconds` makes the server hold a reply back; with `-m 1`, `curl` gives up after a second, exits `28`, timed out, and prints no reply, because no status ever arrived to name.
+
+`--allow-anonymous` lets a call with no credentials in, and `surl` writes a `surl: warning:` line on start while it is on (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-call-a-method>> for calling a method, the call shapes and the login rules.
+* <<grpc-test-a-failing-call-in-csharp>> for the same task in a C# test.
+* <<grpc-test-a-failing-call-from-an-agent>> for the same task from an agent.
+* <<grpc-http2>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

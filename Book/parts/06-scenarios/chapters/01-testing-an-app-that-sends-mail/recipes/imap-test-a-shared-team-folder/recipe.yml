@@ -1,0 +1,104 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: imap-test-a-shared-team-folder
+title: Testing a Shared Team Folder
+protocols: [imap, smtp]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox, --shared-folder]
+curl-options: [-u, -T, --next, -X, -s, -S, -v, --crlf, --mail-from, --mail-rcpt, -w]
+exit-codes: [0, 21, 25, 67]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+# The notice the team folder receives. Its lines already end in CRLF: an IMAP APPEND sends the
+# file's exact size first, so curl refuses --crlf there.
+fixtures:
+  notice.eml: "From: app@example.com\r\nTo: team@example.com\r\nSubject: Server maintenance tonight\r\n\r\nThe build server is down from 22:00.\r\n"
+
+# One surl: SMTP and IMAP over one mail store for example.com. ann and bob share the folder team;
+# carol has a mailbox but is not a member; app is the account an app sends as.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox carol@example.com:carolpass --shared-folder team=ann@example.com,bob@example.com smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The cases run in order against the same server: the solution's notice is Shared/team UID 1.
+cases:
+  - id: solution
+    role: solution
+    claim: ann appends notice.eml to Shared/team, bob flags message 1 there and the STORE answer shows \Flagged, and ann's SEARCH FLAGGED in the same folder finds UID 1, exit 0.
+    run: 'curl -u ann@example.com:annpass -T notice.eml imap://127.0.0.1:{{port2}}/Shared/team --next -u bob@example.com:bobpass -X "STORE 1 +FLAGS (\Flagged)" imap://127.0.0.1:{{port2}}/Shared/team --next -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/Shared/team?FLAGGED"'
+    expect:
+      exit: 0
+      stdout: "* 1 FETCH (FLAGS (\\Flagged \\Seen))\n* SEARCH 1\n"
+
+  - id: both-read-it
+    claim: bob and ann each fetch From and Subject of Shared/team UID 1 and get the same two fields, the one message both members see.
+    run: 'curl -s -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/Shared/team;UID=1;SECTION=HEADER.FIELDS%20(FROM%20SUBJECT)" --next -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/Shared/team;UID=1;SECTION=HEADER.FIELDS%20(FROM%20SUBJECT)"'
+    expect:
+      exit: 0
+      stdout: "From: app@example.com\nSubject: Server maintenance tonight\n\nFrom: app@example.com\nSubject: Server maintenance tonight\n\n"
+
+  - id: member-list
+    claim: A member's LIST shows Shared as a \Noselect folder with Shared/team under it, and NAMESPACE names Shared/ as the shared namespace.
+    run: 'curl -s -u bob@example.com:bobpass imap://127.0.0.1:{{port2}}/ --next -u bob@example.com:bobpass -X NAMESPACE imap://127.0.0.1:{{port2}}/'
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\Noselect \\HasChildren) \"/\" Shared\n* LIST (\\HasNoChildren) \"/\" Shared/team\n* NAMESPACE ((\"\" \"/\")) NIL ((\"Shared/\" \"/\"))\n"
+
+  - id: append-marks-seen
+    claim: curl's APPEND sends the message with the \Seen flag and its exact size in octets, which is why the flags bob saw were \Flagged \Seen.
+    run: 'curl -v -u ann@example.com:annpass -T notice.eml imap://127.0.0.1:{{port2}}/Shared/team'
+    expect:
+      exit: 0
+      stderr-contains: "> A003 APPEND Shared/team (\\Seen) {122}"
+
+  - id: non-member-list
+    claim: carol is not a member, so her LIST shows only her INBOX.
+    run: 'curl -s -u carol@example.com:carolpass imap://127.0.0.1:{{port2}}/'
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"
+
+  - id: non-member-read
+    claim: carol's SELECT of Shared/team is refused as a mailbox that does not exist, and curl exits 67, Select failed.
+    run: 'curl -sS -u carol@example.com:carolpass "imap://127.0.0.1:{{port2}}/Shared/team;UID=1"'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "curl: (67) Select failed"
+
+  - id: non-member-append
+    claim: carol's APPEND to Shared/team is refused too, and curl exits 25, upload failed.
+    run: 'curl -sS -u carol@example.com:carolpass -T notice.eml imap://127.0.0.1:{{port2}}/Shared/team'
+    expect:
+      exit: 25
+      stderr-contains: "curl: (25) Upload failed"
+
+  - id: no-address
+    claim: The folder has no mail address; mail sent over SMTP to team@example.com is accepted 250 and discarded, and Shared/team still holds two messages.
+    run: 'curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt team@example.com -T notice.eml -w "%{response_code}\n" smtp://127.0.0.1:{{port}}/example.com --next -u ann@example.com:annpass -X "STATUS Shared/team (MESSAGES)" imap://127.0.0.1:{{port2}}/'
+    expect:
+      exit: 0
+      stdout: "250\n* STATUS Shared/team (MESSAGES 2)\n"
+
+  - id: file-from-inbox
+    claim: Mail delivered over SMTP to ann's INBOX goes into the team folder when ann MOVEs it there; bob's SEARCH ALL then lists UID 3, and ann's INBOX is empty.
+    run: 'curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T notice.eml smtp://127.0.0.1:{{port}}/example.com --next -u ann@example.com:annpass -X "MOVE 1 Shared/team" imap://127.0.0.1:{{port2}}/INBOX --next -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/Shared/team?ALL" --next -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 2 3\n* SEARCH\n"
+
+  - id: no-crlf-on-append
+    claim: --crlf with an IMAP upload is refused by curl before it sends, exit 25, because the converted size is not known in advance.
+    run: 'curl -sS --crlf -u ann@example.com:annpass -T notice.eml imap://127.0.0.1:{{port2}}/Shared/team'
+    expect:
+      exit: 25
+      stderr-contains: "curl: (25) Cannot APPEND with CRLF conversion making size unknown"
+
+  - id: cannot-delete
+    claim: A member cannot delete the shared folder; DELETE is refused and curl exits 21.
+    run: 'curl -sS -v -u ann@example.com:annpass -X "DELETE Shared/team" imap://127.0.0.1:{{port2}}/'
+    expect:
+      exit: 21
+      stderr-contains: "NO [NOPERM] A shared folder cannot be deleted"

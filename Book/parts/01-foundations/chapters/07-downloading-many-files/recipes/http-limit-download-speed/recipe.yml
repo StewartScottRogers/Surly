@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+# Timings are claimed as ranges wide enough for a slow CI runner, never as exact values.
+schema: 2
+key: http-limit-download-speed
+title: Limiting Download Speed
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [--limit-rate, -w, -o, -s, --max-time]
+exit-codes: [0, 28]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# big.bin: 100000 zero bytes, made rather than committed.
+setup:
+  - dd if=/dev/zero of=site/big.bin bs=1000 count=100
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --limit-rate 25k, curl takes the 100000-byte file in two seconds or more, and -w reports an average speed under 50000 bytes a second.
+    run: curl -s -o big.bin --limit-rate 25k -w "%{size_download} bytes at %{speed_download} bytes/s in %{time_total} s\n" http://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 0
+      stdout-matches: '^100000 bytes at [1-4]\d{4} bytes/s in [2-9]\.\d{6} s\n$'
+
+  - id: unlimited
+    claim: Without --limit-rate, the same file over loopback arrives in under two seconds.
+    run: curl -s -o big.bin -w "%{size_download} bytes at %{speed_download} bytes/s in %{time_total} s\n" http://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 0
+      stdout-matches: '^100000 bytes at \d+ bytes/s in [01]\.\d{6} s\n$'
+
+  - id: every-transfer
+    claim: --limit-rate applies to each transfer on the command line, so two URLs are each held to the rate.
+    run: curl -s -o one.bin -o two.bin --limit-rate 25k -w "%{size_download} bytes at %{speed_download} bytes/s in %{time_total} s\n" http://127.0.0.1:{{port}}/big.bin http://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 0
+      stdout-matches: '^(100000 bytes at [1-4]\d{4} bytes/s in [2-9]\.\d{6} s\n){2}$'
+
+  - id: slow-link-times-out
+    claim: A one-second --max-time on a link held to 25k ends the transfer before the file is complete, exit 28, and -w still prints the 200 that started it.
+    run: curl -s -o part.bin --limit-rate 25k --max-time 1 -w "%{http_code} %{exitcode}\n" http://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 28
+      stdout: "200 28\n"

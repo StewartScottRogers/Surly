@@ -1,0 +1,129 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smtp-check-a-mail-attachment
+title: Checking a Mail's Attachment
+protocols: [smtp, imap]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, -s, -S, -o, -X, -w]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc5321, rfc5322, rfc9051]
+
+# report.csv is the report the app attaches. report-mail.eml is the mail it should send, with
+# report.csv in base64 as its second part; old-report-mail.eml attaches last week's report, and
+# no-attachment.eml forgets it. check-attachment.sh is the test.
+fixtures:
+  report.csv: "date,builds,failures\n2026-11-17,44,2\n2026-11-18,41,0\n2026-11-19,42,3\n2026-11-20,40,1\n"
+  report-mail.eml: |
+    From: app@example.com
+    To: ann@example.com
+    Subject: Nightly build report
+    MIME-Version: 1.0
+    Content-Type: multipart/mixed; boundary="report-boundary"
+
+    --report-boundary
+    Content-Type: text/plain; charset=us-ascii
+
+    The nightly build report is attached.
+    --report-boundary
+    Content-Type: text/csv; name="report.csv"
+    Content-Disposition: attachment; filename="report.csv"
+    Content-Transfer-Encoding: base64
+
+    ZGF0ZSxidWlsZHMsZmFpbHVyZXMKMjAyNi0xMS0xNyw0NCwyCjIwMjYtMTEtMTgsNDEsMAoyMDI2
+    LTExLTE5LDQyLDMKMjAyNi0xMS0yMCw0MCwxCg==
+    --report-boundary--
+  old-report-mail.eml: |
+    From: app@example.com
+    To: ann@example.com
+    Subject: Nightly build report
+    MIME-Version: 1.0
+    Content-Type: multipart/mixed; boundary="report-boundary"
+
+    --report-boundary
+    Content-Type: text/plain; charset=us-ascii
+
+    The nightly build report is attached.
+    --report-boundary
+    Content-Type: text/csv; name="report.csv"
+    Content-Disposition: attachment; filename="report.csv"
+    Content-Transfer-Encoding: base64
+
+    ZGF0ZSxidWlsZHMsZmFpbHVyZXMKMjAyNi0xMS0xNyw0NCwyCjIwMjYtMTEtMTgsNDEsMAoyMDI2
+    LTExLTE5LDQyLDMK
+    --report-boundary--
+  no-attachment.eml: |
+    From: app@example.com
+    To: ann@example.com
+    Subject: Nightly build report
+
+    The nightly build report is attached.
+  check-attachment.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Fetches one MIME part of a stored message over IMAP, decodes it from base64 and compares
+    # its bytes with a file. Usage: sh check-attachment.sh <user:password> <part URL> <file>
+    curl -sS -u "$1" "$2" -o part.b64 || exit $?
+    if [ ! -s part.b64 ]; then
+      echo "no such part"
+      exit 1
+    fi
+    tr -d '\r' < part.b64 | base64 -d > part.bin || exit 1
+    if cmp -s part.bin "$3"; then
+      echo "attachment matches $3, $(wc -c < "$3" | tr -d ' ') bytes"
+    else
+      echo "attachment differs from $3"
+      exit 1
+    fi
+
+# One surl: SMTP for the app to send to, IMAP for the test to read from, one mail store.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The cases run in order against the same server: the solution's mail is ann's UID 1.
+cases:
+  - id: solution
+    role: solution
+    claim: The app's mail is sent over SMTP; the script fetches part 2 of ann's UID 1 over IMAP, decodes it from base64, and its 85 bytes are report.csv's, exit 0.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T report-mail.eml smtp://127.0.0.1:{{port}}/example.com && sh check-attachment.sh ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=2" report.csv'
+    expect:
+      exit: 0
+      stdout: "attachment matches report.csv, 85 bytes\n"
+
+  - id: structure
+    claim: FETCH BODYSTRUCTURE shows the stored message is multipart/mixed, part 1 text/plain and part 2 text/csv in BASE64, an attachment with filename report.csv.
+    run: 'curl -s -u ann@example.com:annpass -X "FETCH 1 BODYSTRUCTURE" imap://127.0.0.1:{{port2}}/INBOX'
+    expect:
+      exit: 0
+      stdout: "* 1 FETCH (BODYSTRUCTURE ((\"TEXT\" \"PLAIN\" (\"CHARSET\" \"us-ascii\") NIL NIL \"7BIT\" 37 1 NIL NIL NIL NIL)(\"TEXT\" \"CSV\" (\"NAME\" \"report.csv\") NIL NIL \"BASE64\" 118 2 NIL (\"attachment\" (\"FILENAME\" \"report.csv\")) NIL NIL) \"MIXED\" (\"BOUNDARY\" \"report-boundary\") NIL NIL NIL))\n"
+
+  - id: part-headers
+    claim: SECTION=2.MIME fetches only part 2's own header, its Content-Type, Content-Disposition and Content-Transfer-Encoding.
+    run: 'curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=2.MIME"'
+    expect:
+      exit: 0
+      stdout: "Content-Type: text/csv; name=\"report.csv\"\nContent-Disposition: attachment; filename=\"report.csv\"\nContent-Transfer-Encoding: base64\n\n"
+
+  - id: part-is-base64
+    claim: SECTION=2 is the part's body as stored, still base64, not the report's bytes.
+    run: 'curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=2"'
+    expect:
+      exit: 0
+      stdout: "ZGF0ZSxidWlsZHMsZmFpbHVyZXMKMjAyNi0xMS0xNyw0NCwyCjIwMjYtMTEtMTgsNDEsMAoyMDI2\nLTExLTE5LDQyLDMKMjAyNi0xMS0yMCw0MCwxCg=="
+
+  - id: wrong-attachment
+    claim: Mail that attaches last week's report is delivered like any other; decoded, ann's UID 2 part 2 differs from report.csv and the script exits 1.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T old-report-mail.eml smtp://127.0.0.1:{{port}}/example.com && sh check-attachment.sh ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=2;SECTION=2" report.csv'
+    expect:
+      exit: 1
+      stdout: "attachment differs from report.csv\n"
+
+  - id: missing-part
+    claim: For mail with no attachment, fetching SECTION=2 of ann's UID 3 is not an error; curl exits 0 with nothing, so the script checks for an empty part and exits 1.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T no-attachment.eml smtp://127.0.0.1:{{port}}/example.com && curl -sS -u ann@example.com:annpass -w "curl exit 0, %{size_download} bytes\n" "imap://127.0.0.1:{{port2}}/INBOX;UID=3;SECTION=2" && sh check-attachment.sh ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=3;SECTION=2" report.csv'
+    expect:
+      exit: 1
+      stdout: "curl exit 0, 0 bytes\nno such part\n"

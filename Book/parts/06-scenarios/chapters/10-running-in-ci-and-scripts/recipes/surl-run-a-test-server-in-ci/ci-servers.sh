@@ -1,0 +1,48 @@
+#!/bin/sh
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# A CI step: start surl's HTTP and SMTP listeners, write their URLs to servers.env, run the
+# tests with those URLs in the environment, then stop surl. The step fails with surl's exit
+# code if surl does not start or ends before it is stopped, and with the tests' if they fail.
+# Usage: sh ci-servers.sh <http port> <smtp port> <test command> [<argument>...]
+http_port=$1; smtp_port=$2; shift 2
+: > listening.txt
+surl -v --directory site --mail-domain example.com --mailbox app@example.com:secret \
+  "http://127.0.0.1:$http_port/" "smtp://127.0.0.1:$smtp_port/" > listening.txt 2> surl.log &
+pid=$!
+echo "$pid" > surl.pid
+
+# One Listening on line per listen URL once both have bound. If surl exits first, it
+# refused to start: show why and fail the step with its exit code.
+tries=0
+until [ "$(grep -c '^Listening on ' listening.txt)" -eq 2 ]; do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    wait "$pid"; code=$?
+    cat surl.log >&2
+    echo "surl did not start: exit $code" >&2
+    exit "$code"
+  fi
+  tries=$((tries + 1))
+  if [ "$tries" -ge 100 ]; then kill "$pid"; echo "surl did not start in 10 s" >&2; exit 1; fi
+  sleep 0.1
+done
+
+# The URLs, as NAME=value lines a later step can read too.
+sed -n -e 's|^Listening on \(http://.*\)|HTTP_URL=\1|p' \
+       -e 's|^Listening on \(smtp://.*\)|SMTP_URL=\1|p' listening.txt > servers.env
+. ./servers.env
+export HTTP_URL SMTP_URL
+
+"$@"
+tests=$?
+
+# Stop surl and read how it ended: 0 when it handled SIGTERM, 143 when the shell ended it
+# outright (Git Bash on Windows). Any other code means it ended before it was asked to.
+kill "$pid" 2>/dev/null
+wait "$pid"; code=$?
+echo "tests: exit $tests; surl: exit $code" >&2
+case $code in
+  0|143) ;;
+  *) echo "surl ended before it was stopped" >&2
+     [ "$tests" -ne 0 ] || tests=$code ;;
+esac
+exit "$tests"

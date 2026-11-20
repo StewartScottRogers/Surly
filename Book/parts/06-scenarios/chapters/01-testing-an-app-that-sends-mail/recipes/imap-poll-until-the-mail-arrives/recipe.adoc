@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-poll-until-the-mail-arrives]]
+=== Polling Until the Mail Arrives
+
+==== Problem
+
+Your app sends mail some seconds after a request; you want the test to search the mailbox until the message appears or a deadline passes.
+
+==== Solution
+
+Run one `surl` that serves your domain over Simple Mail Transfer Protocol (SMTP) and Internet Message Access Protocol (IMAP), and let the test run an IMAP search once a second until it finds the mail or runs out of tries. The wait is a short script and needs a POSIX shell (Git Bash on Windows):
+
+include::wait-for-mail.sh[]
+
+`slow-app.sh` stands in for the app: it returns at once and sends the mail three seconds later, as an app that queues its mail would:
+
+include::slow-app.sh[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL runs both over one mail store, so mail the app sends is searchable over IMAP as soon as it is delivered (<<surl-readme>>). `--mail-domain example.com` serves that domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. In `slow-app.sh`, `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T` the message and `--crlf` the line ends a message needs; the parentheses and `&` run the delayed send in the background, so the script returns before the mail is sent.
+
+The test is a loop around one IMAP URL. `INBOX?SUBJECT%20%22Reset%20your%20password%22` is a `SEARCH` for messages whose subject contains that text, and the server answers `* SEARCH 1` with each matching unique identifier (UID), or `* SEARCH` with none (<<rfc9051>>). Both answers are a success to `curl`, which exits `0` either way, so a test that searches once, right after the request, sees `* SEARCH` and fails although the app works; a few seconds later the same search finds the mail. The script reads the answer instead of the exit code: it removes the carriage return, stops with the UID when there is one, and otherwise sleeps a second and tries again.
+
+The number of tries is the deadline. Ten tries a second apart wait about ten seconds; when no mail comes, the script says so after the last try and exits `1`, so the test fails in bounded time. Choose a count that covers the slowest the app is allowed to be. A failure that waiting cannot cure ends the loop at once: `-s` keeps `curl` quiet and `-S` still prints its error, and the script exits with `curl`{apos}s own code, so a wrong password stops the wait on the first try with `67`, `Login denied`, instead of searching ten times. `curl`{apos}s `--retry` does not help here, because an empty search is not a failure it retries (<<curl-manual>>).
+
+The search matches any message with that subject, old or new. A test that reuses a mailbox searches for something only this run{apos}s mail holds, or empties the mailbox first, as in <<pop3-empty-mailboxes-after-a-run>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-wait-for-an-apps-mail>> for waiting on the server{apos}s delivery event instead of searching.
+* <<smtp-collect-mail-as-it-arrives>> for gathering every delivered mail in a C# test.
+* <<smtp-check-the-mail-an-app-sent>> for checking the mail once it is there.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

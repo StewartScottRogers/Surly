@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: redis-expire-a-key
+title: Expiring a Redis Key
+protocols: [redis]
+tier: new-protocols
+surl-options: [--user, --allow-plaintext-auth]
+curl-options: [-s, -S, -u]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp]
+
+# The script needs a POSIX shell: it waits between its two curl runs, which one command cannot do.
+fixtures:
+  expire.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Sets a key that lives two seconds, reads it, waits three seconds, and reads it again.
+    # Usage: sh expire.sh <port>
+    r=redis://127.0.0.1:$1
+    curl -s -u alice:s3cret "$r/SET/session/abc/PX/2000" "$r/GET/session" "$r/PTTL/session" | {
+      read -r set; read -r value; read -r ttl
+      echo "set: $set"
+      echo "before: $value"
+      [ "$ttl" -gt 0 ] && echo "time to live: positive"
+    }
+    sleep 3
+    curl -s -u alice:s3cret "$r/GET/session" "$r/PTTL/session" "$r/EXISTS/session" | {
+      read -r value; read -r ttl; read -r exists
+      echo "after: [$value]"
+      echo "time to live: $ttl"
+      echo "exists: $exists"
+    }
+
+# main is the recipe: one account, whose password may cross the plain listener. strict has the account only.
+servers:
+  main:
+    command: surl --user alice:s3cret --allow-plaintext-auth redis://127.0.0.1:{{port}}
+    ready: port
+  strict:
+    command: surl --user alice:s3cret redis://127.0.0.1:{{port2}}
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A key set with SET and PX 2000 is read back as its value while it lives and has a positive time to live; three seconds later GET answers null, written as an empty line, PTTL answers -2 and EXISTS answers 0, and every curl run exits 0.
+    run: sh expire.sh {{port}}
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "set: OK\nbefore: abc\ntime to live: positive\nafter: []\ntime to live: -2\nexists: 0\n"
+
+  - id: no-expiry
+    claim: A key set with no expiry has the time to live -1, and a key that does not exist has -2; TTL tells the two apart from a key that is about to go.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/SET/forever/v redis://127.0.0.1:{{port}}/TTL/forever redis://127.0.0.1:{{port}}/TTL/never-set
+    expect:
+      exit: 0
+      stdout: "OK\n-1\n-2\n"
+
+  - id: set-a-limit-later
+    claim: EXPIRE puts a limit on a key that has none, in seconds, and answers 1; TTL then counts down from it; PERSIST takes the limit off again, answers 1, and the time to live is -1 once more.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/SET/later/v redis://127.0.0.1:{{port}}/EXPIRE/later/1000 redis://127.0.0.1:{{port}}/TTL/later redis://127.0.0.1:{{port}}/PERSIST/later redis://127.0.0.1:{{port}}/TTL/later
+    expect:
+      exit: 0
+      stdout-matches: '^OK\n1\n(9[5-9][0-9]|1000)\n1\n-1\n$'
+
+  - id: expire-a-missing-key
+    claim: EXPIRE on a key that does not exist answers 0 and creates nothing.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/EXPIRE/ghost/10 redis://127.0.0.1:{{port}}/EXISTS/ghost
+    expect:
+      exit: 0
+      stdout: "0\n0\n"
+
+  - id: plaintext-refused
+    claim: Without --allow-plaintext-auth the same login over redis:// is refused, and curl exits 67 with WRONGPASS.
+    run: curl -s -S -u alice:s3cret redis://127.0.0.1:{{port2}}/GET/session
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"

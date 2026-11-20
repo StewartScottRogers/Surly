@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: dict-look-up-a-word-in-csharp
+title: Looking Up a Word from C#
+protocols: [dict]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc2229]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own DICT server through Surl.Api, on a free port.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The path d:surly asks for the definition of surly; the reply is the 220 greeting and 250 ok, then 150 and 151 naming the word and its database, surl, the file's bytes, a line holding a dot, 250 ok and 221 bye, all in the body of one CurlResponse.
+    program: look-up.cs
+    args: ["d:surly"]
+    expect:
+      exit: 0
+      stdout: "== d:surly (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n150 1 definitions retrieved\n151 \"surly\" surl \"Files served by surl\"\nbad-tempered and unfriendly\n.\n250 ok\n221 bye\n"
+
+  - id: match-by-prefix
+    claim: The path m:surl asks which headwords match; with no strategy named the server matches by prefix, so surl and surly are both listed under 152.
+    program: look-up.cs
+    args: ["m:surl"]
+    expect:
+      exit: 0
+      stdout: "== m:surl (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n152 2 matches found\nsurl \"surl\"\nsurl \"surly\"\n.\n250 ok\n221 bye\n"
+
+  - id: match-exactly
+    claim: The path m:surly:*:exact asks for the exact strategy in every database, and lists surly alone.
+    program: look-up.cs
+    args: ["m:surly:*:exact"]
+    expect:
+      exit: 0
+      stdout: "== m:surly:*:exact (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n152 1 matches found\nsurl \"surly\"\n.\n250 ok\n221 bye\n"
+
+  - id: no-such-word
+    claim: A word with no file is answered 552 no match inside an ordinary response, nothing is thrown, and StatusCode is 0 for every reply since DICT has no status line.
+    program: look-up.cs
+    args: ["d:cheerful"]
+    expect:
+      exit: 0
+      stdout: "== d:cheerful (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n552 no match\n221 bye\n"
+
+  - id: not-headwords
+    claim: A dot file the store holds and a folder in it are never headwords; asking for either is answered 552 no match.
+    program: look-up.cs
+    args: ["d:.secret", "d:more"]
+    expect:
+      exit: 0
+      stdout: "== d:.secret (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n552 no match\n221 bye\n== d:more (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n552 no match\n221 bye\n"
+
+  - id: one-database
+    claim: The path show:db lists the databases, and the server has one, surl, described as Files served by surl.
+    program: look-up.cs
+    args: ["show:db"]
+    expect:
+      exit: 0
+      stdout: "== show:db (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n110 1 databases present\nsurl \"Files served by surl\"\n.\n250 ok\n221 bye\n"
+
+  - id: unknown-database
+    claim: Naming any other database, as d:surly:wordnet does, is answered 550 invalid database, and the reply still arrives as an ordinary body.
+    program: look-up.cs
+    args: ["d:surly:wordnet"]
+    expect:
+      exit: 0
+      stdout: "== d:surly:wordnet (status 0)\n220 surl DICT server <mime> <n@surl>\n250 ok\n550 invalid database, use \"SHOW DB\" for list of databases\n221 bye\n"

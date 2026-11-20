@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs fetch-ftp.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-download-anonymously-from-an-agent
+title: Downloading Anonymous FTP from an Agent
+protocols: [ftp]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, curl, transfer, get_exchanges]
+exit-codes: [0, 67, 78]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts an FTP server on port 0 with a file in memory and no --allow-anonymous, and the curl tool's download with no login is refused; the answer is exit code 67, LoginDenied.
+    program: fetch-ftp.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "exit: 67\ncurl exit code 67 (LoginDenied)\n"
+
+  - id: allowed
+    claim: A server started with --allow-anonymous, passed in arguments, accepts the same download, exit 0, and get_exchanges shows the client sent USER anonymous and a PASS, then PWD, EPSV, TYPE I, SIZE and RETR hello.txt.
+    program: fetch-ftp.cs
+    args: [allowed]
+    expect:
+      exit: 0
+      stdout: "exit: 0\nhello from surl\nclient sent: USER anonymous\nclient sent: PASS ftp@example.com\nclient sent: PWD\nclient sent: EPSV\nclient sent: TYPE I\nclient sent: SIZE hello.txt\nclient sent: RETR hello.txt\nclient sent: QUIT\n"
+
+  - id: any-login
+    claim: With --allow-anonymous, a user name and password nobody configured, passed to curl with -u, are accepted unchecked, and the file is downloaded.
+    program: fetch-ftp.cs
+    args: [any-login]
+    expect:
+      exit: 0
+      stdout: "exit: 0\nhello from surl\n"
+
+  - id: missing-file
+    claim: A file that is not there is refused even for an accepted login, and the curl tool answers exit code 78, RemoteFileNotFound.
+    program: fetch-ftp.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "exit: 78\ncurl exit code 78 (RemoteFileNotFound)\n"
+
+  - id: dot-file-not-served
+    claim: A file whose name begins with a dot, held by the server, is refused as if it were missing; exit code 78.
+    program: fetch-ftp.cs
+    args: [dot-file]
+    expect:
+      exit: 0
+      stdout: "exit: 78\ncurl exit code 78 (RemoteFileNotFound)\n"
+
+  - id: transfer-tool
+    claim: The transfer tool reaches the same two servers; the refusing one is a tool error with failure kind CurlExit and exit code 67, and the allowing one answers statusCode 226, the status of the finished transfer, with the file in the body.
+    program: fetch-ftp.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "refusing: tool error yes\nCurlExit, exit code 67\nallowing: tool error no\nstatusCode 226\nhello from surl\n"
