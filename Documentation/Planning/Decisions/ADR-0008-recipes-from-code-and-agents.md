@@ -22,6 +22,8 @@ The author wants these documented and tested the same way the console is: every 
 
 1. **Library and MCP recipes are recipes of their own**, not variants of a console recipe. One recipe, one surface.
 2. **They live in the difficulty tiers**, in chapters of their own inside each tier (for example `parts/01-foundations/chapters/<nn>-from-csharp/`), not in a separate part. Difficulty stays the book's one ordering (ADR-0004). A new metadata field, `surface`, says which surface a recipe uses: `console` (the default), `csharp` or `mcp`.
+
+   **Amended 2026-11-19 by the author (with ADR-0009):** a triplet (one task written for the console, C# and an agent) sits together in its task's chapter, so a reader sees the three ways side by side. A C# or agent recipe with no console twin still goes in a chapter of its own surface.
 3. **`Libcurl` recipes are `advanced` tier only.** `Curl.Api` and `Surl.Api` may appear in any tier their difficulty puts them in.
 4. **Schema 2 adds two kinds of case.** Every case has exactly one of `run`, `program` or `mcp`; lint refuses a case with none or more than one. Schema 1 recipes stay valid.
 5. **`program:` is a C# file-based app** (`dotnet run <file>.cs`, .NET 10 and later), kept beside `recipe.yml` and given as fixtures are:

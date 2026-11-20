@@ -58,6 +58,30 @@
     if (count) count.textContent = words.length ? shown + " of " + items.length + " recipes match" : items.length + " recipes";
   }
 
+  // A big book: a recipe fold holds <div class="lazy" data-src="recipes/key.html"> and its text
+  // is fetched from the recipe's own page the first time the fold opens.
+  function load(holder) {
+    if (!holder || holder.getAttribute("data-loaded")) return;
+    holder.setAttribute("data-loaded", "1");
+    holder.textContent = "Loading…";
+    fetch(holder.getAttribute("data-src")).then(function (r) { return r.text(); }).then(function (text) {
+      var page = new DOMParser().parseFromString(text, "text/html");
+      var body = page.querySelector("article.book");
+      if (!body) { holder.textContent = ""; return; }
+      var heading = body.querySelector("h2"); if (heading) heading.remove();
+      var refs = body.querySelector("#_references"); if (refs) refs.remove();
+      // Links in the recipe's page are relative to recipes/; here they are relative to the book.
+      body.querySelectorAll("a[href]").forEach(function (a) {
+        var h = a.getAttribute("href");
+        if (!/^([a-z][a-z0-9+.-]*:|#|\/)/.test(h)) a.setAttribute("href", "recipes/" + h);
+      });
+      holder.innerHTML = body.innerHTML;
+    }).catch(function () { holder.textContent = ""; holder.removeAttribute("data-loaded"); });
+  }
+  document.addEventListener("toggle", function (e) {
+    if (e.target.open) load(e.target.querySelector(":scope > div.lazy"));
+  }, true);
+
   document.addEventListener("DOMContentLoaded", function () {
     var box = document.getElementById("search");
     if (box) {

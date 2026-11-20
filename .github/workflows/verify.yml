@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0.
+# Runs every recipe in the book against Surl and Curl built from source, on Linux and macOS,
+# the platforms the author's Windows machine cannot check. Results are the verified.yml files
+# (an artifact) and a summary; nothing is committed. Run it from the Actions tab or with
+#   gh workflow run verify.yml -f surl_ref=v0.1.1 -f curl_ref=master
+# and it runs on a push to any branch named verify-run/... (to try a change to it).
+name: Verify recipes
+on:
+  workflow_dispatch:
+    inputs:
+      surl_ref: { description: "Surl branch, tag or commit", default: master }
+      curl_ref: { description: "Curl branch, tag or commit", default: master }
+  push:
+    branches: ["verify-run/**"]
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      SURL_REF: ${{ inputs.surl_ref || 'master' }}
+      CURL_REF: ${{ inputs.curl_ref || 'master' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: StewartScottRogers/Surl, ref: "${{ env.SURL_REF }}", path: programs/Surl }
+      - uses: actions/checkout@v4
+        with: { repository: StewartScottRogers/Curl, ref: "${{ env.CURL_REF }}", path: programs/Curl }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pyyaml
+      - name: Build surl, curl and both MCP hosts; pack the libraries
+        shell: bash
+        run: |
+          set -e
+          B="$PWD/programs/bin"; F="$PWD/programs/feed"; mkdir -p "$B" "$F"
+          build() { dotnet build "programs/$1" -c Release -m:1 -o "$B/$2" -v q --nologo; }
+          build Surl/Application/Surl.Console surl
+          build Surl/Application/Surl.Mcp surl-mcp
+          build Curl/Curl.Console curl
+          build Curl/Curl.Mcp curl-mcp
+          for p in Surl/Application/Surl.Api Curl/Curl.Api Curl/Libcurl; do
+            dotnet pack "programs/$p" -c Release -m:1 -p:BundledProjectReferencesPrivateAssets=all -o "$F" -v q --nologo
+          done
+          ls "$F"
+          {
+            echo "SURLY_SURL=$B/surl/surl"
+            echo "SURLY_CURL=$B/curl/curl"
+            echo "SURLY_SURL_MCP=$B/surl-mcp/surl-mcp"
+            echo "SURLY_CURL_MCP=$(ls "$B"/curl-mcp/Curl.Mcp "$B"/curl-mcp/curl-mcp 2>/dev/null | head -1)"
+            echo "SURLY_NUGET_SOURCE=$F"
+          } >> "$GITHUB_ENV"
+          echo "$B/surl:$B/curl" >> "$GITHUB_PATH"
+          "$B/surl/surl" --version | head -1
+          "$B/curl/curl" --version | head -1
+      - name: Verify every recipe
+        shell: bash
+        run: python3 Book/build/verify.py -j 4 | tee verify.log; exit "${PIPESTATUS[0]}"
+        continue-on-error: true
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### ${{ matrix.os }}: Surl ${SURL_REF}, Curl ${CURL_REF}"
+            echo "Verified: $(grep -c ': verified$' verify.log || true) of $(find Book/parts -name recipe.yml | wc -l)"
+            echo '```'
+            grep -v ': verified$' verify.log | head -200 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verified-${{ matrix.os }}
+          path: |
+            verify.log
+            Book/parts/**/verified.yml

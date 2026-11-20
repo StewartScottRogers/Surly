@@ -18,6 +18,9 @@ import yaml
 from recipes import BOOK, recipes
 
 SITE, DIST, OUT = BOOK / "site", BOOK / "dist", BOOK / "out" / "site"
+# Past this many recipes the whole book stops inlining every recipe and fetches each one when its
+# fold is opened, so the page stays small; SURLY_LAZY_AT overrides it (to test the lazy path).
+LAZY_AT = int(__import__("os").environ.get("SURLY_LAZY_AT", "300"))
 REPO = "https://github.com/StewartScottRogers/Surly"
 CURL = "https://github.com/StewartScottRogers/Curl"
 SURL = "https://github.com/StewartScottRogers/Surl"
@@ -208,6 +211,10 @@ def write_book_pages(values, index, titles):
                 if '<h2 id="_references">' in content:
                     content = content[:content.rfind('<div class="sect1">', 0, content.find('<h2 id="_references">'))]
                 content = re.sub(r'<h2 id="' + re.escape(r["key"]) + r'">.*?</h2>', "", content, count=1, flags=re.S)
+                if len(index) > LAZY_AT:
+                    # A big book stays small: the recipe's text is fetched from its own page when
+                    # the fold is opened (surly.js); without the script, the link below still works.
+                    content = f'<div class="lazy" data-src="recipes/{r["key"]}.html"></div>'
                 book.append(f'<details class="fold recipe" id="{r["key"]}"><summary><span>{html.escape(r["title"])}'
                             f'{badges(r)}<span class="problem">{inline(r["problem"])}</span></span></summary>'
                             f'{content}<p><a href="recipes/{r["key"]}.html">This recipe on its own page</a></p></details>')
@@ -288,7 +295,6 @@ def main():
     status_html, parts_html = status_and_parts(index, titles)
     values = {**ident, "pitch": pitch, "pitch_one_line": pitch.split(":")[0] + ".", "date": today,
               "repo": REPO, "curl": CURL, "surl": SURL, "first_recipe": index[0]["key"],
-              "copyright_cover": ident["copyright"].replace(" All rights reserved.", ""),
               "status_html": status_html, "parts_html": parts_html}
     shutil.copy(SITE / "surly.css", OUT / "surly.css")
     shutil.copy(SITE / "surly.js", OUT / "surly.js")

@@ -3,7 +3,7 @@
 
 Verdict: accept with fixes
 
-Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 71807f05f), Curl port 8.22.0 (Curl commit 82913be53d): 7 of 7 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 763754785), Curl port (Curl commit b9ca725077): 7 of 7 cases pass on windows.
 
 ## Findings
 
@@ -12,3 +12,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. `listen-hub-timeout` takes about 30 seconds: curl sends no keep-alive Ping, so the hub's 30-second client timeout closes a listener with nothing to send. The claim checks the elapsed time with `-w "%{time_total}"` (30 to 39 s) and the hub's error text. A listener cannot stay longer than that; noted for the lead (curl's conformance matrix marks keep-alive n/a).
 4. `--allow-anonymous` has its refusal (`refused-by-default`, negotiate 401) and its effect (every other case). Logging in with an account over `signalrs` is named, not shown.
 5. Source wanted, not cited: SignalR TransportProtocols.md (negotiate and the WebSocket transport); the Discussion's negotiate sentence rests on it and on the 401 case.
+6. Updated 2026-11-19 for Surl 763754785 and Curl b9ca725077: Curl now keeps a listening connection alive, so the hub's 30-second server timeout no longer closes it and `listen-hub-timeout` hung to its 90 s timeout; replaced by `listen-past-hub-timeout` (`-m 40`, exit 28, time 39 to 49 s; curl reports 39.99 s for a 40 s `-m`), and the Discussion now says a listener never ends without `-m`. Finding 3 no longer holds.

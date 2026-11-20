@@ -45,25 +45,34 @@ servers:
 cases:
   - id: solution
     role: solution
-    claim: Bound as alice, a subtree search under dc=example,dc=com for every person, asking for cn and mail, prints both entries with those two attributes, exit 0.
+    claim: Bound as alice, a subtree search under dc=example,dc=com for every person, asking for cn and mail, prints both entries with those two attributes, exit 0. This exact layout is that of WinLDAP, the LDAP library curl uses on Windows.
+    platforms: [windows]
     run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn,mail?sub?(objectClass=person)"
     expect:
       exit: 0
       stdout: "DN: cn=alice,dc=example,dc=com\n\tcn: alice\n\n\tmail: alice@example.com\n\nDN: cn=bob,dc=example,dc=com\n\tcn: bob\n\n\tmail: bob@example.com\n\n"
+
+  - id: solution-on-linux-and-macos
+    claim: On Linux and macOS, where curl uses the OpenLDAP library, the same search prints the same two entries with one more blank line after each.
+    platforms: [linux, macos]
+    run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn,mail?sub?(objectClass=person)"
+    expect:
+      exit: 0
+      stdout: "DN: cn=alice,dc=example,dc=com\n\tcn: alice\n\n\tmail: alice@example.com\n\n\nDN: cn=bob,dc=example,dc=com\n\tcn: bob\n\n\tmail: bob@example.com\n\n\n"
 
   - id: one-entry-by-dn
     claim: A URL that names an entry's distinguished name and nothing else reads that one entry with every attribute.
     run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/cn=alice,dc=example,dc=com"
     expect:
       exit: 0
-      stdout: "DN: cn=alice,dc=example,dc=com\n\tobjectClass: person\n\n\tcn: alice\n\n\tsn: Liddell\n\n\tmail: alice@example.com\n\n"
+      stdout-matches: '\ADN: cn=alice,dc=example,dc=com\n\tobjectClass: person\n\n\tcn: alice\n\n\tsn: Liddell\n\n\tmail: alice@example.com\n\n\n?\Z'
 
   - id: filter-one-person
     claim: The filter (cn=bob) with the attribute mail prints bob's mail address and nothing of alice.
     run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?mail?sub?(cn=bob)"
     expect:
       exit: 0
-      stdout: "DN: cn=bob,dc=example,dc=com\n\tmail: bob@example.com\n\n"
+      stdout-matches: '\ADN: cn=bob,dc=example,dc=com\n\tmail: bob@example.com\n\n\n?\Z'
 
   - id: no-match-prints-nothing
     claim: A filter that matches no entry is not an error; curl prints nothing and exits 0.
@@ -77,22 +86,21 @@ cases:
     run: curl -u cn=alice,dc=example,dc=com:s3cret "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn?one"
     expect:
       exit: 0
-      stdout: "DN: cn=alice,dc=example,dc=com\n\tcn: alice\n\nDN: cn=bob,dc=example,dc=com\n\tcn: bob\n\n"
+      stdout-matches: '\ADN: cn=alice,dc=example,dc=com\n\tcn: alice\n\n\n?DN: cn=bob,dc=example,dc=com\n\tcn: bob\n\n\n?\Z'
 
   - id: root-dse-naming-contexts
     claim: A URL with no base reads the root DSE; asking for namingContexts names the top of the directory, dc=example,dc=com.
     run: curl -u alice:s3cret "ldap://127.0.0.1:{{port}}/?namingContexts"
     expect:
       exit: 0
-      stdout: "DN: \n\tnamingContexts: dc=example,dc=com\n\n"
+      stdout-matches: '\ADN: ?\n\tnamingContexts: dc=example,dc=com\n\n\n?\Z'
 
   - id: missing-base
-    claim: A base that is not in the directory is answered noSuchObject, and curl exits 39, printing nothing.
-    run: curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=nowhere,dc=com"
+    claim: A base that is not in the directory is answered noSuchObject, and curl exits 39 and prints only the error line naming it (2>&1 sends that line to standard output).
+    run: curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port}}/dc=nowhere,dc=com" 2>&1
     expect:
       exit: 39
-      stdout: ""
-      stderr-contains: "No Such Object"
+      stdout-matches: '\Acurl: \(39\) LDAP remote: [^\n]*(?i:no such object)[^\n]*\n\Z'
 
   - id: wrong-password
     claim: A wrong password is refused invalidCredentials, and curl exits 38, the code for a failed bind.
@@ -119,7 +127,7 @@ cases:
       stderr-contains: "Inappropriate Authentication"
 
   - id: no-user-binds-as-windows
-    claim: With no -u at all, curl on Windows binds with Negotiate as the Windows user, which this server does not accept, and exits 38.
+    claim: With no -u at all, curl does not bind anonymously; it tries a login method this server has not been told to accept (on Windows, Negotiate as the Windows user), and exits 38.
     run: curl -s -S "ldap://127.0.0.1:{{port}}/dc=example,dc=com"
     expect:
       exit: 38
