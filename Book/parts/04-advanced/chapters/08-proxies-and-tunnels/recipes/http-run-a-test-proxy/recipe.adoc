@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-run-a-test-proxy]]
+=== Running a Test Proxy
+
+==== Problem
+
+Your app must work behind a corporate Hypertext Transfer Protocol (HTTP) proxy. You want a proxy and an origin server on your own machine, to see the request pass through the proxy, and to see the proxy refuse an origin outside loopback.
+
+==== Solution
+
+Start one `surl` that is both the origin, on port 8080, and a proxy, on port 8081; then fetch from the origin through the proxy with `curl -x`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`--proxy <listen URL>` makes a listener a proxy instead of a server; the bare `http://127.0.0.1:8080/` beside it stays an ordinary server of `--directory site`. One process can hold both, so a test has one thing to start and stop. `-x http://127.0.0.1:8081/` tells `curl` to send every request on its command line to that proxy. For a plain `http://` URL it sends the request in absolute form, `GET http://127.0.0.1:8080/hello.txt`, and the proxy forwards it to the origin and relays the answer (<<rfc9110>>).
+
+The request is seen passing through from both ends. (In the checks, `-s` silences the progress meter, `-S` keeps the error line, `-o` sends the body away and `-w` prints one variable of the answer.) The answer `curl` gets back carries `Via: 1.1 surl`, added by the proxy. At the origin, `--trace-ascii site/origin.txt` writes every request the origin received, and the trace (served from the same folder, so `curl` can fetch it) shows the Solution's request arriving as `GET /hello.txt` in origin form, with `Via: 1.1 surl` added and `curl`{apos}s `Proxy-Connection` header gone. An app that is really using its proxy settings shows up the same way.
+
+`-p` asks `curl` to tunnel with `CONNECT` instead of sending the request for the proxy to forward; it is what `curl` does on its own for every `https://` URL through a proxy (<<curl-manual>>). The proxy answers `200` to a `CONNECT` to a loopback origin, `%{http_connect}` reports it, and the request goes through the tunnel to the origin.
+
+The proxy is surly about where it goes. By default it connects only to loopback origins, and never to its own listener, so a test proxy cannot be used to reach the network or to loop requests through itself. An origin outside loopback, `192.0.2.1` here, is answered `403 Forbidden`; `curl` exits 0 because a `403` is an answer. Through a tunnel the same refusal ends the `CONNECT`, and `curl` exits 7 with `CONNECT tunnel failed, response 403`.
+
+`--proxy-allow-origin <address[/prefix]>` widens that, one address or range at a time. The second proxy in `recipe.yml`, on port 8082, is started with `--proxy-allow-origin 192.0.2.1 --head-timeout 2`: it tries that origin instead of refusing it. Nothing answers at `192.0.2.1` here, so after the two seconds `--head-timeout` allows for the origin's connect it answers `504 Gateway Timeout`; a network that refuses the connection at once gives `502 Bad Gateway` instead. `--proxy-allow-origin "*"` admits every origin and warns on every start; the case shows the warning on a start that then fails with exit 45 because the port is taken.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-run-a-test-proxy-in-csharp>> for the same proxy from a C# test.
+* <<http-run-a-test-proxy-from-an-agent>> for the same proxy driven by an agent.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>.

@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: s3-tell-the-refusals-apart-in-csharp
+title: Telling S3 Refusals Apart in C#
+protocols: [s3]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlNetworkOptions, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for every bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A request with no credentials, one with an access key the server does not hold and one with the right key and the wrong secret each throw CurlException with code 22, and the status and S3 error in the message tell them apart, AccessDenied, InvalidAccessKeyId and SignatureDoesNotMatch.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunsigned: HttpReturnedError 403 AccessDenied \(.*\nunknown key: HttpReturnedError 403 InvalidAccessKeyId \(.*\nwrong secret: HttpReturnedError 403 SignatureDoesNotMatch \('
+
+  - id: signed
+    claim: The right access key and secret are served, status 200, and nothing is thrown.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^signed: 200 hello from surl\n'
+
+  - id: signed-listing-refused
+    claim: A correctly signed listing on a server without ListDirectories is refused 403 AccessDenied, the same code as an unsigned request.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsigned listing: HttpReturnedError 403 AccessDenied \(Access Denied\)\n'
+
+  - id: unsigned-message
+    claim: The unsigned request's message, after the code, is Access Denied, the same words as the refused listing.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunsigned: HttpReturnedError 403 AccessDenied \(Access Denied\)\n'
+
+  - id: missing-key
+    claim: A key with no object, signed correctly, is 404 NoSuchKey, not a 403.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmissing key: HttpReturnedError 404 NoSuchKey \('
+
+  - id: missing-bucket
+    claim: A bucket that is not in the store, signed correctly, is 404 NoSuchBucket.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmissing bucket: HttpReturnedError 404 NoSuchBucket \('
+
+  - id: anonymous-read
+    claim: On a server with AllowAnonymous, a request with no credentials is served, status 200.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nanonymous read: 200 hello from surl\n'
+
+  - id: anonymous-unknown-key
+    claim: On a server with AllowAnonymous, a request signed with an access key the server does not hold is still refused 403 InvalidAccessKeyId.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nanonymous unknown key: HttpReturnedError 403 InvalidAccessKeyId \('
+
+  - id: anonymous-wrong-secret
+    claim: On a server with AllowAnonymous, the right access key with the wrong secret is still refused 403 SignatureDoesNotMatch.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nanonymous wrong secret: HttpReturnedError 403 SignatureDoesNotMatch \('

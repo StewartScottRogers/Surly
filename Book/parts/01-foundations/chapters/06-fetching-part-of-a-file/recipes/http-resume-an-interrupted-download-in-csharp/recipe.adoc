@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-resume-an-interrupted-download-in-csharp]]
+=== Resuming an Interrupted Download in C#
+
+==== Problem
+
+Your C# downloader must survive a dropped transfer. You want it to resume from the length of the partial file with a `Range` request, and to prove that the joined file matches the server{apos}s.
+
+==== Solution
+
+Read the length of the partial file, ask for the bytes from there on with a `Range` header, append what comes back, and compare the result with the original:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program hosts its own server. `SurlServerOptions.Files` holds `records.txt` in memory, thirty lines of ten bytes, 300 in all, and port 0 in `ListenUrls` takes a free port that `SurlServer.BoundUrl` names. `dl/records.txt` is what the interrupted download left: the first 125 bytes, ending in the middle of a line. Ranges are served for any file, with nothing to switch on.
+
+`CurlRequest.Headers` carries `Range: bytes=125-` (<<rfc9110>>), the length of the file as the first byte wanted, counting from zero. `CurlClient.SendAsync` returns a `CurlResponse` once the head has arrived; `StatusCode` and `ReasonPhrase` are its status line, `Headers` the pairs received, and `Body` a stream, read here into memory. The program does not trust the status alone: it appends only when the answer is `206 Partial Content` and its `Content-Range` begins `bytes 125-`, the part the program asked for, and then compares the whole file with the bytes the server holds. That comparison is the proof the task asks for.
+
+Two other answers are normal and the program handles each. With no partial file, the program sends no `Range`, the server answers `200 OK` with the whole file, and the program writes it, so one code path serves the first attempt and every retry. With a file that is already whole, the first wanted byte is the end of the file; the server answers `416 Range Not Satisfiable` and `Content-Range: bytes */300`, the length of the file. `SendAsync` does not throw for it, as for any status. The program reads the length, sees it equals its own, and has nothing to do.
+
+A resumed file is only as good as its beginning. The server counts bytes and cannot know what the first 125 are; a partial file whose start is not the original{apos}s is resumed without complaint, the joined file has the right length, and only the final comparison, which exits `1`, notices. When the file may have changed since the partial download began, the client can say so in the request: `If-Range` holding the `Last-Modified` date saved from the first response (here read from a `HEAD` request, as a stand-in) makes the server honour the `Range` only if the file is still that version. If it is, the answer is `206` as before. If the date is not the file{apos}s, the server ignores the `Range` and sends the whole file with `200`, the program starts the file over, and even a stale partial file with the wrong beginning ends up identical.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-resume-an-interrupted-download>> for the same task on the console.
+* <<http-resume-an-interrupted-download-from-an-agent>> for the same task from an agent.
+* <<http-download-a-byte-range-in-csharp>> for asking for a range yourself.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

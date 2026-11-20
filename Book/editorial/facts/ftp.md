@@ -45,3 +45,10 @@ No login without an account or `--allow-anonymous`: 530, curl 67. A password ove
 
 ## Recipes
 ftp-choose-passive-or-active-mode (+ -in-csharp, -from-an-agent), ftp-read-a-files-size-and-date (+ -in-csharp, -from-an-agent), ftp-check-an-upload-landed-intact, tftp-download-a-file-from-an-agent
+
+## TFTP beside HTTP (tftp-move-a-firmware-fetch-to-http)
+- One surl serves `tftp://127.0.0.1:{{port}}/ http://127.0.0.1:{{port}}/` from one `--directory` (or one `Files` store): UDP and TCP port numbers are separate, so one number does; `ready: port` waits on the TCP side. Same bytes either way; 1300 and exactly 1024 bytes (empty final block) both arrive whole; `--tftp-blksize 1024` and `--tftp-no-options` do not change the bytes.
+- Exit codes: missing tftp file 68, missing http file with `-f` 22; tftp `-T` refused 69, http PUT 401 (22 with `-f`).
+- curl-mcp `transfer` on tftp: statusCode 0, body base64 when binary; missing: failure kind `CurlExit`, text `TFTP: File Not Found` + newline + `curl exit code 68 (TftpNotFound)`. `curl` tool `-T up.txt tftp://...` exitCode 69.
+- Curl.Api: `CurlRequest.Tftp = new CurlTftpOptions { BlockSize = 1024 }`; missing file throws `CurlException`, `Code` `TftpNotFound` (68); a PUT (bytes or stream body) to tftp:// is sent as a read request, so it answers TftpNotFound 68 and uploads nothing.
+- Fixtures are text; a binary image is made by `setup: head -c 1300 /dev/urandom > site/firmware.bin` (needs schema 2) and compared with `cmp a b && echo identical`.

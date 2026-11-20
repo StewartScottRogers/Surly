@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: tftp-move-a-firmware-fetch-to-http
+title: Moving a Firmware Fetch to HTTP
+protocols: [tftp, http]
+tier: scenarios
+surl-options: [--directory]
+curl-options: [-s, -f, -o, -I, -T, --tftp-blksize]
+exit-codes: [0, 22, 68, 69]
+references: [surl-readme, curl-readme, rfc1350, rfc9110]
+
+# The folder is made by the fixture; the images are random bytes, so a copy that
+# differs by one byte cannot pass for the real thing. 1300 bytes is two full TFTP
+# blocks and a short one; 1024 is exactly two full blocks, which TFTP ends with an
+# empty third.
+fixtures:
+  site/readme.txt: "firmware images\n"
+
+setup:
+  - head -c 1300 /dev/urandom > site/firmware.bin
+  - head -c 1024 /dev/urandom > site/exact.bin
+
+# One surl, one folder, two listeners. UDP and TCP port numbers are separate, so both use {{port}}.
+servers:
+  main:
+    command: surl --directory site tftp://127.0.0.1:{{port}}/ http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The image fetched over TFTP and the image fetched over HTTP from the same folder are byte for byte the same file.
+    run: curl -s -o over-tftp.bin tftp://127.0.0.1:{{port}}/firmware.bin -o over-http.bin http://127.0.0.1:{{port}}/firmware.bin && cmp over-tftp.bin over-http.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: exact-blocks
+    claim: An image whose size is an exact multiple of the 512-byte TFTP block arrives whole over both, which is the edge a hand-written TFTP client gets wrong.
+    run: curl -s -o over-tftp.bin tftp://127.0.0.1:{{port}}/exact.bin -o over-http.bin http://127.0.0.1:{{port}}/exact.bin && cmp over-tftp.bin over-http.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: both-lengths
+    claim: Both transfers report the 1300 bytes the file holds.
+    run: curl -s -w "%{size_download}\n" -o {{null}} tftp://127.0.0.1:{{port}}/firmware.bin -o {{null}} http://127.0.0.1:{{port}}/firmware.bin
+    expect:
+      exit: 0
+      stdout: "1300\n1300\n"
+
+  - id: block-size
+    claim: Asking for a larger TFTP block size changes how the image travels and not what arrives.
+    run: curl -s --tftp-blksize 1024 -o over-tftp.bin tftp://127.0.0.1:{{port}}/firmware.bin -o over-http.bin http://127.0.0.1:{{port}}/firmware.bin && cmp over-tftp.bin over-http.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: http-size-first
+    claim: HTTP can say how big the image is before any of it is sent, with a HEAD request; TFTP has no such request.
+    run: curl -s -I http://127.0.0.1:{{port}}/firmware.bin
+    expect:
+      exit: 0
+      stdout-matches: 'Content-Length: 1300\r?\n'
+
+  - id: missing-over-tftp
+    claim: A missing image is TFTP error 1 and curl exits 68.
+    run: curl -s -o {{null}} tftp://127.0.0.1:{{port}}/nope.bin
+    expect:
+      exit: 68
+
+  - id: missing-over-http
+    claim: The same missing image over HTTP is a 404 that curl reports as exit 22 only when -f is given, so a script that tested for 68 must test for 22.
+    run: curl -s -f -o {{null}} http://127.0.0.1:{{port}}/nope.bin
+    expect:
+      exit: 22
+
+  - id: write-over-tftp
+    claim: Sending a file with -T is refused over TFTP, error 2, curl exit 69, because uploads are off.
+    fixtures:
+      up.bin: "not wanted\n"
+    run: curl -s -T up.bin tftp://127.0.0.1:{{port}}/up.bin
+    expect:
+      exit: 69
+
+  - id: write-over-http
+    claim: Over HTTP the same upload is refused too, as 401 Unauthorized, which -f turns into exit 22.
+    fixtures:
+      up.bin: "not wanted\n"
+    run: curl -s -f -T up.bin http://127.0.0.1:{{port}}/up.bin
+    expect:
+      exit: 22

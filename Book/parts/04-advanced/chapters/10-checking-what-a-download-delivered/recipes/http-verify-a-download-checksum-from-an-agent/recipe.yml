@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs fetch-verified.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-verify-a-download-checksum-from-an-agent
+title: Verifying a Download's Checksum from an Agent
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, transfer, put_file]
+exit-codes: [0, 1, 22]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: transfer returns the whole body, isTruncated false; its 23 bytes hash to the published SHA-256, so the agent writes tool-1.0.bin and exits 0.
+    program: fetch-verified.cs
+    args: [match]
+    expect:
+      exit: 0
+      stdout: "kept tool-1.0.bin: SHA-256 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c, 23 bytes\n"
+
+  - id: wrong-digest-refused
+    claim: The same body checked against a different published digest is refused with both digests named, nothing is written, and the program exits 1.
+    program: fetch-verified.cs
+    args: [wrong-digest]
+    expect:
+      exit: 1
+      stdout: "refused other.bin: SHA-256 is 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c, not 3a781f0b1f6c0a682e41bd887f6307082508282ab9c96d8a6bf1dc62f0a237c2\n"
+
+  - id: changed-file-refused
+    claim: After put_file changes the served file, transfer fetches it without an error status, but its digest differs, so it is refused and the good tool-1.0.bin written earlier is left as it was.
+    program: fetch-verified.cs
+    args: [changed]
+    expect:
+      exit: 1
+      stdout: "kept tool-1.0.bin: SHA-256 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c, 23 bytes\nrefused tool-1.0.bin: SHA-256 is 3a781f0b1f6c0a682e41bd887f6307082508282ab9c96d8a6bf1dc62f0a237c2, not 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c\non disk: tool-1.0.bin installer for tool 1.0\n"
+
+  - id: missing-file
+    claim: A file the server does not have is statusCode 404 and no tool error; the agent refuses it before hashing, writes nothing, and exits 22 as curl -f would.
+    program: fetch-verified.cs
+    args: [missing]
+    expect:
+      exit: 22
+      stdout: "refused tool-2.0.bin: statusCode 404\non disk: tool-2.0.bin missing\n"

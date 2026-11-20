@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[az-list-a-container-from-an-agent]]
+=== Listing a Blob Container from an Agent
+
+==== Problem
+
+Your app lists the blobs in a container before it downloads them, and an agent tests that for you. You want the listing refused until it is allowed, then the blob names under a prefix, by an agent driving `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+An agent starts three Azure Blob servers with `surl-mcp`, one that allows listings, one that does not and one that also allows anonymous callers, and lists the container through `curl-mcp`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Azure Blob Storage lists a container with List Blobs, a `GET` on the container with a prefix and a delimiter that answers the blob names under the prefix, folding any that continue past the delimiter into one prefix of their own (<<azure-blob-api>>). In the Curl port an `az://` URL in the emulator{apos}s path style, `az://<host>:<port>/<account>/<container>/`, whose path ends in a slash is that listing, and `curl` writes the names to standard output, one to a line. `devstoreaccount1/photos/2026/` is the blobs under `2026/`; `devstoreaccount1/photos/` is one level, the folders as prefixes that end in a slash. The recipe <<az-list-a-container>> does the same with the two programs on a console.
+
+`start_server` of `surl-mcp` starts a server. `listen_urls` is `az://127.0.0.1:0`, where port `0` takes a free port that `bound_urls` reports, and `arguments` are `surl`{apos}s own options: `--cert server.pem` and `--key server.key`, since the `az` listener is Transport Layer Security from the first byte (<<rfc8446>>), which the `openssl` line made in the folder `SURL_MCP_ROOT` names; `--user devstoreaccount1:c2VjcmV0`, the account and its base64 key; `--user :t0ken-abc`, an empty name whose password `surl` reads as a Bearer token (<<rfc6750>>); `--list-directories`, which turns listings on; and `--allow-anonymous` for the third server (<<surl-readme>>). `files` is the content in memory, where `photos/2026/jan.jpg` is the blob `2026/jan.jpg` in the container `photos`.
+
+`curl` of `curl-mcp` runs `curl`{apos}s own arguments, in the folder `CURL_MCP_ROOT` names, and answers in text as JSON: `exitCode`, and `standardOutput` and `standardError`, each an object whose `content` is the text. `--cacert server.pem` trusts the certificate; `--oauth2-bearer t0ken-abc` sends the token, and `-u devstoreaccount1:c2VjcmV0` signs the request with the account key as Shared Key. A listing is a successful answer with exit `0`, and an empty prefix is too: nothing is under it, and nothing is wrong.
+
+A refusal is exit `22` with the Azure error in `standardError` and nothing in `standardOutput`. A container that is not in the store is `404 ContainerNotFound`, and a listing with no token is `401 NoAuthenticationInformation`, although the server allows listings. On the server without `--list-directories` a listing is `403 AuthorizationPermissionMismatch` even with the token, and a get of one blob by its name is served: the option decides whether a client may enumerate what is stored, not whether it may read it. On the server with `--allow-anonymous` and `--list-directories` a listing with no token is served, so a test needs none, and so does anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on.
+
+`list_files` of `surl-mcp` lists a folder of the store directly, by its path, `/photos/2026`, and asks no one{apos}s permission, as the test{apos}s own hand does and a client does not. It answers the same two files as the two blob names, so an agent can check what a listing should hold against what the server holds.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<az-list-a-container>> for the same task on the console.
+* <<az-list-a-container-in-csharp>> for the same task from a C# test.
+* <<s3-list-a-bucket-from-an-agent>> for listing a bucket of Amazon S3 with an agent.
+* <<surl-readme>>, <<curl-readme>>, <<azure-blob-api>>, <<rfc6750>>, <<rfc8446>>.

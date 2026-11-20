@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-keep-the-server-log-for-a-failed-run
+title: Keeping the Server Log for Failures
+protocols: [https, ftps]
+tier: scenarios
+surl-options: [--trace-ascii, --directory, --cert, --key, --user]
+curl-options: [-s, -S, -f, --cacert, -u, --oauth2-bearer, -o]
+exit-codes: [0, 67]
+references: [surl-readme, curl-manual, rfc4217, rfc6750, rfc8446]
+
+fixtures:
+  site/report.csv: "id,total\n1,40\n"
+  tests.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The tests of a CI run: the report over HTTPS with a password, then with a token, then
+    # over FTPS; the first failure ends the run with curl's exit code.
+    # Usage: sh tests.sh <https port> <ftps port> <ftps password>
+    set -e
+    curl -sSf --cacert server.pem -u app:s3cret -o /dev/null "https://127.0.0.1:$1/report.csv"
+    curl -sSf --cacert server.pem --oauth2-bearer tok-7f3a9c -o /dev/null "https://127.0.0.1:$1/report.csv"
+    curl -sSf --cacert server.pem -u "app:$3" -o /dev/null "ftps://127.0.0.1:$2/report.csv"
+  ci-step.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # A CI step: run the tests; if they fail, keep surl's trace in ci-logs/ for the job to
+    # upload, with every byte a client sent left out, and fail with the tests' exit code.
+    # Usage: sh ci-step.sh <test command> [<argument>...]
+    "$@" && exit 0
+    status=$?
+    mkdir -p ci-logs
+    # After a "<= Recv data" line come the bytes a client sent, one offset-led line each, up to
+    # the next line that starts with an exchange number. Drop those bytes; keep everything else.
+    awk '/^#[0-9]+ <= Recv data/ { print; skip = 1; next }
+         /^#[0-9]+ / { skip = 0 }
+         !skip' trace.txt > ci-logs/trace.txt
+    exit "$status"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# One server for the whole job: a password account and a Bearer token (the empty user name),
+# over HTTPS and FTPS, tracing every exchange to trace.txt.
+servers:
+  main:
+    command: surl --trace-ascii trace.txt --directory site --cert server.pem --key server.key --user app:s3cret --user :tok-7f3a9c https://127.0.0.1:{{port}}/ ftps://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: passing-run-keeps-nothing
+    claim: A run whose tests all pass exits 0 and keeps nothing.
+    run: sh ci-step.sh sh tests.sh {{port}} {{port2}} s3cret && sh -c "test -e ci-logs || echo nothing kept"
+    expect:
+      exit: 0
+      stdout: "nothing kept\n"
+
+  - id: solution
+    role: solution
+    claim: A run whose FTPS login is refused fails with curl's exit code 67, and the step keeps the trace in ci-logs.
+    run: sh ci-step.sh sh tests.sh {{port}} {{port2}} guess
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "curl: (67)"
+      files:
+        ci-logs/trace.txt: null
+
+  - id: kept-trace-says-why
+    claim: The kept trace holds surl's log lines, one per judged login, naming the method and the account; the failing run's are Basic and Bearer accepted, then FTPS as app refused.
+    run: grep -E "Login (accepted|refused)" ci-logs/trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '#\d+ \* Login accepted: Basic app\n#\d+ \* Login accepted: Bearer bearer token\n#\d+ \* Login refused: ftps app\n$'
+
+  - id: kept-trace-keeps-replies
+    claim: The kept trace still holds what surl sent, here the 530 reply that refused the login.
+    run: grep -c "530 Login incorrect" ci-logs/trace.txt
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: raw-trace-holds-passwords
+    claim: The trace surl wrote holds every byte a client sent, so both FTP PASS commands are in it with their passwords in clear.
+    run: grep -c -e "PASS s3cret" -e "PASS guess" trace.txt
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: kept-trace-holds-no-secret
+    claim: The kept trace holds neither password nor the token.
+    run: grep -c -e s3cret -e guess -e tok-7f3a9c ci-logs/trace.txt
+    expect:
+      exit: 1
+      stdout: "0\n"

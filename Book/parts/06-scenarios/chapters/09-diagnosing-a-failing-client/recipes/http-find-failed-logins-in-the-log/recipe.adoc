@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-failed-logins-in-the-log]]
+=== Finding Failed Logins in the Log
+
+==== Problem
+
+A client keeps failing to log in; you want the server's log file to show each judged login and why it was refused.
+
+==== Solution
+
+Start `surl` with `-v` and `--log-file`, let the clients try, and search the log for the login lines and for the logins refused unchecked:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`-v` logs every exchange event, and `--log-file surl.log` appends the log to that file instead of stderr. Each line starts with the exchange number, `#4`, so the lines of one connection can be told apart from the others. `--user app:s3cret` is the only account and `--directory site` serves the report; once an account exists, every request needs a login.
+
+Five clients try here, one after another: the right password with Digest (<<rfc7616>>), an old password, a misspelt account, the right password with Basic (<<rfc7617>>) over `http://`, and no login at all. `-u` gives `curl` the account and password, sent with Basic unless `--digest` asks for Digest; `-s`, `-o` and `-w "%{http_code}"` print the status and nothing else. Only the first gets `200`. The search turns up four lines, and each kind of failure has its own:
+
+* `Login accepted: Digest app` and `Login refused: Digest app` are logins `surl` judged, with the method and the account the client named. A refusal with an account that exists means the password was wrong; here, the old one.
+* `Login refused: Digest ap` is the same line for an account that does not exist. The log does not say which of the two it was, so compare the name with the accounts the server was given: `ap` is not `app`.
+* `the authentication policy forbade the request; answered 403 and closed` has no login line before it, because the login was never judged. Basic sends the password in clear, and over `http://` `surl` refuses it unchecked with `403 Forbidden` (<<rfc9110>>), the right password included. `--allow-plaintext-auth` would loosen that for a test; the client's real fix is Digest, or Hypertext Transfer Protocol Secure (HTTPS).
+* The request with no login appears in neither search: it is a `GET` answered `401, a login is needed`, with no login line, so a client that never sends its credentials shows up as an exchange that ends without one.
+
+After each judged login comes, in the same exchange, the request it decided: `Login refused: Digest ap`, then `GET /report.csv: 401, a login is needed`. `grep -A1` prints that next line.
+
+Keep this log to yourself. At the verbose level it holds every request line received, so the Basic attempt's `Authorization: Basic YXBwOnMzY3JldA==` is in it, and that is `app:s3cret` in base64, not a secret kept. The login lines themselves name accounts and never passwords.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-clients-apart-by-account>> for which account fetched what.
+* <<surl-keep-the-server-log-for-a-failed-run>> for keeping a log without its secrets.
+* <<http-refuse-a-password-in-clear>> for the `403` and the option that loosens it.
+* <<surl-readme>>, <<rfc7616>>, <<rfc7617>>, <<rfc9110>>.

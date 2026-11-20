@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-a-flaky-endpoint-from-an-agent]]
+=== Retrying a Flaky Endpoint from an Agent
+
+==== Problem
+
+Your client retries, with a growing wait, when a server answers `503 Service Unavailable`. You want an artificial intelligence (AI) agent to set up a Hypertext Transfer Protocol (HTTP) endpoint that answers `503` twice and then serves the file, fetch it with retries, and check from the server's side that the rule acted twice, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent's side as a C# program on the MCP software development kit (SDK): it starts a server with `start_server`, adds a `503` rule with `add_fault`, fetches with `curl-mcp`{apos}s `curl` tool and `--retry 3`, then asks the server what its rule did:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. The argument after `--` picks the scenario. `start_server` answers in structured content with `server_id`, which every other `surl-mcp` tool takes, and `bound_urls`, the URL with the port the system chose.
+
+`add_fault` adds one rule to the running server, written as `surl`{apos}s `--fault` takes it, and answers its ID, `f1`. `error` answers a request with the reply the rule names instead of serving it; `reply=503` must be an HTTP error status and `scheme=http` says which protocol's error shape that is. `path=/hello.txt` limits the rule to that path and `times=2` spends it after two answers.
+
+The `curl` tool runs a `curl` command line in-process and answers its `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON) text. `--retry 3` allows three retries after a failure `curl` counts as transient, and `503` (<<rfc9110>>) is one (<<curl-manual>>). With no `--retry-delay`, `curl` waits one second and then two, and says so on standard error, which `--no-progress-meter` keeps free of the progress bar. The third request is served: exit `0`, and `-w "%{http_code} %{num_retries}\n"` prints `200 2` after the file. With `-f --retry 1` the one retry gets the second `503` too; `curl` exits `22`, and the tool marks its answer a tool error.
+
+`transfer` makes exactly one attempt per call, and a `503` is an answer to it, not a failure: `statusCode` is `503`, `failure` is null and the call is not a tool error. An agent that wants to retry reads the status and calls again. This one waits one second, then two, as `curl` does, and its third call gets the file.
+
+The server's side says the same thing in its own words. `get_events` with `kinds` `fault_applied` lists each time a rule acted, twice in every scenario, and `list_faults` shows `f1` with `remaining` `0`. The rule was added after the server started, so nothing else had a chance to spend it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-a-flaky-endpoint>> for the same test on the console.
+* <<http-retry-a-flaky-endpoint-in-csharp>> for the same test from a C# program.
+* <<http-recover-from-a-dropped-connection-from-an-agent>> for a connection dropped instead of a `503`.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

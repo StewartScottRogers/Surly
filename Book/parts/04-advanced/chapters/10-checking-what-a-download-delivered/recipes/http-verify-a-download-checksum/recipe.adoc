@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-verify-a-download-checksum]]
+=== Verifying a Download's Checksum
+
+==== Problem
+
+Your installer must refuse a downloaded file whose SHA-256 digest differs from the published one, and you want a test that keeps the download when the digest matches and refuses it when the served file has changed.
+
+==== Solution
+
+Serve the file, then download it with a short script that runs `curl` and compares the file's SHA-256 with the digest given on its command line:
+
+include::.generated/solution.adoc[]
+
+The script, `fetch-verified.sh`:
+
+include::fetch-verified.sh[]
+
+Stop `surl` with kbd:[Ctrl+C]. The script needs a POSIX shell (Git Bash on Windows).
+
+==== Discussion
+
+Over the Hypertext Transfer Protocol (HTTP), `surl` sends the bytes it has and `curl` writes the bytes it got; neither knows what the file should contain, so a file changed on the server downloads as cleanly as the original (<<rfc9110>>). The check belongs to the installer, against a digest published somewhere the attacker cannot also change, and the script is that check in a dozen lines.
+
+`-f` makes `curl` treat a `404` or any other error status as a failure, exit 22, instead of saving an empty file under the installer's name; `-s` hides the progress meter and `-S` keeps the error line. `-o "$file.part"` writes the download beside its final name, not over it. The script hashes the part file with `sha256sum`, or `shasum -a 256` where there is no `sha256sum`, takes the digest from the front of the line, and compares it with the published one as text, so the digest must be given in lower case. On a match it renames the part file to its name and says so; on a mismatch it removes the part file, names both digests on standard error, and exits 1.
+
+Three refusals are shown. A digest that is not the file's is refused, which is what a wrong or truncated published value looks like. A served file that has changed, here by words added to it, gets past `curl` and is refused by its digest. A missing file is refused by `curl -f` before any digest is taken, and the script passes `curl`{apos}s exit code, 22, on. Because the script writes to `tool-1.0.bin.part` and renames only on a match, the refused download of the changed file leaves no part file behind and does not touch the good `tool-1.0.bin` already kept.
+
+`--directory site` serves the folder from disk, so changing `site/tool-1.0.bin` changes what the next request gets, with no restart; that is how the case stands in for a mirror that started serving something else.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-verify-a-download-checksum-in-csharp>> for the same check from a C# test.
+* <<http-verify-a-download-checksum-from-an-agent>> for the same check driven by an agent.
+* <<http-fail-a-script-on-a-missing-file>> for `curl -f` on its own.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>.

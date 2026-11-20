@@ -1,0 +1,77 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-time-out-a-hanging-server
+title: Timing Out a Hanging Server
+protocols: [http]
+tier: scenarios
+surl-options: [--directory, --fault, -v, --log-file]
+curl-options: [-s, -S, --no-progress-meter, -m, --connect-timeout, -w, --retry]
+exit-codes: [0, 28]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  site/other.txt: "not held\n"
+  once/hello.txt: "hello from surl\n"
+
+# main holds every request for /hello.txt five seconds before answering it; once holds only the
+# first. The rules act at the command stage, when a request has arrived, so the readiness check,
+# which connects and sends nothing, is not held and does not spend times=1.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --fault "delay;ms=5000;stage=command;path=/hello.txt" http://127.0.0.1:{{port}}/
+    ready: port
+  once:
+    command: surl --directory once --fault "delay;ms=5000;stage=command;path=/hello.txt;times=1" http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The server holds the request five seconds; curl -m 2 gives up after two seconds with exit 28, Operation timed out, and nothing on standard output.
+    run: curl -sS -m 2 http://127.0.0.1:{{port}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: ""
+      stderr-contains: "curl: (28) Operation timed out after"
+
+  - id: other-path
+    claim: The rule holds only /hello.txt; another path on the same server is answered at once, well inside the same limit.
+    run: curl -sS -m 2 http://127.0.0.1:{{port}}/other.txt
+    expect:
+      exit: 0
+      stdout: "not held\n"
+
+  - id: connect-timeout-is-not-enough
+    claim: --connect-timeout limits only the connection, which the server accepts at once, so curl waits out the hold and gets 200 after five seconds or more.
+    run: curl -s --connect-timeout 2 -w "%{http_code} %{time_total}\n" http://127.0.0.1:{{port}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: '^hello from surl\n200 [5-9]\.\d+\n$'
+
+  - id: server-held-two
+    claim: The server's verbose log records that fault rule f1 held a request twice, once for each fetch of /hello.txt, and never for /other.txt.
+    run: 'grep -c "GET held for 5 s by fault rule f1" surl.log'
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: retry-after-timeout
+    claim: curl counts a timeout as transient, so with -m 2 --retry 1 it tries again after one second; the rule held only the first request, and the retry gets the file.
+    run: curl --no-progress-meter -m 2 --retry 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port2}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "hello from surl\n200 1\n"
+      stderr-contains: "Warning: Problem : timeout. Retrying in 1 second. 1 retry left."
+
+  - id: retry-still-bounded
+    claim: Against a server that holds every request, -m 2 --retry 1 times out twice and gives up with 28 after one retry and no status; -m limits each try, not the whole command.
+    run: curl -s -m 2 --retry 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "000 1\n"

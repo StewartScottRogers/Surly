@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[telnet-hold-a-line-session-from-an-agent]]
+=== Holding a Telnet Session from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to hold a scripted Telnet session with a line-based server: feed it lines on standard input, read the echo back, and check what the server was told, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with a Telnet listen URL on port 0, then calls the `curl` tool with the URL and the lines as `stdin`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent{apos}s MCP client: `StdioClientTransport` starts `surl-mcp` and `curl-mcp` by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder it runs in. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` starts a server that answers as `surl telnet://127.0.0.1:0` would, port 0 asking the system for a free one. Its structured answer has `server_id` and `bound_urls`, the address actually listening, which the program passes to `curl`. Any other `surl` option goes in `arguments`, as `surl`{apos}s own words: the `too-long` scenario starts the server with `--max-line 10`, the longest line it will accept.
+
+The `curl` tool runs `curl` as its command line would, and takes the one thing a command line gets from the terminal: `stdin`, the text `curl` reads as standard input. That is how a Telnet session is fed to it (<<rfc854>>): `curl` sends the text and writes what the server sends back. The answer is JavaScript Object Notation (JSON) with `exitCode`, `standardOutput` and `failure`, and the program prints `exitCode` and the content of `standardOutput`. The banner comes first, then each line echoed, then `bye` when a line says `quit`; `QUIT` in capitals ends the session as well, and anything after it is never read. A line longer than `--max-line` is answered `line too long` and the session ends, with `exitCode` `0` because the connection closed normally and no `bye`, which is how an agent tells.
+
+A session that never says `quit` stays open after the last echo. `-s` keeps the progress meter out of `standardError`, and `-m 2` is a time limit of two seconds; when it runs out `curl` exits `28`, and the answer is a tool error whose `failure` has the kind `CurlExit`, with everything echoed so far still in `standardOutput`. An agent should always set `-m` on a session it feeds, so that a missing `quit` costs two seconds and a clear error, not a hang. The program prints whether the call was a tool error, and exits `1` if it was.
+
+`-t TTYPE=vt100` sets the terminal type `curl` reports during the option negotiation. The output does not show it, but `get_exchanges` does: it returns what each client sent to the server and what the server sent back, in chunks, with the negotiation as base64 and the lines as text. The program decodes the received chunks, whichever way each is encoded, and finds `vt100` among them, and the three lines the server read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<telnet-hold-a-line-session>> for the same session on the console.
+* <<telnet-hold-a-line-session-in-csharp>> for the same session from C#.
+* <<http-run-curl-from-an-agent>> for the `curl` tool by itself.
+* <<surl-readme>>, <<curl-readme>>, <<rfc854>>.

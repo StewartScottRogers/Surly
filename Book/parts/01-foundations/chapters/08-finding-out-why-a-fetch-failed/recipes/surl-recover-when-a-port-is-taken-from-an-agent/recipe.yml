@@ -1,0 +1,40 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs recover-port.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: surl-recover-when-a-port-is-taken-from-an-agent
+title: Recovering from Taken Ports from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, transfer]
+exit-codes: [0, 3, 45]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: With another listener on the port, start_server is a tool error carrying exit_code 45, BindFailed, and surl's message, Address already in use; the agent starts again on port 0, bound_urls names a port that is neither the taken one nor 0, and transfer fetches the file there.
+    program: recover-port.cs
+    args: [taken]
+    expect:
+      exit: 0
+      stdout-matches: '^start_server: tool error, exit_code 45 \(BindFailed\)\n  surl: \(45\) Could not bind http://127\.0\.0\.1:\d+/: Address already in use\nstart_server: bound another port, not 0\ntransfer: 200, hello from surl\n$'
+
+  - id: free
+    claim: On a port nothing holds, start_server binds the port asked for, and there is nothing to recover from.
+    program: recover-port.cs
+    args: [free]
+    expect:
+      exit: 0
+      stdout: "start_server: bound the port asked for\ntransfer: 200, hello from surl\n"
+
+  - id: other-refusals
+    claim: A port that is no port at all, 70000, is a tool error with exit_code 3, MalformedUrl, URL rejected; the agent recovers only from 45, so it stops instead of trying port 0.
+    program: recover-port.cs
+    args: [bad]
+    expect:
+      exit: 1
+      stdout: "start_server: tool error, exit_code 3 (MalformedUrl)\n  surl: (3) URL rejected: Port number was not a decimal number between 0 and 65535\n"

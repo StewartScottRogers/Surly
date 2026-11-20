@@ -46,3 +46,9 @@ surl-mcp: `publish_message(server_id, topic, queue, payload, payload_base64, ret
 
 ## Recipes
 mqtt-publish-and-subscribe, mqtt-grant-a-topic.
+
+## Retained state (mqtt-check-retained-state-after-a-run)
+- surl-mcp `read_retained_message(server_id, topic)` answers `{topic, qos, text}`; a topic with nothing kept is `{"retained": false}`, not a tool error. No call lists topics.
+- A publish outside every `--topic ...;retain` filter is accepted (curl exit 0) and not kept. The last publish on a topic replaces the retained one.
+- curl-mcp `curl(args: ["-s","-d","on", "mqtt://127.0.0.1:port/devices/lamp/state"])` publishes (answer `exitCode 0`, empty output); without `--allow-anonymous` exitCode 8.
+- `start_server` answer `log_lines` carries the `--allow-anonymous` warning.

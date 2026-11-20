@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-run-a-test-proxy-from-an-agent]]
+=== Running a Test Proxy from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to stand up a Hypertext Transfer Protocol (HTTP) proxy and an origin, fetch through the proxy, show the request passing through, and show an origin outside loopback refused, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it calls `start_server` with an origin listen URL and `--proxy` in `arguments`, `transfer` with the proxy, then `get_exchanges` to read what each listener received:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. The argument after `--` picks the scenario.
+
+`start_server` has no proxy field. `arguments` takes `surl`{apos}s own words, so `--proxy http://127.0.0.1:0` adds a proxy listener beside the origin in `listen_urls`. The answer's `bound_urls` lists the origin first and the proxy second, each with its real port; `files` gives the origin its one file in memory.
+
+`transfer`{apos}s `proxy` field is `curl -x`: the request for the origin goes to the proxy in absolute form, the proxy forwards it, and the answer has `statusCode` 200 and a `Via: 1.1 surl` header among `headers`. `get_exchanges` then shows the request from both sides: each exchange has the `listen_url` that accepted it, and its first `received` chunk is the request head as text. The proxy's starts `GET http://127.0.0.1:<port>/hello.txt`; the origin's starts `GET /hello.txt` and carries `Via: 1.1 surl`, which the proxy added (<<rfc9110>>).
+
+The proxy connects only to loopback origins unless whoever starts it says otherwise. Asked for `http://192.0.2.1/hello.txt`, it answers `403` itself: to `transfer` that is an answer, `failure` null and no tool error, and only the proxy has an exchange to show. `transfer` has no field for a `CONNECT` tunnel, so the program uses the `curl` tool with `-p`, as on the console; the proxy refuses the tunnel, and the answer holds `exitCode` 7 and `curl`{apos}s line `CONNECT tunnel failed, response 403` in `standardError`, and is a tool error.
+
+`--proxy-allow-origin 192.0.2.1` in `arguments` lets the proxy try that address. Nothing answers there, so `--head-timeout 2` ends the attempt and the proxy answers `504`, or `502` where the network refuses the connection at once. `--proxy-allow-origin *` admits every origin, and `start_server`{apos}s `log_lines` start with the warning `surl` writes for it, so an agent can see that the proxy it started is open.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-run-a-test-proxy>> for the same proxy on the console.
+* <<http-run-a-test-proxy-in-csharp>> for the same proxy from a C# test.
+* <<rfc9110>>, <<surl-readme>>, <<curl-readme>>.

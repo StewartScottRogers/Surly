@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[curl-check-many-urls-from-one-config]]
+=== Checking Many URLs from One Config
+
+==== Problem
+
+You want one `curl` config file listing every URL a deployment must answer, failing the run on the first error and printing which one.
+
+==== Solution
+
+List the URLs in a config file with the options that make `curl` fail early and name the failure, leave the ports as variables, and give their values on the command line:
+
+[source]
+----
+include::urls.conf[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`-K urls.conf` reads options from the file as if they were on the command line, one per line, written without the leading dashes; `#` starts a comment (<<curl-manual>>). `fail` is `-f`: a status of 400 or more is a failure, exit 22. `silent` is `-s` and `show-error` is `-S`, so `curl` prints nothing but the reason for a failure, on stderr. `fail-early` is `--fail-early`: the first URL that fails ends the run with its exit code, and the rest are not tried. `write-out` is `-w`, and `%{onerror}` prints the rest of the format only for a transfer that failed, so stdout holds one `FAILED` line with the URL and nothing else; a continuous integration (CI) log shows which check broke without anyone reading `curl`{apos}s messages.
+
+The URLs are `expand-url`, which is `--expand-url`: the URL with `{{name}}` replaced by a variable's value, and `--variable http_port=8080` on the command line sets one. The file then names no port and the job hands it the ports it started the deployment on. Each URL gets its own `out-null`, which is `--out-null` and throws its body away; like `-o`, it applies to one URL. The checks may mix schemes: the third is a File Transfer Protocol (FTP) fetch (<<rfc959>>), whose failure has its own exit code.
+
+The server stands in for the deployment. `main` serves `--directory site` over Hypertext Transfer Protocol (HTTP, <<rfc9110>>) and FTP; `--allow-anonymous` accepts the anonymous login `curl` makes when an `ftp://` URL names no user, a loosening meant for tests. `-v` logs every exchange event and `--log-file main.log` puts the log in a file; and the log shows each URL fetched once: the two HTTP paths answered `200` on one exchange, then `RETR readme.txt` on the FTP one. `broken` is the same deployment after a bad release: `version.txt` is gone, and with no `--allow-anonymous`, which `surl` leaves off by default because nothing checks who logs in, the anonymous FTP login is refused with `530`.
+
+Against `broken` the run stops at `version.txt` with exit 22, and the FTP URL is never tried. `--no-fail-early` after `-K` turns the file's `fail-early` off again, since options are read in order and the last one wins; then every URL is tried, each failure gets its line, and the exit code is the last failure's, 67 for the refused login.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fail-a-script-on-a-missing-file>> for `-f` on one URL.
+* <<curl-write-a-test-report-with-write-out>> for a line of results per URL.
+* <<surl-run-a-fixture-from-a-config-file>> for the same file syntax on the server side.
+* <<curl-manual>>, <<surl-readme>>, <<rfc9110>>, <<rfc959>>.

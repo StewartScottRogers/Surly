@@ -1,0 +1,48 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-listen-on-ipv6-loopback-in-csharp
+title: Listening on IPv6 Loopback in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc3986, rfc4291]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A server listening on http://127.0.0.1:0 and http://[::1]:0 binds a different free port for each, BoundUrls names both, and Curl.Api fetches the file from each with 200, the answer coming from 127.0.0.1 and from ::1.
+    program: fetch-both.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^bound http://127\.0\.0\.1:([1-9]\d*)/ IPv4 host=127\.0\.0\.1 idn=127\.0\.0\.1\nbound http://\[::1\]:(?!\1/)[1-9]\d*/ IPv6 host=\[::1\] idn=::1\n200 hello from surl from 127\.0\.0\.1\n200 hello from surl from ::1\n$'
+
+  - id: v6-only
+    claim: A server that listens only on [::1] is closed to IPv4; a request to 127.0.0.1 at the same port throws a CurlException with code CouldntConnect (7).
+    program: fetch-both.cs
+    args: [v6-only]
+    expect:
+      exit: 1
+      stdout-matches: '^bound http://\[::1\]:[1-9]\d*/ IPv6 host=\[::1\] idn=::1\nCurlException 7 CouldntConnect\n$'
+
+  - id: no-brackets-listen
+    claim: A listen URL with the IPv6 address bare is refused before anything is bound, with SurlServerStartException and exit code 3, the code surl exits with.
+    program: fetch-both.cs
+    args: [no-brackets]
+    expect:
+      exit: 1
+      stdout: "refused: 3 (MalformedUrl)\n"
+
+  - id: no-brackets-client
+    claim: A request URL with the IPv6 address bare is malformed to the client too, and SendAsync throws CurlException with code UrlMalformat (3) without connecting.
+    program: fetch-both.cs
+    args: [bare-client]
+    expect:
+      exit: 1
+      stdout-matches: '^bound http://127\.0\.0\.1:[1-9]\d*/ IPv4 host=127\.0\.0\.1 idn=127\.0\.0\.1\nbound http://\[::1\]:[1-9]\d*/ IPv6 host=\[::1\] idn=::1\nCurlException 3 UrlMalformat\n$'

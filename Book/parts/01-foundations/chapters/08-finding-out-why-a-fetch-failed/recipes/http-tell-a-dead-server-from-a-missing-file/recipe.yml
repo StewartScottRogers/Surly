@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: http-tell-a-dead-server-from-a-missing-file
+title: Telling a Dead Server from a 404
+protocols: [http]
+tier: foundations
+surl-options: [--directory, -s]
+curl-options: [-f, -s, -S, -w, -o]
+exit-codes: [0, 6, 7, 22]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  stop-and-fetch.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Starts a surl on the port in the first argument, fetches from it, stops it, and fetches
+    # again, printing the status and curl's exit code each time. The running server holds
+    # site, so this one serves a copy.
+    port=$1
+    cp -r site live
+    surl -s --directory live http://127.0.0.1:$port/ >/dev/null 2>&1 &
+    pid=$!
+    until curl -s -o /dev/null http://127.0.0.1:$port/hello.txt; do sleep 0.2; done
+    curl -s -w "%{http_code} %{exitcode}\n" -o /dev/null http://127.0.0.1:$port/hello.txt
+    kill $pid
+    # Give the port a moment to close, then ask once more.
+    while curl -s -o /dev/null http://127.0.0.1:$port/hello.txt; do sleep 0.2; done
+    curl -s -w "%{http_code} %{exitcode}\n" -o /dev/null http://127.0.0.1:$port/hello.txt
+    exit 0
+
+# The server answers on {{port}}. Nothing is started on {{port2}}: it is a port no one listens on.
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A fetch from a port where nothing listens fails with curl exit 7, and -w prints the exit code and the reason.
+    run: curl -s -w "%{exitcode} %{errormsg}\n" -o {{null}} http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 7
+      stdout-matches: '^7 Failed to connect to 127\.0\.0\.1:\d+ after \d+ ms: .+\r?\n$'
+
+  - id: quiet-but-not-silent
+    claim: With -s alone a failure shows only as the exit code; -S brings back the error line, curl (7).
+    run: curl -s -S -o {{null}} http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 7
+      stderr-contains: "curl: (7)"
+
+  - id: server-up
+    claim: The same fetch from the port where surl listens succeeds, exit 0, status 200.
+    run: curl -s -w "%{http_code} %{exitcode}\n" -o {{null}} http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "200 0\n"
+
+  - id: missing-file
+    claim: A path surl does not have is answered 404, and with -f curl exits 22 with the status in the reason, so the server was reached.
+    run: curl -s -f -w "%{http_code} %{exitcode} %{errormsg}\n" -o {{null}} http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 22
+      stdout: "404 22 The requested URL returned error: 404\n"
+
+  - id: missing-file-without-fail
+    claim: Without -f the same 404 is exit 0, so a script must read the status too, or pass -f.
+    run: curl -s -w "%{http_code} %{exitcode}\n" -o {{null}} http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 0
+      stdout: "404 0\n"
+
+  - id: unresolvable-host
+    claim: A host name that does not resolve fails with exit 6 before any connection is made, and no status, 000.
+    run: curl -s -w "%{http_code} %{exitcode} %{errormsg}\n" -o {{null}} http://no-such-host.invalid/hello.txt
+    expect:
+      exit: 6
+      stdout: "000 6 Could not resolve host: no-such-host.invalid\n"
+
+  - id: stopped
+    claim: A surl that was answering and is then stopped gives 000 and exit 7 on the same URL, where before it gave 200 and 0.
+    run: sh stop-and-fetch.sh {{port3}}
+    expect:
+      exit: 0
+      stdout: "200 0\n000 7\n"

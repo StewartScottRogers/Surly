@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs fetch-both.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the listen URLs and what is fetched.
+schema: 2
+key: http-listen-on-ipv6-loopback-from-an-agent
+title: Listening on IPv6 Loopback from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, transfer]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc3986, rfc4291]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: start_server with listen URLs http://127.0.0.1:0 and http://[::1]:0 answers a bound URL for each, and transfer fetches the file from both with statusCode 200, the answers coming from 127.0.0.1 and from ::1.
+    program: fetch-both.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^bound http://127\.0\.0\.1:([1-9]\d*)/\nbound http://\[::1\]:(?!\1/)[1-9]\d*/\n200 hello from surl from 127\.0\.0\.1\n200 hello from surl from ::1\n$'
+
+  - id: v6-only
+    claim: A server that listens only on [::1] is closed to IPv4; transfer to 127.0.0.1 at the same port fails with kind CurlExit and curl exit code 7, a tool error.
+    program: fetch-both.cs
+    args: [v6-only]
+    expect:
+      exit: 1
+      stdout-matches: '^bound http://\[::1\]:[1-9]\d*/\nfailure: CurlExit 7\ntool error: yes\n$'
+
+  - id: no-brackets-listen
+    claim: A listen URL with the IPv6 address bare is a tool error carrying surl's exit code 3, MalformedUrl, and nothing is bound.
+    program: fetch-both.cs
+    args: [no-brackets]
+    expect:
+      exit: 1
+      stdout: "exit_code: 3 (MalformedUrl)\ntool error: yes\n"
+
+  - id: any-address
+    claim: A listen URL on [::], every IPv6 address, is not loopback and is refused before binding, because only whoever starts surl-mcp can allow that, with --allow-non-loopback.
+    program: fetch-both.cs
+    args: [any-address]
+    expect:
+      exit: 1
+      stdout: "refused: the listen host :: is not loopback; only whoever starts surl-mcp can allow it, with --allow-non-loopback\ntool error: yes\n"
+
+  - id: no-brackets-client
+    claim: transfer refuses a URL with the IPv6 address bare as an InvalidRequest, not an absolute URL with a scheme, and that is a tool error.
+    program: fetch-both.cs
+    args: [bare-client]
+    expect:
+      exit: 1
+      stdout-matches: '^bound http://127\.0\.0\.1:[1-9]\d*/\nbound http://\[::1\]:[1-9]\d*/\nfailure: InvalidRequest: Invalid url: ''http://::1:[1-9]\d*/hello\.txt'' is not an absolute URL with a scheme\.\ntool error: yes\n$'

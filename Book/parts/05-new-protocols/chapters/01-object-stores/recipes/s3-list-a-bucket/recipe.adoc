@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-list-a-bucket]]
+=== Listing a Bucket
+
+==== Problem
+
+Your app lists the objects under a prefix before it processes them. You want listings refused until they are allowed, then the keys under one prefix listed.
+
+==== Solution
+
+Make a certificate, give `surl` a folder, an access key and `--list-directories` on an `s3` listen URL, and send `curl` to it with `--connect-to`, naming the prefix as a URL that ends in a slash:
+
+include::.generated/solution.adoc[]
+
+The other two servers in the checked claims, one without `--list-directories` and one with `--allow-anonymous`, are there to show the refusals. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) lists a bucket with a request called ListObjectsV2, which takes a prefix and a delimiter and answers the keys that start with the prefix, folding any that continue past the delimiter into one common prefix (<<aws-s3-api>>). `surl` on an `s3` listen URL answers it from its store, in which each top-level folder is a bucket and the path under it the key, so `store/photos/2026/jan.jpg` is the key `2026/jan.jpg` in `photos` (<<surl-readme>>). In the Curl port, an `s3://` URL whose path is empty or ends in a slash is a listing, and `curl` writes the keys it finds to standard output, one to a line, in order (<<curl-protocols>>).
+
+So `s3://photos/2026/` is the keys under the prefix `2026/`, and `s3://photos/` is the top of the bucket: one level only, the folders shown as prefixes that end in a slash, and the objects at that level as keys. A prefix with nothing under it lists nothing and exits `0`, as an empty folder would; a bucket that is not a folder of the store is `404 NoSuchBucket`. The listing is what your app reads before it fetches, and a fetch is a URL with a key and no trailing slash, as in the Solution of <<s3-put-and-get-an-object>>.
+
+`--directory store` is the store, `--cert server.pem` and `--key server.key` the certificate and its key that `surl` serves. `--connect-to ::127.0.0.1:8080` sends every connection to `surl`, whatever host and port the URL names; `curl` keeps the Amazon host name `photos.s3.us-east-1.amazonaws.com` in the request, and `surl` reads the bucket back from it. That is why the `openssl` line gives the certificate a wildcard name for every bucket in the region as well as `127.0.0.1`, and why `--cacert server.pem` is needed: S3 is reached over Transport Layer Security (TLS) from the first byte (<<rfc8446>>), and no authority signed this certificate.
+
+Listing is off until it is asked for. Without `--list-directories`, the `nolist` server refuses a signed listing with `403 AccessDenied`, and still serves a signed get of an object by its key, so the option decides whether a client may enumerate what is stored, not whether it may read it. A listing shows every key in the bucket, which a client that knows only one key should not learn, so it is a separate permission.
+
+Every request is signed with AWS Signature Version 4, the scheme S3 uses, by an account: `--user AKIAIOSFODNN7EXAMPLE:s3cret` gives `surl` the access key ID and secret access key, and `-u` with the same pair makes `curl` sign. A listing sent with no `-u` is `403 AccessDenied` although the server allows listings. `--allow-anonymous`, on the `open` server, serves an unsigned listing, so a test needs no keys, and so does anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on (<<surl-readme>>). For every error status `curl` writes nothing to standard output, names the S3 error on standard error, and exits `22`. `-s` silences `curl`{apos}s progress meter and `-S` puts the error message back.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-list-a-bucket-in-csharp>> for the same task from a C# test.
+* <<s3-list-a-bucket-from-an-agent>> for the same task with an agent.
+* <<s3-put-and-get-an-object>> for putting an object into a bucket and getting it back.
+* <<az-list-a-container>> for listing a container of Azure Blob Storage.
+* <<surl-readme>>, <<curl-protocols>>, <<aws-s3-api>>, <<rfc8446>>.

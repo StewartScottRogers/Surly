@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-run-a-test-proxy-in-csharp]]
+=== Running a Test Proxy in C#
+
+==== Problem
+
+Your app must work behind a corporate Hypertext Transfer Protocol (HTTP) proxy, and you want a C# test that runs a proxy and an origin in process, shows the request passing through, and shows an origin outside loopback refused.
+
+==== Solution
+
+Start one `SurlServer` with an origin listen URL and a `--proxy` listen URL, fetch through the proxy with a `CurlClient`, and read what each listener received from the recorded exchanges:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` has no proxy property; `AdditionalArguments` takes `surl`{apos}s own words, so `--proxy http://127.0.0.1:0` adds a proxy listener beside the origin in `ListenUrls`. `SurlServer.BoundUrls` lists the origin first and the proxy second, each with the port it got. `Files` gives the origin its one file, and `RecordExchanges` keeps every exchange for the test to read as `SurlServer.Exchanges`.
+
+`CurlClientOptions.Proxy` takes a `CurlProxyOptions`, whose `Proxy` is the proxy URL, the spelling of `curl -x`; set on the client it applies to every request, as an app's proxy setting would. A `CurlRequest` for the origin then goes to the proxy in absolute form, and the `CurlResponse` that comes back carries `Via: 1.1 surl`. Each `SurlExchangeRecord` names the `ListenUrl` that accepted it and holds the bytes `Received`: the proxy's shows `GET http://127.0.0.1:<port>/hello.txt` with the client's `Proxy-Connection` header, the origin's shows `GET /hello.txt` with `Via: 1.1 surl` added and `Proxy-Connection` gone (<<rfc9110>>). That pair is the evidence a test wants that the client really used its proxy.
+
+The proxy connects only to loopback origins unless told otherwise. A request for `http://192.0.2.1/hello.txt` is answered `403 Forbidden` by the proxy itself; to `SendAsync` that is an answer like any other, so it returns the `CurlResponse` and throws nothing. `HttpProxyTunnel` on `CurlProxyOptions` is `curl -p`: the client asks for a `CONNECT` tunnel, the proxy refuses it with the same `403`, and `SendAsync` throws `CurlException` with `Code` `CouldntConnect` (7) and the message `CONNECT tunnel failed, response 403`. A test of how an app handles a proxy that will not let it out can use either.
+
+`--proxy-allow-origin 192.0.2.1` in `AdditionalArguments` lets the proxy try that address instead. Nothing answers there, so `--head-timeout 2` ends the attempt after two seconds and the proxy answers `504 Gateway Timeout`, or `502 Bad Gateway` where the network refuses the connection at once. `--proxy-allow-origin *` admits every origin; the server writes a warning naming it to `Log` at start, before its `Listening on` lines, which `LogLevel.Info` keeps.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-run-a-test-proxy>> for the same proxy on the console.
+* <<http-run-a-test-proxy-from-an-agent>> for the same proxy driven by an agent.
+* <<rfc9110>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-resume-an-interrupted-download
+title: Resuming an Interrupted Download
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-C, -s, -v, -o, -w, -H]
+exit-codes: [0, 33]
+references: [surl-readme, curl-manual, rfc9110]
+
+# site/records.txt is 300 bytes, thirty lines of ten. dl/records.txt is what an interrupted
+# download left: its first 125 bytes, ending in the middle of line 12.
+fixtures:
+  site/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"
+  dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -C - asks for the bytes after the end of the partial file, and the file ends up identical to the original, all 300 bytes.
+    run: curl -s -C - -o dl/records.txt http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      files:
+        dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"
+
+  - id: range-sent
+    claim: The request curl sends has Range bytes=125-, 125 being the size of the partial file.
+    run: curl -s -v -C - -o dl/records.txt http://127.0.0.1:{{port}}/records.txt
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+    expect:
+      exit: 0
+      stderr-contains: "> Range: bytes=125-"
+
+  - id: only-the-rest
+    claim: The server answers 206 Partial Content and curl downloads only the missing 175 bytes.
+    run: curl -s -C - -o dl/records.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+    expect:
+      exit: 0
+      stdout: "206 175\n"
+
+  - id: already-complete
+    claim: Resuming a file that is already whole is answered 416 Range Not Satisfiable, curl downloads nothing, exits 0, and leaves the file as it was.
+    run: curl -s -C - -o dl/records.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"
+    expect:
+      exit: 0
+      stdout: "416 0\n"
+      files:
+        dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"
+
+  - id: nothing-to-resume
+    claim: With no partial file, -C - has no offset to send and downloads the whole file, 300 bytes, with 200.
+    run: curl -s -C - -o dl/new.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "200 300\n"
+      files:
+        dl/new.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"
+
+  - id: if-range-changed
+    claim: Sending If-Range with the date the partial file was made from, here an old one, asks the server to send the whole file if it has changed since; surl answers 200, curl will not append that to a partial file, writes nothing, and exits 33.
+    run: 'curl -s -C - -H "If-Range: Wed, 01 Jan 2020 00:00:00 GMT" -o dl/records.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt'
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+    expect:
+      exit: 33
+      stdout: "200 0\n"
+      files:
+        dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+
+  - id: wrong-prefix
+    claim: curl takes the partial file on trust; if its first 125 bytes are not the original's, the joined file has the right length and the wrong beginning.
+    run: curl -s -C - -o dl/records.txt http://127.0.0.1:{{port}}/records.txt
+    fixtures:
+      dl/records.txt: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    expect:
+      exit: 0
+      files:
+        dl/records.txt: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxd 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"

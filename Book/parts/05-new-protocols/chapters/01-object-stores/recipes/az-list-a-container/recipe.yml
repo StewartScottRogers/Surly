@@ -1,0 +1,105 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: az-list-a-container
+title: Listing a Blob Container
+protocols: [az]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --list-directories, --allow-anonymous]
+curl-options: [--cacert, --oauth2-bearer, -u, -s, -S]
+exit-codes: [0, 22]
+references: [surl-readme, curl-protocols, azure-blob-api, rfc6750, rfc8446]
+
+fixtures:
+  store/photos/readme.txt: "read me\n"
+  store/photos/2025/dec.jpg: "december\n"
+  store/photos/2026/jan.jpg: "january\n"
+  store/photos/2026/feb.jpg: "february\n"
+  nolist/photos/readme.txt: "no listing here\n"
+  open/photos/readme.txt: "open to anyone\n"
+  open/photos/2026/jan.jpg: "january\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe. nolist is the same without --list-directories; open adds --allow-anonymous.
+# Each serves its own folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user devstoreaccount1:c2VjcmV0 --user :t0ken-abc --list-directories az://127.0.0.1:{{port}}/
+    ready: port
+  nolist:
+    command: surl --directory nolist --cert server.pem --key server.key --user devstoreaccount1:c2VjcmV0 --user :t0ken-abc az://127.0.0.1:{{port2}}/
+    ready: port
+  open:
+    command: surl --directory open --cert server.pem --key server.key --user devstoreaccount1:c2VjcmV0 --list-directories --allow-anonymous az://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A URL that ends in a slash lists the container under that prefix, and curl writes the blob names, one to a line, in order, exit 0.
+    run: curl -sS --cacert server.pem --oauth2-bearer t0ken-abc az://127.0.0.1:{{port}}/devstoreaccount1/photos/2026/
+    expect:
+      exit: 0
+      stdout: "2026/feb.jpg\n2026/jan.jpg\n"
+
+  - id: top-level
+    claim: Listing the container itself shows one level, the folders as prefixes ending in a slash and the blobs at the top.
+    run: curl -sS --cacert server.pem --oauth2-bearer t0ken-abc az://127.0.0.1:{{port}}/devstoreaccount1/photos/
+    expect:
+      exit: 0
+      stdout: "2025/\n2026/\nreadme.txt\n"
+
+  - id: empty-prefix
+    claim: A prefix with nothing under it lists nothing, and that is not an error, exit 0.
+    run: curl -sS --cacert server.pem --oauth2-bearer t0ken-abc az://127.0.0.1:{{port}}/devstoreaccount1/photos/2030/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: no-such-container
+    claim: A container that is not a folder of the store is answered 404 ContainerNotFound, exit 22.
+    run: curl -sS --cacert server.pem --oauth2-bearer t0ken-abc az://127.0.0.1:{{port}}/devstoreaccount1/videos/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Azure Storage returned error 404: ContainerNotFound"
+
+  - id: shared-key-listing
+    claim: A listing signed with the account's Shared Key, from -u, is served like one with the Bearer token.
+    run: curl -sS --cacert server.pem -u devstoreaccount1:c2VjcmV0 az://127.0.0.1:{{port}}/devstoreaccount1/photos/2026/
+    expect:
+      exit: 0
+      stdout: "2026/feb.jpg\n2026/jan.jpg\n"
+
+  - id: no-token-listing
+    claim: A listing with no token is refused 401 NoAuthenticationInformation, exit 22, though the server allows listings.
+    run: curl -sS --cacert server.pem az://127.0.0.1:{{port}}/devstoreaccount1/photos/2026/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Azure Storage returned error 401: NoAuthenticationInformation"
+
+  - id: listing-off
+    claim: Without --list-directories, a listing with the token is refused 403 AuthorizationPermissionMismatch, exit 22.
+    run: curl -sS --cacert server.pem --oauth2-bearer t0ken-abc az://127.0.0.1:{{port2}}/devstoreaccount1/photos/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Azure Storage returned error 403: AuthorizationPermissionMismatch"
+
+  - id: listing-off-reads
+    claim: Without --list-directories, a get of a blob by its name is still served.
+    run: curl -sS --cacert server.pem --oauth2-bearer t0ken-abc az://127.0.0.1:{{port2}}/devstoreaccount1/photos/readme.txt
+    expect:
+      exit: 0
+      stdout: "no listing here\n"
+
+  - id: anonymous-listing
+    claim: With --allow-anonymous and --list-directories, a listing with no token is served.
+    run: curl -sS --cacert server.pem az://127.0.0.1:{{port3}}/devstoreaccount1/photos/2026/
+    expect:
+      exit: 0
+      stdout: "2026/jan.jpg\n"

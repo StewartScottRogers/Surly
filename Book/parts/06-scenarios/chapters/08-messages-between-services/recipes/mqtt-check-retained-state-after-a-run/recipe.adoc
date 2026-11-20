@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-check-retained-state-after-a-run]]
+=== Checking Retained State After a Run
+
+==== Problem
+
+After a run you want an artificial intelligence (AI) agent to read the retained message of each topic and check that the devices left the state they should: the lamp off, the door closed, the heater off. And you want it to tell a device that left the wrong state from one that never reported, and from a broker that kept nothing.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a broker that keeps what is published under `devices/`, lets each device publish with the `curl` tool, and reads each topic back with `read_retained_message`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent{apos}s MCP client: `StdioClientTransport` starts `surl-mcp` and `curl-mcp` by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder it runs in. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` starts a Message Queuing Telemetry Transport (MQTT) broker, <<mqtt311>>, as `surl mqtt://127.0.0.1:0` would, and any other `surl` option goes in `arguments`, in `surl`{apos}s own words. Two matter here. `--topic "devices/#;retain"` declares the topics under `devices/` and keeps every message published on them, whatever its retain flag; `curl` publishes with the flag clear, so without this nothing a device sends would survive the run. `--allow-anonymous` lets a device in with no user name, and it loosens the broker, which is why `surl` warns about it on start. The `login-required` scenario shows the refusal without it: every publish is refused as `curl` exit `8`, and nothing is retained.
+
+The run is the `curl` tool. A device publishes by `curl -d <state> mqtt://host/<topic>`; `-s` keeps the progress meter out of the answer and the answer has `exitCode`, `standardOutput` and `failure`. The lamp reports twice, `on` and then `off`, and a retained message is replaced by each new one on its topic, so what the broker keeps is the last.
+
+`read_retained_message` takes the `server_id` and a `topic` and reads the retained message without dropping it and without publishing anything. Its structured answer has the `topic`, the `qos` and the `text` of the payload. A topic with nothing kept answers `{"retained": false}` and is not a tool error, so the agent has to test for it: the program counts it as a failure with its own line, `nothing retained`, which is a different fault from a wrong state. A device that never reported is one cause, the `silent-device` scenario. A topic outside the `--topic` filter is another: the broker accepted the publish, `curl` exited `0`, and the message was not kept, so a state outside the filter cannot be checked afterwards. A broker with no `;retain` at all keeps nothing, and every topic reads back the same way.
+
+The check is the program{apos}s own: a table of topic and expected text, compared with what was kept. A wrong state shows as the retained text next to the expected one, and the program exits `1` when any topic is wrong, so a run that left a device in the wrong state fails. The tool has no call that lists the topics, so the agent has to know which ones to ask for.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-publish-and-subscribe>> for publishing and subscribing on the console.
+* <<mqtt-grant-a-topic>> for who may publish and subscribe to which topics.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

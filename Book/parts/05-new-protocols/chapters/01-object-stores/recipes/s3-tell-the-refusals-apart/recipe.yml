@@ -1,0 +1,142 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: s3-tell-the-refusals-apart
+title: Telling S3 Refusals Apart
+protocols: [s3]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --allow-anonymous, --allow-uploads]
+curl-options: [--cacert, --connect-to, -u, -T, -s, -S, --next]
+exit-codes: [0, 22]
+references: [surl-readme, curl-protocols, aws-s3-api, rfc8446]
+
+fixtures:
+  note.txt: "a note\n"
+  store/photos/hello.txt: "hello from surl\n"
+  open/photos/hello.txt: "hello to anyone\n"
+
+# A certificate for 127.0.0.1 and for every bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# main has one account and nothing loosened. open adds --allow-anonymous (and uploads, to show
+# an unsigned put is still refused). Each serves its own folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret s3://127.0.0.1:{{port}}/
+    ready: port
+  open:
+    command: surl --directory open --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-anonymous --allow-uploads s3://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three requests to one server, unsigned, with an unknown access key and with the wrong secret, are refused with three different S3 errors, AccessDenied, InvalidAccessKeyId and SignatureDoesNotMatch, and curl exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} s3://photos/hello.txt --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAOTHEREXAMPLE:s3cret s3://photos/hello.txt --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:wrong s3://photos/hello.txt 2>&1
+    expect:
+      exit: 22
+      stdout-matches: '\A[^\n]*403: AccessDenied[^\n]*\n[^\n]*403: InvalidAccessKeyId[^\n]*\n[^\n]*403: SignatureDoesNotMatch[^\n]*\n\Z'
+
+  - id: signed
+    claim: The right access key and secret are served, exit 0.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: unsigned
+    claim: A request with no -u is unsigned and refused 403 AccessDenied; curl writes nothing and exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} s3://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied"
+
+  - id: unknown-key
+    claim: An access key surl does not hold is refused 403 InvalidAccessKeyId, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAOTHEREXAMPLE:s3cret s3://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: InvalidAccessKeyId"
+
+  - id: wrong-secret
+    claim: The right access key with the wrong secret is refused 403 SignatureDoesNotMatch, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:wrong s3://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: SignatureDoesNotMatch"
+
+  - id: signed-put-refused
+    claim: A correctly signed put to a server without --allow-uploads is refused 403 AccessDenied, the same code as an unsigned request, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T note.txt s3://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied: Access Denied"
+
+  - id: signed-listing-refused
+    claim: A correctly signed listing to a server without --list-directories is refused 403 AccessDenied, with the same message as an unsigned request, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://photos/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied: Access Denied"
+
+  - id: unsigned-message
+    claim: The unsigned request's message, after the code, is Access Denied, the same words as the refused put and listing.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} s3://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied: Access Denied"
+
+  - id: missing-key
+    claim: A key with no object, signed correctly, is 404 NoSuchKey, not a 403, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://photos/missing.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 404: NoSuchKey"
+
+  - id: missing-bucket
+    claim: A bucket that is not a folder of the store, signed correctly, is 404 NoSuchBucket, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://videos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 404: NoSuchBucket"
+
+  - id: anonymous-read
+    claim: With --allow-anonymous, an unsigned get is served.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} s3://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello to anyone\n"
+
+  - id: anonymous-write
+    claim: With --allow-anonymous and --allow-uploads, an unsigned put is still refused 403 AccessDenied, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -T note.txt s3://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied"
+
+  - id: anonymous-unknown-key
+    claim: With --allow-anonymous, a request signed with an access key surl does not hold is still refused 403 InvalidAccessKeyId, so anonymous allows no login and not a wrong one.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAOTHEREXAMPLE:s3cret s3://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: InvalidAccessKeyId"
+
+  - id: anonymous-wrong-secret
+    claim: With --allow-anonymous, the right access key with the wrong secret is still refused 403 SignatureDoesNotMatch.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:wrong s3://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: SignatureDoesNotMatch"

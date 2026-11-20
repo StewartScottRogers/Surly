@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-a-client-to-https-in-csharp]]
+=== Moving a Client from HTTP to HTTPS in C#
+
+==== Problem
+
+You are moving a .NET client from plain Hypertext Transfer Protocol (HTTP) to HTTPS (HTTP over Transport Layer Security, TLS), and you want a C# test with a server holding both listeners during the move, then only the secure one, that proves no call still goes over plain HTTP.
+
+==== Solution
+
+Start a `SurlServer` on an `http` and an `https` listen URL, give the moved client a `CurlClient` allowed only HTTPS, and read the scheme of every exchange the server recorded; then start the server again on its HTTPS address alone:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` takes both listen URLs in `ListenUrls`, `http://127.0.0.1:0` and `https://127.0.0.1:0`, and serves the same `Files` on each. `CertificateFile` and `KeyFile` are `surl`{apos}s `--cert` and `--key`, here the pair `openssl` made for `127.0.0.1` in `setup:`; a relative path is read from the program's working directory. `SurlServer.BoundUrls` lists the two in the order given, each with its port. Without `CertificateFile` (or `SelfSigned` for a throwaway certificate) an `https` listen URL is refused: `SurlServer.StartAsync` throws `SurlServerStartException` with `ExitCode` `CertificateProblem`, 58, the code `surl` exits with.
+
+The moved client is a `CurlClient` built from `CurlClientOptions` with two settings. `CurlNetworkOptions.Protocols = "https"` is `curl --proto =https`: the client may use HTTPS and nothing else. `CurlTlsOptions.Origin` takes a `CurlTlsPeerOptions` whose `CertificateAuthorityFile` is `--cacert`, so the test certificate is trusted; an HTTPS client without it throws `CurlException` `PeerFailedVerification` (60), so the trust setting moves with the scheme. A `CurlRequest` to the `https` URL then comes back as a `CurlResponse` with `200`, while an unmoved client, a plain `CurlClient`, still gets the file over `http`. A plain URL left in the moved client's code throws `CurlException` with `Code` `UnsupportedProtocol` (1) before anything is sent: that is the test failing loudly on the call that was missed.
+
+`RecordExchanges` makes the server keep a `SurlExchangeRecord` for every connection, and `Scheme` names the listener that took it. During the move the record holds `https` (the moved client) and `http` (the unmoved one), and nothing for the call `Protocols` refused; a suite asserts that no exchange has `Scheme` `http` once every client should have moved.
+
+The argument after `--` picks one step, and each step starts its own server. The `after` steps stop the server with `StopAsync` and start it again with the old HTTPS listen URL alone, port included, as the plain listener is turned off for good. The moved client is served as before. A client still on the plain URL now throws `CurlException` `CouldntConnect` (7), and every exchange recorded is `https`. TLS (<<rfc8446>>) changes how the bytes travel, not the HTTP exchange inside (<<rfc9110>>), which is why nothing but the scheme, port and trust setting changes in the client.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-a-client-to-https>> for the same move on the console.
+* <<http-move-a-client-to-https-from-an-agent>> for the same move driven by an agent.
+* <<rfc9110>>, <<rfc8446>>, <<surl-readme>>, <<curl-readme>>.

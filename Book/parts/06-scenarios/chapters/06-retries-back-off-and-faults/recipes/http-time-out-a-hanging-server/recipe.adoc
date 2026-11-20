@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-time-out-a-hanging-server]]
+=== Timing Out a Hanging Server
+
+==== Problem
+
+Your client is meant to give up on a server that accepts a request and then says nothing. You want a Hypertext Transfer Protocol (HTTP) server that stalls longer than the client's time limit, so a test can show the client reports a timeout instead of hanging.
+
+==== Solution
+
+Give `surl` a `--fault` rule that holds every request for `/hello.txt` five seconds, and fetch it with `curl -m 2`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "delay;ms=5000;stage=command;path=/hello.txt"` is one fault rule. `delay` holds the exchange, here 5,000 milliseconds, and then carries on as if nothing had happened. `stage=command` makes it wait until a request has arrived, so the connection is accepted at once and the client is left waiting for an answer, which is what a hanging server looks like from outside. `path=/hello.txt` limits the rule to that path: `/other.txt`, served like every other file from `site` by `--directory site`, is answered at once. The quotes keep the semicolons from the shell.
+
+`-m 2`, `--max-time`, is the longest `curl` lets the transfer take, connection and all. After two seconds with no answer it gives up and exits `28`, `Operation timed out`, and writes nothing to standard output; `-s` keeps `curl` quiet and `-S` lets that one error through. A test asserts on the `28`: it tells a timeout apart from a dropped connection, `56` (see <<http-recover-from-a-dropped-connection>>). Without `-m`, `curl` sets no limit on the whole transfer and waits as long as the server does.
+
+`--connect-timeout` is not a substitute. It limits only the time to connect, and the server accepts the connection at once, so `curl --connect-timeout 2` waits out the hold and gets `200` after five seconds or more; `-w "%{http_code} %{time_total}\n"` prints the status and the seconds the transfer took.
+
+The server keeps its own account. `-v` sets the log level to verbose and `--log-file surl.log` writes the log to a file instead of standard error. Each time the rule acts it logs `GET held for 5 s by fault rule f1`, `f1` being the first rule's ID, and `grep -c` counts two: one for each fetch of `/hello.txt` so far, none for `/other.txt`. One of the two is the request whose client gave up: the server records the hold whether or not anyone waits for the answer.
+
+`curl` counts a timeout as transient (<<curl-manual>>), so `--retry` covers a server that hangs once. On the second server, `once`, the rule has `times=1`: the first try times out, `curl` waits one second and says so on standard error, which `--no-progress-meter` keeps free of the progress bar, and the retry gets the file, `200 1`. `-m` limits each try, not the whole command: against `main`, which holds every request, `-m 2 --retry 1` times out twice and gives up with `28`, after one retry and with no status, `000`. A test that must finish in bounded time gives the client both a limit and a retry count.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-time-out-a-hanging-server-in-csharp>> for the same test from a C# program.
+* <<http-time-out-a-hanging-server-from-an-agent>> for the same test from an agent.
+* <<http-slow-down-one-path>> for a slow path fetched beside a fast one.
+* <<http-retry-a-flaky-endpoint>> for a server that answers `503` instead.
+* <<surl-readme>>, <<curl-manual>>.

@@ -1,0 +1,117 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-save-a-session-as-a-har-file
+title: Saving a Session as HAR
+protocols: [http]
+tier: advanced
+surl-options: [--directory]
+curl-options: [-s, -v, -D, -o, -w]
+exit-codes: [0, 7]
+references: [rfc9110, curl-manual, surl-readme]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  save-har.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Fetches each URL with curl and saves the session as a HAR (HTTP Archive 1.2) file.
+    # Usage: sh save-har.sh <file.har> <url>...
+    har=$1; shift
+    ms() { awk "BEGIN { printf \"%.3f\", ($1) * 1000 }"; }
+    pairs() {  # "Name: value" lines in; HAR {"name", "value"} objects out, escaped for JSON
+      tr -d '\r' | sed -e '/: /!d' -e 's/\\/\\\\/g' -e 's/"/\\"/g' \
+        -e 's/^\([^:]*\): \(.*\)$/{"name": "\1", "value": "\2"}/' | paste -sd, -
+    }
+    code=0
+    {
+      echo '{"log": {"version": "1.2", "creator": {"name": "save-har.sh", "version": "1.0"}, "entries": ['
+      sep=
+      for url in "$@"; do
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        curl -s -v -D head.tmp -o body.tmp "$url" 2> trace.tmp > info.tmp -w '%{method} %{http_version} %{response_code}
+    %{size_download} %{time_pretransfer} %{time_starttransfer} %{time_total}
+    %{content_type}' || { code=$?; echo "save-har.sh: curl exited $code on $url" >&2; break; }
+        { read -r method version status; read -r size pre start total; read -r type; } <<EOF
+    $(tr -d '\r' < info.tmp)
+    EOF
+        echo "$sep{\"startedDateTime\": \"$started\", \"time\": $(ms "$total"),"
+        echo " \"request\": {\"method\": \"$method\", \"url\": \"$url\", \"httpVersion\": \"HTTP/$version\","
+        echo "  \"headers\": [$(sed -n 's/^> //p' trace.tmp | pairs)],"
+        echo "  \"cookies\": [], \"queryString\": [], \"headersSize\": -1, \"bodySize\": 0},"
+        echo " \"response\": {\"status\": $status, \"statusText\": \"$(head -n 1 head.tmp | tr -d '\r' | cut -d' ' -f3-)\", \"httpVersion\": \"HTTP/$version\","
+        echo "  \"headers\": [$(sed 1d head.tmp | pairs)],"
+        echo "  \"content\": {\"size\": $size, \"mimeType\": \"$type\", \"encoding\": \"base64\", \"text\": \"$(base64 < body.tmp | tr -d '\n')\"},"
+        echo "  \"cookies\": [], \"redirectURL\": \"\", \"headersSize\": -1, \"bodySize\": $size},"
+        echo " \"cache\": {}, \"timings\": {\"send\": $(ms "$pre"), \"wait\": $(ms "$start - $pre"), \"receive\": $(ms "$total - $start")}}"
+        sep=,
+      done
+      echo ']}}'
+    } > "$har.part"
+    rm -f head.tmp body.tmp trace.tmp info.tmp
+    if [ "$code" != 0 ]; then rm -f "$har.part"; exit "$code"; fi
+    mv "$har.part" "$har"
+    echo "$# requests saved to $har"
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The script fetches each URL with curl, a file that is there and one that is not, and saves both requests to session.har.
+    run: sh save-har.sh session.har http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 0
+      stdout: "2 requests saved to session.har\n"
+
+  - id: parses-as-json
+    claim: session.har parses as JSON (checked here with Python's json module), with log version 1.2 and one entry per request.
+    run: python3 -c "import json; log = json.load(open('session.har'))['log']; print(log['version'], len(log['entries']))"
+    expect:
+      exit: 0
+      stdout: "1.2 2\n"
+
+  - id: request-headers
+    claim: Each entry's request holds the method, URL and HTTP version, and the headers curl sent, in order, read from curl -v.
+    run: cat session.har
+    expect:
+      exit: 0
+      stdout-matches: '"request": \{"method": "GET", "url": "http://127\.0\.0\.1:\d+/hello\.txt", "httpVersion": "HTTP/1\.1",\n  "headers": \[\{"name": "Host", "value": "127\.0\.0\.1:\d+"\},\{"name": "User-Agent", "value": "curl/[^"]+"\},\{"name": "Accept", "value": "\*/\*"\}\]'
+
+  - id: response-and-body
+    claim: Each entry's response holds the status, its text and the headers surl sent, read from curl -D, and the body base64-encoded with its size and Content-Type.
+    run: cat session.har
+    expect:
+      exit: 0
+      stdout-matches: '"response": \{"status": 200, "statusText": "OK", "httpVersion": "HTTP/1\.1",\n  "headers": \[\{"name": "Date", "value": "[^"]+ GMT"\},\{"name": "Server", "value": "surl"\},\{"name": "Last-Modified", "value": "[^"]+"\},\{"name": "Content-Type", "value": "text/plain"\},\{"name": "Content-Length", "value": "16"\}\],\n  "content": \{"size": 16, "mimeType": "text/plain", "encoding": "base64", "text": "aGVsbG8gZnJvbSBzdXJsCg=="\}'
+
+  - id: not-found-kept
+    claim: The 404 is saved like any other answer, with an empty body, since curl exits 0 for it.
+    run: cat session.har
+    expect:
+      exit: 0
+      stdout-matches: '"response": \{"status": 404, "statusText": "Not Found", "httpVersion": "HTTP/1\.1",\n  "headers": \[\{"name": "Date", "value": "[^"]+"\},\{"name": "Server", "value": "surl"\},\{"name": "Content-Length", "value": "0"\}\],\n  "content": \{"size": 0, "mimeType": "", "encoding": "base64", "text": ""\}'
+
+  - id: timings
+    claim: Each entry has a start time in UTC and timings in milliseconds from curl's own clocks, the whole time and send, wait and receive.
+    run: cat session.har
+    expect:
+      exit: 0
+      stdout-matches: '\{"startedDateTime": "\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", "time": \d+\.\d{3},\n.*"timings": \{"send": \d+\.\d{3}, "wait": \d+\.\d{3}, "receive": \d+\.\d{3}\}\}'
+
+  - id: unanswered-stops
+    claim: A request that gets no answer at all, here to a port where nothing listens, stops the script with curl's exit code, 7, and no HAR file is left.
+    run: sh save-har.sh broken.har http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 7
+      stderr-contains: "save-har.sh: curl exited 7 on http://127.0.0.1:"
+
+  - id: nothing-left
+    claim: After that failure neither broken.har nor broken.har.part exists.
+    run: cat broken.har broken.har.part
+    expect:
+      exit: 1
+      stderr-contains: "broken.har.part: No such file or directory"

@@ -1,0 +1,40 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs wait-for-server.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-retry-until-the-server-is-up-from-an-agent
+title: Retrying Until Servers Start from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [transfer, start_server, curl]
+exit-codes: [0, 7]
+references: [surl-readme, curl-readme, curl-manual]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first transfer is refused, a tool error carrying curl's exit code 7; the agent starts a server on that port with start_server, which binds the same port, and its next transfer gets the file, 200.
+    program: wait-for-server.cs
+    args: [start]
+    expect:
+      exit: 0
+      stdout: "transfer 1: curl exit 7, tool error: yes\nstart_server: the same port, tool error: no\ntransfer 2: 200, hello from surl\n"
+
+  - id: gives-up
+    claim: The retries are bounded; with no server started, three transfers a second apart are all refused with 7, and the agent gives up.
+    program: wait-for-server.cs
+    args: [never, "3"]
+    expect:
+      exit: 7
+      stdout: "transfer 1: curl exit 7, tool error: yes\ntransfer 2: curl exit 7, tool error: yes\ntransfer 3: curl exit 7, tool error: yes\ngave up after 3 transfers\n"
+
+  - id: curl-retries-on-its-own
+    claim: The curl tool with --retry 5 --retry-connrefused --retry-delay 1 retries the refused connections itself while the agent starts the server two seconds in, and gets the file, exit 0, after at least one retry.
+    program: wait-for-server.cs
+    args: [curl]
+    expect:
+      exit: 0
+      stdout-matches: '^start_server: the same port, tool error: no\ncurl: exit 0, hello from surl \| [1-5] retries\n$'

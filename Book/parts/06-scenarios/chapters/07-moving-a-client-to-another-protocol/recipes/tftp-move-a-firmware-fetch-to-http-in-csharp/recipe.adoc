@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-move-a-firmware-fetch-to-http-in-csharp]]
+=== Moving a Firmware Fetch to HTTP
+
+==== Problem
+
+Your device fetches firmware over Trivial File Transfer Protocol (TFTP) and you are moving it to Hypertext Transfer Protocol (HTTP). You want a test in C# that serves one image on both protocols, fetches it both ways with `Curl.Api`, and fails if the two copies differ.
+
+==== Solution
+
+Start one `SurlServer` with two listen URLs and the image in memory, fetch `firmware.bin` from each with a `CurlClient`, and compare the bytes:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` takes both URLs, `tftp://127.0.0.1:0` and `http://127.0.0.1:0`, and `Files` is one in-memory store that both listeners serve, so `firmware.bin` is at the same path under each. Port 0 asks the system for a free port for each. `SurlServer.BoundUrls` lists the addresses actually bound, in the order the listen URLs were given; the program takes the first for TFTP and the second for HTTP. The image is random bytes made when the program starts, so a copy that dropped, repeated or reordered a block cannot match by accident. `SurlServer` stops when the `await using` ends.
+
+`CurlClient` sends a `CurlRequest` and returns a `CurlResponse` whose `Body` is a stream; the helper copies it to a byte array. TFTP has no status line, so `StatusCode` is `0` there and the bytes are the answer. TFTP sends a file in 512-byte blocks and ends it with one shorter than that (<<rfc1350>>), so an image of exactly 1,024 bytes is ended by an empty block, the case a hand-written client most often gets wrong; the `exact` case checks it. `CurlTftpOptions` is the spelling of `curl --tftp-blksize`: set on a `CurlRequest`, `BlockSize` asks for a larger block, and the same image arrives.
+
+The two protocols fail differently, and a test for the move has to expect that. A missing image over TFTP throws a `CurlException` whose `Code` is `TftpNotFound`, which is `curl` exit `68`. Over HTTP the same missing image is a `CurlResponse` with `404 Not Found` (<<rfc9110>>) and nothing is thrown, as with `curl` without `-f`; a program that wants the behaviour of `curl -f`, exit `22`, has to read `StatusCode` itself.
+
+A write is refused on the HTTP side: `surl` accepts uploads only with `--allow-uploads` and no login is configured here, so a `PUT` is answered `401 Unauthorized`. The `PUT` goes through `CurlRequest` with a byte-array `Body`. `Curl.Api` at this version has no way to upload over TFTP, so the program does not try one; on the console `curl -T` does, and is refused with error 2 and exit `69` (see <<tftp-move-a-firmware-fetch-to-http>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-move-a-firmware-fetch-to-http>> for the same move on the console.
+* <<tftp-move-a-firmware-fetch-to-http-from-an-agent>> for the same move from an agent.
+* <<http-serve-and-fetch-in-process>> for the in-process server and client by themselves.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>, <<rfc9110>>.

@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-until-the-server-is-up]]
+=== Waiting for a Server to Come Up
+
+==== Problem
+
+Your test starts `surl` and a client at the same moment, and the client's first connection can arrive before `surl` is listening. You want the client to retry until `surl` is up, a bounded number of times, instead of failing at once.
+
+==== Solution
+
+Give `curl` `--retry` with `--retry-connrefused` and a one-second `--retry-delay`. The script below starts `curl` two seconds before `surl`, to make the race certain, and needs a POSIX shell (Git Bash on Windows):
+
+include::start-late.sh[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The script takes the port and `curl`{apos}s options. It starts `curl` in the background, waits two seconds, starts `surl` serving `site` with `--directory site`, waits for `curl` to finish, stops `surl` and prints what `curl` fetched. For the first two seconds nothing listens on the port, so every connection `curl` makes is refused.
+
+A refused connection is exit code `7`, `Failed to connect`, and on its own `curl` counts it as final. `--retry 5` allows five retries, but only after a failure `curl` counts as transient, such as a timeout or a `503` (<<curl-manual>>), and a refused connection is not one: against a port where nothing listens, `curl --retry 5` makes no retry and exits `7` at once, with `%{num_retries}` `0`. `--retry-connrefused` adds a refused connection to the transient failures. With it, `curl` tries again, says so on standard error (`Warning: Problem : connection refused. Retrying in 1 second. 5 retries left.`), which `--no-progress-meter` keeps free of the progress bar, and gets the file once `surl` is listening. `-w "%{num_retries}\n"` prints how many retries that took, at least one; the exact count depends on how fast `surl` starts.
+
+`--retry-delay 1` waits one second before every retry. Without it, `curl` doubles the wait after each retry (see <<http-retry-a-flaky-endpoint>>), and a server that is only starting would be noticed later than it need be. The wait is bounded all the same: if `surl` never comes up, `--retry 2` makes two retries and `curl` exits `7`. A test picks a retry count and delay that cover the slowest start it is willing to wait for, and fails, with `7`, when the server takes longer. In those cases `-s` keeps `curl` quiet and `-S` still shows its errors.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-until-the-server-is-up-in-csharp>> for the same wait in a C# program.
+* <<http-retry-until-the-server-is-up-from-an-agent>> for the same wait from an agent.
+* <<http-tell-a-dead-server-from-a-missing-file>> for telling exit `7` from a `404`.
+* <<surl-find-the-port-it-chose>> for waiting on `surl`{apos}s `Listening on` line instead of retrying.
+* <<surl-readme>>, <<curl-manual>>.

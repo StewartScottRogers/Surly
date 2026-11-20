@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs fetch-named.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its arguments pick how the URL is built and which name is asked for.
+schema: 2
+key: http-fetch-a-file-with-an-awkward-name-from-an-agent
+title: Fetching Awkwardly Named Files from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, build_url, transfer]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc3986]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: build_url with the UrlEncode flag turns each awkward name into the path surl serves, %20, %C3%A9 and %23, and transfer fetches all three with statusCode 200.
+    program: fetch-named.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "my%20file.txt -> 200 spaced\ncaf%C3%A9.txt -> 200 accented\na%23b.txt -> 200 hashed\n"
+
+  - id: no-flag-raw-space
+    claim: Without UrlEncode build_url leaves the path as given, and transfer refuses the URL with a space in it as a tool error, failure kind CurlExit, curl exit code 3.
+    program: fetch-named.cs
+    args: [plain, "my file.txt"]
+    expect:
+      exit: 1
+      stdout: "my file.txt -> failure CurlExit 3\ntool error: yes\n"
+
+  - id: no-flag-raw-hash
+    claim: Without UrlEncode a # stays in the path and starts a fragment, so the request is for /a and the agent gets 200 with the file a, not the file it meant.
+    program: fetch-named.cs
+    args: [plain, "a#b.txt"]
+    expect:
+      exit: 0
+      stdout: "a#b.txt -> 200 just a\n"
+
+  - id: latin1
+    claim: A name encoded as Latin-1, caf%E9.txt, is not valid UTF-8 and names no file; the answer is statusCode 404, failure null, and not a tool error.
+    program: fetch-named.cs
+    args: [raw, "caf%E9.txt"]
+    expect:
+      exit: 1
+      stdout: "caf%E9.txt -> 404\n"
+
+  - id: plus
+    claim: In a path a + is a plus, not a space, so my+file.txt is 404.
+    program: fetch-named.cs
+    args: [raw, "my+file.txt"]
+    expect:
+      exit: 1
+      stdout: "my+file.txt -> 404\n"
+
+  - id: double-encoded
+    claim: Giving build_url a name that is already encoded encodes its percent sign, so a%23b.txt becomes a%2523b.txt, which names no file, and is 404.
+    program: fetch-named.cs
+    args: [build, "a%23b.txt"]
+    expect:
+      exit: 1
+      stdout: "a%2523b.txt -> 404\n"

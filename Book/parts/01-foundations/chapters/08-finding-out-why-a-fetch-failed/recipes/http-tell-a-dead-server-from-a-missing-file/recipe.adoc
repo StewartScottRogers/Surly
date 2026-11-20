@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-a-dead-server-from-a-missing-file]]
+=== Telling a Dead Server from a 404
+
+==== Problem
+
+A fetch failed and you want to know why: whether nothing is listening, the host name does not resolve, or the server answered and the file is not there. Each has a different cause and a different fix.
+
+==== Solution
+
+Ask `curl` to print its exit code and the reason with `-w`, here against a port where nothing listens:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`curl` answers a failed fetch in two parts, and they say different things. The exit code says which stage failed. The HTTP status says what the server thought, and it exists only if there was a server to think. `-w "%{exitcode} %{errormsg}\n"` prints the exit code and the reason `curl` would have printed on standard error, with `-s` keeping the progress meter out and `-o` throwing the body away. `%{http_code}` is the status, and `000` where no status line was ever received.
+
+Nothing listening is exit `7`: the connection was refused, so no request was made. It is what a script sees before a server is up or after it has stopped. The reason names the address and port. `-s` alone makes a failure silent; `-S` brings the error line back, `curl: (7)`, and is the pair a script normally wants. The `stopped` case shows the change in one place: a `surl` is started, the same URL answers `200` and exits `0`, `surl` is stopped, and the same URL gives `000` and exit `7`. The script that does it needs a POSIX shell (Git Bash on Windows). It starts `surl --directory live`, a copy of `site`, because `--directory` serves a folder and the server running for the other cases already holds `site`; two `surl` processes cannot share one folder.
+
+A host name that does not resolve is exit `6`: the name never became an address, so no connection was tried either. `.invalid` is a top-level domain reserved so that it never resolves, so the case does not depend on what the network does. A script that gets `6` should look at the name, or at the resolver, and not at the server.
+
+A server that answers is a different case, and `404 Not Found` is its answer for a file it does not have (<<rfc9110>>). Here the server was reached, and what failed was the path. By default `curl` treats that as a successful conversation and exits `0`, which is why `-w "%{http_code}"` is how a script tells; with `-f` it exits `22` and the reason carries the status, `The requested URL returned error: 404`. So the three failures separate cleanly: `7` and `6` mean no answer at all, with the reason telling a refused connection from a bad name, and `22`, or `0` with a status of `404`, means an answer that was an error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-a-dead-server-from-a-missing-file-in-csharp>> and <<http-tell-a-dead-server-from-a-missing-file-from-an-agent>> for the same diagnosis from C# and from an agent.
+* <<http-fail-a-script-on-a-missing-file>> for `-f` and exit `22` on their own.
+* <<http-retry-until-the-server-is-up>> for waiting out a `7`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

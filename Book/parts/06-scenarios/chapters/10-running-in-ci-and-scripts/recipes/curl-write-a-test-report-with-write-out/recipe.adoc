@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[curl-write-a-test-report-with-write-out]]
+=== Writing a Test Report with Write-Out
+
+==== Problem
+
+You want every request's status, size and timing written as JavaScript Object Notation (JSON) lines, so the continuous integration (CI) job keeps a report it can compare between runs.
+
+==== Solution
+
+Give `curl` a write-out format that appends `%{json}` and a line end to a report file after each transfer:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`-w` prints its format after every transfer (<<curl-manual>>). `%{json}` is every write-out variable at once, as one JSON object on one line: among them `url`, `http_code`, `size_download` (the bytes of body received), `time_total` (seconds, to the microsecond), `exitcode` and `errormsg`. `%output{>>report.jsonl}` sends the rest of the format to that file instead of stdout, appending, so stdout stays empty and each transfer adds one line. `\n` ends the line. The quoted URL is a glob: `{health,version,missing}` makes three transfers of one command, in that order, and `-o` sends all three bodies nowhere; `-s` turns off the progress meter.
+
+The report is one line per transfer and each line is complete on its own, so a second run appends three more and the file keeps both. Some fields change from run to run by nature, such as the timings; the status and the size of each URL should not, and a job compares runs on those. The service here answers `200` with 3 and 6 bytes for the two files it has and `404` with no body for the one it has not (<<rfc9110>>), the same in both runs. Without `-f` a `404` is not a failure, so `curl` exits 0 and the report is where the `404` shows; add `-f` when the job should fail on it as well.
+
+What the server recorded agrees: `surl` with `-v` logs every exchange event, `--log-file surl.log` puts that log in a file, and its log has the same three requests with the same statuses. `--directory site` serves the two files; with no account given, a `GET` needs no login.
+
+When nothing listens, the transfer fails with exit 7 and `curl` still writes its line, with `http_code` 0 and `exitcode` 7, so a report never silently loses a URL. That is a reason to prefer `%{json}` over a format written by hand: `{"status":%{http_code}}` prints `{"status":000}` for the same failure, and `000` is not a JSON number, so the job's parser refuses the whole line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<curl-check-many-urls-from-one-config>> for failing a run on the first URL that breaks.
+* <<http-download-a-numbered-series>> for globbing.
+* <<curl-manual>>, <<surl-readme>>, <<rfc9110>>.

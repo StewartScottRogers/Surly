@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-move-a-client-to-https-in-csharp
+title: Moving a Client from HTTP to HTTPS in C#
+protocols: [http, https]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlExchangeRecord, CurlClient, CurlClientOptions, CurlNetworkOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [rfc9110, rfc8446, surl-readme, curl-readme]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, which the moved client trusts as its certificate authority.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: During the move one SurlServer listens on http and https; the moved client, allowed only https and trusting the test certificate through CertificateAuthorityFile, is served over https, 200.
+    program: move-to-https.cs
+    args: [moved]
+    expect:
+      exit: 0
+      stdout: "moved client, https: 200 hello from surl\n"
+
+  - id: plain-still-served
+    claim: During the move a client not yet moved still gets the same file over plain http from the same server.
+    program: move-to-https.cs
+    args: [unmoved]
+    expect:
+      exit: 0
+      stdout: "unmoved client, http: 200 hello from surl\n"
+
+  - id: guard-refuses-plain
+    claim: With CurlNetworkOptions.Protocols set to https, a plain http URL left in the moved client throws CurlException 1 UnsupportedProtocol, even though the plain listener would answer.
+    program: move-to-https.cs
+    args: [guard]
+    expect:
+      exit: 0
+      stdout: "moved client, http: CurlException 1 UnsupportedProtocol\n"
+
+  - id: untrusted-refused
+    claim: An https client without the test certificate as its authority throws CurlException 60 PeerFailedVerification; the trust setting is part of the move.
+    program: move-to-https.cs
+    args: [untrusted]
+    expect:
+      exit: 0
+      stdout: "client without the CA certificate, https: CurlException 60 PeerFailedVerification\n"
+
+  - id: during-record
+    claim: After the moved client's https call, the unmoved client's http call and the refused plain call, the server recorded one https and one http exchange; the refused call never reached it.
+    program: move-to-https.cs
+    args: [record]
+    expect:
+      exit: 0
+      stdout: "moved client, https: 200 hello from surl\nunmoved client, http: 200 hello from surl\nmoved client, http: CurlException 1 UnsupportedProtocol\nexchanges: https http\n"
+
+  - id: after-https
+    claim: After the move the server is started again on the same https address alone, and the moved client is served as before.
+    program: move-to-https.cs
+    args: [after]
+    expect:
+      exit: 0
+      stdout: "listening: https\nmoved client, https: 200 hello from surl\n"
+
+  - id: after-plain-gone
+    claim: After the move a client still on the plain URL cannot connect, CurlException 7 CouldntConnect.
+    program: move-to-https.cs
+    args: [after-plain]
+    expect:
+      exit: 0
+      stdout: "listening: https\nunmoved client, http: CurlException 7 CouldntConnect\n"
+
+  - id: after-record
+    claim: After the move every exchange the server recorded came in over https.
+    program: move-to-https.cs
+    args: [after-record]
+    expect:
+      exit: 0
+      stdout: "listening: https\nmoved client, https: 200 hello from surl\nunmoved client, http: CurlException 7 CouldntConnect\nexchanges: https\n"
+
+  - id: https-needs-a-certificate
+    claim: An https listen URL with no CertificateFile (and no SelfSigned) is refused at StartAsync with SurlServerStartException, exit code 58 CertificateProblem.
+    program: move-to-https.cs
+    args: [no-certificate]
+    expect:
+      exit: 0
+      stdout: "SurlServerStartException 58 CertificateProblem\n"

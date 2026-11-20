@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-verify-a-download-checksum-in-csharp]]
+=== Verifying a Download's Checksum in C#
+
+==== Problem
+
+Your installer must refuse a downloaded file whose SHA-256 digest differs from the published one, and you want a C# test, with the server in process, that keeps the download when the digest matches and refuses it when the served file has changed.
+
+==== Solution
+
+Serve the file from memory with a `SurlServer`, download it with a `CurlClient` into a part file while hashing it, and rename the part file only if the digest is the published one:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Files` holds `tool-1.0.bin` in memory, so the test needs no folder of fixtures, and `SurlServer.Files` is the same store while the server runs: `SurlServerFiles.PutAsync` replaces the file, and the next request gets the new bytes. That is how the `changed` scenario stands in for a mirror that started serving something else.
+
+`CurlClient.SendAsync` sends a `CurlRequest`, a GET of the file's URL, and returns a `CurlResponse` once the status line and headers are in; `Body` is the content still arriving. The download step reads it in pieces, writes each piece to `tool-1.0.bin.part` and feeds it to an `IncrementalHash` for SHA-256, so the file is hashed once, as it lands, however large it is. `Convert.ToHexStringLower` gives the digest in the lower-case hexadecimal form a published SHA-256 usually takes, and the comparison is plain string equality.
+
+On a match the part file is renamed over `tool-1.0.bin`; on a mismatch it is deleted and both digests are printed. Neither the Hypertext Transfer Protocol (HTTP) exchange nor `Curl.Api` knows what the file should contain, so a changed file downloads like the original, without an error status, and only the digest refuses it (<<rfc9110>>). Because the download goes to a part file first, the refused copy never replaces the good `tool-1.0.bin` kept earlier, and no part file is left behind.
+
+A path the server does not have is answered `404 Not Found`. To `SendAsync` that is an answer, not an exception, so the program looks at `CurlResponse.StatusCode` itself and refuses anything from 400 up before hashing, writing nothing; it exits 22, the code `curl -f` exits with. The exit codes, 0 kept, 1 refused by digest and 22 refused by status, are the program's choice, and the console twin's script uses the same three.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-verify-a-download-checksum>> for the same check on the console.
+* <<http-verify-a-download-checksum-from-an-agent>> for the same check driven by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-resume-an-interrupted-download]]
+=== Resuming an Interrupted Download
+
+==== Problem
+
+A download stopped halfway and left a partial file. You want `curl` to fetch only the bytes that are missing and end with a file identical to the original.
+
+==== Solution
+
+Run the same download again with `-C -`, which tells `curl` to work out where to continue from the file it finds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`-C -` (`--continue-at -`) makes `curl` look at the output file named by `-o`, take its size as the offset, and ask the server for everything from there on. Here `dl/records.txt` holds the first 125 bytes of a 300-byte file, so the request carries `Range: bytes=125-` (<<rfc9110>>), which the `-v` case shows. `surl` serves ranges of any file it serves from `--directory`, with nothing to switch on; it answers `206 Partial Content` and `curl` appends the 175 bytes that came back to the file. The `-w` case shows both: `206` and a `size_download` of 175, not 300. The file then equals the original, which the solution case checks by content.
+
+The partial file is trusted, not checked. `curl` does not compare what it already has with the start of the original; it only counts bytes. If the first 125 bytes are not the original{apos}s, because the file changed on the server or the partial file came from somewhere else, the result has the right length and the wrong beginning, and `curl` exits `0`. When the file might have changed, ask the server to check: a request header `If-Range` holding the `Last-Modified` date of the version you started with makes the server send a range only if the file is still that version, and the whole file if not. `-H "If-Range: ..."` adds it to `-C -`. With an old date, `surl` answers `200` with the whole file, and `curl` will not append a whole file to a partial one: it writes nothing, leaves the partial file alone and exits `33`. A script can take that exit code as its cue to delete the file and start again. The date has to be one your own first download saved, since `surl` compares it with the file{apos}s exact `Last-Modified`. Without that, compare a checksum afterwards.
+
+Two edges are worth knowing. With no partial file there is no offset: `-C -` sends no `Range` and downloads the whole file with `200`, so the same command line serves for a first attempt and for every retry. With a file that is already complete, the offset is the end of the file; `surl` answers `416 Range Not Satisfiable`, `curl` downloads nothing, exits `0` and leaves the file as it was. A script can run the command until it exits `0` without damaging a finished download.
+
+`-s` keeps `curl` quiet, `-o` names the file, `-H` adds a header, `-v` shows the request and `-w` prints the status and the bytes downloaded.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-resume-an-interrupted-download-in-csharp>> for the same task from C#.
+* <<http-resume-an-interrupted-download-from-an-agent>> for the same task from an agent.
+* <<http-download-a-byte-range>> for asking for a range yourself.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

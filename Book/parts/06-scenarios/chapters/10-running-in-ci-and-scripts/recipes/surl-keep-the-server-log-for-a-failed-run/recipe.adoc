@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-keep-the-server-log-for-a-failed-run]]
+=== Keeping the Server Log for Failures
+
+==== Problem
+
+When a continuous integration (CI) run fails you want the server's log and trace kept as an artifact, with no password or token in it.
+
+==== Solution
+
+Start `surl` with `--trace-ascii`, run the tests through a step that, when they fail, copies the trace into `ci-logs/` without the bytes the clients sent, and let the job upload `ci-logs/`. The tests and the step are short scripts and need a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::tests.sh[]
+----
+
+[source,sh]
+----
+include::ci-step.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--trace-ascii trace.txt` writes every byte `surl` sends and receives to `trace.txt`, each block led by a `=> Send data` or `<= Recv data` line, and between the blocks it writes `surl`{apos}s log lines: which login was judged, what was served, why an exchange ended. That one file is the log and the trace together. `--directory site` serves the report, `--cert` and `--key` serve Transport Layer Security (<<rfc8446>>) with the certificate `setup` made, for Hypertext Transfer Protocol Secure (HTTPS) and for File Transfer Protocol (FTP) over TLS (FTPS, <<rfc4217>>). `--user app:s3cret` is the password account and `--user :tok-7f3a9c`, with an empty user name, a Bearer token (<<rfc6750>>).
+
+`tests.sh` stands for the job's tests: three fetches with `curl`, `-u` logging in with the password (Basic over HTTPS, a `USER` and `PASS` over FTPS), `--oauth2-bearer` sending the token as `Authorization: Bearer`, `-f` failing on an error status, `-s` quiet and `-S` printing the error all the same, `--cacert server.pem` trusting exactly that certificate, `-o /dev/null` dropping the body, and `set -e` ending the run at the first failure. `ci-step.sh` runs them. When they pass it exits 0 and keeps nothing; when they fail it keeps the trace and exits with the tests' own code, so the job still fails and the artifact is there for whoever looks next. Here the FTPS password is wrong: the server answers `530`, `curl` exits 67, and so does the step.
+
+The trace as written is not fit to keep. It holds every byte a client sent, so both `PASS` commands are in it with the passwords in clear, the right one and the wrong one: TLS protects a password on the wire, and the trace is written after TLS has been taken off. The step's `awk` keeps each `<= Recv data` line, which says how many bytes arrived, and drops the bytes after it, up to the next line that starts with an exchange number. What is left holds neither password nor the token, and still holds what is worth reading after a failure: `surl`{apos}s log lines, which name the method and the account of each judged login, never the secret (`Login refused: ftps app`), and every reply `surl` sent, the `530 Login incorrect` included. A trace with the requests left in would also show the client's commands; that trace belongs on the machine that ran the job, not in an artifact anyone with read access can download.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-keep-the-server-log-for-a-failed-run-in-csharp>> for the same job from a C# test.
+* <<surl-keep-the-server-log-for-a-failed-run-from-an-agent>> for the same job from an agent.
+* <<http-trace-every-byte>> for the trace format.
+* <<http-find-failed-logins-in-the-log>> for reading the login lines.
+* <<surl-readme>>, <<curl-manual>>, <<rfc4217>>, <<rfc6750>>, <<rfc8446>>.

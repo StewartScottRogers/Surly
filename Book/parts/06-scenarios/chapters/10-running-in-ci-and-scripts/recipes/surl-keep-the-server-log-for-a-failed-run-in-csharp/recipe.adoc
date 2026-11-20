@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-keep-the-server-log-for-a-failed-run-in-csharp]]
+=== Keeping the Server Log for Failures
+
+==== Problem
+
+In a C# test: when a continuous integration (CI) run fails you want the server's log and trace kept as an artifact, with no password or token in it.
+
+==== Solution
+
+Give the in-process server a `StringWriter` as its `Log` at `LogLevel.Verbose`, run the tests, and when one fails write the log to `ci-logs/surl.log` without the lines the server received:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Log` is where `surl` would write its log, a `TextWriter` here held in memory, and `LogLevel.Verbose` is `surl -v`: a line for every exchange event, and every line sent (`#3 > 530 Login incorrect`) and received (`#3 < PASS guess`). That is the log and the trace in one. The server serves Hypertext Transfer Protocol Secure (HTTPS) and File Transfer Protocol (FTP) over Transport Layer Security (FTPS, <<rfc4217>>) on free ports, `BoundUrls` in the same order; `SelfSigned` makes a throwaway certificate, and `CurlTlsOptions` with an `Origin` `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is that certificate trusts exactly it, so verification stays on (<<rfc8446>>). `Accounts` holds two `SurlAccount` entries: a password account and a Bearer token, the account with an empty user name (<<rfc6750>>).
+
+The tests are three fetches through `Curl.Api`, each a `CurlRequest` on its own `CurlClient`, its login a `CurlAuthenticationOptions`: Basic with the password (`HttpAuthenticationMethods.Basic`), the token as a Bearer (`HttpAuthenticationMethods.Bearer`), and the password over FTPS, whose `CurlResponse` has no status line and so a `StatusCode` of 0. `&&` ends the run at the first failure. With the wrong FTPS password, `SendAsync` throws `CurlException` with `Code` `LoginDenied`, the 67 `curl` would exit with; the test prints it, keeps the log and exits 1.
+
+The whole log is not fit to keep: it holds every line a client sent, so the `PASS` command is in it with the password in clear, written after TLS has been taken off. The test drops each line that starts `#<n> < `, what the server received, and writes the rest. What is left holds neither password nor the token, and holds what is worth reading after a failure: the login lines, which name the method and the account and never the secret (`Login refused: ftps app`), and every line the server sent. `full.log`, the whole log, stays beside it for whoever runs the test on their own machine; the job uploads `ci-logs/` and nothing else. A passing run keeps nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-keep-the-server-log-for-a-failed-run>> for the same job on the console.
+* <<surl-keep-the-server-log-for-a-failed-run-from-an-agent>> for the same job from an agent.
+* <<http-print-the-failing-exchange>> for printing the exchange behind a failed assertion.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4217>>, <<rfc6750>>, <<rfc8446>>.

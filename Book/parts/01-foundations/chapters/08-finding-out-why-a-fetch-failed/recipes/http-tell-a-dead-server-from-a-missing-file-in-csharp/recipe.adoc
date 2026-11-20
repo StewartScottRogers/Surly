@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-a-dead-server-from-a-missing-file-in-csharp]]
+=== Diagnosing a Failed Fetch in C#
+
+==== Problem
+
+Your C# client has to tell a refused connection from a host name that does not resolve and from a missing file, and you want to catch each `Curl.Api` failure by its type and code, as a script reads `curl`{apos}s exit code.
+
+==== Solution
+
+Send the request inside a `try`, read the status of the `CurlResponse` when one comes back, and catch the `CurlException` when none does:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program hosts a `SurlServer` with `SurlServerOptions`: one in-memory file, `hello.txt`, on port 0, which asks the system for a free port. `BoundUrl` is the address it got. A `CurlClient` sends a `CurlRequest` and returns a `CurlResponse`; that is the whole of the happy path, and it is also the whole of the `404` path. A path the server does not have is answered `404 Not Found` (<<rfc9110>>), the server was reached, and so `SendAsync` returns a response and throws nothing, as `curl` without `-f` exits `0` on the same answer. A program that wants `curl -f`{apos}s exit `22` has to look at `StatusCode` itself, and this one does: its exit code is the one `curl` would have used, `0` for a good answer, `22` for an error status and the libcurl code for a failure.
+
+When no answer arrives, `SendAsync` throws, and every failure `Curl.Api` has is one type, `CurlException`, with a `Code` that is the libcurl result. The two that matter here have the numbers `curl` exits with. `CouldntConnect` is `7`: the connection was refused, so nothing listens at that address. The `stopped` scenario shows it on the server that had just answered: `StopAsync` stops it, and the same URL throws. The `no-listener` scenario shows it on a port nobody ever held, which the program gets by asking the system for one and giving it back. `CouldntResolveHost` is `6`: the name never became an address, and no connection was tried. `.invalid` is reserved so that it never resolves, so the scenario does not depend on the network. The `finally` block disposes the server, which `await using` would do too; the program stops it itself in one scenario.
+
+So the three failures separate in code the way they do in a shell. A `CurlException` with `7` or `6` means no answer at all, and its `Code` says whether to look at the server or at the name. A `CurlResponse` with `404` is an answer, and the fault is the path.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-a-dead-server-from-a-missing-file>> for the same diagnosis on the console.
+* <<http-tell-a-dead-server-from-a-missing-file-from-an-agent>> for the same diagnosis from an agent.
+* <<http-serve-and-fetch-in-process>> for the in-process server and client by themselves.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

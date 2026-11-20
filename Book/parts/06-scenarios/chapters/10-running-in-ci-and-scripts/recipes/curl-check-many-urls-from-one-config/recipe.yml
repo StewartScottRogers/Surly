@@ -1,0 +1,76 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: curl-check-many-urls-from-one-config
+title: Checking Many URLs from One Config
+protocols: [http, ftp]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --allow-anonymous]
+curl-options: [-K, --variable, --expand-url, -f, -s, -S, --fail-early, --no-fail-early, -w, --out-null]
+exit-codes: [0, 22, 67]
+references: [curl-manual, surl-readme, rfc9110, rfc959]
+
+fixtures:
+  site/health.txt: "ok\n"
+  site/version.txt: "1.4.2\n"
+  site/docs/readme.txt: "read me\n"
+  broken/health.txt: "ok\n"
+  broken/docs/readme.txt: "read me\n"
+  urls.conf: |
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Every URL the deployment must answer. The ports come from the command line:
+    #   curl --variable http_port=<port> --variable ftp_port=<port> -K urls.conf
+    fail
+    silent
+    show-error
+    fail-early
+    write-out = "%{onerror}FAILED %{url}\n"
+
+    expand-url = "http://127.0.0.1:{{http_port}}/health.txt"
+    out-null
+    expand-url = "http://127.0.0.1:{{http_port}}/version.txt"
+    out-null
+    expand-url = "ftp://127.0.0.1:{{ftp_port}}/docs/readme.txt"
+    out-null
+
+# main is the deployment as it should be, logging every exchange event to main.log.
+# broken has lost version.txt and, with no --allow-anonymous, refuses curl's anonymous FTP login.
+servers:
+  main:
+    command: surl -v --log-file main.log --directory site --allow-anonymous http://127.0.0.1:{{port}}/ ftp://127.0.0.1:{{port2}}/
+    ready: port
+  broken:
+    command: surl --directory broken http://127.0.0.1:{{port3}}/ ftp://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Against a deployment that answers every URL, the config checks all three and curl prints nothing and exits 0.
+    run: curl --variable http_port={{port}} --variable ftp_port={{port2}} -K urls.conf
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: server-saw-each-url
+    claim: The server's log shows each URL fetched once, the two HTTP paths answered 200 and the FTP file retrieved.
+    run: grep -E "\* GET /|< RETR " main.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* GET /health\.txt: 200, 3 bytes of [^\n]*\n#\d+ \* GET /version\.txt: 200, 6 bytes of [^\n]*\n#\d+ < RETR readme\.txt\\r\\n\n$'
+
+  - id: first-failure-stops
+    claim: Against a deployment that has lost version.txt, the run stops at that URL with exit 22, prints which one failed on stdout and why on stderr, and never tries the FTP URL.
+    run: curl --variable http_port={{port3}} --variable ftp_port={{port4}} -K urls.conf
+    expect:
+      exit: 22
+      stdout-matches: '^FAILED http://127\.0\.0\.1:\d+/version\.txt\n$'
+      stderr-contains: "curl: (22) The requested URL returned error: 404"
+
+  - id: every-failure
+    claim: --no-fail-early after -K overrides the file, so the run goes on, prints a line for each URL that failed, the refused anonymous FTP login (530) included, and exits with the last failure's code, 67.
+    run: curl --variable http_port={{port3}} --variable ftp_port={{port4}} -K urls.conf --no-fail-early
+    expect:
+      exit: 67
+      stdout-matches: '^FAILED http://127\.0\.0\.1:\d+/version\.txt\nFAILED ftp://127\.0\.0\.1:\d+/docs/readme\.txt\n$'
+      stderr-contains: "curl: (67) Access denied: 530"

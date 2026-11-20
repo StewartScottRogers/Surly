@@ -1,0 +1,88 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-fetch-a-file-with-an-awkward-name
+title: Fetching Files with Awkward Names
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s, -v, -w, -o]
+exit-codes: [0, 3]
+references: [surl-readme, rfc3986]
+
+fixtures:
+  site/my file.txt: "spaced\n"
+  site/café.txt: "accented\n"
+  site/a#b.txt: "hashed\n"
+  site/a: "just a\n"
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A space is %20, é is its two UTF-8 bytes %C3%A9 and a # in a name is %23; with those, surl serves all three files and curl exits 0.
+    run: curl -s http://127.0.0.1:{{port}}/my%20file.txt http://127.0.0.1:{{port}}/caf%C3%A9.txt http://127.0.0.1:{{port}}/a%23b.txt
+    expect:
+      exit: 0
+      stdout: "spaced\naccented\nhashed\n"
+
+  - id: raw-space
+    claim: A raw space in the URL is refused by curl itself as a malformed URL, exit 3, before any request is sent.
+    run: curl -s "http://127.0.0.1:{{port}}/my file.txt"
+    expect:
+      exit: 3
+      stdout: ""
+
+  - id: raw-hash
+    claim: A raw # starts the fragment, which curl does not send, so the request is for /a and the server answers with the file a, not a#b.txt.
+    run: curl -s "http://127.0.0.1:{{port}}/a#b.txt"
+    expect:
+      exit: 0
+      stdout: "just a\n"
+
+  - id: raw-hash-on-the-wire
+    claim: The request line of that raw-# fetch is GET /a, with nothing after the a.
+    run: curl -s -v -o {{null}} "http://127.0.0.1:{{port}}/a#b.txt"
+    expect:
+      exit: 0
+      stderr-contains: "> GET /a HTTP/1.1"
+
+  - id: encoded-hash-on-the-wire
+    claim: The encoded form puts the whole name in the request line, GET /a%23b.txt, and is answered 200.
+    run: curl -s -v -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/a%23b.txt
+    expect:
+      exit: 0
+      stdout: "200"
+      stderr-contains: "> GET /a%23b.txt HTTP/1.1"
+
+  - id: latin1-encoding
+    claim: Encoding é as the single Latin-1 byte %E9 names no file; the answer is 404 and curl still exits 0.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/caf%E9.txt
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: lowercase-hex
+    claim: Hexadecimal digits in a percent-encoding may be lower case; %c3%a9 reaches the same file.
+    run: curl -s http://127.0.0.1:{{port}}/caf%c3%a9.txt
+    expect:
+      exit: 0
+      stdout: "accented\n"
+
+  - id: plus-is-not-a-space
+    claim: In a path a + is a plus, not a space, so my+file.txt is 404.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/my+file.txt
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: double-encoded
+    claim: Encoding twice is decoded once, so a%2523b.txt asks for a file named a%23b.txt and is 404.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/a%2523b.txt
+    expect:
+      exit: 0
+      stdout: "404"

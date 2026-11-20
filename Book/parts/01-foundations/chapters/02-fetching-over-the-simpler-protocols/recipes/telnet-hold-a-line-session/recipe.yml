@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: telnet-hold-a-line-session
+title: Holding a Telnet Session
+protocols: [telnet]
+tier: foundations
+surl-options: [-v, --log-file, --max-line]
+curl-options: [-s, -T, -t, -m]
+exit-codes: [0, 28]
+references: [surl-readme, curl-readme, rfc854]
+
+fixtures:
+  session.txt: "hello\nworld\nquit\n"
+  loud.txt: "one\nQUIT\nnever read\n"
+  no-quit.txt: "hello\n"
+  long-line.txt: "short\nthis line is far too long\nnever read\nquit\n"
+
+servers:
+  main:
+    command: surl -v --log-file surl.log telnet://127.0.0.1:{{port}}/
+    ready: port
+  short:
+    command: surl --max-line 10 telnet://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The lines of the file are sent one by one, each is echoed back, and quit ends the session with bye and exit 0.
+    run: curl -s -T session.txt telnet://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "surl TELNET server: each line is echoed back; quit ends the session.\nhello\nworld\nbye\n"
+
+  - id: quit-any-case
+    claim: quit is matched without regard to case, and lines after it are never read.
+    run: curl -s -T loud.txt telnet://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "surl TELNET server: each line is echoed back; quit ends the session.\none\nbye\n"
+
+  - id: no-quit
+    claim: A file with no quit leaves the session open after the last echo, so curl runs until its own timer and exits 28.
+    run: curl -s -m 2 -T no-quit.txt telnet://127.0.0.1:{{port}}/
+    expect:
+      exit: 28
+      stdout: "surl TELNET server: each line is echoed back; quit ends the session.\nhello\n"
+
+  - id: terminal-type
+    claim: curl -t sets its side of the negotiation, and with -v the server's log records what the client told it.
+    run: curl -s -t TTYPE=vt100 -t NEW_ENV=USER=ann -T session.txt telnet://127.0.0.1:{{port}}/ && grep "terminal type" surl.log
+    expect:
+      exit: 0
+      stdout-matches: 'bye\r?\n#\d+ \* The client''s terminal type \(TERMINAL-TYPE\) is vt100\.\r?\n$'
+
+  - id: environment
+    claim: The environment variable set with -t NEW_ENV is reported too.
+    run: curl -s -t NEW_ENV=USER=ann -T session.txt telnet://127.0.0.1:{{port}}/ && grep "environment" surl.log
+    expect:
+      exit: 0
+      stdout-matches: 'The client''s environment \(NEW-ENVIRON\) is USER=ann'
+
+  - id: line-too-long
+    claim: A line longer than --max-line is answered line too long and the session ends there, with exit 0 and no bye.
+    run: curl -s -T long-line.txt telnet://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "surl TELNET server: each line is echoed back; quit ends the session.\nshort\nline too long\n"

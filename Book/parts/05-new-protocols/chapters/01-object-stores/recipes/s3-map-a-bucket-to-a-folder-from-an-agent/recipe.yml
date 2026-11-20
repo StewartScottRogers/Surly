@@ -1,0 +1,104 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: s3-map-a-bucket-to-a-folder-from-an-agent
+title: Mapping a Bucket from an Agent
+protocols: [s3, https]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, read_file, list_files]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, aws-s3-api, rfc8446, rfc7617]
+
+fixtures:
+  up.txt: "uploaded\n"
+  spare/gallery/sunset.txt: "sunset\n"
+
+# A certificate for 127.0.0.1 and for every bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed. Both hosts are confined to this folder.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts an S3 server with --bucket pics=/gallery through surl-mcp, and curl-mcp's curl tool, given s3://pics/sunset.txt, answers exit code 0 and the contents of the file gallery/sunset.txt in standard output.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^pics get: exit 0 \[sunset\]\n'
+
+  - id: listing
+    claim: Listing s3://pics/ lists the folder, one level, the sub-folder as a prefix.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npics list: exit 0 \[2026/, sunset\.txt\]\n'
+
+  - id: folder-keeps-its-name
+    claim: The folder is still a bucket under its own name, and the bucket gallery reads the same file as the bucket pics.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ngallery get: exit 0 \[sunset\]\n'
+
+  - id: unmapped-folder
+    claim: A folder that --bucket does not name is a bucket under its own name.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nother get: exit 0 \[other\]\n'
+
+  - id: no-such-bucket
+    claim: A bucket that is neither mapped nor a folder is answered 404 NoSuchBucket in standard error, exit 22.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno bucket: exit 22 \[\] S3 returned error 404: NoSuchBucket'
+
+  - id: https-sees-the-folder
+    claim: On the https listener of the same server the file is at the folder's own path, /gallery/sunset.txt, exit 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttps gallery: exit 0 \[sunset\]\n'
+
+  - id: https-has-no-bucket-names
+    claim: On the https listener, /pics/sunset.txt is not found, since bucket names belong to the object-storage servers; curl -f exits 22 and names the 404.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttps pics: exit 22 \[\] The requested URL returned error: 404\n'
+
+  - id: put-lands-in-the-folder
+    claim: A signed put into the bucket pics, with -T, succeeds with exit 0 and surl-mcp's read_file finds the file at /gallery/up.txt.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nput: exit 0 \[\]\nread_file /gallery/up\.txt: uploaded\n'
+
+  - id: no-bucket-folder
+    claim: surl-mcp's list_files of the store's root shows the folders gallery and other and no folder pics, since the bucket is a name for a folder and not a folder.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlist_files /: gallery, other\n'
+
+  - id: missing-folder
+    claim: A bucket mapped to a folder that is not on disk makes start_server a tool error carrying surl's exit code 37, and surl's own message names the folder and the bucket.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmissing folder: tool error True, exit_code 37\nsurl: \(37\) Could not open directory /nowhere for bucket pics\n'

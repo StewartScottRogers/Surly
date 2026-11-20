@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-move-a-firmware-fetch-to-http-from-an-agent]]
+=== Moving a Firmware Fetch to HTTP
+
+==== Problem
+
+Your device fetches firmware over Trivial File Transfer Protocol (TFTP) and you are moving it to Hypertext Transfer Protocol (HTTP). You want an artificial intelligence (AI) agent to serve one image on both protocols, fetch it both ways through Model Context Protocol (MCP) tool calls, and report whether the two copies are identical.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with a TFTP and an HTTP listen URL over one in-memory image, calls `transfer` on each address, and compares what comes back with what `read_file` reads from the server:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts `surl-mcp` and `curl-mcp` by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder it runs in. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` takes `listen_urls`, here one TFTP and one HTTP address on port 0, so both listeners serve one store and the system picks both ports. `files_base64` puts the image in that store: it is binary, so it goes in as base64, where `files` takes UTF-8 text. The answer is structured content with `server_id` and `bound_urls`, the real addresses in the order they were asked for; the program fetches from those, not from what it asked for.
+
+`transfer` makes one request described by fields, and it reaches `tftp://` as well as HTTP. Its answer is text, as JavaScript Object Notation (JSON). `statusCode` is `0` over TFTP, which has no status line, and `200` over HTTP. The image is not valid text, so `body` comes back with `isBase64` true and `content` as the base64 of the bytes, and `totalBytes` counts the 1,300 bytes the file holds. The program compares the two `content` strings, which are equal exactly when the two copies are. `read_file` reads a path back out of the server{apos}s own store, with the bytes as `base64`, so the check is against the image the server was given, not only the two fetches against each other. TFTP ends a file with a block shorter than 512 bytes (<<rfc1350>>), so an image of exactly 1,024 bytes is the edge a client most often gets wrong; the `exact` scenario checks it.
+
+The two protocols fail differently, and an agent that has to decide whether to retry must read each its own way. A missing image over TFTP is a tool error: `failure` has the kind `CurlExit` and text naming curl exit code `68`, `TftpNotFound`. Over HTTP the same missing image is `statusCode` `404` with `failure` null and no tool error (<<rfc9110>>); the agent reads the status, and nothing is thrown at it. The program prints whether any call was a tool error, and exits `1` if one was.
+
+`transfer` has no way to send a file, so the writes go through the `curl` tool, which takes a command line in `args`. `-T up.txt` names a file inside `CURL_MCP_ROOT`, and `-s` keeps the progress meter out of the answer. Over TFTP the write is refused with error 2 and the answer has `exitCode` `69`; over HTTP it is refused `401 Unauthorized`, and `-f` turns that into `exitCode` `22`. `surl` accepts uploads only with `--allow-uploads`, and neither server here has it, so moving to HTTP does not widen what a device may write.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-move-a-firmware-fetch-to-http>> for the same move on the console.
+* <<tftp-move-a-firmware-fetch-to-http-in-csharp>> for the same move from C#.
+* <<http-serve-and-fetch-from-an-agent>> for `start_server` and `transfer` by themselves.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>, <<rfc9110>>.

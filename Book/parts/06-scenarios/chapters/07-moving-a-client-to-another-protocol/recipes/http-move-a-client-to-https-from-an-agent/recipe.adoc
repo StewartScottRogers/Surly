@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-a-client-to-https-from-an-agent]]
+=== Moving a Client from HTTP to HTTPS from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to carry a client's move from plain Hypertext Transfer Protocol (HTTP) to HTTPS (HTTP over Transport Layer Security, TLS) with Model Context Protocol (MCP) tool calls: both listeners during the move, then the plain one turned off, and proof that no call still goes over plain HTTP.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts one server on an `http` and an `https` listen URL, calls the moved client through the `curl` tool with `--proto =https`, and reads the scheme of every exchange with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. `setup:` makes `server.pem` and `server.key` for `127.0.0.1` in that folder, where both hosts may read them. The argument after `--` picks one step, and each step starts its own server.
+
+`start_server` takes both listen URLs in `listen_urls` and the certificate as `surl`{apos}s own words in `arguments`, `--cert server.pem --key server.key`; `start_server` has no fields for TLS. `bound_urls` comes back in the same order, `http` then `https`, each with its port. Without `--cert` (or `--self-signed` for a throwaway certificate) an `https` listen URL is refused: a tool error whose structured content carries `surl`{apos}s `exit_code` 58, `CertificateProblem`.
+
+The moved client is the `curl` tool, because `transfer` has no field for allowed protocols or a trusted certificate: `args` are `curl`{apos}s own, `--proto =https --cacert server.pem`. Over `https` the answer has `exitCode` 0 and the file in `standardOutput`. Without `--cacert` the same fetch is `exitCode` 60, because nothing vouches for the test certificate: the trust setting moves with the scheme. A plain URL left in that client fails before anything is sent, `exitCode` 1 with `curl: (1) Protocol "http" is disabled` in `standardError`, and the call is a tool error. A client not yet moved is played by `transfer`, which takes any scheme and gets `statusCode` 200 over `http`.
+
+`get_exchanges` is the server's record: one exchange per connection, each with the `scheme` of the listener that took it. During the move it holds `https` and `http`, and nothing for the refused call. Its `scheme` argument filters the record, so `scheme` `http` returns only the unmoved client's exchange; that filtered call coming back empty is the agent's proof that every client has moved.
+
+The `after` steps turn the plain listener off. `stop_server` stops the server and answers its exit code, `Ok`; `start_server` starts it again on the old `https` address alone, port included. The moved client is served as before; `transfer` to the old plain URL now has `failure` of kind `CurlExit` with exit 7, could not connect, and is a tool error; and `get_exchanges` filtered by `http` returns nothing. TLS (<<rfc8446>>) changes how the bytes travel, not the HTTP exchange inside (<<rfc9110>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-a-client-to-https>> for the same move on the console.
+* <<http-move-a-client-to-https-in-csharp>> for the same move in a C# test.
+* <<rfc9110>>, <<rfc8446>>, <<surl-readme>>, <<curl-readme>>.

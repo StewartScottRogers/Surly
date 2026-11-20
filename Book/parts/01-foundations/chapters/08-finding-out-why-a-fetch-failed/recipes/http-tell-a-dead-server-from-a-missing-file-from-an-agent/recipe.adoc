@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-a-dead-server-from-a-missing-file-from-an-agent]]
+=== Diagnosing a Failed Fetch from an Agent
+
+==== Problem
+
+A fetch failed and you want an artificial intelligence (AI) agent to diagnose it from what the tools answer: whether nothing is listening, the host name does not resolve, or the server answered and the file is not there. You also want the refused-connection case shown by stopping a server it had started.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a server with `start_server`, fetches a path the server does not have with `transfer` and with the `curl` tool, and reads `statusCode`, `exitCode` and `failure` from the answers:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent{apos}s MCP client: `StdioClientTransport` starts `surl-mcp` and `curl-mcp` by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder it runs in. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` starts a server with one file in memory on port 0, and its structured answer has the `server_id` and `bound_urls`. `stop_server` takes the `server_id` and stops the server and frees its port; here it is the way to get a refused connection from a server that was answering a moment before, and the call itself is no tool error.
+
+`transfer` and the `curl` tool report a failure differently, and the difference is what an agent reads. `transfer` makes one request described by fields and answers in text, as JavaScript Object Notation (JSON): `statusCode`, and `failure`, which is null when the transfer worked. A `404 Not Found` (<<rfc9110>>) is a transfer that worked: `statusCode` is `404`, `failure` is null and the call is not a tool error. The agent reads the status, and the fault is the path. When no answer arrives at all, `statusCode` is null, `failure` has the kind `CurlExit` and the call is a tool error.
+
+The `curl` tool runs a command line and tells which failure by its exit code. `-s` keeps the progress meter out of `standardError`, `-f` makes an error status a failure, and `-w "%{http_code} %{exitcode}"` writes what `curl` knew when it finished to `standardOutput`, as `curl` does on the console (<<http-tell-a-dead-server-from-a-missing-file>>). A missing file with `-f` is `exitCode` `22`, the `failure` text is `curl exit code 22 (HttpReturnedError)`, and `-w` says `404 22`: the server was reached. A server that has been stopped is `7`, `CouldntConnect`, and `-w` says `000 7`, with `000` for no status line ever received. A host name that does not resolve is `6`, `CouldntResolveHost`, and `-w` says `000 6`; `.invalid` is reserved so that it never resolves, so the scenario does not depend on the network. In both of those the tool error carries the exit code in its text, so an agent can act on the code as a script acts on `curl`{apos}s. The program prints whether the last call was a tool error and exits `1` if it was.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-a-dead-server-from-a-missing-file>> for the same diagnosis on the console.
+* <<http-tell-a-dead-server-from-a-missing-file-in-csharp>> for the same diagnosis from C#.
+* <<http-stop-a-server-from-an-agent>> for `stop_server` by itself.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.
