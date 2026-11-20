@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-fail-a-test-on-a-wrong-recipient-in-csharp]]
+=== Failing a Test on a Wrong Recipient
+
+==== Problem
+
+In a C# test, your app must only mail addresses in your own domain, and you want a test mail server for that domain that refuses every other recipient over Simple Mail Transfer Protocol (SMTP), so a stray address fails the test.
+
+==== Solution
+
+Start a `SurlServer` whose `MailDomains` names your domain, with a mailbox for the app to log in with, and let the app send through it; a recipient anywhere else makes the app{apos}s `SmtpClient` throw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `smtp://` listen URL on port 0, bound to a free port that `BoundUrls` reports. `MailDomains` is `--mail-domain`, the domains the server takes mail for; `Mailboxes` is `--mailbox`, an address and password per entry, each a mailbox and the account that logs in to it by its whole address. Here there is one for the app and one for Ann, a person the app may mail. `SurlServer.StartAsync` returns once the listener is bound, and `await using` stops it when the program ends.
+
+The app is played by `SmtpClient`, .NET{apos}s own SMTP client, logged in as `app@example.com`. `AllowPlaintextAuthentication` (`--allow-plaintext-auth`) is on because without Transport Layer Security `surl` offers only `CRAM-MD5`, which `SmtpClient` cannot use; <<smtp-check-the-mail-an-app-sent-in-csharp>> shows the refusal without it. It is a loosening for a test on the loopback address, and `surl` warns when it is on (<<surl-readme>>).
+
+A recipient outside every mail domain, `carol@elsewhere.org`, is refused at `RCPT TO` with `550 5.7.1 Relaying denied` (<<rfc5321>>), even from an app that has logged in. `SmtpClient` throws `SmtpFailedRecipientException`, whose `FailedRecipient` names the address and whose message carries the server{apos}s reply. A test needs nothing more than to let that exception fail it; this program prints `FAIL` and exits 1, its own choice. That refusal is the default because a server that forwards mail for anyone to anywhere is an open relay. Mail to `ann@example.com` goes through, and the program exits 0.
+
+To see what the server kept, the program reads the store without a client: `server.Mail.ListMailboxesAsync` returns Ann{apos}s mailboxes as `SurlMailboxInfo`, and `MessageCount` of her `INBOX` is the count. It shows a difference that matters. One mail to Ann and Carol together throws for Carol, yet `SmtpClient` has already sent it to Ann, who has it. The test still fails, which is what it is for, but the stray address did not stop the mail; `curl` on the console gives up the whole message instead (<<smtp-fail-a-test-on-a-wrong-recipient>>).
+
+The refusal needs the domain. With no `MailDomains`, only an account in `Accounts` (a `SurlAccount` is `--user`), the domain of an address is ignored, so the stray address is accepted, `SmtpClient` throws nothing, and the test passes when it should fail.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-fail-a-test-on-a-wrong-recipient>> for the same test on the console.
+* <<smtp-fail-a-test-on-a-wrong-recipient-from-an-agent>> for the same test run by an agent.
+* <<surl-readme>>, <<rfc5321>>.

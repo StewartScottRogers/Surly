@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-fixture-from-a-config-file-from-an-agent]]
+=== Running a Fixture from a Config File
+
+==== Problem
+
+Your repository keeps its whole test environment in one `surl` options file, and you want an artificial intelligence (AI) agent to start exactly that environment, as every developer and the continuous integration (CI) job do.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). `surl-mcp` will not read a config file, so the agent reads `test-env.conf` itself, line by line, and passes its `url` lines to `start_server` as `listen_urls` and every other line as `arguments`:
+
+[source,text]
+----
+include::test-env.conf[]
+----
+
+It then tries each server once with `curl-mcp`{apos}s `curl` tool and checks the mailbox with `list_mailboxes`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s listen URLs in `listen_urls` and any other options in `arguments`, in `surl`{apos}s own words. It will not take `--config`, or `-K`: the call is a tool error, `-K/--config is not accepted: a config file could name paths this host never checks`. That refusal is the host being surly for a reason. `surl-mcp` confines every path an agent names to the folder in `SURL_MCP_ROOT`, and it can only check a path it sees; a file it never reads could point the server anywhere.
+
+So the agent does the reading. The file is in `curl`{apos}s config-file syntax, as `surl -K` reads it: one option per line, its name without the dashes, then `=` and the value, quoted when it holds a space; `#` starts a comment. The program's reader is a few lines and handles only what this file uses (no escapes inside quotes), which is the point of keeping a shared file plain: `url` lines become `listen_urls`, and every other line becomes `--` and its name, then its value if it has one. The program prints the arguments it built, so the run shows what was started. Read this way, every path in the file reaches the host as an argument and is checked: a file that says `directory = ../elsewhere` is refused, `--directory names ../elsewhere, which is not inside the root`. A misspelt option is refused as `surl` refuses it, with `surl`{apos}s own message, `option --mail-domian: is unknown`. Either way nothing starts, and the call is a tool error.
+
+The servers are those `surl -K test-env.conf` starts on the console: Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP) over the directory `site`, with the account `tester`, and Simple Mail Transfer Protocol (SMTP) with the app's mailbox. `start_server`{apos}s answer, structured content the SDK hands over as a JavaScript Object Notation (JSON) element, lists the real ports in `bound_urls`, in the order of `listen_urls`.
+
+The tests go through `curl-mcp`{apos}s `curl` tool, which runs a `curl` command line in-process and answers in text, as JSON, with `exitCode`, `standardOutput` and `standardError`; the program stops at the first nonzero `exitCode`. `-u tester:secret` logs in, `-T -` uploads what the program passes as `stdin`, and `-fsS` fails on an HTTP error and stays quiet otherwise. The file uploaded over FTP is read back over HTTP, so the two servers do share one directory. For the mail, `list_mailboxes` reads the app's mailboxes from the server's side and answers each one's `message_count`; the program counts before and after, because the directory keeps mail from earlier runs, and finds one message more.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-fixture-from-a-config-file>> for the same file with `surl -K` on the console, and the rules of its syntax.
+* <<surl-run-a-fixture-from-a-config-file-in-csharp>> for the same file in a .NET test.
+* <<surl-hand-bound-ports-to-the-app-from-an-agent>> for handing the bound ports to the app.
+* <<surl-readme>>, <<curl-readme>>.

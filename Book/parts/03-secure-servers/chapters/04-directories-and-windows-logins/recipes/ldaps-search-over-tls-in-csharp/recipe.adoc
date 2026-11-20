@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldaps-search-over-tls-in-csharp]]
+=== Searching over LDAPS in C#
+
+==== Problem
+
+Your app binds to the directory with a simple bind, which `surl` refuses over plain Lightweight Directory Access Protocol (LDAP). You want the same bind accepted over LDAP over Transport Layer Security (LDAPS) against your own certificate, without loosening anything, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts a server with an `ldaps://` and an `ldap://` listener on one directory, and binds as the same account on both:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for two listeners on port `0`, so the system picks free ports, and `BoundUrls` lists them in the order given. `SelfSigned` makes the certificate the `ldaps://` listener needs, for tests only; `surl` warns on every start while it is on (<<surl-readme>>). `Accounts` holds a `SurlAccount`, Alice's login. Nothing that loosens the login is set: `AllowPlaintextAuthentication`, the option `--allow-plaintext-auth`, stays off. The directory starts empty, and `SurlServerDirectory`, reached as `server.Directory`, adds two entries with `AddEntriesAsync` from LDAP Data Interchange Format (LDIF) text to the running `SurlServer`.
+
+A simple bind sends the user name and password as they are (<<rfc4511>>), so on the `ldap://` listener `surl` refuses it `confidentialityRequired` without looking at the password: the right password and a wrong one throw the same `CurlException`, code `38`, `LdapCannotBind`, and the message in both says `Confidentiality Required`. On the `ldaps://` listener TLS (<<rfc8446>>) encrypts the connection before the first LDAP message, so the bind is checked: the right password is accepted and the search answers with bob{apos}s entry, and a wrong password throws the same code `38` with the message `Invalid Credentials`. The message tells the two refusals apart; the code does not.
+
+The client is a `CurlClient`. A search is a `CurlRequest`, a GET of an `ldaps://` URL (<<rfc4516>>), the base distinguished name, the attributes, the scope and the filter separated by `?`, with the login in `CurlAuthenticationOptions`; the entries come back in the body of the `CurlResponse`. The first bind sets `VerifyPeer` and `VerifyHost` to `false` in `CurlTlsPeerOptions`, inside the `CurlTlsOptions` of the request, which is what `curl -k` does: the certificate is signed by its own key, so nothing vouches for it, and the check is skipped. That is a loosening on the client, for a throwaway certificate on your own machine, and the bind is still encrypted. With the default options, on Windows the same search throws code `60`, `PeerFailedVerification`. Giving the client the server{apos}s certificate as `CertificateAuthorityBlob`, as the HTTPS recipes do, does not help on Windows either: the Windows LDAP library checks the Windows certificate store, not the blob.
+
+The program prints the entry on one line, since the layout of the LDAP library under `Curl.Api` differs between platforms.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldaps-search-over-tls>> for the same on the command line.
+* <<ldaps-search-over-tls-from-an-agent>> for the same, driven by an agent.
+* <<ldap-search-with-a-filter-and-scope-in-csharp>> for searches without a login.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>, <<rfc8446>>.

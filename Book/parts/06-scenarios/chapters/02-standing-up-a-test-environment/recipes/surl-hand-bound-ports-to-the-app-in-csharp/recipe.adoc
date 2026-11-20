@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-hand-bound-ports-to-the-app-in-csharp]]
+=== Handing Bound Ports to the App
+
+==== Problem
+
+Your .NET test starts its servers on port 0 so parallel runs never clash, and you want to read the ports they bound and hand them to the app under test.
+
+==== Solution
+
+Start one `SurlServer` with a Hypertext Transfer Protocol (HTTP) and a Simple Mail Transfer Protocol (SMTP) listen URL on port 0, take the two URLs from `BoundUrls`, give them to the app, and read the server's mail store afterwards:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` are the listen URLs, both on port 0, which asks the operating system for a free port. `Files` puts `greeting.txt` in an in-memory store; `MailDomains` and `Mailboxes` are `--mail-domain` and `--mailbox`, one mailbox and the account that logs in to it. `SurlServer.StartAsync` returns once every listener has bound, so there is nothing to wait for and no output to read: `BoundUrls` holds each listen URL in the order of `ListenUrls`, with port 0 replaced by the port it got and a `/` at the end. The program takes the HTTP URL as `BoundUrls[0]` and the SMTP one as `BoundUrls[1]` for that reason.
+
+`RunApp` stands in for the app under test. It is handed two `Uri` values and knows nothing else about the servers, which is the shape to aim for in the real app: its addresses come from its constructor, its configuration or its environment, never from a constant. It uses `Curl.Api`. `CurlClient.Create()` makes a client; a `CurlRequest` for `GET` fetches the greeting, and `SendAsync` returns a `CurlResponse` whose `Body` is read as text. The mail is a second `CurlRequest` to the SMTP URL with `example.com`, the domain `curl` greets the server with, as its path. `CurlMailOptions` are `curl`{apos}s `--mail-from` and `--mail-rcpt`; `CurlAuthenticationOptions` with `UserName` and `Password` are `-u`, needed because the server takes mail only after a login; `CurlContent.FromStream` uploads the message the way `curl -T` does. For SMTP, `StatusCode` is the server's last reply code, `250`.
+
+Afterwards the test asks the server what it recorded. `Mail.ListMessagesAsync` reads the mailbox from the server's side, with no client, and returns a page of `SurlMessageSummary`, one per message, with its unique identifier (UID) and its size. One message is there. `StopAsync` stops the server and returns the exit code a `surl` process would have exited with, `Ok`.
+
+Port 0 is what makes parallel runs safe. The `twice` scenario starts two servers side by side, as two test runs on one build machine would, and no port is shared. Nor is anything else: each server's store is its own, in memory, where two `surl` processes given one `--directory` clash over it (<<surl-hand-bound-ports-to-the-app>>). The `fixed-port` scenario shows the clash port 0 avoids: a second server asking for a port the first holds is refused, as `surl` would refuse it. `StartAsync` throws `SurlServerStartException`, whose `ExitCode` is `surl`{apos}s exit code, `BindFailed` (45), and whose `Message` is `surl`{apos}s own line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-hand-bound-ports-to-the-app>> for the same task on the console, reading the `Listening on` lines.
+* <<surl-hand-bound-ports-to-the-app-from-an-agent>> for the same task from an artificial intelligence (AI) agent.
+* <<surl-find-the-port-it-chose-in-csharp>> for `BoundUrls` on its own.
+* <<surl-readme>>, <<curl-readme>>.

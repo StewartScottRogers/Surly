@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-accept-basic-only-over-https]]
+=== Accepting Basic Only over HTTPS
+
+==== Problem
+
+Your client only speaks HTTP Basic, and must never send its password in clear. You want a server that offers Basic alone, accepts it over Hypertext Transfer Protocol Secure (HTTPS), and refuses it unchecked over plain Hypertext Transfer Protocol (HTTP).
+
+==== Solution
+
+Give `surl` one account, `--auth basic`, a certificate, and both an `https://` and an `http://` listener; the password goes in over the first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` serves the folder `site`, and `--user alice:s3cret` gives it Alice's account. `--auth basic` sets the methods `surl` accepts and offers to Basic alone (<<rfc7617>>). Without it, the same server answers an unauthenticated request with three Digest challenges before Basic, which the `default` server in this recipe shows; a client that speaks only Basic does not need them, and a server that offers a method nobody uses offers one more thing to get wrong. `--auth` is a loosening option, since it replaces the default set rather than adding to it, and `surl` warns on every start while it is given (<<surl-readme>>). Here it narrows what is offered, and the first listener keeps the connection encrypted.
+
+Over `https://`, Transport Layer Security (TLS) (<<rfc8446>>) encrypts everything before the `Authorization` header is sent, so `surl` checks the login: the right password fetches the file, a wrong one is answered `401 Unauthorized`, and the `401` for a request with no login names Basic and nothing else. `-u alice:s3cret` makes `curl` send Basic, the user name and password Base64-encoded in an `Authorization` header. `--cacert server.pem` makes `curl` trust the certificate the `openssl` line made for `127.0.0.1`; `--cert` and `--key` give it to `surl`. `--digest` makes `curl` answer with Digest instead, and with the right password it is answered `401` is (<<rfc7616>>): a method that is not offered is not accepted.
+
+Over `http://`, the same account is not trusted with a password anyone on the wire can read. `surl` answers Basic over that listener `403 Forbidden` without checking the password, so a wrong one gets the same `403` as the right one. A request that carries no login at all gets `403` too, not `401`, and no `WWW-Authenticate` header: Basic is the only method on offer and may not be used there, so the server has nothing to invite the client to try. A client that reads that `403` knows it asked in clear, not that it guessed wrong. `curl` exits `0` on every status here, since each is still an answer; `-s`, `-o` (where the body goes, here nowhere) and `-w "%{http_code}"` print only the status code, and `-D -` prints the headers. `--http1.1` keeps the header names as the server wrote them.
+
+The listener decides, not the server: one `surl` holds both listeners, and one `--user` account works on the first and is refused on the second. That is the line to give a client that must keep Basic. For a test where the client really cannot use TLS, `--allow-plaintext-auth` checks Basic over `http://` as well; see <<http-refuse-a-password-in-clear>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-accept-basic-only-over-https-in-csharp>> for the same server and clients in a C# test.
+* <<http-accept-basic-only-over-https-from-an-agent>> for the same, driven by an agent.
+* <<http-refuse-a-password-in-clear>> for the refusal, and for Digest and the loosened server.
+* <<https-serve-with-your-own-certificate>> for the certificate.
+* <<surl-readme>>, <<rfc7617>>, <<rfc7616>>, <<rfc8446>>, <<rfc9110>>.

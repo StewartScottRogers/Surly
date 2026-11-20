@@ -1,0 +1,70 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs test-env-from-file.cs, a C# program on the official
+# MCP SDK that starts both hosts from PATH and calls their tools; its argument picks the scenario.
+schema: 2
+key: surl-run-a-fixture-from-a-config-file-from-an-agent
+title: Running a Fixture from a Config File
+protocols: [http, ftp, smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, list_mailboxes, curl]
+exit-codes: [0, 2]
+references: [surl-readme, curl-readme]
+
+fixtures:
+  site/hello.txt: "hello from the test environment\n"
+  test-env.conf: |
+    # The test environment, checked in beside the tests: surl -K test-env.conf
+    # The passwords are for throwaway test accounts only.
+
+    directory = site
+    user = "tester:secret"              # logs in over HTTP and FTP
+    mail-domain = example.com
+    mailbox = "app@example.com:secret"  # the app's mailbox, over SMTP
+
+    # The tests log in over plain http:// and ftp://, and upload over FTP.
+    allow-plaintext-auth
+    allow-uploads
+
+    url = http://127.0.0.1:0/
+    url = ftp://127.0.0.1:0/
+    url = smtp://127.0.0.1:0/
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent reads test-env.conf line by line into start_server's listen_urls and arguments, and the servers start as surl -K would start them; HTTP and FTP share the directory, a file uploaded over FTP is read back over HTTP, and list_mailboxes shows one more message in the app's INBOX after the mail.
+    program: test-env-from-file.cs
+    args: [start]
+    expect:
+      exit: 0
+      stdout: "started 3 listeners with: --directory site --user tester:secret --mail-domain example.com --mailbox app@example.com:secret --allow-plaintext-auth --allow-uploads\nhello from the test environment\nuploaded over FTP\nstored: 1 more message in INBOX\n"
+
+  - id: config-refused
+    claim: start_server refuses --config as a tool error, because a config file could name paths the host never checks.
+    program: test-env-from-file.cs
+    args: [config]
+    expect:
+      exit: 1
+      stdout: "refused: -K/--config is not accepted: a config file could name paths this host never checks\ntool error: yes\n"
+
+  - id: outside-root
+    claim: Read into arguments, every path in the file is checked; a directory outside SURL_MCP_ROOT is refused as a tool error.
+    fixtures:
+      outside.conf: "directory = ../elsewhere\nurl = http://127.0.0.1:0/\n"
+    program: test-env-from-file.cs
+    args: [outside.conf]
+    expect:
+      exit: 1
+      stdout: "refused: --directory names ../elsewhere, which is not inside the root\ntool error: yes\n"
+
+  - id: typo
+    claim: An unknown option from the file is refused as surl refuses it, a tool error carrying surl's own message.
+    fixtures:
+      broken.conf: "directory = site\nmail-domian = example.com\nurl = http://127.0.0.1:0/\n"
+    program: test-env-from-file.cs
+    args: [broken.conf]
+    expect:
+      exit: 1
+      stdout: "surl: option --mail-domian: is unknown\nsurl: try 'surl --help' or 'surl --manual' for more information\ntool error: yes\n"

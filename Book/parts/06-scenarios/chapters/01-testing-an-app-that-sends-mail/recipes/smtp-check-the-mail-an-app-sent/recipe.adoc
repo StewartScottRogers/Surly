@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-check-the-mail-an-app-sent]]
+=== Checking the Mail an App Sent
+
+==== Problem
+
+Your app sends a sign-up mail over Simple Mail Transfer Protocol (SMTP); you want the test to read it back over Internet Message Access Protocol (IMAP) and fail if the subject, sender or recipient is wrong.
+
+==== Solution
+
+Run one `surl` that serves mail for your domain over SMTP and IMAP, send the mail as the app would, and fetch the recipient{apos}s first message{apos}s `From`, `To` and `Subject` fields over IMAP:
+
+include::.generated/solution.adoc[]
+
+The first `curl` transfer stands in for the app; in a real test the app sends, pointed at port `8080`, and the test runs the IMAP half.
+
+==== Discussion
+
+One `surl` given an `smtp://` and an `imap://` listen URL runs both servers over one mail store, so what arrives over SMTP is read over IMAP from the same process (<<surl-readme>>). `--mail-domain example.com` makes it serve mail for that domain. `--mailbox app@example.com:apppass` adds a mailbox and the account that logs in to it, named by the whole address; the app logs in as `app@example.com` to send, and `ann@example.com` and `bob@example.com` log in to read. No loosening option is needed: without Transport Layer Security (TLS) `surl` offers `CRAM-MD5`, a login that never sends the password, and `curl` uses it.
+
+On the sending side, `-u` is the app{apos}s login, `--mail-from` the envelope sender (`MAIL FROM`), `--mail-rcpt` the envelope recipient (`RCPT TO`), and `-T signup.eml` uploads the message (<<rfc5321>>). `--crlf` turns the file{apos}s line feeds into the carriage return and line feed a message is made of (<<rfc5322>>). `--next` starts a second transfer in the same `curl`, with options of its own, here a second `-u` for Ann (<<curl-readme>>).
+
+The check is the IMAP URL. `INBOX;UID=1;SECTION=HEADER.FIELDS%20(FROM%20TO%20SUBJECT)` fetches only those three fields of the message whose unique identifier (UID) is 1, ending with the blank line that ends a header (<<rfc9051>>). The output is short and exact, so a test compares it with what it expects and fails on any difference. Exit `0` means both transfers worked. For a yes or no, `INBOX?FROM%20app@example.com%20TO%20ann@example.com%20SUBJECT%20%22Welcome%20to%20Example%22` asks the server to `SEARCH`: the answer `* SEARCH 1` lists every UID that matches all three, and `* SEARCH` with no number means none does. A search matches a field that contains the string, so `SUBJECT Welcome` finds the same message; the fetch is the exact check, the search the quick one.
+
+What the server recorded holds one more thing to check. The address after `MAIL FROM` is stored as a `Return-Path` field at the top of the message, as every SMTP server must add it (<<rfc5321>>), so `SECTION=HEADER.FIELDS%20(RETURN-PATH)` shows the envelope sender, `<app@example.com>`, apart from the `From` field the app wrote.
+
+Each way of getting it wrong shows up differently. A mistyped recipient inside the domain, `an@example.com`, is accepted `250` (`-w "%{response_code}"` prints the server{apos}s last reply code) and discarded, because `surl` does not tell a sender which addresses exist (<<surl-readme>>); the test learns of it only from Ann{apos}s side, where fetching a UID that is not there makes `curl` exit `78`, remote file not found. A misspelt subject or a wrong `From` field is delivered like any other mail, and the search for the expected three answers `* SEARCH`; fetching the field shows what the app wrote instead. A recipient outside the domain is refused outright, which is <<smtp-fail-a-test-on-a-wrong-recipient>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for the same test in C#, with the app on .NET{apos}s `SmtpClient`.
+* <<smtp-check-the-mail-an-app-sent-from-an-agent>> for the same test run by an agent.
+* <<smtp-serve-a-mail-domain>> for mail domains and mailboxes on their own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc5322>>, <<rfc9051>>.

@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs clean-up.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH and calls their tools; its argument picks the scenario.
+schema: 2
+key: surl-clean-up-leftover-servers
+title: Cleaning Up Leftover Servers
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, list_servers, stop_server, transfer]
+exit-codes: [0, 7]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: list_servers shows the three servers earlier work left running, each by its ID and bound URL; stop_server stops each with surl's exit code 0, Ok; and list_servers then shows none.
+    program: clean-up.cs
+    args: [clean]
+    expect:
+      exit: 0
+      stdout-matches: '^running: (s\d+) on http://127\.0\.0\.1:\d+/\nrunning: (s\d+) on http://127\.0\.0\.1:\d+/\nrunning: (s\d+) on http://127\.0\.0\.1:\d+/\nstopped \1: exit_code 0 \(Ok\)\nstopped \2: exit_code 0 \(Ok\)\nstopped \3: exit_code 0 \(Ok\)\nleft running: 0\n$'
+
+  - id: nothing-listens
+    claim: After the clean-up nothing listens where a leftover did; a fetch from its URL fails to connect, curl's exit code 7, a tool error with no status code.
+    program: clean-up.cs
+    args: [fetch]
+    expect:
+      exit: 1
+      stdout-matches: '\nleft running: 0\nstatusCode: null, failure: CurlExit, exitCode 7\n$'
+
+  - id: stop-again
+    claim: Stopping an ID that is already stopped is a tool error, no running server has that ID, so a clean-up run twice reports rather than hides it.
+    program: clean-up.cs
+    args: [stop-again]
+    expect:
+      exit: 1
+      stdout-matches: '\nleft running: 0\nno running server has ID s\d+\ntool error: yes\n$'
+
+  - id: one-host-one-list
+    claim: list_servers lists only the servers its own host started; a second surl-mcp host lists none of the first host's three.
+    program: clean-up.cs
+    args: [other-host]
+    expect:
+      exit: 0
+      stdout: "first host runs 3; a second host runs 0\n"
+
+  - id: host-exit-stops-servers
+    claim: When a surl-mcp host ends, its servers end with it; a fetch from a server whose host has ended fails to connect, exit code 7.
+    program: clean-up.cs
+    args: [host-exit]
+    expect:
+      exit: 1
+      stdout-matches: '^second host started a server on http://127\.0\.0\.1:\d+/, then ended\nstatusCode: null, failure: CurlExit, exitCode 7\n$'

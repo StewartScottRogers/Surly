@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: http-accept-basic-only-over-https-in-csharp
+title: Accepting Basic over HTTPS in C#
+protocols: [https, http]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7617, rfc9110, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Surl.Api server with AuthenticationMethods set to basic, one account and an https and an http listener answers Curl.Api's right Basic password over https with 200 and the file, and the same password over http with 403.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^https, right password: 200 \[\] hello from surl\n(.*\n)*http, right password: 403 \[\]\n'
+
+  - id: https-wrong-password
+    claim: Over https, a wrong password is an ordinary 401 CurlResponse, not an exception.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttps, wrong password: 401 \['
+
+  - id: basic-alone
+    claim: The 401 over https carries one WWW-Authenticate header, Basic, and no Digest challenge.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "https, right password: 200 [] hello from surl\nhttps, wrong password: 401 [Basic realm=\"surl\", charset=\"UTF-8\"]\nhttps, no login: 401 [Basic realm=\"surl\", charset=\"UTF-8\"]\nhttp, right password: 403 []\nhttp, wrong password: 403 []\nhttp, no login: 403 []\n"
+
+  - id: http-unchecked
+    claim: Over http, a wrong password gets the same 403 as the right one, so it was not checked.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttp, wrong password: 403 \[\]\n'
+
+  - id: http-no-login
+    claim: Over http, a request with no login is answered 403 with no WWW-Authenticate header, where the same request over https is answered 401 offering Basic.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttps, no login: 401 \[Basic [^\]]*\]\n(.*\n)*http, no login: 403 \[\]\n$'
+
+  - id: verified
+    claim: The program never turns TLS verification off; it hands the client the certificate the server made, and https is fetched with verification on.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^https, right password: 200 '

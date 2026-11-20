@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs stray-recipient.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-fail-a-test-on-a-wrong-recipient-from-an-agent
+title: Failing a Test on a Wrong Recipient
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_exchanges, list_mailboxes, seed_mail]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1, 55]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  welcome.eml: "From: app@example.com\r\nSubject: Welcome\r\n\r\nThanks for signing up.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: On a server with --mail-domain example.com, the app's send to carol@elsewhere.org is a curl tool error with exit 55; get_exchanges shows RCPT TO answered 550 5.7.1 Relaying denied, and ann's INBOX holds nothing.
+    program: stray-recipient.cs
+    args: [stray]
+    expect:
+      exit: 1
+      stdout: "curl to carol@elsewhere.org: exit 55, tool error yes, curl: (55) RCPT failed: 550\nget_exchanges: RCPT TO:<carol@elsewhere.org> -> 550 5.7.1 Relaying denied\nlist_mailboxes ann@example.com: message_count 0\n"
+
+  - id: own-domain
+    claim: The same send to ann@example.com is answered 250, curl exits 0 with no tool error, and ann's INBOX holds one message.
+    program: stray-recipient.cs
+    args: [own-domain]
+    expect:
+      exit: 0
+      stdout-matches: '^curl to ann@example\.com: exit 0, tool error no\nget_exchanges: RCPT TO:<ann@example\.com> -> 250 [^\n]+\nlist_mailboxes ann@example\.com: message_count 1\n$'
+
+  - id: seed-refused
+    claim: seed_mail obeys the mail domain too, so seeding mail for carol@elsewhere.org is a tool error, RelayingDenied.
+    program: stray-recipient.cs
+    args: [seed]
+    expect:
+      exit: 1
+      stdout: "seed_mail: tool error yes, Mail: Mail for carol@elsewhere.org was refused: RelayingDenied.\n"
+
+  - id: no-domain-accepts
+    claim: On a server with only --user and no --mail-domain the domain is ignored, so the stray send is answered 250 and exits 0.
+    program: stray-recipient.cs
+    args: [no-domain]
+    expect:
+      exit: 0
+      stdout-matches: '^curl to carol@elsewhere\.org: exit 0, tool error no\nget_exchanges: RCPT TO:<carol@elsewhere\.org> -> 250 [^\n]+\n$'

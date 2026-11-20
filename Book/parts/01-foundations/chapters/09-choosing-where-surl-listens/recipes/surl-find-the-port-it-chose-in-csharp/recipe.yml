@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-find-the-port-it-chose-in-csharp
+title: Finding the Port surl Chose in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 3, 45]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api, on port 0.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A server started on two port-0 listen URLs has a BoundUrls entry for each, in the order given, with a real port and a trailing slash; the client fetches hello.txt from each with 200.
+    program: bound-urls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^ListenUrls: http://127\.0\.0\.1:0 http://localhost:0\nBoundUrls:  http://127\.0\.0\.1:[1-9]\d*/ http://localhost:[1-9]\d*/\nBoundUrl:   http://127\.0\.0\.1:[1-9]\d*/\nhttp://127\.0\.0\.1:\d+/hello\.txt: 200 hello from surl\nhttp://localhost:\d+/hello\.txt: 200 hello from surl\n$'
+
+  - id: listen-urls-unchanged
+    claim: ListenUrls keeps what was asked for, port 0 included; only BoundUrls has the ports.
+    program: bound-urls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^ListenUrls: http://127\.0\.0\.1:0 http://localhost:0\n'
+
+  - id: bound-url-is-the-first
+    claim: BoundUrl is the first of BoundUrls.
+    program: bound-urls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nBoundUrls:  (\S+) \S+\nBoundUrl:   \1\n'
+
+  - id: a-port-each
+    claim: Each port-0 listen URL gets a port of its own.
+    program: bound-urls.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nBoundUrls:  http://127\.0\.0\.1:(\d+)/ http://localhost:(?!\1/)\d+/\n'
+
+  - id: cannot-bind
+    claim: A listen URL on an address this machine does not have makes StartAsync throw SurlServerStartException with surl's exit code 45, BindFailed, and surl's message; there are no bound URLs to read.
+    program: bound-urls.cs
+    args: ["http://192.0.2.1:0"]
+    expect:
+      exit: 45
+      stdout-matches: '^refused: 45 \(BindFailed\)\n\(45\) Could not bind http://192\.0\.2\.1:0/: '   # the reason after it is the platform's
+
+  - id: no-path-in-a-listen-url
+    claim: A listen URL with a path is refused as surl refuses it, exit code 3, MalformedUrl.
+    program: bound-urls.cs
+    args: ["http://127.0.0.1:0/hello.txt"]
+    expect:
+      exit: 3
+      stdout: "refused: 3 (MalformedUrl)\n(3) URL rejected: A listen URL cannot have a path, query or fragment\n"

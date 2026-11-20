@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-empty-mailboxes-after-a-run]]
+=== Emptying Mailboxes After a Run
+
+==== Problem
+
+After a test run, your artificial intelligence (AI) agent should leave no mail behind: you want it to list what is left, delete it over Post Office Protocol version 3 (POP3) and check that the mailboxes are empty.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it counts each mailbox with `surl-mcp`{apos}s `list_mailboxes`, sends one `DELE` per message over POP3 through `curl-mcp`{apos}s `curl` tool, then counts again and searches over Internet Message Access Protocol (IMAP) to confirm nothing is left:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+`start_server` takes `listen_urls`, a `pop3://` and an `imap://` URL on port 0, which share one mail store, and answers the `server_id` and the `bound_urls`. Its `arguments` are `surl`{apos}s own: `--mail-domain example.com` and a `--mailbox` each for Ann and Bob, a mailbox and the account that logs in to it by its whole address (<<surl-readme>>). The run is played by `seed_mail`, which takes the `server_id`, a `to` address and the `message` text and delivers it as Simple Mail Transfer Protocol (SMTP) would: two messages for Ann and one for Bob.
+
+`list_mailboxes`, given the `server_id` and an `owner`, answers that account{apos}s mailboxes with a `message_count`, read straight from the store with no login and no client. That is what is left, and it tells the agent how many message numbers to delete.
+
+The deletion is one `curl` call per mailbox. The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON) with `exitCode` and `standardError`. For each message, `-u` logs in as the mailbox{apos}s owner and `-X "DELE n"` sends `DELE` in place of `LIST` to the POP3 URL; `--next` joins the transfers so they run in one session, where every message keeps its number (<<curl-readme>>). `DELE` only marks a message, and the server removes the marked ones when the session ends with `QUIT` (<<rfc1939>>), which is why the counts are read after the call returns. `-s` and `-S` keep only `curl`{apos}s error line. The login needs no loosening option: without Transport Layer Security `surl` offers `CRAM-MD5`, which never sends the password, and `curl` uses it.
+
+The check reads the store and a client{apos}s view. `list_mailboxes` now counts 0 for both, and the `curl` tool{apos}s IMAP search of Ann{apos}s `INBOX` with `?ALL` answers `* SEARCH` with no number (<<rfc9051>>): the one store means what POP3 deleted is gone for IMAP too. The program exits 0 only when every count is 0.
+
+A deletion that fails leaves the mail and says so. With the wrong password for Ann, each of her transfers is refused, `curl` exits `67`, login denied, once per transfer, and her count stays at 2 while Bob{apos}s mailbox is still emptied; the program exits 1. When the agent started the server itself and wants everything gone at once, `reset_server`, given the `server_id`, returns the server{apos}s files, mail and accounts to their state at start, which here had no mail, so every count is 0 with no POP3 at all.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-retrieve-and-delete-a-message>> for `DELE`, `RSET` and message numbers on the console.
+* <<smtp-catch-every-address-in-one-mailbox-from-an-agent>> for a catch-all that fills one mailbox to empty.
+* <<smtp-seed-mail-from-an-agent>> for `seed_mail` and the store tools on their own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1939>>, <<rfc9051>>.

@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs bound-urls.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: surl-find-the-port-it-chose-from-an-agent
+title: Finding the Bound Port from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, list_servers, transfer]
+exit-codes: [3]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: start_server on two port-0 listen URLs answers bound_urls with a real port for each, in the order given and ending in a slash; transfer fetches hello.txt from each with status 200.
+    program: bound-urls.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout-matches: '^listen_urls: http://127\.0\.0\.1:0 http://localhost:0\nbound_urls:  http://127\.0\.0\.1:[1-9]\d*/ http://localhost:[1-9]\d*/\nhttp://127\.0\.0\.1:\d+/hello\.txt: 200 hello from surl\nhttp://localhost:\d+/hello\.txt: 200 hello from surl\n$'
+
+  - id: listen-urls-as-given
+    claim: start_server echoes listen_urls as given, port 0 included, so an agent must build its URLs from bound_urls.
+    program: bound-urls.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout-matches: '^listen_urls: http://127\.0\.0\.1:0 http://localhost:0\n'
+
+  - id: a-port-each
+    claim: Each port-0 listen URL gets a port of its own.
+    program: bound-urls.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout-matches: '\nbound_urls:  http://127\.0\.0\.1:(\d+)/ http://localhost:(?!\1/)\d+/\n'
+
+  - id: list-servers-again
+    claim: list_servers answers the same bound_urls for the server, so an agent that has lost start_server's answer can find the ports again.
+    program: bound-urls.cs
+    args: [list-servers]
+    expect:
+      exit: 0
+      stdout-matches: '\nbound_urls:  (\S+ \S+)\nlist_servers: \1\n$'
+
+  - id: path-refused
+    claim: A listen URL with a path is a tool error carrying surl's exit code 3, MalformedUrl, and surl's message, and there are no bound_urls to read.
+    program: bound-urls.cs
+    args: [path]
+    expect:
+      exit: 1
+      stdout: "exit_code: 3 (MalformedUrl)\nsurl: (3) URL rejected: A listen URL cannot have a path, query or fragment\ntool error: yes\n"

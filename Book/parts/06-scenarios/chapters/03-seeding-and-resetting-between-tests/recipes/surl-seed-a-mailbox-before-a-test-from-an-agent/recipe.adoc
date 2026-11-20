@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-seed-a-mailbox-before-a-test-from-an-agent]]
+=== Seeding a Mailbox Before a Test
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to put ten messages in a mailbox before the mail client under test connects, and afterwards to check which of them the client marked as seen or deleted.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP) and Post Office Protocol version 3 (POP3) listeners with `start_server`, calls `seed_mail` ten times, lets the client in, then reads the mailbox with `list_mailboxes` and `list_messages`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s listen URLs in `listen_urls`, here three on port 0, and other options in `arguments`, in `surl`{apos}s own words: `--mail-domain example.com` and `--mailbox ann@example.com:secret` make one mailbox and the account that logs in to it on all three protocols. Its answer, structured content the SDK hands over as a JavaScript Object Notation (JSON) element, has the `server_id` every other tool needs and the real ports in `bound_urls`, in the order asked for. The three listeners share one mail store.
+
+`seed_mail` delivers one message into that store, to the address in `to`, as SMTP would deliver it after accepting it; `message` is the message as text, header fields first. There is no client, no login and no connection, and the ten calls are done before any client connects, so the test starts from a known mailbox. `list_mailboxes` reads an account's mailboxes from the server's side and answers each one's `name`, `message_count` and `unseen_count`: ten messages, all ten unseen, because a seeded message carries no flags.
+
+The client under test here is `curl-mcp`{apos}s `curl` tool, which runs a `curl` command line in-process and answers in text, as JSON, with the output in `standardOutput`. `-u ann@example.com:secret` logs in. `INBOX;UID=3` on the IMAP URL reads message 3 the way a mail client opens one, which sets its seen flag. `-X "DELE 1"` on the POP3 URL marks message 1 for deletion, and `curl` ends its session with `QUIT` when the command line is done, which is when POP3 removes it (<<rfc1939>>).
+
+Afterwards the agent checks what the client did, from the server's side again. `list_messages` answers the messages of one mailbox in order of unique identifier (UID), each with its `uid`, `size` and `flags`. Nine are left, UID 1 is gone, and UID 3 is the only one with `\Seen`; `list_mailboxes` agrees, nine messages and eight unseen.
+
+A seed is checked as strictly as a delivery. `seed_mail` to an address with no mailbox, `bob@example.com`, is a tool error, `Mail for bob@example.com was refused: NoSuchAccount`, so a mistyped seed fails at once rather than leaving the client an empty mailbox to puzzle over.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-seed-a-mailbox-before-a-test>> for the same task on the console, seeding over SMTP.
+* <<surl-seed-a-mailbox-before-a-test-in-csharp>> for the same task in a .NET test.
+* <<surl-clean-up-leftover-servers>> for stopping the server when the agent is done.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9051>>.

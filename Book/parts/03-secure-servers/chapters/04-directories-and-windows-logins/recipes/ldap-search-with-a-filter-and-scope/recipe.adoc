@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-search-with-a-filter-and-scope]]
+=== Searching with Filter and Scope
+
+==== Problem
+
+Your app looks people up by attribute in one branch of the directory. You want a Lightweight Directory Access Protocol (LDAP) search that narrows by base, scope, filter and attributes, and an empty result told apart from a missing base.
+
+==== Solution
+
+Serve a small directory that allows searches without a login, and search one branch of it for the people whose surname starts with a letter, asking for one attribute:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` makes `site` the data directory, and the directory `surl` serves over LDAP is the LDAP Data Interchange Format (LDIF) file `site/.surl/ldap/directory.ldif` in it, read once at start (<<surl-readme>>). Its entries sit in two branches under `dc=example,dc=com`, `ou=people` and `ou=groups`, each entry named by its distinguished name (DN). `--allow-anonymous` lets a search run with no password; it is a loosening option, for a directory that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). `curl` binds before it searches, so `-u :`, an empty name and password, sends the anonymous bind. Without the option, the `strict` server in this recipe refuses that bind `inappropriateAuthentication`, and `curl` exits `38`, the code for a bind that failed. `-s` hides the progress meter and `-S` still shows the error.
+
+The URL is the search (<<rfc4516>>): `ldap://127.0.0.1:8080/ou=people,dc=example,dc=com?mail?one?(sn=B*)` is four parts separated by `?`, the base DN, the attributes to return, the scope and the filter. The base is where the search starts. The scope says how far it goes from there: `base` looks at the base entry alone, `one` at the entries directly under it, and `sub` at the base and everything below it, however deep. From the top of the directory, the filter `(cn=staff)` finds the group two levels down with `sub` and nothing with `one`; that is an empty result, not a failure. The attributes are a comma-separated list, and an empty list, `??`, asks for every attribute.
+
+The filter is the test an entry must pass. `(sn=B*)` matches a surname that starts with `B`, `*` standing for any run of characters. `(&(objectClass=person)(mail=*example.com))` joins two tests with and, `(!(cn=bob))` negates one, and `(objectClass=*)` matches every entry that has an object class, which is all of them. `curl` prints each entry as a `DN:` line followed by the attributes asked for, one per line and indented. The exact layout belongs to the LDAP library under `curl`: the claims below match what `WinLDAP`, the library `curl` uses on Windows, prints, and `curl` on Linux and macOS, which uses OpenLDAP, prints one more blank line after each entry, so the patterns allow either.
+
+An empty result and a missing base are different answers. A filter that matches nothing, or a scope that does not reach the entry, prints nothing and exits `0`, since an empty result is still a successful search. A base that is not in the directory is answered `noSuchObject` (<<rfc4511>>), and `curl` exits `39`, the code for a failed search, with the error on standard error; `2>&1` in the claim sends it to standard output so the case can read it. A script that tests only for empty output cannot tell the two apart; the exit code can.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-search-with-a-filter-and-scope-in-csharp>> for the same searches in a C# test.
+* <<ldap-search-with-a-filter-and-scope-from-an-agent>> for the same, driven by an agent.
+* <<ldap-search-a-directory>> for the same directory behind a password login.
+* <<ldaps-search-over-tls>> for a bind that does not send the password in clear.
+* <<surl-readme>>, <<rfc4511>>, <<rfc4516>>.

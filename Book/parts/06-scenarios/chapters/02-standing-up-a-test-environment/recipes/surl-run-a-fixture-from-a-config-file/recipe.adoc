@@ -1,0 +1,49 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-fixture-from-a-config-file]]
+=== Running a Fixture from a Config File
+
+==== Problem
+
+You want the whole test environment in one options file checked into the repository, so every developer and the continuous integration (CI) job start exactly the same servers.
+
+==== Solution
+
+Write every option and listen URL into `test-env.conf`, one per line, and start the environment with `surl -K test-env.conf`. This file describes a Hypertext Transfer Protocol (HTTP), a File Transfer Protocol (FTP) and a Simple Mail Transfer Protocol (SMTP) server over one directory and one mailbox:
+
+[source,text]
+----
+include::test-env.conf[]
+----
+
+`check-env.sh` starts it, waits until every listener has bound, and tries each server once, as the first test of a run might:
+
+[source,shell]
+----
+include::check-env.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`-K test-env.conf` reads options from the file as if they stood on the command line where `-K` stands. The syntax is `curl`{apos}s config-file syntax: one option per line, its name without the dashes, then `=` and the value; a value with a space in it is quoted. A listen URL is written `url = ...`. A line starting with `#` is a comment, and so is a `#` after a value. The file is the environment: every developer and the CI job run the same line, `surl -K test-env.conf`, and get the same servers, accounts and options.
+
+Each option here means what it means on the command line, with its dashes. `directory`, `--directory` there, serves `site` over HTTP and FTP, from one store. `user` (`--user`) adds the account the tests log in as over HTTP and FTP; once an account exists, every HTTP request needs a login (<<http-require-a-login>>). `mail-domain` and `mailbox` (`--mail-domain`, `--mailbox`) make the app's mailbox for SMTP. `allow-plaintext-auth` (`--allow-plaintext-auth`) lets the tests log in over plain `http://` and `ftp://`, and `allow-uploads` (`--allow-uploads`) lets them write files; both loosen `surl`{apos}s defaults, and a loosening read from a file still warns on every start, so nobody can turn one on quietly in the repository. The listen URLs ask for port 0, so two machines, or two jobs on one, never fight over a port; the script reads the ports from `surl`{apos}s `Listening on` lines, as <<surl-hand-bound-ports-to-the-app>> explains.
+
+In the script, `-u tester:secret` is the login, `-f` makes an HTTP error status a failure and `-s` with `-S` keeps `curl` quiet but for errors. `-T -` uploads standard input, to FTP as `upload.txt` and to SMTP as the message; `--mail-from` and `--mail-rcpt` are the mail's envelope. The upload over FTP is read back over HTTP, which checks that both servers share one directory and that the server stored the file; the mail ends with `mail accepted` only if `curl` exited 0.
+
+Options after `-K` override the file, which is how one developer changes one thing without editing the shared file. `check-env.sh` passes its arguments after `-K`, so `sh check-env.sh` followed by `--no-allow-plaintext-auth` turns the loosening off again. Then `surl` is surly as it is by default: the HTTP login over plain `http://` is refused `403 Forbidden`, and `curl -f` exits 22. With `--no-allow-uploads` the FTP upload is refused `550` and `curl` exits 25.
+
+`surl` reads the file strictly, and a mistake stops it before anything listens, so a broken file fails the run instead of starting a different environment. An unknown option exits 2 with the file and line, `broken.conf:2:`. Text after a value exits 2 too, where `curl` would ignore it, so `directory = test site` must be `directory = "test site"`. That rule has one trap: a flag such as `allow-uploads` takes no value, and a comment after it is read as text after its value, so comments after flags go on lines of their own, as in `test-env.conf`. A file that cannot be read exits 37.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-fixture-from-a-config-file-in-csharp>> for the same file in a .NET test.
+* <<surl-run-a-fixture-from-a-config-file-from-an-agent>> for the same environment from an artificial intelligence (AI) agent, which cannot use `-K`.
+* <<surl-hand-bound-ports-to-the-app>> for reading the ports and handing them on.
+* <<surl-readme>>, <<curl-readme>>.

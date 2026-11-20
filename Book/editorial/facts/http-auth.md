@@ -41,5 +41,10 @@ curl-mcp `transfer(url, method, headers, ...)` or `curl(args)`. No surl-mcp tool
   failure`. Wording cases are `platforms: [windows]`.
 - On Linux and macOS curl prints `Ignoring duplicate digest auth header.` for the 2nd and 3rd challenge.
 
+## Basic only over https
+- `--auth basic` with `--cert/--key` and `https://` + `http://` listeners in one surl: https 401 offers `WWW-Authenticate: Basic realm="surl", charset="UTF-8"` alone (use `curl --http1.1`; HTTP/2 lower-cases names), right password 200, wrong 401, `--digest` 401. Over `http://` the right and wrong password and no login are all 403 with no `WWW-Authenticate` (not 401). Without `--auth` the https 401 lists three Digest then Basic then Bearer.
+- Surl.Api: `AuthenticationMethods = ["basic"]` (a null `IList<string>`; a collection initializer throws NullReferenceException), `SelfSigned = true`, `SelfSignedCertificatePem` as `CurlTlsPeerOptions.CertificateAuthorityBlob` keeps verification on for https. `BoundUrls` are `Uri`. `CurlResponse.Headers` is a list of `KeyValuePair<string,string>`.
+- surl-mcp `start_server` with `arguments: ["--cert","server.pem","--key","server.key","--auth","basic","--user",...]` reads the files from `SURL_MCP_ROOT`; curl-mcp `transfer` has no user/CA options, use the `curl` tool (`--cacert server.pem`, root `CURL_MCP_ROOT`).
+
 ## Recipes
-http-log-in-with-digest, http-log-in-with-ntlm, http-require-a-login, http-refuse-a-password-in-clear.
+http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http-log-in-with-ntlm, http-require-a-login, http-refuse-a-password-in-clear.

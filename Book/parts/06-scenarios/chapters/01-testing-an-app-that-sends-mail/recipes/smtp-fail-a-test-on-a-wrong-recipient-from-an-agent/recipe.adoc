@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-fail-a-test-on-a-wrong-recipient-from-an-agent]]
+=== Failing a Test on a Wrong Recipient
+
+==== Problem
+
+As an artificial intelligence (AI) agent testing an app that must only mail addresses in your own domain, you want a test mail server for that domain that refuses every other recipient over Simple Mail Transfer Protocol (SMTP), so a stray address fails the test.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it calls `surl-mcp`{apos}s `start_server` with `--mail-domain` for your domain, sends as the app through `curl-mcp`{apos}s `curl` tool, and reads the server{apos}s answer with `get_exchanges` and what it stored with `list_mailboxes`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+`start_server` takes `listen_urls`, one `smtp://` URL on port 0, and answers the `server_id` and `bound_urls` with the real port. `arguments` is `surl`{apos}s own options: `--mail-domain example.com` serves mail for that domain and no other, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address, one for the app and one for Ann (<<surl-readme>>).
+
+The `curl` tool runs `curl`{apos}s own arguments: `-s` and `-S` to keep only the error line, `-u` for the app{apos}s login, `--mail-from` and `--mail-rcpt` for the envelope (<<rfc5321>>), `-T welcome.eml` for the message from the folder, and `--crlf` to end its lines in carriage return and line feed. It answers in text that is JavaScript Object Notation (JSON). Sent to `carol@elsewhere.org`, outside the domain, the answer has `exitCode` `55` and `curl: (55) RCPT failed: 550` in `standardError`, and the result is a tool error, `IsError` true, so an agent that treats a tool error as a failed test needs nothing more. The refusal stands even though the app logged in: a server that forwards mail for anyone to anywhere is an open relay, so `surl` delivers only to its own domains.
+
+The agent can see why without parsing `curl`{apos}s output. `get_exchanges`, given the `server_id` and `scheme` `smtp`, returns each conversation byte for byte as `chunks`, and the chunk after `RCPT TO:<carol@elsewhere.org>` is the server{apos}s `550 5.7.1 Relaying denied`. `list_mailboxes`, given the `owner` `ann@example.com`, shows a `message_count` of 0. Sent to `ann@example.com`, the same call is answered `250`, exits `0` with no tool error, and her count is 1.
+
+`seed_mail`, the agent{apos}s own way to put mail in the store, obeys the domain as well: mail for `carol@elsewhere.org` is a tool error, `RelayingDenied`, so a fixture cannot plant mail the app could not have received. The refusal needs the domain. Started with only `--user` and no `--mail-domain`, the server ignores an address{apos}s domain, answers the stray `RCPT TO` with `250`, and the test passes when it should fail.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-fail-a-test-on-a-wrong-recipient>> for the same test on the console.
+* <<smtp-fail-a-test-on-a-wrong-recipient-in-csharp>> for the same test in C#.
+* <<smtp-seed-mail-from-an-agent>> for `seed_mail` on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

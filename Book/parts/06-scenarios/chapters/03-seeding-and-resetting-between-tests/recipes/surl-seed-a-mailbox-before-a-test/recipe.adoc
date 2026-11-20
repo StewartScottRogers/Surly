@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-seed-a-mailbox-before-a-test]]
+=== Seeding a Mailbox Before a Test
+
+==== Problem
+
+Your mail client's test needs ten messages already waiting in a mailbox before the client connects, and afterwards you want to check which of them the client marked as seen or deleted.
+
+==== Solution
+
+Start one `surl` with a mailbox and Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP) and Post Office Protocol version 3 (POP3) listeners, deliver the ten messages over SMTP with one `curl` command, then let the client in; the last command shows all ten waiting and unseen:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--mail-domain example.com` says which domain the server takes mail for, and `--mailbox ann@example.com:secret` makes the one mailbox and the account that reads it; the account logs in on all three protocols with that address as its name. The three listeners share one mail store, which is the point of the recipe: whatever goes in by SMTP comes out by IMAP and POP3, and whatever a client changes by one protocol the others see.
+
+The seeding is an ordinary SMTP delivery, the way the messages would really arrive. `-T "order[01-10].eml"` is a `curl` glob: it uploads `order01.eml` to `order10.eml`, one message each, in a single command. `--mail-from` and `--mail-rcpt` are each message's envelope sender and recipient, and `-u` logs in, because `surl` takes mail only from an account: without it the delivery is refused with `530` and `curl` exits 55. Each file is a complete message with the carriage return and line feed line ends mail uses. `surl` adds a `Return-Path` and a `Received` field to each message as it stores it, so the client sees two lines more than the file held.
+
+Each check is one `curl` command against the store as the client left it, and they run in order. `-X` sends a command of your own in place of `curl`{apos}s default listing. Over IMAP, `SEARCH UNSEEN` and `SEARCH SEEN` answer with the numbers of the messages without and with the seen flag; `UID SEARCH ALL` answers with unique identifiers (UIDs), which stay with a message, where plain message numbers close up after a deletion. Fetching `INBOX;UID=3` reads message 3 the way a mail client opens one, and marks it seen, so afterwards message 3 is the only one seen and the other nine are not. Over POP3, a plain fetch lists each message's number and size, and `-X "DELE 1"` marks message 1 for deletion; the deletion happens when `curl` ends the session with `QUIT`. IMAP then no longer finds UID 1.
+
+`-s` keeps `curl` quiet and `-S` still shows an error, which the last check needs: with the wrong password the login is refused and `curl` exits 67. A test that checks a mailbox should fail on that exit code, not read an empty answer as an empty mailbox.
+
+Without `--directory`, the store lives in memory, so stopping `surl` empties it and the next run seeds again from nothing (<<surl-readme>>). The IMAP commands are those of <<rfc9051>>, the POP3 ones those of <<rfc1939>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-seed-a-mailbox-before-a-test-in-csharp>> for seeding from a .NET test, straight into the store.
+* <<surl-seed-a-mailbox-before-a-test-from-an-agent>> for the same task from an artificial intelligence (AI) agent.
+* <<pop3-empty-mailboxes-after-a-run>> for emptying the mailboxes when the run is over.
+* <<surl-readme>>, <<curl-readme>>.

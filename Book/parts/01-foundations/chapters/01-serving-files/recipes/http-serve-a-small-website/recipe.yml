@@ -1,0 +1,62 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-serve-a-small-website
+title: Serving a Small Website
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s, -o, -w, --remote-name-all, --output-dir, --create-dirs]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures:
+  site/index.html: "<!doctype html><title>Home</title><link rel=stylesheet href=css/site.css><script src=js/app.js></script><img src=img/logo.png>\n"
+  site/css/site.css: "body { margin: 0; }\n"
+  site/js/app.js: "console.log('loaded');\n"
+  site/img/logo.png: "not really a PNG\n"
+  site/img/icon.svg: "<svg xmlns='http://www.w3.org/2000/svg'/>\n"
+  site/data/menu.json: "{\"items\": []}\n"
+  site/downloads/notes.xyz: "an extension surl does not know\n"
+  site/downloads/README: "no extension at all\n"
+  site/img/photo.jpg: "not really a JPEG\n"
+  site/favicon.ico: "not really an icon\n"
+  site/fonts/body.woff2: "not really a font\n"
+  site/js/module.mjs: "export {};\n"
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Each file of the site is answered 200 with the Content-Type its extension names, text/html, text/css, text/javascript, image/png, image/svg+xml and application/json, and the bodies are saved, not printed.
+    run: curl -s --remote-name-all --create-dirs --output-dir fetched -w "%{url.path} %{http_code} %{content_type}\n" http://127.0.0.1:{{port}}/index.html http://127.0.0.1:{{port}}/css/site.css http://127.0.0.1:{{port}}/js/app.js http://127.0.0.1:{{port}}/img/logo.png http://127.0.0.1:{{port}}/img/icon.svg http://127.0.0.1:{{port}}/data/menu.json
+    expect:
+      exit: 0
+      stdout: "/index.html 200 text/html\n/css/site.css 200 text/css\n/js/app.js 200 text/javascript\n/img/logo.png 200 image/png\n/img/icon.svg 200 image/svg+xml\n/data/menu.json 200 application/json\n"
+      files:
+        fetched/site.css: "body { margin: 0; }\n"
+
+  - id: unknown-extension
+    claim: A file whose extension surl does not know, or that has none, is served as application/octet-stream.
+    run: curl -s -o {{null}} -w "%{content_type}\n" http://127.0.0.1:{{port}}/downloads/notes.xyz -o {{null}} http://127.0.0.1:{{port}}/downloads/README
+    expect:
+      exit: 0
+      stdout: "application/octet-stream\napplication/octet-stream\n"
+
+  - id: more-types
+    claim: JPEG images, icons, WOFF2 fonts and JavaScript modules get image/jpeg, image/vnd.microsoft.icon, font/woff2 and text/javascript.
+    run: curl -s --remote-name-all --output-dir more --create-dirs -w "%{url.path} %{content_type}\n" http://127.0.0.1:{{port}}/img/photo.jpg http://127.0.0.1:{{port}}/favicon.ico http://127.0.0.1:{{port}}/fonts/body.woff2 http://127.0.0.1:{{port}}/js/module.mjs
+    expect:
+      exit: 0
+      stdout: "/img/photo.jpg image/jpeg\n/favicon.ico image/vnd.microsoft.icon\n/fonts/body.woff2 font/woff2\n/js/module.mjs text/javascript\n"
+
+  - id: no-index-page
+    claim: The root path is answered 404 Not Found, with no Content-Type; surl does not serve index.html for a folder, so a browser test opens /index.html by name.
+    run: curl -s -o {{null}} -w "%{http_code} [%{content_type}]\n" http://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "404 []\n"

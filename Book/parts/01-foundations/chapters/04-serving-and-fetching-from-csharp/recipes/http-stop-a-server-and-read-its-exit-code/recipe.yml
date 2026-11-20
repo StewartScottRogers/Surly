@@ -1,0 +1,52 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-stop-a-server-and-read-its-exit-code
+title: Stopping a Server and Reading Its Code
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExitCode, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme]
+
+# For the folder case: a folder served from disk, whose lock the server holds while it runs.
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: StopAsync on a server that served a request returns SurlExitCode.Ok, 0, in under 3 seconds once no client holds a connection; the server no longer accepts connections, so a fetch after it fails with curl error 7, CouldntConnect; the program exits 0.
+    program: stop.cs
+    args: [stop]
+    expect:
+      exit: 0
+      stdout: "before stop: 200 hello from surl\nStopAsync: Ok (0), under 3 s\nafter stop: CurlException 7 (CouldntConnect)\n"
+
+  - id: stop-twice
+    claim: Stopping a server again returns the same exit code and does nothing more.
+    program: stop.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout: "before stop: 200 hello from surl\nStopAsync: Ok (0), under 3 s\nStopAsync again: Ok\n"
+
+  - id: waits-for-open-connections
+    claim: A client still holding its kept-alive connection makes StopAsync wait more than 3 seconds, the shutdown grace period surl gives after Ctrl+C, before it returns Ok.
+    program: stop.cs
+    args: [client-open]
+    expect:
+      exit: 0
+      stdout: "before stop: 200 hello from surl\nStopAsync: Ok (0), over 3 s\n"
+
+  - id: folder-released
+    claim: StopAsync releases the data directory's lock, so a new server can serve the same folder at once.
+    program: stop.cs
+    args: [folder]
+    expect:
+      exit: 0
+      stdout: "before stop: 200 hello from surl\nStopAsync: Ok (0), under 3 s\nnew server: 200 hello from surl\n"

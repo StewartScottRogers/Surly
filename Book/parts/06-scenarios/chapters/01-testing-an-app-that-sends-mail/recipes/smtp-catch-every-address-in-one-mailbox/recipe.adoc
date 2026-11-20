@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-every-address-in-one-mailbox]]
+=== Catching Every Address in One Mailbox
+
+==== Problem
+
+Your app mails many generated addresses, and you want a catch-all to land them all in one mailbox that the test reads and counts over Post Office Protocol version 3 (POP3).
+
+==== Solution
+
+Run `surl` with a mail domain, one mailbox for the catch-all and `--mail-catch-all` pointing the domain{apos}s unknown addresses at it; send to two addresses nobody created, then list the catch-all over POP3:
+
+include::.generated/solution.adoc[]
+
+The two sends stand in for the app, which would send to port `8080` itself; the test is the last transfer, one line per message caught.
+
+==== Discussion
+
+One `surl` with an `smtp://` and a `pop3://` listen URL runs both servers over one mail store (<<surl-readme>>). `--mail-domain example.com` serves mail for that domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address: `app@example.com` for the app to send as, `catchall@example.com` for the test to read. `--mail-catch-all example.com=catchall@example.com` delivers mail for any address of `example.com` that has no mailbox to `catchall@example.com`. The app can make up `user-1@example.com`, `user-2@example.com` and as many more as it likes, and none needs setting up.
+
+Each send is the app{apos}s login (`-u`), the envelope sender and recipient (`--mail-from`, `--mail-rcpt`, the `MAIL FROM` and `RCPT TO` of <<rfc5321>>) and the message from a file (`-T`), with `--crlf` turning line feeds into the carriage return and line feed a message is made of. `--next` starts the next transfer in the same `curl`, with options of its own (<<curl-readme>>). The last one is the test: `pop3://127.0.0.1:8081/` with no message number lists the catch-all{apos}s maildrop, one line per message, its number and its size in octets (<<rfc1939>>), so the count is the number of lines. `-X STAT` asks for the count and the total size in one reply instead, `+OK 2` and the octets; `curl` does not print that reply, but `-v` shows it on standard error. The logins need no loosening option: without Transport Layer Security `surl` offers `CRAM-MD5`, which never sends the password, and `curl` uses it.
+
+The catch-all counts messages, not addresses. One message with `--mail-rcpt user-3@example.com --mail-rcpt user-4@example.com` is stored in the catch-all once, so an app that sends one mail to many generated addresses adds one to the count; an app that sends one mail per address adds one each. An address that has a mailbox is not caught at all: mail to `app@example.com` goes to that mailbox, and the catch-all{apos}s count stays where it was.
+
+The catch-all is for one domain, and the server stays surly about the rest. An address outside every `--mail-domain`, `user-5@example.org`, is refused `550 5.7.1 Relaying denied` (<<rfc5321>>), and `curl` exits `55` with `RCPT failed: 550` (`-s` hides the progress meter, `-S` keeps that error line). Without `--mail-catch-all`, mail to an unknown address inside the domain is accepted and discarded, so the send exits `0` and the test finds nothing: `STAT` answers `+OK 0 0`. That is the default because a server that told a sender which addresses exist would hand a stranger a list of them (<<surl-readme>>); a test that wants to see that mail asks for a catch-all.
+
+The options are checked before anything listens. A `--mail-catch-all` with no `--mail-domain` exits `2` with `needs --mail-domain`. One whose address has no mailbox exits `2` with `includes itself`: that address is itself an unknown address of the domain, so name a `--mailbox` as the catch-all.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-every-address-in-one-mailbox-in-csharp>> for the same test in C#.
+* <<smtp-catch-every-address-in-one-mailbox-from-an-agent>> for the same test run by an agent.
+* <<pop3-retrieve-and-delete-a-message>> for reading and deleting what was caught.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc1939>>.

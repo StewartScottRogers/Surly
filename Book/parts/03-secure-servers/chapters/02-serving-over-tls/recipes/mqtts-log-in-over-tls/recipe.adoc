@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtts-log-in-over-tls]]
+=== Logging In to MQTT over TLS
+
+==== Problem
+
+Your device sends a Message Queuing Telemetry Transport (MQTT) user name and password, which `surl` refuses over plain MQTT. You want the same login accepted over MQTT over Transport Layer Security (MQTTS) with no loosening option, and a wrong password told apart from a refused one.
+
+==== Solution
+
+Serve the broker with a certificate and give it an account with `--user`; `curl` logs in with `-u` and trusts the certificate with `--cacert`. The `openssl` line makes the certificate and key. The `curl` command publishes a reading and, after `--next`, subscribes and receives it:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+An MQTT client logs in in its first packet, CONNECT, carrying a user name and a password, and the broker answers with CONNACK and a return code: 0 accepted, 4 bad user name or password, 5 not authorized (<<mqtt311>>). On plain `mqtt://` that password crosses the network readable, so `surl` does not take it: the right password over `mqtt://` is answered with code 5, as if no login had been sent. `--allow-plaintext-auth` would take it, and this recipe shows the option working on a second server so that the default can be seen as a choice; it loosens security (<<surl-readme>>).
+
+`mqtts://` wraps the same conversation in TLS, which has already been negotiated when CONNECT is sent (<<rfc8446>>). Nothing is loosened: `--user alice:s3cret` is the account, `--cert server.pem` the certificate and `--key server.key` its private key, and `--topic "home/#;retain"` keeps what is published under `home` so the subscription has something to receive. On the `curl` side, `-u alice:s3cret` is the login and `--cacert server.pem` the certificate to trust; `-d 21.5` publishes, `-s` hides the progress meter while `-S` still prints an error, `--next` starts a second transfer on the same command line, and a subscribe prints each message as two bytes of topic length, the topic and the payload, here `\x00\x09home/temp21.5` (<<curl-readme>>). Without `--cacert`, `curl` does not trust a certificate that signed itself, refuses to go on and exits `60`.
+
+The two refusals are told apart by the code in the `curl` message. A wrong password and a user name `surl` has no account for are both code 4, `Expected 0000 but got 0004`, the same answer for both. A connection with no user name at all is code 5, `got 0005`, the answer a client gets when it did not try to log in. `curl` exits `8` for each. The `curl` line is worded by `curl`, not by `surl`, and `got 0004` is the part to match.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtts-log-in-over-tls-in-csharp>> for the same task from C#.
+* <<mqtts-log-in-over-tls-from-an-agent>> for the same task from an agent.
+* <<mqtt-publish-and-subscribe>> for the broker without TLS.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<rfc8446>>.

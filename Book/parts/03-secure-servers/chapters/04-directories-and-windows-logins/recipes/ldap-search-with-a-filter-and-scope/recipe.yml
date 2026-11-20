@@ -1,0 +1,135 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: ldap-search-with-a-filter-and-scope
+title: Searching with Filter and Scope
+protocols: [ldap]
+tier: secure-servers
+surl-options: [--directory, --allow-anonymous]
+curl-options: [-u, -s, -S]
+exit-codes: [0, 38, 39]
+references: [surl-readme, rfc4511, rfc4516]
+
+# The directory surl serves: one LDAP Data Interchange Format (LDIF) file, read at start.
+fixtures:
+  site/.surl/ldap/directory.ldif: |
+    dn: dc=example,dc=com
+    objectClass: domain
+    dc: example
+
+    dn: ou=people,dc=example,dc=com
+    objectClass: organizationalUnit
+    ou: people
+
+    dn: cn=alice,ou=people,dc=example,dc=com
+    objectClass: person
+    cn: alice
+    sn: Liddell
+    mail: alice@example.com
+
+    dn: cn=bob,ou=people,dc=example,dc=com
+    objectClass: person
+    cn: bob
+    sn: Builder
+    mail: bob@example.com
+
+    dn: ou=groups,dc=example,dc=com
+    objectClass: organizationalUnit
+    ou: groups
+
+    dn: cn=staff,ou=groups,dc=example,dc=com
+    objectClass: groupOfNames
+    cn: staff
+    member: cn=alice,ou=people,dc=example,dc=com
+
+# main answers searches without a bind (--allow-anonymous). strict is the same without it, with
+# an empty directory, there so the refusal is a checked claim (two surl cannot share one --directory).
+servers:
+  main:
+    command: surl --directory site --allow-anonymous ldap://127.0.0.1:{{port}}/
+    ready: port
+  strict:
+    command: surl ldap://127.0.0.1:{{port2}}/
+    ready: port
+
+# Each entry prints as DN: <dn>, then each attribute on its own tab-indented line followed by a blank
+# line. OpenLDAP (Linux, macOS) adds one more blank line after an entry; the patterns allow either.
+cases:
+  - id: solution
+    role: solution
+    claim: A one-level search under ou=people with the filter (sn=B*) and the attribute mail prints bob's entry with that one attribute and nothing of alice, exit 0.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/ou=people,dc=example,dc=com?mail?one?(sn=B*)"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: cn=bob,ou=people,dc=example,dc=com\n\tmail: bob@example.com\n\n\n?\Z'
+
+  - id: scope-base
+    claim: Scope base looks at the base entry alone; asking for ou under ou=people prints that one entry and none of the people below it.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/ou=people,dc=example,dc=com?ou?base?(objectClass=*)"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: ou=people,dc=example,dc=com\n\tou: people\n\n\n?\Z'
+
+  - id: scope-one
+    claim: Scope one finds the entries directly under the base, here the two organizational units, and not the people or the group below them.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/dc=example,dc=com?ou?one?(objectClass=organizationalUnit)"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: ou=people,dc=example,dc=com\n\tou: people\n\n\n?DN: ou=groups,dc=example,dc=com\n\tou: groups\n\n\n?\Z'
+
+  - id: scope-sub
+    claim: Scope sub finds matching entries at any depth below the base; the filter (cn=staff) from the top of the directory finds the group two levels down.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn?sub?(cn=staff)"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: cn=staff,ou=groups,dc=example,dc=com\n\tcn: staff\n\n\n?\Z'
+
+  - id: one-misses-deeper
+    claim: The same filter with scope one from the top finds nothing, since the group is not directly under the base, and that is not an error; curl prints nothing and exits 0.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn?one?(cn=staff)"'
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: and-filter
+    claim: A filter joins tests with and, written (&(a)(b)); every person with a mail address ending in example.com is found, alice and bob.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/dc=example,dc=com?cn?sub?(&(objectClass=person)(mail=*example.com))"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: cn=alice,ou=people,dc=example,dc=com\n\tcn: alice\n\n\n?DN: cn=bob,ou=people,dc=example,dc=com\n\tcn: bob\n\n\n?\Z'
+
+  - id: not-filter
+    claim: A filter negates a test with not, written (!(a)); the people who are not bob are alice alone.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/ou=people,dc=example,dc=com?cn?one?(!(cn=bob))"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: cn=alice,ou=people,dc=example,dc=com\n\tcn: alice\n\n\n?\Z'
+
+  - id: no-attributes
+    claim: With the attribute list left empty, every attribute of the entry is printed.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/ou=people,dc=example,dc=com??one?(cn=alice)"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: cn=alice,ou=people,dc=example,dc=com\n\tobjectClass: person\n\n\tcn: alice\n\n\tsn: Liddell\n\n\tmail: alice@example.com\n\n\n?\Z'
+
+  - id: no-match
+    claim: A filter that matches no entry is not an error; curl prints nothing and exits 0.
+    run: 'curl -u : "ldap://127.0.0.1:{{port}}/ou=people,dc=example,dc=com?cn?one?(cn=zed)"'
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: missing-base
+    claim: A base that is not in the directory is answered noSuchObject, and curl exits 39, not 0, and prints the error line naming it (2>&1 sends that line to standard output).
+    run: 'curl -s -S -u : "ldap://127.0.0.1:{{port}}/ou=nowhere,dc=example,dc=com?cn?one?(cn=alice)" 2>&1'
+    expect:
+      exit: 39
+      stdout-matches: '\Acurl: \(39\) LDAP remote: [^\n]*(?i:no such object)[^\n]*\n\Z'
+
+  - id: anonymous-refused
+    claim: Without --allow-anonymous, the same search with no bind is refused, and curl exits 38, the code for a failed bind.
+    run: 'curl -s -S -u : "ldap://127.0.0.1:{{port2}}/dc=example,dc=com?cn?sub?(cn=alice)"'
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Inappropriate Authentication"

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-seed-a-mailbox-before-a-test-in-csharp]]
+=== Seeding a Mailbox Before a Test
+
+==== Problem
+
+Your .NET test of a mail client needs ten messages already waiting before the client connects, and afterwards you want to check which of them the client marked as seen or deleted.
+
+==== Solution
+
+Start a `SurlServer` with a mailbox and Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP) and Post Office Protocol version 3 (POP3) listeners, put the ten messages in with `Mail.DeliverAsync`, let the client in, and read the store afterwards:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` the three listen URLs on port 0, `MailDomains` and `Mailboxes` `--mail-domain example.com` and `--mailbox ann@example.com:secret`, one mailbox and the account that logs in to it on all three protocols. `SurlServer.StartAsync` returns once every listener has bound, and `BoundUrls` names their ports in the same order. The three share one mail store.
+
+`Mail` is that store, as a test seeds it. `DeliverAsync` delivers one message to an address as SMTP would after accepting it, so the seed goes in the way real mail would, with no client, no login and no connection. The ten calls finish before any client connects, which is the point: the test starts from a known mailbox, not from whatever a client managed to send. `ListMailboxesAsync` answers a `SurlMailboxInfo` per mailbox; the `INBOX` holds ten messages, all ten unseen, because a seeded message carries no flags.
+
+The client under test is `Curl.Api`. `CurlClient.Create()` makes it, and `CurlAuthenticationOptions` with `UserName` and `Password` are `curl -u`. A `CurlRequest` for `INBOX;UID=3` on the IMAP URL reads message 3 the way a mail client opens one, and `SendAsync` returns a `CurlResponse` whose `Body` is the message. A `CurlRequest` whose method is `DELE`, on the POP3 URL with path `1`, sends `DELE 1`, `curl -X DELE` in `curl`{apos}s words. POP3 removes a message marked that way only when the session ends with `QUIT` (<<rfc1939>>), and `CurlClient` keeps its connection open to reuse it, so right after the call all ten messages are still there. Disposing the client closes the session, and then there are nine. A test that checks deletions checks after the client is closed.
+
+Afterwards the test reads the store from the server's side, with no client. `ListMessagesAsync` answers each message's `SurlMessageSummary`: its unique identifier (UID), size and flags. Message 3 is the only one with `\Seen`, set when the client read it; UID 1 is gone; UIDs 2 to 10 remain, eight of them unseen.
+
+A seed is checked as strictly as a delivery. Seeding for an address with no mailbox, `bob@example.com`, throws `SurlSeedRefusedException`, with `Store` `Mail` and `Refusal` `NoSuchAccount`, so a typo in a test's seed fails the test at once instead of leaving the client an empty mailbox. Over SMTP, the same mail would be accepted and quietly dropped, so that no client can learn which addresses exist (<<surl-readme>>); the seed is the test's own call and has no such reason to be quiet.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-seed-a-mailbox-before-a-test>> for the same task on the console, seeding over SMTP.
+* <<surl-seed-a-mailbox-before-a-test-from-an-agent>> for the same task from an artificial intelligence (AI) agent.
+* <<imap-seed-and-read-mail-in-process>> for one seeded message read over IMAP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9051>>.
