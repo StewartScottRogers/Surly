@@ -46,3 +46,5 @@ Any TLS scheme (`https`, `mqtts`, `ftps`, `wss`, ...) needs a certificate; `read
 
 ## Recipes
 https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a-client-to-https (and twins), https-serve-a-pfx-certificate (and twins), mqtts-log-in-over-tls (and twins).
+
+- Curl.Api: `VerifyHost = false` skips only the name check. A self-signed peer still fails 60; use `VerifyPeer = false` as well (`curl -k` is both) or trust the certificate with `CertificateAuthorityBlob` (Curl session, 2026-11-20).

@@ -52,3 +52,5 @@ ftp-choose-passive-or-active-mode (+ -in-csharp, -from-an-agent), ftp-read-a-fil
 - curl-mcp `transfer` on tftp: statusCode 0, body base64 when binary; missing: failure kind `CurlExit`, text `TFTP: File Not Found` + newline + `curl exit code 68 (TftpNotFound)`. `curl` tool `-T up.txt tftp://...` exitCode 69.
 - Curl.Api: `CurlRequest.Tftp = new CurlTftpOptions { BlockSize = 1024 }`; missing file throws `CurlException`, `Code` `TftpNotFound` (68); a PUT (bytes or stream body) to tftp:// is sent as a read request, so it answers TftpNotFound 68 and uploads nothing.
 - Fixtures are text; a binary image is made by `setup: head -c 1300 /dev/urandom > site/firmware.bin` (needs schema 2) and compared with `cmp a b && echo identical`.
+
+- Curl.Api has Unix sockets (`CurlNetworkOptions`) and the TFTP block size (`CurlTftpOptions`) (Curl session, 2026-11-20).
