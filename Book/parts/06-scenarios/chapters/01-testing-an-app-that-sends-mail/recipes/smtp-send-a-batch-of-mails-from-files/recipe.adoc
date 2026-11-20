@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-a-batch-of-mails-from-files]]
+=== Sending a Batch of Mails from Files
+
+==== Problem
+
+You keep test messages as files; you want one command to send each of them over Simple Mail Transfer Protocol (SMTP), then count and check them in the recipient{apos}s mailbox over Internet Message Access Protocol (IMAP).
+
+==== Solution
+
+Run one `surl` serving your domain over SMTP and IMAP. Give `curl -T` the files as a numbered range, so one command sends them all, and ask IMAP how many messages arrived:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--mail-domain example.com` serves mail for the domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address: `shop` sends and `ann` receives (<<surl-readme>>). The SMTP and IMAP listen URLs share one mail store, so what arrives on one is read on the other.
+
+`-T "outbox/order-[101-103].eml"` is a `curl` glob, not a shell one: `curl` expands the range itself and uploads each file as its own mail, in order, to the same URL (<<curl-readme>>). Quote it so no shell touches the brackets. For files whose names do not count, a list in braces does the same, `-T "outbox/{welcome,reset,invoice}.eml"`. `--mail-from` and `--mail-rcpt` give every mail the same envelope (<<rfc5321>>), `-u` logs in once, and `--crlf` turns each file{apos}s line feeds into the carriage return and line feed mail needs. Without Transport Layer Security `surl` offers only `CRAM-MD5`, a login that never sends the password, so nothing needs loosening.
+
+`-w "%{response_code} %{num_connects}\n"` runs once per file. The reply code is the server{apos}s last answer for that mail, `250` when it was taken. `num_connects` is how many new connections that transfer opened: `1` for the first and `0` for the rest, so all three mails went over one SMTP session. `-s` keeps the progress meter out, and `-S` still shows errors.
+
+The count is one IMAP command. `--next` starts a second transfer with its own options, Ann{apos}s login here, and `-X "STATUS INBOX (MESSAGES)"` asks for the number of messages in her `INBOX` without opening it; the server answers `* STATUS INBOX (MESSAGES 3)` (<<rfc9051>>). To check what arrived, a range in the IMAP URL works the same way as on the upload side: `INBOX;UID=[1-3];SECTION=HEADER.FIELDS%20(SUBJECT)` fetches the `Subject` field of the messages with unique identifiers (UIDs) 1 to 3, which come back in the order the files were sent. A `SEARCH` for the text the batch has in common, `INBOX?SUBJECT%20shipped`, answers all three UIDs at once.
+
+A missing file is where a batch goes wrong. Given `-T "outbox/order-{103,104,102}.eml"` with no `order-104.eml`, `curl` sends 103, stops at 104 with exit `26`, `Failed to open/read local data from file/application`, and never reaches 102; `-w` prints `000` for the transfer that did not happen. The mailbox shows the damage: four messages, not the six a full run would leave, and only one Order 102. A test that sends a batch should check `curl`{apos}s exit code and the count, since a run can fail with part of the batch already delivered.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-the-mail-an-app-sent>> for checking one message{apos}s fields exactly.
+* <<surl-seed-a-mailbox-before-a-test>> for the same kind of batch used to fill a mailbox before a test.
+* <<pop3-empty-mailboxes-after-a-run>> for clearing the mailbox afterwards.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9051>>.

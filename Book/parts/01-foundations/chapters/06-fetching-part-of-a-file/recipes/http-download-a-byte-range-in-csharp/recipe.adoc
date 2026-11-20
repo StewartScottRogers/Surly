@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-a-byte-range-in-csharp]]
+=== Fetching a Byte Range in C#
+
+==== Problem
+
+Your C# code reads one slice of a large file over Hypertext Transfer Protocol (HTTP) with a `Range` header. You want it to check that it got the slice it asked for, by status, `Content-Range` and bytes, and to handle the answer when the range lies past the end of the file.
+
+==== Solution
+
+Send a `CurlRequest` with a `Range` header, then act on the status and the `Content-Range` the server answered:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program hosts its own server with `SurlServer`: `SurlServerOptions.Files` holds `records.txt` in memory, thirty lines of ten bytes, 300 bytes in all, so byte 100 starts `record 10`. Port 0 in `ListenUrls` takes a free port and `BoundUrl` names it. `surl` serves ranges of any file it serves, with nothing to switch on.
+
+`CurlRequest.Headers` carries `Range: bytes=100-199` (<<rfc9110>>): the first and last byte, counted from zero, both included. `CurlClient.SendAsync` returns a `CurlResponse` once the head has arrived; `StatusCode` and `ReasonPhrase` are its status line, and `Headers` is a list of name and value pairs in the order received, searched here for `Content-Range` without regard to case. The body is read to the end into a byte array.
+
+`206 Partial Content` with `Content-Range: bytes 100-199/300` is the slice asked for: the part before the slash names the bytes sent, the part after the length of the whole file. The program checks the first part, not only the status, because a range that runs past the end is cut there: asking for `280-999` gets `206` and `bytes 280-299/300`, 20 bytes, and the program says that is not what it asked for. Whether a shorter slice is acceptable is your code's decision; the status alone will not tell you.
+
+A range that starts past the end gets `416 Range Not Satisfiable` with no body. `SendAsync` does not throw for it; it is an ordinary `CurlResponse`, and its `Content-Range: bytes */300` is how the server tells you how long the file is, so the code can ask again for a range that exists. The program exits `2` for it, its own choice of code.
+
+A range with its end before its start is no range at all; `surl` ignores the header and sends the whole file with `200` and no `Content-Range`. Code that checked only for a 2xx status would take 300 bytes for its slice. Exit `1` is the program's "not the slice asked for".
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-a-byte-range>> for the same request on the console, several ranges at once included.
+* <<http-download-a-byte-range-from-an-agent>> for the same request from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

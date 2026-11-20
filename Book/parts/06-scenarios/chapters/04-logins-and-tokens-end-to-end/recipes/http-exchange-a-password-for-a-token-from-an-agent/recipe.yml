@@ -1,0 +1,46 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs token-flow.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its arguments pick the password and the token.
+schema: 2
+key: http-exchange-a-password-for-a-token-from-an-agent
+title: Exchanging a Password for a Token
+protocols: [https]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events]
+curl-options: [-s, -f, --cacert, -u, --oauth2-bearer]
+exit-codes: [0, 1, 22]
+references: [surl-readme, curl-readme, rfc7617, rfc6750, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent logs in with Basic over HTTPS through curl-mcp, takes the token from the body, and calls the API with it as a Bearer token, curl exit 0 both times; get_events shows a Basic login as app and then a Bearer login, named bearer token.
+    program: token-flow.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "login: curl exit 0\napi: curl exit 0 [{\"id\":1,\"total\":40}]\nrecorded: Basic app accepted\nrecorded: Bearer bearer token accepted\n"
+
+  - id: wrong-password
+    claim: With a wrong password the login fails with curl exit 22, the agent never calls the API, and the server recorded one refused Basic login as app.
+    program: token-flow.cs
+    args: [guess]
+    expect:
+      exit: 1
+      stdout: "login: curl exit 22\nrecorded: Basic app refused\n"
+
+  - id: wrong-token
+    claim: A token the server does not hold fails the API call with curl exit 22 after a good login, and the server recorded the Bearer login as refused.
+    program: token-flow.cs
+    args: [s3cret, tok-0000]
+    expect:
+      exit: 1
+      stdout: "login: curl exit 0\napi: curl exit 22\nrecorded: Basic app accepted\nrecorded: Bearer bearer token refused\n"

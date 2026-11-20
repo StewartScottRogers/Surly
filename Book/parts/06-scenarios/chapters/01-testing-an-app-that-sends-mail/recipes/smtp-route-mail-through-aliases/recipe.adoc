@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-route-mail-through-aliases]]
+=== Routing Mail Through Aliases
+
+==== Problem
+
+Your app mails `support@` and `alerts@` over Simple Mail Transfer Protocol (SMTP); you want aliases forwarding those addresses to real mailboxes, and the test checking where each message landed.
+
+==== Solution
+
+Run one `surl` that serves your domain over SMTP and Internet Message Access Protocol (IMAP), with an `--mail-alias` for each address the app writes to. Let the app send, then search each target mailbox over IMAP:
+
+include::.generated/solution.adoc[]
+
+The first `curl` stands in for the app; in a real test the app sends to port `8080` and the test runs the second.
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL runs both over one mail store (<<surl-readme>>). `--mail-domain example.com` serves mail for that domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address: `app` sends, and `ann`, `bob` and `ops` read. `--mail-alias support@example.com=ann@example.com,bob@example.com` delivers mail for `support@` to each address after the `=`; `alerts@` goes to `ops` alone, and `help@` names another alias, `support@`. Quote each `--mail-alias` value so no shell splits it.
+
+The app{apos}s side is two transfers in one `curl`, joined by `--next`, each with its own login (`-u`), envelope sender (`--mail-from`), recipient (`--mail-rcpt`) (<<rfc5321>>) and message file to upload (`-T`); `--crlf` turns the file{apos}s line feeds into the carriage return and line feed mail is made of. No loosening option is needed: without Transport Layer Security `surl` offers only `CRAM-MD5`, a login that never sends the password, and `curl` uses it.
+
+The test is three IMAP searches, one per mailbox that should have mail. `INBOX?SUBJECT%20%22Cannot%20log%20in%22` asks the server to `SEARCH` the `INBOX` for messages whose subject contains that text (<<rfc9051>>); `* SEARCH 1` names the message by its unique identifier (UID), and `* SEARCH` with no number means none matched. The support mail is in Ann{apos}s and in Bob{apos}s `INBOX` and the alert in the operations mailbox; the same search for the alert in Ann{apos}s finds nothing, so neither message strayed. The stored copy is what the app sent: its `To` field still says `support@example.com`, so a test that wants to know which alias brought a message reads that field.
+
+An alias can point at another: mail to `help@` follows `help@` to `support@` and on to Ann and Bob. A message whose recipients reach one mailbox twice, here `support@` and `ann@` in one send, is stored there once; Ann{apos}s `INBOX` grows from two messages to three, not four. An alias is only an address: it has no mailbox and no account, so logging in to IMAP as `support@example.com` is denied and `curl` exits `67`.
+
+The server is strict about aliases where a mistake would lose mail. A target that names no mailbox, a typo such as `anne@example.com`, stops `surl` at start with exit `2`, before any mail could be accepted and discarded; so does a target outside every `--mail-domain`, since `surl` forwards nothing off the domain. An alias that is also a `--mailbox` is refused the same way (<<surl-readme>>). Mail to an address of the domain that is neither a mailbox nor an alias is still accepted and discarded, as <<smtp-check-the-mail-an-app-sent>> shows.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-route-mail-through-aliases-in-csharp>> for the same test in C#.
+* <<smtp-route-mail-through-aliases-from-an-agent>> for the same test run by an agent.
+* <<smtp-catch-every-address-in-one-mailbox>> for catching every unknown address instead.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9051>>.

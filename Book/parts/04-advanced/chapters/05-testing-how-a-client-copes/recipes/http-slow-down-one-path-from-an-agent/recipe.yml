@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs slow-path.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-slow-down-one-path-from-an-agent
+title: Slowing Down One Path from an Agent
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, transfer, get_events]
+exit-codes: [0, 28]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two transfers at once with timeoutSeconds 2 each; the fast path is answered 200 first, and the slow one is a tool error carrying curl's exit code 28 before the five-second hold is over. The server kept one fault_applied event, for the slow path.
+    program: slow-path.cs
+    args: ["2"]
+    expect:
+      exit: 0
+      stdout: "/hello.txt: 200, within 5 s\n/slow/report.txt: curl exit 28, tool error: yes, within 5 s\nget_events: delay on /slow/report.txt\n"
+
+  - id: no-limit
+    claim: Without timeoutSeconds, the slow path is answered 200 after the hold, and the fast path is still answered first.
+    program: slow-path.cs
+    args: ["0"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "/hello.txt: 200, within 5 s\n/slow/report.txt: 200, after 5 s\nget_events: delay on /slow/report.txt\n"
+
+  - id: segment-prefix
+    claim: path=/slow matches by whole segments, so /slowness.txt is not held and no event names it.
+    program: slow-path.cs
+    args: ["2", "/slowness.txt"]
+    expect:
+      exit: 0
+      stdout: "/slowness.txt: 200, within 5 s\n/slow/report.txt: curl exit 28, tool error: yes, within 5 s\nget_events: delay on /slow/report.txt\n"

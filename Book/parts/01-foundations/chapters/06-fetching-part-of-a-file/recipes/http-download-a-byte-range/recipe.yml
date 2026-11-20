@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-download-a-byte-range
+title: Fetching a Byte Range
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-r, -s, -o, -w, -f]
+exit-codes: [0, 22]
+references: [surl-readme, curl-manual, rfc9110]
+
+# records.txt is 300 bytes: thirty lines of ten bytes each, so byte 100 starts "record 10".
+fixtures:
+  site/records.txt: |
+    record 00
+    record 01
+    record 02
+    record 03
+    record 04
+    record 05
+    record 06
+    record 07
+    record 08
+    record 09
+    record 10
+    record 11
+    record 12
+    record 13
+    record 14
+    record 15
+    record 16
+    record 17
+    record 18
+    record 19
+    record 20
+    record 21
+    record 22
+    record 23
+    record 24
+    record 25
+    record 26
+    record 27
+    record 28
+    record 29
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: -r 100-199 fetches bytes 100 to 199 of the file and nothing else, here records 10 to 19.
+    run: curl -r 100-199 http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "record 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\n"
+
+  - id: partial-content
+    claim: surl answers a range it can serve with 206 Partial Content and a Content-Range naming the bytes sent and the file's full length.
+    run: curl -s -o {{null}} -r 100-199 -w "%{http_code} %header{content-range} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "206 bytes 100-199/300 100\n"
+
+  - id: from-an-offset
+    claim: A range with no end, -r 290-, runs to the end of the file.
+    run: curl -s -r 290- http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "record 29\n"
+
+  - id: last-bytes
+    claim: A range with no start, -r -20, is the last 20 bytes.
+    run: curl -s -r -20 http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "record 28\nrecord 29\n"
+
+  - id: end-past-the-end
+    claim: A range that starts inside the file and ends past it is cut at the end of the file, still 206.
+    run: curl -s -o {{null}} -r 280-999 -w "%{http_code} %header{content-range} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "206 bytes 280-299/300 20\n"
+
+  - id: past-the-end
+    claim: A range that starts past the end is answered 416 Range Not Satisfiable with Content-Range bytes */300 and no body, and curl exits 0.
+    run: curl -s -o {{null}} -r 400-499 -w "%{http_code} %header{content-range} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "416 bytes */300 0\n"
+
+  - id: past-the-end-fail
+    claim: With -f, the 416 makes curl exit 22.
+    run: curl -s -f -r 400-499 http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 22
+
+  - id: several-ranges
+    claim: Several ranges at once are answered 206 with a multipart/byteranges body, one part per range, each with its own Content-Range.
+    run: curl -s -o {{null}} -r 0-9,290-299 -w "%{http_code} %{content_type}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "206 multipart/byteranges; boundary=SURL_BYTERANGES\n"
+
+  - id: several-ranges-body
+    claim: Each part of that body carries the file's Content-Type, its own Content-Range and its bytes, and the body ends with the closing boundary.
+    run: curl -s -r 0-9,290-299 http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout-matches: '^--SURL_BYTERANGES\r?\nContent-Type: text/plain\r?\nContent-Range: bytes 0-9/300\r?\n\r?\nrecord 00\n\r?\n--SURL_BYTERANGES\r?\nContent-Type: text/plain\r?\nContent-Range: bytes 290-299/300\r?\n\r?\nrecord 29\n\r?\n--SURL_BYTERANGES--\r?\n$'
+
+  - id: backwards-range
+    claim: A range whose end comes before its start is not a valid range, so surl ignores it and sends the whole file with 200.
+    run: curl -s -o {{null}} -r 200-100 -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "200 300\n"

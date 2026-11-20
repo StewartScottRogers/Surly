@@ -65,13 +65,18 @@ def lint_programs(recipe, spec, pins):
 
 def main():
     findings = []
-    keys = {spec["key"] for _, _, _, spec in recipes()}
+    # cross-references need every key, not every spec: folder names, so a half-written recipe
+    # elsewhere cannot stop a lint of these
+    keys = {r.name for r in (BOOK / "parts").glob("*/chapters/*/recipes/*") if (r / "recipe.yml").exists()}
     bib = bibliography_keys()
     pins = pinned_packages()
-    only = set(sys.argv[1:])      # lint only these recipes (all are still loaded, for cross-references)
-    for _, _, recipe, spec in recipes():
-        if only and spec["key"] not in only:
-            continue
+    only = set(sys.argv[1:])      # lint only these recipes
+    for _, _, recipe, spec in recipes(only or None):
+        raw = (recipe / "recipe.yml").read_text(encoding="utf-8")
+        for n, line in enumerate(raw.splitlines(), 1):
+            if re.match(r'^\s+[\w-]+: "(?:[^"\\]|\\.)*$', line):
+                findings.append(f"{(recipe / 'recipe.yml').relative_to(BOOK).as_posix()}:{n}: a quoted string runs onto "
+                                "the next line, where YAML folds the line break into a space; write \\n or use |")
         adoc = recipe / "recipe.adoc"
         if not adoc.exists():
             findings.append(f"{recipe.relative_to(BOOK).as_posix()}: recipe.yml has no recipe.adoc beside it")

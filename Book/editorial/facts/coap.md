@@ -3,7 +3,7 @@
 Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-19, windows.
 
 ## Listen URLs and readiness
-`coap://`, `coaps://` (DTLS 1.2); UDP only, `ready: none`. Start the main server last and give the first case `curl --retry 5 --retry-all-errors --retry-delay 1`: on Windows, curl to an unbound UDP port exits 7 at once.
+`coap://`, `coaps://` (DTLS 1.2); UDP only, `ready: none`. Start the main server last and give the first case `curl --retry 5 --retry-all-errors --retry-delay 1`: on Windows, curl to an unbound UDP port exits 7 at once; on Linux and macOS it keeps retransmitting (over 60 s in CI), so a nothing-listening case is `platforms: [windows]` (`platforms.md`).
 
 ## Server options that matter
 - `--directory site`: files are resources.

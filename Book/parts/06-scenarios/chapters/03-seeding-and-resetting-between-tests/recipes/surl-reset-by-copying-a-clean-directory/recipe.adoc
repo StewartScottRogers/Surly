@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-reset-by-copying-a-clean-directory]]
+=== Resetting by Copying a Clean Directory
+
+==== Problem
+
+From a shell there is no reset call. You want each test to start the server on a fresh copy of a clean data directory instead.
+
+==== Solution
+
+Wrap each test in a script that copies the clean directory, starts `surl` on the copy, runs the test, and stops `surl`. The script needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::fresh-copy.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`clean` is the data as every test should find it, and nothing serves it. `rm -rf data && cp -R clean data` makes `data` an exact copy; the `rm` comes first because `cp -R` into a folder that is already there copies `clean` inside it and leaves the old files (<<http-seed-a-site-from-fixture-files>> shows it). `surl` with `--directory data` then serves the copy, and whatever the test changes, it changes in `data`. When the test ends the script stops `surl` with `kill` and waits for it to exit, so the next test can delete `data` and copy again.
+
+The test here reads `counter.txt`, writes it back one higher with `-T -`, an HTTP `PUT` (<<rfc9110>>) of standard input, and reads it again. `--user tester:secret` adds the account the test logs in as, `-u tester:secret` with `--digest` (<<rfc7616>>), which `surl` accepts over plain `http://`; `--allow-uploads` lets a client write at all, and is off by default so that a server nobody meant to open for writing is not writable. `-s` keeps `surl` quiet, and the loop waits until a request is answered, `curl -s` with `-o /dev/null` exiting 0, before the test starts.
+
+Each test starts from the clean data: the first leaves the counter at 2, and the next one reads 1 again, while `clean/counter.txt` still holds 1. Started with `keep`, on `data` as the last test left it, the next test reads 2, the last test's change: the leak a fresh copy prevents.
+
+Stop the last server before copying. A data directory a running `surl` serves is locked, and a second `surl` on it writes `Directory ... is in use by another surl process` and exits 124 rather than serve it twice. The script's `wait` is what makes the next copy safe.
+
+The C# and agent surfaces have a reset call, for a server whose files are in memory; they refuse it for a server on a directory, which is why a shell copies the directory instead.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-seed-a-site-from-fixture-files>> for a fresh copy per run rather than per test.
+* <<http-seed-a-site-from-fixture-files-from-an-agent>> for `reset_server`, and its refusal for a directory.
+* <<http-reset-and-snapshot-in-process>> for `ResetAsync` in a C# test.
+* <<surl-readme>>, <<rfc7616>>, <<rfc9110>>.

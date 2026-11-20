@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-route-mail-through-aliases-in-csharp]]
+=== Routing Mail Through Aliases in C#
+
+==== Problem
+
+In a C# test, your app mails `support@` and `alerts@` over Simple Mail Transfer Protocol (SMTP); you want aliases forwarding those addresses to real mailboxes, and the test checking where each message landed.
+
+==== Solution
+
+Start a `SurlServer` for your domain with a `MailAliases` entry per address, let the app send with a `CurlClient`, then read the subjects in each target mailbox straight from the server{apos}s mail store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `smtp://` URL on port 0, so the system picks a free port. `MailDomains` is `--mail-domain`, the domain mail is served for; `Mailboxes` is `--mailbox`, one address and password per entry, each a mailbox and the account that logs in to it. `MailAliases` is `--mail-alias`: `support@example.com=ann@example.com,bob@example.com` delivers mail for `support@` to both, and `alerts@` goes to the operations mailbox alone (<<surl-readme>>).
+
+The app is played by `Curl.Api`. Each mail is a `CurlRequest`, sent on one `CurlClient`, to the bound SMTP URL with `CurlMailOptions`, the envelope sender and recipients (<<rfc5321>>), `CurlAuthenticationOptions` for the app{apos}s login, and the message as `CurlContent.FromStream`, a stream body, which `Curl.Api` uploads as the mail. `CurlResponse.StatusCode` is the server{apos}s last reply, `250` when the mail was taken. No loosening option is needed: without Transport Layer Security the server offers only `CRAM-MD5`, a login that never sends the password, and `Curl.Api` uses it.
+
+The test needs no client of its own. `server.Mail` is the store the SMTP and Internet Message Access Protocol (IMAP) servers share: `ListMessagesAsync` pages through an account{apos}s `INBOX` in order of unique identifier (UID), a `SurlMessagePage` of `SurlMessageSummary` values, and `ReadMessageAsync` returns one message as a `SurlMailMessage` with its exact bytes. Neither sets the `\Seen` flag an IMAP fetch would (<<rfc9051>>). The program takes the `Subject` field of every message and passes only if each target holds exactly the one it should; Ann and Bob each have their own copy of the support mail.
+
+The first way to get it wrong is the quiet one. When the app writes `alert@` for `alerts@`, the address is inside the domain but is neither a mailbox nor an alias, so the server answers `250` and discards the mail; it does not tell a sender which addresses exist (<<surl-readme>>). The app sees success, and only the empty operations mailbox shows the mistake. The second is in the test{apos}s own setup: an alias whose target names no mailbox, `opps@example.com`, makes `StartAsync` throw `SurlServerStartException`, `ExitCode` `FailedInit`, with `surl`{apos}s message in `Lines`, so a typo there fails the run before any mail could vanish.
+
+`Mail.DeliverAsync` puts a message in the store as SMTP would after `RCPT TO`, aliases included. The `seed` case delivers to `support@` and `alerts@` without sending anything, and the same three mailboxes fill, which is how a test sets up mail it reads later without running the app at all.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-route-mail-through-aliases>> for the same test on the console.
+* <<smtp-route-mail-through-aliases-from-an-agent>> for the same test run by an agent.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for checking one mail{apos}s fields over IMAP.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

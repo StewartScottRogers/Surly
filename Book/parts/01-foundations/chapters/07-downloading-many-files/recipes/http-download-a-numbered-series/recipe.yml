@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-download-a-numbered-series
+title: Downloading a Numbered Series
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-f, -s, -o, -O, -w, --create-dirs, --output-dir, --fail-early]
+exit-codes: [0, 22]
+references: [surl-readme, curl-manual]
+
+# The series runs from report-1.csv to report-12.csv with two gaps: 4 and 9 are missing.
+fixtures:
+  site/report-1.csv: "month,total\n1,100\n"
+  site/report-2.csv: "month,total\n2,200\n"
+  site/report-3.csv: "month,total\n3,300\n"
+  site/report-5.csv: "month,total\n5,500\n"
+  site/report-6.csv: "month,total\n6,600\n"
+  site/report-7.csv: "month,total\n7,700\n"
+  site/report-8.csv: "month,total\n8,800\n"
+  site/report-10.csv: "month,total\n10,1000\n"
+  site/report-11.csv: "month,total\n11,1100\n"
+  site/report-12.csv: "month,total\n12,1200\n"
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One globbed URL fetches report-1.csv to report-12.csv into reports/, each named from the number, and -w with %{onerror} names only the two that are missing.
+    run: curl -sf --create-dirs -o "reports/report-#1.csv" -w "%{onerror}missing %{url.path}\n" "http://127.0.0.1:{{port}}/report-[1-12].csv"
+    expect:
+      exit: 0
+      stdout: "missing /report-4.csv\nmissing /report-9.csv\n"
+      files:
+        reports/report-1.csv: "month,total\n1,100\n"
+        reports/report-12.csv: "month,total\n12,1200\n"
+
+  - id: every-status
+    claim: Without %{onerror}, -w prints a line for every URL of the series, in order, with its status.
+    run: curl -s -o "all/report-#1.csv" --create-dirs -w "%{http_code} %{url.path}\n" "http://127.0.0.1:{{port}}/report-[1-12].csv"
+    expect:
+      exit: 0
+      stdout: "200 /report-1.csv\n200 /report-2.csv\n200 /report-3.csv\n404 /report-4.csv\n200 /report-5.csv\n200 /report-6.csv\n200 /report-7.csv\n200 /report-8.csv\n404 /report-9.csv\n200 /report-10.csv\n200 /report-11.csv\n200 /report-12.csv\n"
+
+  - id: empty-file-without-f
+    claim: Without -f, a missing number still gets a local file, empty, so a file being there proves nothing.
+    run: curl -s -o "empty/report-#1.csv" --create-dirs "http://127.0.0.1:{{port}}/report-[3-4].csv"
+    expect:
+      exit: 0
+      files:
+        empty/report-3.csv: "month,total\n3,300\n"
+        empty/report-4.csv: ""
+
+  - id: exit-is-the-last
+    claim: With -f, curl's exit code is the last transfer's, so a series whose last number is missing exits 22.
+    run: curl -sf -o "last/report-#1.csv" --create-dirs "http://127.0.0.1:{{port}}/report-[1-4].csv"
+    expect:
+      exit: 22
+
+  - id: exit-hides-gaps
+    claim: The same -f over the whole series exits 0, because report-12.csv, the last, was there; the gaps at 4 and 9 do not show in the exit code.
+    run: curl -sf -o "whole/report-#1.csv" --create-dirs "http://127.0.0.1:{{port}}/report-[1-12].csv"
+    expect:
+      exit: 0
+
+  - id: fail-early
+    claim: --fail-early stops at the first missing number and exits 22, so nothing after report-4.csv is fetched.
+    run: curl -sf --fail-early -o "early/report-#1.csv" --create-dirs -w "%{http_code} %{url.path}\n" "http://127.0.0.1:{{port}}/report-[1-12].csv"
+    expect:
+      exit: 22
+      stdout: "200 /report-1.csv\n200 /report-2.csv\n200 /report-3.csv\n404 /report-4.csv\n"
+
+  - id: names-from-the-url
+    claim: -O names each file from its URL, glob and all, and --output-dir puts them in a folder, as -o with #1 did.
+    run: curl -sf -O --output-dir byname --create-dirs -w "%{onerror}missing %{filename_effective}\n" "http://127.0.0.1:{{port}}/report-[8-10].csv"
+    expect:
+      exit: 0
+      stdout: "missing byname/report-9.csv\n"
+      files:
+        byname/report-8.csv: "month,total\n8,800\n"
+        byname/report-10.csv: "month,total\n10,1000\n"

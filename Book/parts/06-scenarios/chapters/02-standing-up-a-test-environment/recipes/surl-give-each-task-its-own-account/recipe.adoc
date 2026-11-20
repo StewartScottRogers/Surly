@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-give-each-task-its-own-account]]
+=== Giving Each Task Its Own Account
+
+==== Problem
+
+Your artificial intelligence (AI) agent runs several tasks against one server; you want each task to get its own account and lose it afterwards, so tasks cannot see each other{apos}s data.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). Start one server with an account of the agent{apos}s own, then for each task call `surl-mcp`{apos}s `add_account`, let the task work with that login, and when it ends call `delete_file` for what it left and `remove_account`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+`start_server` runs a Hypertext Transfer Protocol (HTTP) and an Internet Message Access Protocol (IMAP) listener on port 0. `--allow-uploads` lets a logged-in client store files with `PUT`, and `--user agent:agentpass` is the agent{apos}s standing account. `add_account`, given the `server_id`, a `user` and a `password`, adds an account that may log in on every scheme from its next login; `remove_account` takes it away again, and from the next login on it is refused (<<surl-readme>>). Each task here is played by `curl-mcp`{apos}s `curl` tool, logging in with `-u` and its own user name and password, by HTTP Digest (`--digest`, <<rfc7616>>), uploading `result.txt` to a file named after itself with `-T`, and reading it back; `-o` keeps the body out of the answer, `-w "%{http_code}"` prints the status, and `-s` keeps the progress meter out.
+
+The solution runs two tasks in turn. Each is added, uploads (`201 Created`) and reads its file back (`200`); then the agent deletes the file with `delete_file`, which needs no client permission, and removes the account. Afterwards Task 1{apos}s login gets `401`, `list_files` on `/` finds no file left, and `get_events` with `store` `accounts` lists the four changes, `account_added` and `account_removed` for each task by name, which is the agent{apos}s record of who could log in when.
+
+An account is a login, not a partition. All accounts share one content store, so while Task 1 and Task 2 both exist, Task 2 can read the file Task 1 uploaded. Tasks that must not see each other{apos}s files therefore run one after the other, and the agent deletes each task{apos}s files before the next starts, as the solution does. When a task touches more than the agent can list, `reset_server` returns the whole server to its state at start (<<surl-readme>>).
+
+The standing account matters. On a server started with no `--user`, nothing needs a login, so a `GET` with none is served; the case puts a file there with `put_file`, which writes into the store as an upload would; adding a task account makes it `401`; and removing the last account makes it `200` again, because a server with no accounts needs none (<<surl-readme>>). Keeping the agent{apos}s own account for the server{apos}s whole life means removing a task{apos}s account always locks that task out rather than opening the server to everyone.
+
+Mail does not follow the same pattern with these builds. An account from `add_account` logs in over IMAP, and the server judges the login accepted, but it has no mailbox: selecting its `INBOX` fails and `curl` exits `67`, the code it also gives once `remove_account` has refused the login outright; the `login_judged` events tell the two apart, accepted twice and then refused. Mailboxes come with the `--mailbox` and `--user` accounts given at start (<<surl-readme>>), so per-task mail, an IMAP `INBOX` of each task{apos}s own (<<rfc9051>>), is not something `add_account` can give a task in this release.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-stand-up-mail-files-and-messages-from-an-agent>> for a server that holds mail, files and messages for one app.
+* <<smtp-wait-for-an-apps-mail>> for waiting on an event rather than polling.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc9051>>.

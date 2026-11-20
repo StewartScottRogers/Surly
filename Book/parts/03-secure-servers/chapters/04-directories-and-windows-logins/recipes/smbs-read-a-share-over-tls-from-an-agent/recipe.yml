@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008).
+schema: 2
+key: smbs-read-a-share-over-tls-from-an-agent
+title: Reading Shares over SMBS from an Agent
+protocols: [smbs]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl]
+exit-codes: [0]
+references: [surl-readme, ms-smb, rfc8446]
+
+fixtures: {}
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent that starts an smbs server with a certificate and trusts it with --cacert reads the share and gets exit 0.
+    program: program.cs
+    args: ["trusted"]
+    expect:
+      exit: 0
+      stdout: "read: exit 0 read me first\n"
+
+  - id: untrusted
+    claim: Without --cacert curl exits 60.
+    program: program.cs
+    args: ["untrusted"]
+    expect:
+      exit: 0
+      stdout-matches: '^read: exit 60 curl: \(60\)'
+
+  - id: wrong-password
+    claim: A trusting curl with the wrong password exits 67, login denied.
+    program: program.cs
+    args: ["wrong-password"]
+    expect:
+      exit: 0
+      stdout: "read: exit 67 curl: (67) Login denied\n"
+
+  - id: no-certificate
+    claim: start_server with no certificate and no --self-signed is a tool error whose structured content has exit_code 58 and CertificateProblem, and whose text is surl's line.
+    program: program.cs
+    args: ["no-certificate"]
+    expect:
+      exit: 0
+      stdout-matches: '^start: refused, exit 58 CertificateProblem\n.*needs a certificate: give --cert <file>, or --self-signed for a throwaway one'
+
+  - id: self-signed-untrusted
+    claim: With --self-signed a curl that verifies exits 60.
+    program: program.cs
+    args: ["self-signed"]
+    expect:
+      exit: 0
+      stdout-matches: '^read: exit 60 curl: \(60\)'
+
+  - id: self-signed-skip
+    claim: With -k the same read exits 0.
+    program: program.cs
+    args: ["self-signed-skip"]
+    expect:
+      exit: 0
+      stdout: "read: exit 0 read me first\n"

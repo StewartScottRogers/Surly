@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-catch-a-seed-the-server-refuses
+title: Catching a Seed the Server Refuses
+protocols: [smtp, http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerMail, SurlServerFiles, SurlSeedRefusedException, StoreKind, SurlEventQuery, SurlEventKind, StoreChangedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc5321, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Of six seeds, the mail to the one mailbox is taken; mail to an unknown mailbox or a malformed address and a file at a reserved path or over the size limit each throw SurlSeedRefusedException naming the store and the refusal; a relative path throws ArgumentException; only the taken seed is recorded, and a client's PUT to the reserved path is refused too.
+    program: catch-the-refusal.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "mail to ann@example.com: seeded\nmail to bob@example.com: refused by Mail, NoSuchAccount: Mail: Mail for bob@example.com was refused: NoSuchAccount.\nmail to not-an-address: refused by Mail, InvalidAddress: Mail: Mail for not-an-address was refused: InvalidAddress.\nfile /.surl/seed.txt: refused by Content, NotPermitted: Content: The file /.surl/seed.txt was refused: NotPermitted.\nfile /big.txt, 100 bytes: refused by Content, TooLarge: Content: The file /big.txt was refused: TooLarge.\nfile seed.txt: ArgumentException: The request path is not one a request may name (NotRooted). (Parameter 'requestPath')\nrecorded: Mail Seeded ann@example.com/INBOX/;UID=1\nHTTP PUT /.surl/seed.txt: 409\n"
+
+  - id: unknown-mailbox
+    claim: Mail to an address the mail domain has no mailbox for is refused by the Mail store as NoSuchAccount, as SMTP's RCPT TO would refuse it.
+    program: catch-the-refusal.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmail to bob@example\.com: refused by Mail, NoSuchAccount: '
+
+  - id: reserved-path
+    claim: A file under /.surl, surl's own state, is refused by the Content store as NotPermitted.
+    program: catch-the-refusal.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nfile /\.surl/seed\.txt: refused by Content, NotPermitted: '
+
+  - id: too-large
+    claim: A file past MaxFileSize is refused by the Content store as TooLarge.
+    program: catch-the-refusal.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nfile /big\.txt, 100 bytes: refused by Content, TooLarge: '
+
+  - id: misuse-is-not-a-refusal
+    claim: A path that is not rooted is the test's mistake, not the store's refusal, and throws ArgumentException instead.
+    program: catch-the-refusal.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nfile seed\.txt: ArgumentException: The request path is not one a request may name \(NotRooted\)\.'
+
+  - id: refused-leaves-nothing
+    claim: Only the seed that was taken shows up as a StoreChanged event; the refused ones changed no store.
+    program: catch-the-refusal.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nrecorded: Mail Seeded ann@example\.com/INBOX/;UID=1\nHTTP'
+
+  - id: client-refused-too
+    claim: A logged-in client with uploads on is refused the same reserved path, an HTTP PUT answered 409 Conflict.
+    program: catch-the-refusal.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nHTTP PUT /\.surl/seed\.txt: 409\n$'

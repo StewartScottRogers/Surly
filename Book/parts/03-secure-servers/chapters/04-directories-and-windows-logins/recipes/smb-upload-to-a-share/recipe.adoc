@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smb-upload-to-a-share]]
+=== Uploading to an SMB Share
+
+==== Problem
+
+Your app saves reports to a Windows file share over Server Message Block (SMB). You want a test share that refuses the upload until uploads are allowed, then keeps the file where a client of the Hypertext Transfer Protocol (HTTP) can read it.
+
+==== Solution
+
+Serve a directory with `--allow-uploads`, an account and the NTLMv1 login, and upload a file into one of its shares with `curl -T`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C]. The checked claims below also run two more `surl`, on ports `8082` and `8083`, to show what each refuses.
+
+==== Discussion
+
+`--directory site` serves `site`, and each folder directly under it is a share, named by the first segment of the URL path, and the rest of the path is the file inside it (<<surl-readme>>). `-T report.txt` makes `curl` upload `report.txt` instead of downloading, so `smb://127.0.0.1:8080/docs/report.txt` puts the file at `site/docs/report.txt`. `curl` prints nothing and exits `0`. `-s` hides its progress meter and `-S` still shows an error, which is where the claims below read its message. An upload to a name that already exists replaces the file.
+
+`--allow-uploads` is the loosening option: it widens what a peer may do. Without it the share is read-only, the upload is refused, and `curl` exits `9`, access denied; nothing is written, and reading the name back makes `curl` exit `78`, remote file not found. `--max-filesize 10` on the third `surl` shows the limit: an upload past it makes `curl` exit `25`, upload failed, and `surl` deletes the partial file, so the name is not there afterwards.
+
+The login is the same as for reading a share (<<smb-read-a-share>>). `curl` speaks SMB version 1 (<<ms-smb>>) and logs in with NTLMv1 alone, so `--auth ntlmv1` and an account given with `-u` are what let the session start. NTLMv1 is the first version of Windows NT LAN Manager{apos}s challenge and response, and its responses are open to offline cracking, which is why it is not a default.
+
+The second listener is how the file is read by something that does not speak SMB. Two `surl` cannot serve one directory, so one `surl` is given two listen URLs, `smb://` and `http://`, and both serve `site`. `--auth ntlmv1,digest` accepts the SMB login and offers HTTP Digest, which `curl` asks for with `--digest`; Basic would need `--allow-plaintext-auth` over plain HTTP. The file `curl` uploaded over SMB is then at `/docs/report.txt` over HTTP, and the bytes are the same.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smb-upload-to-a-share-in-csharp>> for the same task from C#.
+* <<smb-upload-to-a-share-from-an-agent>> for the same task with an agent.
+* <<smb-read-a-share>> for logging in and reading.
+* <<surl-readme>>, <<ms-smb>>.

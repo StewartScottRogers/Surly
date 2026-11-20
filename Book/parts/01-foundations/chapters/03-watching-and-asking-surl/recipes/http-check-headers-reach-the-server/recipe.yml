@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-check-headers-reach-the-server
+title: Checking Headers Reach the Server
+protocols: [http]
+tier: foundations
+surl-options: [--directory, --trace-ascii]
+curl-options: [-H, -s, -o]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The trace is written inside the served folder only so that the cases can fetch it
+# and check what arrived; in real use, keep it outside. Each case after the solution
+# fetches hello.txt with its own headers, then trace.txt, in one curl command: -o
+# sends the first answer to nowhere, and the trace comes out on standard output.
+servers:
+  main:
+    command: surl --directory site --trace-ascii site/trace.txt http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A request sent with -H for an API key and a trace ID is answered as usual.
+    run: 'curl -H "X-Api-Key: k123" -H "X-Trace-Id: 7f3a9c" http://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: arrive-after-curls-own
+    claim: The trace shows both headers arriving exactly as typed, after the Host, User-Agent and Accept headers curl adds of its own.
+    run: curl -s http://127.0.0.1:{{port}}/trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '0000: GET /hello\.txt HTTP/1\.1\n[0-9a-f]{4}: Host: 127\.0\.0\.1:\d+\n[0-9a-f]{4}: User-Agent: curl/[^\n]+\n[0-9a-f]{4}: Accept: \*/\*\n[0-9a-f]{4}: X-Api-Key: k123\n[0-9a-f]{4}: X-Trace-Id: 7f3a9c\n[0-9a-f]{4}: \n'
+
+  - id: replace-curls-own
+    claim: A -H header with the name of one curl adds replaces it, so the request carries one User-Agent, the one given.
+    run: 'curl -s -o {{null}} -H "User-Agent: billing/2.1" -H "X-Trace-Id: replace-1" http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/trace.txt'
+    expect:
+      exit: 0
+      stdout-matches: '0000: GET /hello\.txt HTTP/1\.1\n[0-9a-f]{4}: Host: [^\n]+\n[0-9a-f]{4}: Accept: \*/\*\n[0-9a-f]{4}: User-Agent: billing/2\.1\n[0-9a-f]{4}: X-Trace-Id: replace-1\n[0-9a-f]{4}: \n'
+
+  - id: drop-curls-own
+    claim: A -H header with a name and a colon and no value drops that header, so Accept is not sent at all.
+    run: 'curl -s -o {{null}} -H "Accept:" -H "X-Trace-Id: drop-1" http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/trace.txt'
+    expect:
+      exit: 0
+      stdout-matches: '0000: GET /hello\.txt HTTP/1\.1\n[0-9a-f]{4}: Host: [^\n]+\n[0-9a-f]{4}: User-Agent: curl/[^\n]+\n[0-9a-f]{4}: X-Trace-Id: drop-1\n[0-9a-f]{4}: \n'
+
+  - id: empty-header
+    claim: A name followed by a semicolon sends that header with an empty value.
+    run: 'curl -s -o {{null}} -H "X-Trace-Id: empty-1" -H "X-Api-Key;" http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/trace.txt'
+    expect:
+      exit: 0
+      stdout-matches: '[0-9a-f]{4}: X-Trace-Id: empty-1\n[0-9a-f]{4}: X-Api-Key:\n[0-9a-f]{4}: \n'
+
+  - id: repeated-header-sent-twice
+    claim: Two -H headers of the same name are both sent; the second does not replace the first.
+    run: 'curl -s -o {{null}} -H "X-Trace-Id: twice-1" -H "X-Trace-Id: twice-2" http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/trace.txt'
+    expect:
+      exit: 0
+      stdout-matches: '[0-9a-f]{4}: X-Trace-Id: twice-1\n[0-9a-f]{4}: X-Trace-Id: twice-2\n[0-9a-f]{4}: \n'

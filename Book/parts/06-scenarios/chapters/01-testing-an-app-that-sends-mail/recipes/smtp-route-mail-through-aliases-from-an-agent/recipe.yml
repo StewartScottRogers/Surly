@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs route-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-route-mail-through-aliases-from-an-agent
+title: Routing Mail Through Aliases from an Agent
+protocols: [smtp, imap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events, list_messages, read_message]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-readme, rfc5321, rfc9051]
+
+fixtures:
+  help.eml: "From: app@example.com\r\nTo: support@example.com\r\nSubject: Cannot log in\r\n\r\nPlease reset my password.\r\n"
+  alert.eml: "From: app@example.com\r\nTo: alerts@example.com\r\nSubject: Disk full\r\n\r\nDisk 2 is nearly full.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool mails support@ and alerts@ as the app; the delivered events name ann's and bob's INBOX for the first and ops's for the second, each target holds exactly its message, and the program exits 0.
+    program: route-mail.cs
+    args: [right]
+    expect:
+      exit: 0
+      stdout: "support@example.com: curl exit 0, delivered to [ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1]\nalerts@example.com: curl exit 0, delivered to [ops@example.com/INBOX/;UID=1]\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\nops@example.com: Disk full\n"
+
+  - id: wrong-address
+    claim: Mail to alert@, neither a mailbox nor an alias of the domain, exits 0 but delivers nowhere; no delivered event follows it, ops's INBOX is empty and the program exits 1.
+    program: route-mail.cs
+    args: [wrong-address]
+    expect:
+      exit: 1
+      stdout: "support@example.com: curl exit 0, delivered to [ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1]\nalert@example.com: curl exit 0, delivered to []\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\nFAIL: ops@example.com has nothing, want Disk full\n"
+
+  - id: typo-target
+    claim: An alias whose target names no mailbox makes start_server a tool error with surl's exit_code 2, FailedInit, and its message.
+    program: route-mail.cs
+    args: [typo-target]
+    expect:
+      exit: 2
+      stdout: "start_server refused: 2 FailedInit: (2) option --mail-alias: target opps@example.com names no mailbox\n"

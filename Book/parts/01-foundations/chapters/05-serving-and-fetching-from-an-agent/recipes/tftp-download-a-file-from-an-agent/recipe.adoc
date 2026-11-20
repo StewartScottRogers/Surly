@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-download-a-file-from-an-agent]]
+=== Downloading over TFTP from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to serve a file over Trivial File Transfer Protocol (TFTP) and fetch it back through Model Context Protocol (MCP) tool calls, with no shell and no files to place by hand.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with a `tftp` listen URL on port 0 and the file{apos}s content, then calls `curl` on the URL the server bound, and reads the server{apos}s record with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+TFTP is file transfer at its barest (<<rfc1350>>): one request to read or write a file, sent over User Datagram Protocol (UDP), with no login, no listing and no way to ask what is there. `start_server` starts a server that answers as `surl` with the same options would; `listen_urls` is `tftp://127.0.0.1:0`, and port 0 asks the system for a free UDP port. `files` puts content in memory, relative path to UTF-8 text. The answer is structured content, and the program fetches from `bound_urls`, never from what it asked for.
+
+`curl` runs `curl` with `args` as its command line, so every option of `curl` is available: `-s` keeps the progress meter out of the answer, and `-o copy.txt` writes the file to the folder `curl-mcp` is confined to. The answer is text, JSON, with `exitCode`, `standardOutput` and `standardError`, each with its `content`, and, when `curl` fails, a `failure` with the exit code spelled in words. `transfer` describes one request by fields instead, and over TFTP it answers `statusCode` 0, because TFTP has no status, with the file in `body`.
+
+`get_exchanges` answers what each client sent and what the server answered, byte for byte. A TFTP exchange is not text, so each chunk has `encoding` `base64`; the program decodes the first, which is the read request: two bytes of opcode, here 1, then the file name and the transfer mode, each ended by a zero byte.
+
+A file that is not there is answered with TFTP error 1 and `curl` exits `68`, file not found. A file whose name begins with a dot is never served, even when the server holds it, and gets the same answer, so a peer cannot tell a hidden file from a missing one. A write, which `-T` asks for by sending a local file, is answered with TFTP error 2, and `curl` exits `69`, permission problem. `surl` accepts writes only when it is started with `--allow-uploads`, which `start_server` takes in `arguments` as `surl`{apos}s own words; with it the same write works, and `read_file` shows the file in the server{apos}s store. The option is off by default because over TFTP, which cannot ask who is writing, anyone who can reach the port can write into what it serves. A failed `curl` is an answer, not an exception: the agent reads `exitCode`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-download-a-file>> for the same task on the console.
+* <<http-serve-and-fetch-from-an-agent>> for the same task over Hypertext Transfer Protocol.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>.

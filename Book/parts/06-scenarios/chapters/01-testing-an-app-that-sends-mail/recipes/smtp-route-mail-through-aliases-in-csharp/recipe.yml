@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-route-mail-through-aliases-in-csharp
+title: Routing Mail Through Aliases in C#
+protocols: [smtp, imap]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlMessagePage, SurlMessageSummary, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlContent]
+exit-codes: [0, 1, 2]
+references: [surl-readme, rfc5321, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app mails support@ and alerts@ with Curl.Api, both answered 250; the support mail is in ann's and bob's INBOX and the alert in ops's, one message each, and the program exits 0.
+    program: route-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "support@: SMTP 250\nalerts@: SMTP 250\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\nops@example.com: Disk full\n"
+
+  - id: wrong-address
+    claim: Mail to alert@, an address of the domain that is neither a mailbox nor an alias, is still answered 250 and discarded, so the app sees no error; the test finds ops's INBOX empty and exits 1.
+    program: route-mail.cs
+    args: [wrong-address]
+    expect:
+      exit: 1
+      stdout: "support@: SMTP 250\nalert@: SMTP 250\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\nFAIL: ops@example.com has [], want [Disk full]\n"
+
+  - id: seed-through-the-alias
+    claim: Mail.DeliverAsync delivers as SMTP would after RCPT TO, aliases included, so a test can put mail for support@ and alerts@ in the right mailboxes without a client.
+    program: route-mail.cs
+    args: [seed]
+    expect:
+      exit: 0
+      stdout: "ann@example.com: Cannot log in\nbob@example.com: Cannot log in\nops@example.com: Disk full\n"
+
+  - id: typo-target
+    claim: An alias whose target names no mailbox stops StartAsync with SurlServerStartException, ExitCode FailedInit (2), before any mail is taken.
+    program: route-mail.cs
+    args: [typo-target]
+    expect:
+      exit: 2
+      stdout: "refused: FailedInit: (2) option --mail-alias: target opps@example.com names no mailbox\n"

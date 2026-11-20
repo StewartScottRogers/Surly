@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs wait-for-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+# Timings: the app's delay and the wait's timeout are seconds apart, so no case depends on a close race.
+schema: 2
+key: smtp-wait-for-an-apps-mail
+title: Waiting for an App's Mail
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, wait_for_event, curl]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  receipt.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Your receipt\r\n\r\nThank you for your order.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent starts the app, which mails ann 2 s later, and calls wait_for_event for a store_changed event in the mail store named ann@example.com; the call returns the delivered event for her UID 1 once the app has sent, well before its 10 s timeout.
+    program: wait-for-mail.cs
+    args: [right]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "wait_for_event: store_changed delivered ann@example.com/INBOX/;UID=1\nreturned once the app had sent, before the timeout: True\n"
+
+  - id: timeout
+    claim: When the app has not sent within timeout_ms, wait_for_event answers timed_out true, not a tool error, after the timeout; the delivery that comes later is kept, and a second wait returns it.
+    program: wait-for-mail.cs
+    args: [too-late]
+    timeout: 60
+    expect:
+      exit: 1
+      stdout: "wait_for_event: {\"timed_out\":true}, after at least 1000 ms: True\nsecond wait: ann@example.com/INBOX/;UID=1\n"
+
+  - id: wrong-recipient
+    claim: Mail the app sends to bob does not match a wait filtered by name ann@example.com, so the wait times out.
+    program: wait-for-mail.cs
+    args: [elsewhere]
+    timeout: 60
+    expect:
+      exit: 1
+      stdout: "wait_for_event: {\"timed_out\":true}, after at least 3000 ms: True\n"
+
+  - id: already-delivered
+    claim: A wait that starts after the delivery returns the kept event at once, so starting to wait late misses nothing.
+    program: wait-for-mail.cs
+    args: [already]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "wait_for_event: store_changed delivered ann@example.com/INBOX/;UID=1\nreturned at once: True\n"

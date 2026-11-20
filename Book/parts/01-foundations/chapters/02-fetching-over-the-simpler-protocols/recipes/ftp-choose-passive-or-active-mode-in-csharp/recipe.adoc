@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-choose-passive-or-active-mode-in-csharp]]
+=== Choosing Passive or Active FTP in C#
+
+==== Problem
+
+Your C# client must work behind a firewall that allows only one kind of File Transfer Protocol (FTP) data connection, and you want to choose passive or active mode in code and prove, from what the server recorded, which commands were sent.
+
+==== Solution
+
+Start a `SurlServer` that records exchanges, then fetch the same file four times, each on a `CurlClient` of its own with a different `CurlFtpOptions`, and print the data-connection commands that each exchange holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+FTP moves a file over a second connection, the data connection, and someone has to open it (<<rfc959>>). In passive mode the client does, after asking the server for a port with `EPSV` or the older `PASV`; in active mode the server does, after the client names its own address and port with `EPRT` or the older `PORT`. `curl` tries `EPSV` first, and the options below choose otherwise.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free one; `Files` is the in-memory store; `AllowAnonymous` is `--allow-anonymous`, which lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only. `RecordExchanges` keeps what each client sent and was answered. `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrl` names it.
+
+`CurlFtpOptions` is set on a `CurlRequest` through its `Ftp` property and holds the FTP options as properties. `UseEpsv` is `--disable-epsv` turned round: `false` leaves `EPSV` out, so the client sends `PASV`. `ActiveAddress` is `-P`: `"-"` means active mode from the address of the control connection, and `curl` sends `EPRT`; an address names that address instead. `UseEprt`, `false`, is `--disable-eprt`: with an active address it sends `PORT`. The program makes one `CurlClient`, with `CurlClient.Create()`, for each fetch, so that each has a control connection of its own and so an exchange of its own, which is how the program tells them apart.
+
+`SurlServer.Exchanges` is a list of `SurlExchangeRecord`, one for each connection, in order. `Received` holds the bytes the server received on the control connection, here the commands, and `Sent` what it answered; the program reads `Received` as ASCII text, splits it on the line ends and keeps the commands that open a data connection. Each answer to `SendAsync` is a `CurlResponse`, whose `Body` is read to the end.
+
+`SurlServerOptions.Log` takes a `TextWriter` that receives the lines `surl` would write, at the level `LogLevel` names, here `LogLevel.Verbose`, as `-v` does. It records the data connection of the passive fetch as `passive` and the active one as `active`, so the log agrees with the commands.
+
+Active mode is the one `surl` is careful with. It connects back only to the client that asks: `EPRT` naming another address is answered `501`, `curl` falls back to `PORT`, which fails too, and `SendAsync` throws a `CurlException` whose `Code` is `FtpPortFailed`, the code `curl` exits `30` with. Without `AllowAnonymous` the login itself is refused, and the exception has code `LoginDenied`, `67`; no data-connection command is ever sent. That is the server being surly on purpose, and a program must catch `CurlException` to see either.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-choose-passive-or-active-mode>> for the same choice on the console, with `curl -v` showing the commands.
+* <<ftp-choose-passive-or-active-mode-from-an-agent>> for the same choice made by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

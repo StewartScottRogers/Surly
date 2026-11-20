@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smb-upload-to-a-share-in-csharp]]
+=== Uploading to SMB in C#
+
+==== Problem
+
+Your app saves reports to a Windows file share over Server Message Block (SMB). You want a test, in C#, against a share that refuses the upload until uploads are allowed and then keeps the file where you can read it back.
+
+==== Solution
+
+The program serves a directory over SMB and the Hypertext Transfer Protocol (HTTP) with `Surl.Api`, uploads a file, and reads it back over SMB with `Curl.Api`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+This recipe is the nearest honest one to the console task (<<smb-upload-to-a-share>>): `Curl.Api` 0.2.0 has no upload over SMB, so the upload here is an HTTP `PUT` on a second listener over the same directory, and SMB is what the file is read back with. The file is where the share serves it from, and the SMB client reads it.
+
+`SurlServer` is the server in this process and `SurlServerOptions` is its command line as properties. `ListenUrls` lists `smb://` and `http://` on port `0`, which takes a free one, and `server.BoundUrls` has the ports it took. `DataDirectory` is `--directory`, and each folder directly in it is a share, `docs` here. `Accounts` takes a `SurlAccount`, `-u alice:s3cret`. `AuthenticationMethods` is `--auth`: `ntlmv1` is the login `curl` makes in an SMB session setup, and `digest` is what the HTTP client logs in with; Basic over plain HTTP would need `AllowPlaintextAuthentication`.
+
+`AllowUploads` is `--allow-uploads`, off by default and a loosening, since it widens what a peer may do. Without it the `PUT` is answered `405` and nothing is written. With it the first `PUT` is answered `201` and the file is in the directory, and a second to the same name is answered `204` and replaces it. `MaxFileSize` is `--max-filesize`; at `10` bytes the `PUT` is answered `413` and nothing is stored.
+
+`CurlClient` sends a `CurlRequest`. For the upload its `Body` is the bytes and `Authentication` is a `CurlAuthenticationOptions` whose `HttpAuthentication` is `HttpAuthenticationMethods.Digest`, `curl --digest`. For the read-back the request is a `GET` to the `smb://` URL with only a user name and password, since the SMB login is NTLMv1 and needs no option. A `CurlResponse` has the status and a `Body` stream. A share that does not have the file makes `SendAsync` throw a `CurlException`, whose `Code` is `RemoteFileNotFound`, curl{apos}s exit code `78`. The program turns it into a line, so the cases show it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smb-upload-to-a-share>> for the same task on the console, with the upload over SMB.
+* <<smb-upload-to-a-share-from-an-agent>> for the same task with an agent.
+* <<surl-readme>>, <<curl-readme>>, <<ms-smb>>.

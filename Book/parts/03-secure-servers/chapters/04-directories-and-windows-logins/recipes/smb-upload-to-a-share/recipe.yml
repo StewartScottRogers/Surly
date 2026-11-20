@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smb-upload-to-a-share
+title: Uploading to an SMB Share
+protocols: [smb, http]
+tier: secure-servers
+surl-options: [--allow-uploads, --directory, --auth, -u, --max-filesize]
+curl-options: [-u, -T, -s, -S, --digest]
+exit-codes: [0, 9, 25, 78]
+references: [surl-readme, ms-smb]
+
+# Each folder directly under a --directory is a share: docs is one.
+fixtures:
+  site/docs/readme.txt: "read me first\n"
+  closed/docs/readme.txt: "read me first\n"
+  small/docs/readme.txt: "read me first\n"
+  report.txt: "quarterly numbers\n"
+  report2.txt: "revised numbers\n"
+
+# main is the recipe: one surl, two listeners on one directory, SMB for the upload and HTTP
+# for the read-back, since two surl cannot share a directory. closed has the same account and
+# no --allow-uploads; small allows uploads but only of 10 bytes or fewer.
+servers:
+  main:
+    command: surl --directory site --allow-uploads --auth ntlmv1,digest -u alice:s3cret smb://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+  closed:
+    command: surl --directory closed --auth ntlmv1 -u alice:s3cret smb://127.0.0.1:{{port3}}/
+    ready: port
+  small:
+    command: surl --directory small --allow-uploads --max-filesize 10 --auth ntlmv1 -u alice:s3cret smb://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Logged in as alice, curl uploads report.txt into the docs share, prints nothing and exits 0, and the file is in the served directory.
+    run: curl -u alice:s3cret -T report.txt smb://127.0.0.1:{{port}}/docs/report.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/docs/report.txt: "quarterly numbers\n"
+
+  - id: read-back-over-http
+    claim: The same file is at the same path over HTTP on the second listener, once the client logs in with Digest.
+    run: curl -s --digest -u alice:s3cret http://127.0.0.1:{{port2}}/docs/report.txt
+    expect:
+      exit: 0
+      stdout: "quarterly numbers\n"
+
+  - id: read-back-over-smb
+    claim: Downloading it over SMB returns the same bytes.
+    run: curl -u alice:s3cret smb://127.0.0.1:{{port}}/docs/report.txt
+    expect:
+      exit: 0
+      stdout: "quarterly numbers\n"
+
+  - id: upload-replaces
+    claim: Uploading to a name that already exists replaces the file.
+    run: curl -u alice:s3cret -T report2.txt smb://127.0.0.1:{{port}}/docs/report.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/docs/report.txt: "revised numbers\n"
+
+  - id: uploads-off-by-default
+    claim: Without --allow-uploads the same upload is refused, and curl exits 9, access denied.
+    run: curl -s -S -u alice:s3cret -T report.txt smb://127.0.0.1:{{port3}}/docs/report.txt
+    expect:
+      exit: 9
+      stdout: ""
+      stderr-contains: "Access denied"
+
+  - id: refused-upload-leaves-nothing
+    claim: The refused upload left no file; reading it back makes curl exit 78, remote file not found.
+    run: curl -s -S -u alice:s3cret smb://127.0.0.1:{{port3}}/docs/report.txt
+    expect:
+      exit: 78
+      stdout: ""
+      files:
+        closed/docs/readme.txt: "read me first\n"
+
+  - id: too-large
+    claim: An upload past --max-filesize is refused, and curl exits 25, upload failed.
+    run: curl -s -S -u alice:s3cret -T report.txt smb://127.0.0.1:{{port4}}/docs/report.txt
+    expect:
+      exit: 25
+      stdout: ""
+
+  - id: too-large-leaves-nothing
+    claim: The partial file is deleted; reading the name back makes curl exit 78.
+    run: curl -s -S -u alice:s3cret smb://127.0.0.1:{{port4}}/docs/report.txt
+    expect:
+      exit: 78
+      stdout: ""

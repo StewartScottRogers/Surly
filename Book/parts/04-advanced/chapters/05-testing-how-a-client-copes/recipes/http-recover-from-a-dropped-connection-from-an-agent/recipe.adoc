@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-recover-from-a-dropped-connection-from-an-agent]]
+=== Recovering from a Dropped Connection from an Agent
+
+==== Problem
+
+Your client retries when a connection is dropped before any answer comes. You want an artificial intelligence (AI) agent to set up a Hypertext Transfer Protocol (HTTP) test server that drops the first connection, fetch through it with a retry, and check from the server's side that there were exactly two attempts, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent's side as a C# program on the MCP software development kit (SDK): it starts a server with `start_server`, adds a drop rule with `add_fault`, fetches with `curl-mcp`{apos}s `curl` tool and `--retry 1 --retry-all-errors`, then asks the server what it saw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. The argument after `--` picks the scenario. `start_server` answers in structured content with `server_id`, which every other `surl-mcp` tool takes, and `bound_urls`, the URL with the port the system chose.
+
+`add_fault` adds one rule to the running server, written as `surl`{apos}s `--fault` takes it, and answers its ID, `f1`. `drop` cuts the connection with nothing written back; `stage=command` waits until a request has arrived, `path=/hello.txt` limits the rule to that path, and `times=1` spends it after one use.
+
+`curl-mcp`{apos}s `transfer` makes exactly one attempt per call. The dropped attempt is a tool error whose `failure` carries `curl`{apos}s exit code, `56`, a failure to receive, and the next call is served. For a client that retries on its own, the program uses the `curl` tool instead, which runs a `curl` command line in-process and answers its `exitCode` and `standardOutput` as JavaScript Object Notation (JSON) text. With `--retry 1 --retry-all-errors` it exits `0` with the file, and `-w "%{num_retries}\n"` prints `1` after it. `--retry 1` alone is not enough: `curl` does not count a dropped connection as transient, so it makes no retry and exits `56` (<<curl-manual>>).
+
+The server's side says the same thing in its own words. `list_servers` gives each server's `exchange_count`, a count of connections for HTTP: `2` after the retry, `1` without it. `get_events` with `kinds` `fault_applied` lists each time a rule acted, once here, and `list_faults` shows `f1` with `remaining` `0`. The rule was added after the server started, so nothing else had a chance to spend it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-recover-from-a-dropped-connection>> for the same test on the console.
+* <<http-recover-from-a-dropped-connection-in-csharp>> for the same test from a C# program.
+* <<http-inject-a-fault-from-an-agent>> for adding, listing and removing fault rules.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>.

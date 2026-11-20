@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-slow-down-one-path]]
+=== Slowing Down One Path
+
+==== Problem
+
+Your client must give up on one slow endpoint without hanging the rest. You want a Hypertext Transfer Protocol (HTTP) test server that holds one path on purpose and answers every other path at once, so you can see the client's time limit fire on the slow one while the fast one comes back.
+
+==== Solution
+
+Give `surl` a `--fault` rule that holds every request under `/slow` for five seconds, and fetch a slow path and a fast one side by side with `curl`, each with a two-second limit:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "delay;stage=command;path=/slow;ms=5000"` is one fault rule. `delay` holds a request before it is answered, for `ms` milliseconds; `stage=command` makes it wait until the request has arrived, so there is a path to look at; `path=/slow` limits it to `/slow` and what is under it. The match is by whole segments: `/slow/report.txt` is held, `/slowness.txt` is not. Without `times` the rule holds every matching request. The quotes keep the semicolons from the shell, and `--directory site` serves the folder `site`.
+
+A held request is answered in the end: without a limit, `curl` gets `/slow/report.txt` with `200` after a little over five seconds, as `%{time_total}` shows, and `/hello.txt` comes back in well under one. `-m 2` is `curl`{apos}s limit on each transfer, two seconds. On the slow path it fires: `curl` gives up, the transfer has no status, `000`, and its exit code is `28`, a timeout (<<curl-manual>>).
+
+`-Z` runs the command line's transfers in parallel, and `-w` with `%{url.path}`, `%{http_code}` and `%{exitcode}` prints a line for each as it ends, so the fast one comes first. The command as a whole exits `28` because one transfer failed; each line says which. `-o` sends each body nowhere and `-s` keeps `curl` quiet.
+
+`--parallel-immediate` is the part that is easy to miss. Without it, `curl` prefers to wait and see whether the next transfer can share a connection it is already making, as a multiplexed stream, rather than open another (<<curl-manual>>). Here that means the fast path waits behind the slow one, runs out of its own two seconds, and also exits `28`: the server answered nothing wrong, and the client still hung on the rest. A test like this one catches exactly that.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-slow-down-one-path-in-csharp>> for the same test from a C# program.
+* <<http-slow-down-one-path-from-an-agent>> for the same test from an agent.
+* <<http-inject-a-fault>> for every kind of fault rule.
+* <<http-time-out-an-idle-client>> for how a delay and the server's own idle timeout interact.
+* <<surl-readme>>, <<curl-manual>>.

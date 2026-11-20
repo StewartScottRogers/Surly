@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs check-headers.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario. The server listens on port 0, so each pattern
+# allows any port in the Host line.
+schema: 2
+key: http-check-headers-reach-the-server-from-an-agent
+title: Checking Headers Arrive from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, transfer, get_exchanges]
+exit-codes: []
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Headers given to transfer arrive at the server as sent, in the order given, after the Host and Accept headers curl-mcp adds of its own, and with no User-Agent.
+    program: check-headers.cs
+    args: [sent]
+    expect:
+      exit: 0
+      stdout-matches: '^statusCode: 200\n> GET /hello\.txt HTTP/1\.1\n> Host: 127\.0\.0\.1:\d+\n> Accept: \*/\*\n> X-Api-Key: k123\n> X-Trace-Id: 7f3a9c\n$'
+
+  - id: user-agent-field
+    claim: transfer's userAgent field sends a User-Agent header, placed after Host and before Accept, not among the custom headers.
+    program: check-headers.cs
+    args: [agent]
+    expect:
+      exit: 0
+      stdout-matches: '^statusCode: 200\n> GET /hello\.txt HTTP/1\.1\n> Host: [^\n]+\n> User-Agent: billing/2\.1\n> Accept: \*/\*\n> X-Api-Key: k123\n> X-Trace-Id: 7f3a9c\n$'
+
+  - id: repeated-header
+    claim: A header named twice in headers is sent twice, in order; transfer does not merge or replace it.
+    program: check-headers.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: '\n> X-Trace-Id: 7f3a9c\n> X-Trace-Id: again\n$'
+
+  - id: empty-value
+    claim: A header with an empty value arrives as its name and a colon with nothing after it.
+    program: check-headers.cs
+    args: [empty]
+    expect:
+      exit: 0
+      stdout-matches: '\n> X-Api-Key:\n> X-Trace-Id: 7f3a9c\n$'
+
+  - id: empty-accept-replaces
+    claim: An Accept header with an empty value replaces the Accept curl-mcp adds of its own, so the request carries one Accept, empty, at the end, rather than dropping it as curl -H "Accept:" does.
+    program: check-headers.cs
+    args: [no-accept]
+    expect:
+      exit: 0
+      stdout-matches: '^statusCode: 200\n> GET /hello\.txt HTTP/1\.1\n> Host: [^\n]+\n> X-Api-Key: k123\n> X-Trace-Id: 7f3a9c\n> Accept:\n$'

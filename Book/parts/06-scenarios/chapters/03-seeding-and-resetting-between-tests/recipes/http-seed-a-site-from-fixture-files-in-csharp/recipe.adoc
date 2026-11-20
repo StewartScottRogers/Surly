@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-seed-a-site-from-fixture-files-in-csharp]]
+=== Seeding a Site from Fixture Files
+
+==== Problem
+
+You keep test fixtures as files in the repository; you want them served so tests can change them, and the next run to start from the originals again. You want that from a C# test, with the server in the test's own process.
+
+==== Solution
+
+Read every file under the fixtures folder into `SurlServerOptions.Files`, so the server holds copies in memory, start it with `Surl.Api` on Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP), and reset it between tests:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties, and `SurlServer.StartAsync` starts the server in the test's process. Its `Files` maps a `/` separated relative path to the file's bytes, and the server serves exactly those, in memory. The loop walks `fixtures` with `Directory.EnumerateFiles`, turns each path into a relative one with forward slashes, and reads the bytes, so `fixtures/orders/1.json` is served as `/orders/1.json`. Because the server holds copies, nothing a test does reaches the disk: after the test, `fixtures/users.json` has its contents and `fixtures/orders` gains no file. `Files` and `DataDirectory` cannot both be given; `StartAsync` throws `ArgumentException` before anything listens, which keeps a test from seeding over a real folder.
+
+The two listen URLs serve one store. A test sends `CurlRequest`s through a `CurlClient`: an HTTP `PUT` (<<rfc9110>>) over `users.json` is answered `204 No Content`, one of a new path `201 Created`, and the FTP listener (<<rfc959>>) then reads the new `users.json`. `CurlResponse.StatusCode` is what the program prints.
+
+`ResetAsync` returns the store to the `Files` given at start: `users.json` has its original contents and `orders/2.json` is gone, as `Files.ListAsync` shows in the `SurlFolderPage` it returns. Call it between tests, and every test starts from the fixtures; a new run reads the folder again and starts from them too.
+
+`AllowAnonymous` is `--allow-anonymous`: any login or none is accepted, so a test changes files without accounts. `AllowUploads` is `--allow-uploads`: clients may write. Both are off by default, so that a server nobody meant to open for writing is not writable. With both off and no account, each `PUT` is answered `401 Unauthorized` and the anonymous FTP login is refused with a `CurlException` whose `Code` is `LoginDenied`. With `AllowAnonymous` alone, each `PUT` is answered `405 Method Not Allowed` and FTP still reads the seeded file. A test that needs logins can add `Accounts` instead of `AllowAnonymous`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-seed-a-site-from-fixture-files>> for the same task on the console.
+* <<http-seed-a-site-from-fixture-files-from-an-agent>> for the same task from an agent.
+* <<http-reset-and-snapshot-in-process>> for snapshots as well as resets.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc959>>.

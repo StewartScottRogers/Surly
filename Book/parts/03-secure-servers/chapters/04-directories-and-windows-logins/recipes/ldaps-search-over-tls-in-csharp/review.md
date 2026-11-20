@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 2. Program finding: on Windows `CertificateAuthorityBlob` (the way the HTTPS recipes trust a certificate) does not make the ldaps check pass: code 60 PeerFailedVerification, as `--cacert` does not for curl. Cased as `ca-blob-ignored`, Windows only. Linux and macOS not run.
 3. The two refusals (plain ldap, wrong password) share code 38; only the message separates them (`Confidentiality Required` / `Invalid Credentials`), which is the library's wording and is matched as a substring.
 4. `BoundUrls` entries are `Uri`, not `string`; `.ToString()` is needed to build a search URL.
+- Platform (2026-11-19, CI run 44662810792): wrong-password and plain-refuses are [windows]; [linux, macos] twins check 67 LoginDenied and 38 LdapCannotBind. CI shows CertificateAuthorityBlob does work on Linux and macOS; not yet claimed.

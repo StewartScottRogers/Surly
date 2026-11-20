@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 1. One program, one server with an ldaps and an ldap listener; the cases match lines of its output. The certificate comes from `setup:`; `--cert` and `--key` take names relative to `SURL_MCP_ROOT`.
 2. The program prints curl's exit code and one of two phrases from the error, not the library's wording; the `untrusted` case (exit 60 without `-k`) is `platforms: [windows]`, since only Windows was run (see the console twin's review on `--cacert`).
 3. curl-mcp's `transfer` tool cannot bind to LDAP, so the `curl` tool is used.
+- Platform (2026-11-19, CI run 44662810792): wrong-password and plain-refuses are [windows]; [linux, macos] twins check exits 67 and 38. CI shows the no -k bind exits 60 on Linux and macOS too; untrusted could drop its platforms.

@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: dict-match-words-by-prefix
+title: Finding Words That Match
+protocols: [dict]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc2229]
+
+# Each file directly in the served directory is a headword: its name the word, its bytes the definition.
+fixtures:
+  words/apple: "a round fruit\n"
+  words/apricot: "a small orange fruit\n"
+  words/banana: "a long yellow fruit\n"
+
+servers:
+  main:
+    command: surl --directory words dict://127.0.0.1:{{port}}/
+    ready: port
+
+# DICT replies end lines with CR LF; curl's output is read as text, so a line ends in a plain new line.
+cases:
+  - id: solution
+    role: solution
+    claim: "m:ap:*:prefix asks for the headwords that start with ap, in every database and by the prefix strategy; surl answers 152 and lists apple and apricot, each with its database, surl, and not banana, and curl exits 0."
+    run: curl -s dict://127.0.0.1:{{port}}/m:ap:*:prefix
+    expect:
+      exit: 0
+      stdout-matches: '^220 surl DICT server <mime> <\d+@surl>\n250 ok\n152 2 matches found\nsurl "apple"\nsurl "apricot"\n\.\n250 ok\n221 bye\n$'
+
+  - id: strategy-defaults-to-prefix
+    claim: "With the strategy left out, m:ap lists the same two words."
+    run: curl -s dict://127.0.0.1:{{port}}/m:ap
+    expect:
+      exit: 0
+      stdout-matches: '152 2 matches found\nsurl "apple"\nsurl "apricot"\n\.\n'
+
+  - id: named-database
+    claim: "Naming the database in place of the star, m:ap:surl:prefix, gives the same answer."
+    run: curl -s dict://127.0.0.1:{{port}}/m:ap:surl:prefix
+    expect:
+      exit: 0
+      stdout-matches: '152 2 matches found\nsurl "apple"\nsurl "apricot"\n\.\n'
+
+  - id: exact-is-not-prefix
+    claim: "The exact strategy matches whole words only, so m:ap:*:exact is answered 552 no match, and curl still exits 0."
+    run: curl -s dict://127.0.0.1:{{port}}/m:ap:*:exact
+    expect:
+      exit: 0
+      stdout-matches: '\n552 no match\n221 bye\n$'
+
+  - id: strategies-offered
+    claim: "show:strat lists the strategies the server offers: exact and prefix, and no others."
+    run: curl -s dict://127.0.0.1:{{port}}/show:strat
+    expect:
+      exit: 0
+      stdout-matches: '111 2 strategies available\nexact "Match headwords exactly"\nprefix "Match prefixes"\n\.\n'
+
+  - id: strategy-not-offered
+    claim: "A strategy the server does not offer, such as suffix, is answered 551 invalid strategy, and curl exits 0."
+    run: curl -s dict://127.0.0.1:{{port}}/m:ple:*:suffix
+    expect:
+      exit: 0
+      stdout-matches: '\n551 invalid strategy, use "SHOW STRAT" for a list of strategies\n221 bye\n$'
+
+  - id: case-matters
+    claim: "Headwords are matched as written, so m:AP, in capitals, is answered 552 no match."
+    run: curl -s dict://127.0.0.1:{{port}}/m:AP
+    expect:
+      exit: 0
+      stdout-matches: '\n552 no match\n221 bye\n$'
+
+  - id: define-the-pick
+    claim: "d:apricot, the word picked from the list, is answered 150 and 151 and then the file's bytes, a line holding a dot, 250 ok and 221 bye."
+    run: curl -s dict://127.0.0.1:{{port}}/d:apricot
+    expect:
+      exit: 0
+      stdout-matches: '150 1 definitions retrieved\n151 "apricot" surl "Files served by surl"\na small orange fruit\n\.\n250 ok\n221 bye\n$'

@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs test-environment.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: surl-stand-up-mail-files-and-messages-from-an-agent
+title: Standing Up Mail, Files and Messages
+protocols: [smtp, imap, http, mqtt]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_messages, read_message, read_file, read_retained_message]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T, --digest, -d]
+exit-codes: [0, 1, 8]
+references: [surl-readme, curl-readme, rfc5321, rfc7616, mqtt311]
+
+fixtures:
+  shipped.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Order 7 shipped\r\n\r\nOrder 7 is on its way.\r\n"
+  invoice-7.txt: "Invoice 7: 3 widgets, 42.00\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: One start_server call stands up SMTP, IMAP, HTTP and MQTT; the curl tool mails, uploads and publishes as the app with exit 0 each, and list_messages with read_message, read_file and read_retained_message find the mail, the invoice and the event, so the program exits 0.
+    program: test-environment.cs
+    args: [right]
+    expect:
+      exit: 0
+      stdout: "app mailed ann: curl exit 0\napp uploaded the invoice: curl exit 0\napp published on orders/7: curl exit 0\nread_retained_message: {\"topic\":\"orders/7\",\"qos\":0,\"text\":\"shipped\"}\nmail: Order 7 shipped\nfile: Invoice 7: 3 widgets, 42.00\nmessage: shipped\n"
+
+  - id: wrong-topic
+    claim: An event published on invoices/7, outside the retained orders/# filter, still exits 0; read_retained_message on orders/7 answers retained false and the program exits 1.
+    program: test-environment.cs
+    args: [wrong-topic]
+    expect:
+      exit: 1
+      stdout: "app mailed ann: curl exit 0\napp uploaded the invoice: curl exit 0\napp published on invoices/7: curl exit 0\nread_retained_message: {\"retained\":false}\nmail: Order 7 shipped\nfile: Invoice 7: 3 widgets, 42.00\nFAIL: message is (none), want shipped\n"
+
+  - id: strict
+    claim: Without --allow-plaintext-auth in start_server's arguments the mail and the Digest upload exit 0, but the MQTT publish, whose login carries the password as it is, is refused with curl exit 8, so nothing is retained.
+    program: test-environment.cs
+    args: [strict]
+    expect:
+      exit: 1
+      stdout: "app mailed ann: curl exit 0\napp uploaded the invoice: curl exit 0\napp published on orders/7: curl exit 8\nread_retained_message: {\"retained\":false}\nmail: Order 7 shipped\nfile: Invoice 7: 3 widgets, 42.00\nFAIL: message is (none), want shipped\n"

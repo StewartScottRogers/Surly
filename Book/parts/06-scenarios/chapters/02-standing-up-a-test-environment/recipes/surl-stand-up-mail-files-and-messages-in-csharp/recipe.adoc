@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-stand-up-mail-files-and-messages-in-csharp]]
+=== Standing Up Mail, Files and Messages
+
+==== Problem
+
+In a C# test, your app{apos}s integration test needs a mail server, a file server and a Message Queuing Telemetry Transport (MQTT) broker; you want one server process for all three, and the test checking what landed in each.
+
+==== Solution
+
+Start one `SurlServer` in the test with four listen URLs and one account the app uses everywhere. Let the app mail, upload and publish with `Curl.Api`, then read each store back through the server{apos}s own `Mail`, `Files` and `Messages`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP), Hypertext Transfer Protocol (HTTP) and MQTT URLs on port 0, so each gets a free port; `BoundUrls` lists them in the same order with the real ports. All four run in the test{apos}s own process and share the server{apos}s stores, the mail store, the content store and the message bus (<<surl-readme>>), and `await using` stops them together.
+
+The rest of the options are the environment. `MailDomains` and `Mailboxes` are `--mail-domain` and `--mailbox`: `app@example.com:apppass;protocols=smtp,http,mqtt` is the app{apos}s mailbox and an account that logs in on those three schemes, and Ann{apos}s mailbox keeps the default, mail only. `AllowUploads` is `--allow-uploads`, so a logged-in `PUT` stores a file. `Topics` is `--topic`; `orders/#;retain` keeps the last message on every topic under `orders/` (<<mqtt311>>). `AllowPlaintextAuthentication`, `--allow-plaintext-auth`, is for MQTT, whose login carries the password as it is; it is a loosening, and the server warns when it is on (<<surl-readme>>).
+
+The app is three `CurlRequest` values on one `CurlClient`, each `CurlResponse` read for its `StatusCode`, all with the same `CurlAuthenticationOptions`. The mail is a `PUT` to the SMTP URL with `CurlMailOptions` and a `CurlContent.FromStream` body, which `Curl.Api` uploads as the message (<<rfc5321>>); it is answered `250`. The invoice is a `PUT` to the HTTP URL with `HttpAuthentication` set to Digest (<<rfc7616>>), answered `201 Created`. The event is a `POST` to `mqtt://.../orders/7` whose body is the payload, an MQTT publish.
+
+The test reads what landed without a client. `server.Mail.ListMessagesAsync` and `ReadMessageAsync` return Ann{apos}s messages as a `SurlMessagePage` and one of them as a `SurlMailMessage` with its exact bytes, from which the program takes the `Subject`; `server.Files.ReadAsync` returns the stored file as `SurlFileContents`; `server.Messages.ReadRetainedAsync` returns the topic{apos}s `SurlRetainedMessage`, or null when nothing is kept. The program prints each value, or `FAIL` with what it got and wanted, and exits 1 on any failure.
+
+The failures land in different places. An app that publishes its event on `invoices/7` sees no error, because a publish at the lowest quality of service gets no acknowledgement (<<mqtt311>>); nothing is retained on `orders/7`, and only the test{apos}s read shows it. Without `AllowPlaintextAuthentication` the mail and the Digest upload still go through, since neither sends the password, but the broker refuses the MQTT login unchecked and `SendAsync` throws `CurlException` 8, the `Expected 0000 but got 0005` of a refused `CONNACK`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-stand-up-mail-files-and-messages>> for the same environment on the console.
+* <<surl-stand-up-mail-files-and-messages-from-an-agent>> for the same environment run by an agent.
+* <<surl-hand-bound-ports-to-the-app-in-csharp>> for handing the bound ports to the app under test.
+* <<surl-readme>>, <<rfc5321>>, <<rfc7616>>, <<mqtt311>>.

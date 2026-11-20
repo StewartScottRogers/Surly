@@ -1,0 +1,122 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-seed-a-site-from-fixture-files
+title: Seeding a Site from Fixture Files
+protocols: [http, ftp]
+tier: scenarios
+surl-options: [--directory, --allow-anonymous, --allow-uploads]
+curl-options: [-s, -T, -o, -w]
+exit-codes: [0, 25, 67]
+references: [surl-readme, rfc9110, rfc959]
+
+# fixtures/ stands for the folder the repository keeps; new-users.json is what a test uploads.
+# originals/ and kept/ stand in for it on the two servers that show the refusals.
+fixtures:
+  fixtures/users.json: "[{\"name\":\"alice\"}]\n"
+  fixtures/orders/1.json: "{\"id\":1}\n"
+  originals/users.json: "[{\"name\":\"alice\"}]\n"
+  kept/users.json: "[{\"name\":\"alice\"}]\n"
+  new-users.json: "[]\n"
+
+# Each run serves a fresh copy of the fixtures, never the fixtures themselves.
+setup:
+  - rm -rf run && cp -R fixtures run
+
+# main is the recipe: the copy, over HTTP and FTP, open to anonymous changes.
+# strict serves a folder with nothing loosened; no-uploads adds --allow-anonymous alone.
+servers:
+  main:
+    command: surl --directory run --allow-anonymous --allow-uploads http://127.0.0.1:{{port}}/ ftp://127.0.0.1:{{port2}}/
+    ready: port
+  strict:
+    command: surl --directory originals http://127.0.0.1:{{port3}}/ ftp://127.0.0.1:{{port4}}/
+    ready: port
+  no-uploads:
+    command: surl --directory kept --allow-anonymous http://127.0.0.1:{{port5}}/ ftp://127.0.0.1:{{port6}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The server serves the copy of the fixtures, so a test reads users.json as the repository holds it.
+    run: curl http://127.0.0.1:{{port}}/users.json
+    expect:
+      exit: 0
+      stdout: "[{\"name\":\"alice\"}]\n"
+
+  - id: ftp-change-lands-in-the-copy
+    claim: A test that uploads over FTP replaces users.json in the copy, and the fixture file is untouched.
+    run: curl -s -T new-users.json ftp://127.0.0.1:{{port2}}/users.json
+    expect:
+      exit: 0
+      files:
+        run/users.json: "[]\n"
+        fixtures/users.json: "[{\"name\":\"alice\"}]\n"
+
+  - id: http-sees-the-change
+    claim: HTTP serves the same folder, so the next read over HTTP gets the changed file.
+    run: curl -s http://127.0.0.1:{{port}}/users.json
+    expect:
+      exit: 0
+      stdout: "[]\n"
+
+  - id: http-put-adds-a-file
+    claim: An anonymous HTTP PUT of a new path is answered 201 Created and the file lands in the copy.
+    run: curl -s -T new-users.json -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/orders/2.json
+    expect:
+      exit: 0
+      stdout: "201"
+      files:
+        run/orders/2.json: "[]\n"
+
+  - id: fixtures-unchanged
+    claim: After the test the fixtures folder holds what it held before, so the next run copies the originals again.
+    run: ls fixtures/orders
+    expect:
+      exit: 0
+      stdout: "1.json\n"
+
+  - id: strict-refuses-anonymous
+    claim: Without --allow-anonymous and with no account, an HTTP PUT is answered 401 Unauthorized.
+    run: curl -s -T new-users.json -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port3}}/users.json
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: strict-refuses-ftp-login
+    claim: Without --allow-anonymous, curl's anonymous FTP login is refused and curl exits 67 before uploading anything.
+    run: curl -s -T new-users.json ftp://127.0.0.1:{{port4}}/users.json
+    expect:
+      exit: 67
+      files:
+        originals/users.json: "[{\"name\":\"alice\"}]\n"
+
+  - id: served-folder-gets-a-lock
+    claim: A served folder gets surl's own .surl folder and lock file, which is why the run serves a copy and not the repository's folder.
+    run: ls -A originals
+    expect:
+      exit: 0
+      stdout: ".surl\nusers.json\n"
+
+  - id: no-uploads-http
+    claim: With --allow-anonymous but not --allow-uploads, an HTTP PUT is answered 405 Method Not Allowed.
+    run: curl -s -T new-users.json -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port5}}/users.json
+    expect:
+      exit: 0
+      stdout: "405"
+
+  - id: no-uploads-ftp
+    claim: With --allow-anonymous but not --allow-uploads, an FTP upload is refused and curl exits 25, upload failed.
+    run: curl -s -T new-users.json ftp://127.0.0.1:{{port6}}/users.json
+    expect:
+      exit: 25
+      files:
+        kept/users.json: "[{\"name\":\"alice\"}]\n"
+
+  - id: copy-into-an-existing-folder
+    claim: Without the rm first, cp -R into a folder that is already there copies fixtures inside it as run/fixtures, and the changed files stay.
+    run: cp -R fixtures run && ls run
+    expect:
+      exit: 0
+      stdout: "fixtures\norders\nusers.json\n"

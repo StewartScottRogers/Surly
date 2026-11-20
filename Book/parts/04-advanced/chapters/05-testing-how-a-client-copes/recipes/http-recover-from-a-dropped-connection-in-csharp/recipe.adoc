@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-recover-from-a-dropped-connection-in-csharp]]
+=== Recovering from a Dropped Connection in C#
+
+==== Problem
+
+Your .NET client retries when a connection is dropped before any answer comes. In a test, you want an in-process Hypertext Transfer Protocol (HTTP) server that drops the first connection and serves the retry, and you want both sides to say how many attempts there were.
+
+==== Solution
+
+Start a `SurlServer` with a `SurlFault` that drops the first request for `/hello.txt`, fetch it with a `CurlClient` that retries once after a `CurlException`, and count what each side saw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlFault.DropConnection()` makes a rule that cuts the connection with nothing written back, as `surl --fault drop` does. A rule is a record: `with` narrows it. `Stage`, a `FaultStage`, set to `Command` makes it wait until a request has arrived, `Path` limits it to requests for `/hello.txt`, and `Times = 1` spends it after one use. Rules in `SurlServerOptions.Faults` are there from the start and are numbered `f1`, `f2` and so on.
+
+The program does its own retrying. A dropped connection is a failure, not a response, so `CurlClient.SendAsync`, given a `CurlRequest` for the file, throws a `CurlException` instead of returning a `CurlResponse`. The exception's `Code` is the `CurlCode` `curl` would exit with, `56`, `RecvError`. The program catches it and tries again, up to the number of retries its argument allows, and stops at the first success. The retry goes on a new connection, the rule is spent, and the file is served, `200`. With `0` the program makes no retry and exits `56`, the code `curl` exits with; with `3` it still makes one retry, since the second attempt succeeds.
+
+The server keeps its own count. `RecordExchanges = true` makes it keep a record of every exchange, which for HTTP is a connection, and of every event. `Exchanges.Count` is `2`, the dropped connection and the retry, with no readiness check in between, since `StartAsync` returns once the server is listening. `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.FaultApplied` finds the one time the rule acted, and `Faults.List()` reads the rule back as a `SurlFaultRule`: `f1`, with `Remaining` `0`. A test can assert on either side, and on both: a client that says it retried once and a server that saw two connections agree.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-recover-from-a-dropped-connection>> for the same test on the console, with `curl --retry`.
+* <<http-recover-from-a-dropped-connection-from-an-agent>> for the same test from an agent.
+* <<http-stop-a-server-and-read-its-exit-code>> for `CurlException` after a server has stopped.
+* <<surl-readme>>, <<curl-readme>>.

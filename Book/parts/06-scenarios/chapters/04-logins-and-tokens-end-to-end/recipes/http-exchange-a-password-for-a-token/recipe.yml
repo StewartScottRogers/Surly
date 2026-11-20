@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-exchange-a-password-for-a-token
+title: Exchanging a Password for a Token
+protocols: [https, http]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --cert, --key, --user]
+curl-options: [-s, -S, -f, --cacert, -u, --oauth2-bearer, --http1.1, -D, -o, -w]
+exit-codes: [0, 22]
+references: [surl-readme, rfc7617, rfc6750, rfc8446, rfc9110]
+
+fixtures:
+  site/token.txt: "tok-7f3a9c\n"
+  site/api/orders.json: "[{\"id\":1,\"total\":40}]\n"
+  plain/token.txt: "tok-7f3a9c\n"
+  login-then-call.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The client's flow: log in with Basic to fetch a token, then call the API with it as a
+    # Bearer token. Usage: sh login-then-call.sh <base URL> <user:password>
+    base=$1
+    token=$(curl -sSf --cacert server.pem -u "$2" "${base}token.txt") || exit $?
+    curl -sSf --cacert server.pem --oauth2-bearer "$token" "${base}api/orders.json"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: one password account and one Bearer token (the empty user name).
+# plain is the same accounts over http://, the default, on its own folder.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --cert server.pem --key server.key --user app:s3cret --user :tok-7f3a9c https://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --directory plain --user app:s3cret --user :tok-7f3a9c http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The client logs in with Basic over HTTPS, gets the token from token.txt, and calls the API with it as a Bearer token; the script prints the orders and exits 0.
+    run: sh login-then-call.sh https://127.0.0.1:{{port}}/ app:s3cret
+    expect:
+      exit: 0
+      stdout: "[{\"id\":1,\"total\":40}]\n"
+
+  - id: server-recorded-both-logins
+    claim: The verbose log shows a Basic login as app fetching token.txt, then, on another exchange, a Bearer login fetching the API, named bearer token rather than by the token.
+    run: grep -E "\* (Login|GET)" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^#(\d+) \* Login accepted: Basic app\n#\1 \* GET /token\.txt: 200, 11 bytes of [^\n]*\n#(\d+) \* Login accepted: Bearer bearer token\n#\2 \* GET /api/orders\.json: 200, 22 bytes of [^\n]*\n$'
+
+  - id: login-step
+    claim: The first step alone, curl -u with no method named, sends Basic and gets the token as the body.
+    run: curl -s --cacert server.pem -u app:s3cret https://127.0.0.1:{{port}}/token.txt
+    expect:
+      exit: 0
+      stdout: "tok-7f3a9c\n"
+
+  - id: both-offered
+    claim: A request with no login is answered 401 Unauthorized, and the challenge offers Basic and Bearer among the methods.
+    run: curl -s --http1.1 --cacert server.pem -D - -o {{null}} https://127.0.0.1:{{port}}/api/orders.json
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 401 Unauthorized\r?\n.*WWW-Authenticate: Basic realm="surl", charset="UTF-8"\r?\nWWW-Authenticate: Bearer realm="surl"\r?\n'
+
+  - id: wrong-password
+    claim: With a wrong password the login is answered 401, curl -f exits 22, and the script stops there without calling the API.
+    run: sh login-then-call.sh https://127.0.0.1:{{port}}/ app:guess
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "401"
+
+  - id: wrong-token
+    claim: A token surl does not hold is answered 401.
+    run: curl -s --cacert server.pem --oauth2-bearer tok-0000 -o {{null}} -w "%{http_code}" https://127.0.0.1:{{port}}/api/orders.json
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: password-reaches-the-api-too
+    claim: surl does not scope accounts to paths, so the password alone also fetches the API.
+    run: curl -s --cacert server.pem -u app:s3cret -o {{null}} -w "%{http_code}" https://127.0.0.1:{{port}}/api/orders.json
+    expect:
+      exit: 0
+      stdout: "200"
+
+  - id: refused-in-clear
+    claim: Over http://, by default, the Basic login is answered 403 Forbidden unchecked, the right password included, so the flow stops at its first step with exit 22.
+    run: sh login-then-call.sh http://127.0.0.1:{{port2}}/ app:s3cret
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "403"

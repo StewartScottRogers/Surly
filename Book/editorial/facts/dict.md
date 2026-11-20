@@ -23,4 +23,4 @@ Dot files and directories are never headwords (552 no match).
 The greeting's message ID counts up per connection (`<1@surl>`, `<2@surl>`): match it with `\d+`.
 
 ## Recipes
-dict-look-up-a-word, dict-look-up-a-word-from-an-agent
+dict-look-up-a-word, dict-look-up-a-word-from-an-agent, dict-match-words-by-prefix (and twins)

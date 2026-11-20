@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-recover-from-a-dropped-connection]]
+=== Recovering from a Dropped Connection
+
+==== Problem
+
+Your client retries when a connection is dropped before any answer comes. You want a Hypertext Transfer Protocol (HTTP) test server that drops the first connection, serves the retry, and a way to see that exactly one retry was made.
+
+==== Solution
+
+Give `surl` a `--fault` rule that drops the first request for `/hello.txt`, once, and fetch it with `curl` told to retry on any error, printing how many retries it made:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "drop;stage=command;path=/hello.txt;times=1"` is one fault rule. `drop` cuts the connection with nothing written back. `stage=command` makes the rule wait until a request has arrived, and `path=/hello.txt` limits it to requests for that path. `times=1` spends the rule after one use, so every request after the first is served from `site`, the folder `--directory site` serves. The quotes keep the semicolons from the shell.
+
+`stage=command` matters for a second reason. A rule at the `accept` stage, which is where a `drop` acts without `stage`, spends one of its `times` on every connection it matches, even one that opens and closes without sending a byte (see <<http-inject-a-fault>>). A script that checks the port is open before it starts its test would spend a `times=1` rule on that check, and the test would see no drop at all.
+
+`curl` gets nothing back on the first connection and reports a failure to receive, exit code `56`. `--retry 1` allows one retry, but only after a failure `curl` counts as transient: a timeout, or a status such as `503` (<<curl-manual>>). A dropped connection is not one of them, so with `--retry 1` alone, against the second server, `strict`, `curl` still exits `56` and `%{num_retries}` is `0`. `--retry-all-errors` makes every failure worth a retry. With it, `curl` connects again, gets the file, and exits `0`; `-w "%{num_retries}\n"` prints the count after the body, `1`. `-s` keeps `curl` quiet.
+
+The third server, `once`, has the same rule and a client that does not retry: the first fetch exits `56`, and the next, a new connection and a new request, is served, because the rule is spent. Each server has a folder of its own, since one `surl` holds a folder at a time, and each has its own rule, so the cases do not spend each other's.
+
+`--retry-all-errors` retries on any error at all, and the manual warns against using it by default (<<curl-manual>>); a real client usually wants something narrower. The point here is that a test can tell a client that recovers from one that does not.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-recover-from-a-dropped-connection-in-csharp>> for the same test from a C# program.
+* <<http-recover-from-a-dropped-connection-from-an-agent>> for the same test from an agent.
+* <<http-inject-a-fault>> for every kind of fault rule.
+* <<surl-readme>>, <<curl-manual>>.

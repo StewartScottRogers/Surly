@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-slow-down-one-path-from-an-agent]]
+=== Slowing Down One Path from an Agent
+
+==== Problem
+
+Your client must give up on one slow endpoint without hanging the rest. You want an artificial intelligence (AI) agent to start a Hypertext Transfer Protocol (HTTP) test server that holds one path on purpose, fetch a slow path and a fast one at once with a time limit, and check which request the server held, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent's side as a C# program on the MCP software development kit (SDK): it calls `start_server` with a `--fault` rule in `arguments`, makes two `transfer` calls at once with `timeoutSeconds` 2, then reads the server's `fault_applied` events:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. The arguments after `--` set the limit and the second path.
+
+`start_server` takes `surl`{apos}s options in `arguments`, so the rule is written as `surl --fault` takes it: `delay;stage=command;path=/slow;ms=5000` holds each request for `/slow` or anything under it five seconds before it is answered. `stage=command` waits until the request has arrived, so there is a path to look at. The match is by whole segments, so `/slowness.txt` is not held. `files` puts the three files in the server's store in memory, and the answer, in structured content, holds `server_id` and `bound_urls`, the URL with the port the system chose.
+
+`transfer` makes one request; `timeoutSeconds` is its limit on the whole transfer, as `curl -m` sets it. The program makes two calls at once, and `curl-mcp` runs them side by side, so each prints its line when it ends. `/hello.txt` comes back first, `200`. The slow request reaches its two-second limit while the server still holds it: the call is a tool error whose `failure` carries `curl`{apos}s exit code `28`, a timeout, and it ends within the hold's five seconds. With `0` the program leaves `timeoutSeconds` out, and the slow path is answered `200` after the five seconds are up, while the fast one is still answered first.
+
+`get_events` with `kinds` `fault_applied` lists each time a rule acted, with its `fault_kind` and the `target` it acted on: one `delay` on `/slow/report.txt`, and nothing for the fast path or for `/slowness.txt`. That is the server's own word that it held the slow request and only that one. The stopwatches report only within or after five seconds, not exact times, so that a slow machine does not break the check.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-slow-down-one-path>> for the same test on the console.
+* <<http-slow-down-one-path-in-csharp>> for the same test from a C# program.
+* <<http-inject-a-fault-from-an-agent>> for adding and removing fault rules on a running server.
+* <<surl-readme>>, <<curl-readme>>.

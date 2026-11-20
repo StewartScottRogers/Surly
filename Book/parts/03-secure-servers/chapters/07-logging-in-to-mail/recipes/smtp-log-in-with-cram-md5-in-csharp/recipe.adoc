@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-log-in-with-cram-md5-in-csharp]]
+=== SMTP Logins with CRAM-MD5 in C#
+
+==== Problem
+
+Your mail client must log in over plain Simple Mail Transfer Protocol (SMTP) without ever sending its password in clear; from a C# test with `Surl.Api` and `Curl.Api`, you want the server to accept CRAM-MD5 there while it refuses PLAIN and LOGIN unchecked.
+
+==== Solution
+
+Start a `SurlServer` with an SMTP listener, a mail domain and two mailboxes, and `RecordExchanges` on. Send a mail with a `CurlClient` and a login, then ask the server which mechanism it judged and whether the password crossed the wire:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` one `smtp://` URL on port 0, `MailDomains` the domain, and `Mailboxes` each a mailbox and the account that logs in to it by its whole address. Nothing loosens security. Without Transport Layer Security (TLS) the server offers only CRAM-MD5, a challenge and response in which the client proves it knows the password without sending it (<<surl-readme>>). `RecordExchanges` is not a `surl` option; it makes the in-process server keep every byte each client sent, for `FindExchanges` to return.
+
+The client is a `CurlRequest` sent on a `CurlClient` to the bound URL with `CurlMailOptions` for the envelope (<<rfc5321>>), the message as `CurlContent.FromStream`, which `Curl.Api` uploads as the mail, and `CurlAuthenticationOptions` with the user name and password. No mechanism is named, so `Curl.Api` uses the one the server offers. The `CurlResponse` has `StatusCode` `250`: the mail was accepted.
+
+The test asks the server, not the client. `FindEvents`, given a `SurlEventQuery` whose `Kind` is `SurlEventKind.LoginJudged`, returns one `LoginJudgedEvent` per login the server decided: its `Mechanism`, `CRAM-MD5`, its `Account` and `IsAccepted`. `FindExchanges`, given a query with `Scheme` `smtp`, returns `SurlExchangeRecord` values whose `Received` is every byte the client sent; the program finds the `AUTH CRAM-MD5` line in it and checks that neither the password nor the base64 form PLAIN would carry appears anywhere. With a wrong password the same mechanism is used, the event says refused, and `SendAsync` throws `CurlException` 67, `Login denied`.
+
+PLAIN and LOGIN would put the password on the wire in base64, so the server does not offer them without TLS. Setting `LoginOptions` to `AUTH=PLAIN`, as `curl --login-options` does, does not force it: `Curl.Api` finds no mechanism in common, sends no `AUTH` and throws `CurlException` 67, and the server judges no login at all. A client that sends PLAIN and LOGIN regardless, here a `TcpClient` writing the commands itself, sees only `250 AUTH CRAM-MD5` offered and gets `538 5.7.11 Encryption required for requested authentication mechanism` three times: for PLAIN with the right password, PLAIN with a wrong one, and LOGIN. The password is never checked, so the answer gives nothing away.
+
+`AllowPlaintextAuthentication`, `--allow-plaintext-auth`, is the loosening; `surl` warns when it is on (<<surl-readme>>). With it the same `AUTH=PLAIN` request is accepted `250`, the event says `PLAIN`, and the recorded bytes hold `AGFubkBleGFtcGxlLmNvbQBhbm5wYXNz`: Ann{apos}s user name and password, which anyone who sees the connection can decode. A client that can do CRAM-MD5, as `Curl.Api` can, never needs it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-log-in-with-cram-md5>> for the same check on the console.
+* <<smtp-log-in-with-cram-md5-from-an-agent>> for the same check run by an agent.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for .NET{apos}s `SmtpClient`, which cannot do CRAM-MD5 and needs the loosening.
+* <<surl-readme>>, <<rfc5321>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-seed-a-site-from-fixture-files]]
+=== Seeding a Site from Fixture Files
+
+==== Problem
+
+You keep test fixtures as files in the repository; you want them served so tests can change them, and the next run to start from the originals again.
+
+==== Solution
+
+Copy the fixtures folder to a scratch folder at the start of each run, and serve the copy, over Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP), with changes allowed. `rm` and `cp` need a POSIX shell (Git Bash on Windows):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`rm -rf run && cp -R fixtures run` makes `run` an exact copy of `fixtures` every time. The `rm` matters: when `run` is already there, `cp -R fixtures run` copies the folder into it, as `run/fixtures`, and the old files stay. `--directory run` serves the copy, so whatever a test does lands in `run`, and `fixtures` keeps what the repository committed.
+
+The copy is served on two listen URLs by one `surl`, and both read the one folder: a test that uploads `users.json` over FTP (<<rfc959>>) with `-T`, which uploads a local file, replaces the copy's file (`-s` keeps `curl` quiet), and the next read over HTTP gets the new contents. An HTTP `PUT` (<<rfc9110>>) of a path that is not there yet is answered `201 Created`; `-o` sends the empty body nowhere and `-w "%{http_code}"` prints the status. After the test, `run` holds the changes and `fixtures` holds exactly what it held before, so the next run's copy starts from the originals.
+
+Two options loosen `surl` for this. `--allow-anonymous` accepts any login or none, which lets a test change files without setting up accounts. Without it, and with no account, an HTTP `PUT` is answered `401 Unauthorized`, and `curl`{apos}s anonymous FTP login is refused before anything is uploaded, exit 67. `--allow-uploads` lets clients write at all. With `--allow-anonymous` alone, a `PUT` is answered `405 Method Not Allowed` and an FTP upload fails with exit 25, and the served file stays as it was. Both are off by default so that a server nobody meant to open for writing is not writable; a test that needs logins can add `--user` accounts instead of `--allow-anonymous`.
+
+Serving the repository's folder directly would be a mistake even with nothing loosened: `surl` keeps its own state in a `.surl` folder inside whatever folder it serves, with a lock file in it, so serving `originals` leaves `originals/.surl` behind. Serving a copy keeps that out of the repository too.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-seed-a-site-from-fixture-files-in-csharp>> for the same task from a C# test.
+* <<http-seed-a-site-from-fixture-files-from-an-agent>> for the same task from an agent.
+* <<surl-reset-by-copying-a-clean-directory>> for starting each test, not each run, on a fresh copy.
+* <<surl-readme>>, <<rfc9110>>, <<rfc959>>.

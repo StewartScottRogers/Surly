@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs check-upload.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-check-an-upload-landed-intact
+title: Checking an Upload Landed Intact
+protocols: [ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_file, put_file, get_exchanges]
+exit-codes: [0, 25, 67, 70]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent uploads a 260-byte file holding every byte value with curl -T, exit 0, and the stored copy that read_file answers in base64 has the same SHA-256 as the original, as has a copy downloaded again.
+    program: check-upload.cs
+    args: [check]
+    expect:
+      exit: 0
+      stdout: "upload exit: 0\nstored: 260 bytes, same as the original: True\ndownload exit: 0\ndownload same as the original: True\nserver received: TYPE I, STOR blob.bin\n"
+
+  - id: binary-transfer
+    claim: The server's record shows TYPE I, a binary transfer, before STOR, which is why the CR LF pairs in the file reach the store unchanged.
+    program: check-upload.cs
+    args: [check]
+    expect:
+      exit: 0
+      stdout-matches: 'server received: TYPE I, STOR blob\.bin\n$'
+
+  - id: damage-is-caught
+    claim: When the stored copy differs from the original by one byte, both comparisons print False, so the check does fail when it should.
+    program: check-upload.cs
+    args: [damaged]
+    expect:
+      exit: 0
+      stdout: "upload exit: 0\nstored: 260 bytes, same as the original: False\ndownload exit: 0\ndownload same as the original: False\nserver received: TYPE I, STOR blob.bin\n"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads refuses the write, curl exits 25, upload failed, and read_file finds no file in the store.
+    program: check-upload.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "upload exit: 25\nstored: no file\n"
+
+  - id: file-too-big
+    claim: A server started with --max-filesize 100 refuses the 260-byte file, curl exits 70, remote disk full, and keeps none of it.
+    program: check-upload.cs
+    args: [too-big]
+    expect:
+      exit: 0
+      stdout: "upload exit: 70\nstored: no file\n"
+
+  - id: login-refused
+    claim: A server started without --allow-anonymous refuses curl's anonymous login, curl exits 67, login denied, and nothing is stored.
+    program: check-upload.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "upload exit: 67\nstored: no file\n"

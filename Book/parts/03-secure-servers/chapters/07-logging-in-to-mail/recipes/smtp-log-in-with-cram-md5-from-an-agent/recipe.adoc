@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-log-in-with-cram-md5-from-an-agent]]
+=== SMTP Logins with CRAM-MD5 from an Agent
+
+==== Problem
+
+Your mail client must log in over plain Simple Mail Transfer Protocol (SMTP) without ever sending its password in clear; with an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp`, you want the server to accept CRAM-MD5 there while it refuses PLAIN and LOGIN unchecked.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts an SMTP server with `start_server`, sends one mail with the `curl` tool, then reads the login the server judged with `get_events` and the bytes the client sent with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+`start_server` takes one `smtp://` listen URL on port 0 and `surl`{apos}s options in `arguments`: `--mail-domain example.com` and two `--mailbox` entries, each a mailbox and the account that logs in to it by its whole address. Nothing loosens security, so without Transport Layer Security (TLS) the server offers only CRAM-MD5, a challenge and response that proves the client knows the password without sending it (<<surl-readme>>).
+
+The `curl` tool runs `curl`{apos}s arguments and answers in text that is JavaScript Object Notation (JSON). The send is `-u` for the login, `--mail-from` and `--mail-rcpt` for the envelope (<<rfc5321>>), `-T hi.eml` for the message from the folder, `--crlf` for its line ends and `-s` to keep the progress meter out. `curl` names no mechanism, takes the one offered, and exits `0`.
+
+The agent checks the login on the server{apos}s side. `get_events` with `kinds` `login_judged` returns one event per login the server decided, with its `mechanism`, `account` and `is_accepted`: here `CRAM-MD5` for Ann, accepted. `get_exchanges` with `scheme` `smtp` returns what the client sent, byte for byte, as `chunks` with a `direction`; the `received` chunks hold the `AUTH CRAM-MD5` line and neither the password nor the base64 form PLAIN would carry. A wrong password goes the same way, but `is_accepted` is `false` and `curl` exits `67`, login denied.
+
+PLAIN and LOGIN would send the password itself, base64-encoded, so the server does not offer them without TLS. `--login-options AUTH=PLAIN` asks `curl` for PLAIN; it finds the server does not offer it, sends no `AUTH` and exits `67`, and the server judges no login. A client that writes PLAIN and LOGIN regardless is refused before the password is looked at: `curl -T plain.smtp` to the same port as a `telnet://` URL writes the `plain.smtp` fixture as it is, `EHLO`, PLAIN with the right password, PLAIN with a wrong one, LOGIN and `QUIT`, and prints the replies. `EHLO` offers `AUTH CRAM-MD5` only, and each attempt gets `538 5.7.11 Encryption required for requested authentication mechanism`, right password and wrong alike.
+
+`--allow-plaintext-auth` in `arguments` is the loosening, and `surl` warns when it is on (<<surl-readme>>). With it, the same `AUTH=PLAIN` send exits `0`, the event says `PLAIN`, and the exchange holds Ann{apos}s user name and password in base64 for anyone watching the connection to decode. An agent that drives `curl` has no reason to turn it on.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-log-in-with-cram-md5>> for the same check on the console.
+* <<smtp-log-in-with-cram-md5-in-csharp>> for the same check in C#.
+* <<smtp-check-the-mail-an-app-sent-from-an-agent>> for checking what such a login then sent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

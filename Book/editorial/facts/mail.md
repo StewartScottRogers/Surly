@@ -24,6 +24,18 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   catch-all nobody@example.com includes itself`). A real mailbox is not caught. One message to several
   unknown addresses is stored ONCE in the catch-all.
 - `--mail-alias a=b,c`, `--mailbox-file` CSV, `--shared-folder`: see `surl --aihelp mail`.
+- `--mail-alias "support@example.com=ann@example.com,bob@example.com"`: each target gets its own copy; the
+  stored message is unchanged (its `To:` still names the alias; no Delivered-To added). An alias may name
+  another alias (help@ -> support@ -> ann, bob). One message whose recipients reach a mailbox twice is
+  stored there once. An alias is not an account: `-u support@...` -> curl 67. Exit 2 at start: target with
+  no mailbox `surl: (2) option --mail-alias: target anne@example.com names no mailbox`; target outside
+  every domain `... target ann@elsewhere.org is not in any --mail-domain`; alias that is a mailbox
+  `surl: option --mail-alias: alias ann@example.com is also a mailbox`; loop `alias help@example.com
+  includes itself`; twice `alias ... is given twice`. Surl.Api `MailAliases`; refusal is
+  `SurlServerStartException`, `ExitCode` FailedInit, `Lines[0]` `(2) option --mail-alias: ...`.
+  `Mail.DeliverAsync` and MCP start_server obey aliases the same way.
+- `--mailbox "app@example.com:apppass;protocols=smtp,http,mqtt"`: the mailbox account then logs in on HTTP
+  (Digest) and MQTT too; a mailbox without `protocols=` is refused on HTTP (401) and MQTT (CONNACK 4).
 - `--allow-plaintext-auth` (loosens, warns): also offer PLAIN/LOGIN without TLS. Needed by .NET SmtpClient.
 - Envelope sender is NOT checked against the login: a logged-in app may `MAIL FROM` any address, even
   outside the domain.
@@ -33,6 +45,19 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   IMAP `NO [AUTHENTICATIONFAILED]` (curl 21); POP3 `-ERR [AUTH]` (curl 8).
 - Without TLS only `CRAM-MD5` is offered (SMTP `250 AUTH CRAM-MD5`, POP3 `SASL CRAM-MD5`, IMAP
   `LOGINDISABLED AUTH=CRAM-MD5`). curl and Curl.Api use it; no loosening needed. Wrong password: curl 67.
+- SMTP EHLO without TLS ends `250 AUTH CRAM-MD5`; with `--allow-plaintext-auth`
+  `250 AUTH CRAM-MD5 OAUTHBEARER XOAUTH2 PLAIN LOGIN`, and curl STILL picks CRAM-MD5 unless
+  `--login-options AUTH=PLAIN`. On the default server `--login-options AUTH=PLAIN` (or LOGIN): curl sends no
+  AUTH (`* SASL: no overlap between offered and configured auth mechanisms`), exit 67. A client that sends
+  `AUTH PLAIN <b64>` / `AUTH LOGIN` anyway gets `538 5.7.11 Encryption required for requested authentication
+  mechanism`, right and wrong password alike. Raw SMTP from curl: `curl -s -T plain.smtp telnet://h:p`
+  (CRLF fixture ending in QUIT) prints every reply, exit 0. The CRAM challenge decodes to `<hex.digits@surl>`,
+  curl's answer to `user <32 hex>` (smtp-log-in-with-cram-md5 has a decode script).
+- login_judged events carry `mechanism` (CRAM-MD5, PLAIN), `account`, `is_accepted` (MCP) /
+  `LoginJudgedEvent.Mechanism/Account/IsAccepted` (Surl.Api, namespace Surl.Protocol.Abstractions).
+  Curl.Api `LoginOptions = "AUTH=PLAIN"` on the default server: CurlException 67, no login judged.
+- MQTT on the same surl needs `--allow-plaintext-auth` for any password (CONNACK 5, curl 8); the option
+  does not change curl's SMTP choice. HTTP with any account configured: GET with no login is 401.
 
 ## Client: curl
 - Send: `curl --crlf -u app@example.com:pw --mail-from a --mail-rcpt b -T file smtp://host:port/<ehlo-name>`.
@@ -84,6 +109,21 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   `read_message(..., uid)` (sets no flag). No delete-message tool: delete over POP3/IMAP, or `reset_server`.
 - `get_exchanges(server_id, scheme)` -> `exchanges[].chunks[{direction sent|received, data}]`, byte for
   byte: find `RCPT TO:<x>` and the reply after it.
+- Deliveries are events: `get_events`/`wait_for_event` with `kinds [store_changed]`, `store mail` give
+  `{kind store_changed, change delivered, name "ann@example.com/INBOX/;UID=1", byte_count, exchange_id}`,
+  one per target mailbox (an alias to two -> two events; a discarded unknown address -> none).
+  `name: "ann@example.com"` matches as a segment prefix. `account` matches the SENDER's login exchange,
+  not the recipient. `wait_for_event` timeout -> `{"timed_out":true}` (not a tool error); an event already
+  kept returns at once; later waits still return it.
+- `read_message` -> `text` (the message); `read_retained_message` -> `{topic, qos, text}` or
+  `{"retained":false}`.
+- `add_account(user, password)` -> `{"user":..}`; the account logs in on every scheme but has NO mailbox:
+  IMAP SELECT INBOX -> `NO [NONEXISTENT]` (curl 67), seed_mail -> `NoSuchAccount`, SMTP to it 250 and
+  discarded (also for `user@example.com` under `--mail-domain`). `remove_account` keeps a start-time
+  `--user`'s mailbox (mail is still delivered to it; re-adding the name gives it back); `reset_server`
+  drops runtime accounts and empties mail. Removing the last account makes the server need no login (GET
+  with none -> 200). Duplicate add: tool error `user task2 already has an account`; unknown remove:
+  `server s1 has no account nobody`. Accounts store events: `account_added`/`account_removed`, `name`.
 - curl-mcp `curl(args)`: `exitCode`, `standardOutput.content`, `standardError.content`; non-zero exit is
   a tool error (`isError`). `-T file` reads from CURL_MCP_ROOT.
 
@@ -91,10 +131,18 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
 - Fixture line ends: LF fixtures need `--crlf`; CRLF fixtures in mcp recipes avoid it but it is harmless.
 - `Received:` carries the client's EHLO name (SmtpClient sends the machine name): never match it exactly.
 - `curl -T "order[01-10].eml"` (a glob) sends ten messages in one SMTP session; good for `seed:`.
+  `-w "%{num_connects}"` shows it: 1, then 0. A missing file in a `-T` glob or `{a,b}` list stops curl
+  there: files before it sent, after it never, exit 26, `-w` prints `000` for it.
+- `curl -v` on Windows writes lines ending CR CR LF; verify reads them as two newlines. Match with `\s+`.
+- IMAP `-X "STATUS INBOX (MESSAGES)"` on `imap://h:p/` -> `* STATUS INBOX (MESSAGES 3)`.
+  `INBOX;UID=[1-3];SECTION=...` (a curl URL glob) fetches three messages.
 - curl prints a progress meter on stderr for multi-transfer IMAP/POP3 commands without `-s`.
 
 ## Recipes
 smtp-send-and-read-it-over-imap, pop3-retrieve-and-delete-a-message, smtp-serve-a-mail-domain,
 smtp-check-the-mail-an-app-sent (+ -in-csharp, -from-an-agent), smtp-catch-every-address-in-one-mailbox
 (+ twins), smtp-fail-a-test-on-a-wrong-recipient (+ twins), pop3-empty-mailboxes-after-a-run,
-surl-seed-a-mailbox-before-a-test (+ twins), surl-hand-bound-ports-to-the-app (+ twins).
+surl-seed-a-mailbox-before-a-test (+ twins), surl-hand-bound-ports-to-the-app (+ twins),
+smtp-route-mail-through-aliases (+ twins), smtp-log-in-with-cram-md5 (+ twins),
+surl-stand-up-mail-files-and-messages (+ twins), smtp-send-a-batch-of-mails-from-files,
+smtp-wait-for-an-apps-mail, surl-give-each-task-its-own-account.

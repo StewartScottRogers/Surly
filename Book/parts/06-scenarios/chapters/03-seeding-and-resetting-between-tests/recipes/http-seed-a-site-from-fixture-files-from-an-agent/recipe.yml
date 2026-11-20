@@ -1,0 +1,62 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs seed-from-fixtures.cs, a C# program on the official MCP SDK that starts both
+# hosts from PATH; its argument picks the scenario.
+schema: 2
+key: http-seed-a-site-from-fixture-files-from-an-agent
+title: Seeding a Site from Fixture Files
+protocols: [http, ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, transfer, reset_server]
+curl-options: [-s, -T]
+exit-codes: [0, 1, 25, 67]
+references: [surl-readme, curl-readme, rfc9110, rfc959]
+
+# fixtures/ stands for the folder the repository keeps; new-users.json is what a test uploads.
+fixtures:
+  fixtures/users.json: "[{\"name\":\"alice\"}]\n"
+  fixtures/orders/1.json: "{\"id\":1}\n"
+  new-users.json: "[]\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent passes every file under fixtures to start_server as files, a test replaces users.json over FTP with curl-mcp's curl tool and HTTP serves the change, the file on disk stays as it was, and reset_server puts back the original.
+    program: seed-from-fixtures.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "seeded: orders/1.json, users.json\nFTP upload users.json: curl exit 0\nHTTP GET users.json: []\nfixtures/users.json on disk: [{\"name\":\"alice\"}]\nafter reset, HTTP GET users.json: [{\"name\":\"alice\"}]\n"
+
+  - id: one-store-two-protocols
+    claim: The FTP and HTTP listeners of one server serve one store, so what FTP wrote HTTP reads.
+    program: seed-from-fixtures.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nFTP upload users\.json: curl exit 0\nHTTP GET users\.json: \[\]\n'
+
+  - id: strict-refuses-the-login
+    claim: Without --allow-anonymous, curl's anonymous FTP login is refused, curl exit 67, and users.json is unchanged.
+    program: seed-from-fixtures.cs
+    args: [strict]
+    expect:
+      exit: 0
+      stdout-matches: '\nFTP upload users\.json: curl exit 67\nHTTP GET users\.json: \[\{"name":"alice"\}\]\n'
+
+  - id: no-uploads-refuses-the-write
+    claim: With --allow-anonymous but not --allow-uploads, the FTP upload fails with curl exit 25, upload failed, and users.json is unchanged.
+    program: seed-from-fixtures.cs
+    args: [no-uploads]
+    expect:
+      exit: 0
+      stdout-matches: '\nFTP upload users\.json: curl exit 25\nHTTP GET users\.json: \[\{"name":"alice"\}\]\n'
+
+  - id: on-disk-cannot-reset
+    claim: Serving the fixtures folder itself with --directory lets the upload change the repository's file, and reset_server refuses, because a store on disk is never reset.
+    program: seed-from-fixtures.cs
+    args: [on-disk]
+    expect:
+      exit: 1
+      stdout: "seeded: (the folder itself)\nFTP upload users.json: curl exit 0\nHTTP GET users.json: []\nfixtures/users.json on disk: []\nreset_server refused: Content: the store could not be reset. The content store is on disk (--directory): reset, snapshot and restore are refused so a test never empties a real directory.\n"

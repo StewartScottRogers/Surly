@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-read-a-files-size-and-date-in-csharp]]
+=== Reading FTP Sizes in C#
+
+==== Problem
+
+Your C# sync tool decides what to fetch by size and date, and you want `Curl.Api` to ask a File Transfer Protocol (FTP) server for both without downloading the file.
+
+==== Solution
+
+Start a `SurlServer` over a folder holding one dated file, send a HEAD request with `MDTM` as a quote command, and read the size and the time from the answer:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+FTP (<<rfc959>>) has no headers, so the size and the time come from two commands. `SIZE` asks for the length in bytes and `surl` answers `213` and the number; `MDTM` asks for the modification time and `surl` answers `213` and 14 digits, year, month, day, hour, minute and second in Coordinated Universal Time (UTC). Neither opens a data connection, so the file is not downloaded.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free port; `DataDirectory` is `--directory`, here a temporary folder whose one file has had its time set; `AllowAnonymous` is `--allow-anonymous`, which lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; `RecordExchanges` keeps what each client sent and was answered. `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrl` names it.
+
+`CurlRequest` with `HttpMethod.Head` is `curl -I`: `CurlClient.SendAsync` asks for the headers only. For FTP that sends `SIZE`, and `Content-Length` appears among `CurlResponse.Headers`. `CurlFtpOptions`, set on the request through `Ftp`, has `Quote`, the commands to send before the transfer, `-Q` on the console. The program uses it to send `MDTM report.csv`, and the server{apos}s reply, `213` and the time, is also in `Headers`, with every other reply of the control connection, so the program finds the one that is `213` and 14 digits and parses it as UTC. The program reads the `Body` of the `CurlResponse` to the end and throws it away, since the facts it wants are in the headers.
+
+`SurlServer.Exchanges` is a list of `SurlExchangeRecord`, one for each connection. `Received` holds the bytes the server received on the control connection, and the program keeps the commands that matter: `MDTM` and `SIZE`, and no `RETR` or passive command, which is the proof that nothing was downloaded.
+
+The sync scenario is the use for the two numbers. The program asks, compares the size and time with those of its local copy, downloads if they differ, and then sets the copy{apos}s time to the server{apos}s, as `curl -R` does on the console. The next question finds them equal. A file that is not there fails the quote command, because `MDTM` is answered `550`, and `SendAsync` throws a `CurlException`, with `Code` of `QuoteError`, `21`; the program must catch it, since nothing else reports a missing file. Without `AllowAnonymous` the login is refused and the code is `LoginDenied`, `67`. That is the server being surly on purpose.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-read-a-files-size-and-date>> for the same two questions on the console with `curl -I`.
+* <<ftp-read-a-files-size-and-date-from-an-agent>> for the same two questions asked by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

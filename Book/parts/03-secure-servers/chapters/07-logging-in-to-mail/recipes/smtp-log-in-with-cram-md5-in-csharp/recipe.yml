@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-log-in-with-cram-md5-in-csharp
+title: SMTP Logins with CRAM-MD5 in C#
+protocols: [smtp]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlEventKind, LoginJudgedEvent, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlMailOptions, CurlContent, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Curl.Api logs in with CRAM-MD5 by default and the mail is accepted 250; the server judged one CRAM-MD5 login for ann, accepted, and the recorded exchange holds AUTH CRAM-MD5 and no password, plain or base64.
+    program: log-in.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "sent: SMTP 250\nlogin judged: CRAM-MD5 ann@example.com accepted\nclient sent: AUTH CRAM-MD5\npassword on the wire, as is or in base64: False\n"
+
+  - id: wrong-password
+    claim: A wrong password fails the same CRAM-MD5 login; SendAsync throws CurlException 67 and the server records the login as refused.
+    program: log-in.cs
+    args: [wrong]
+    expect:
+      exit: 1
+      stdout: "not sent: curl error 67: Login denied\nlogin judged: CRAM-MD5 ann@example.com refused\nclient sent: AUTH CRAM-MD5\npassword on the wire, as is or in base64: False\n"
+
+  - id: client-will-not-send-plain
+    claim: With LoginOptions AUTH=PLAIN against the default server, Curl.Api finds no mechanism in common, sends no AUTH and throws CurlException 67; the server judged no login at all.
+    program: log-in.cs
+    args: [plain]
+    expect:
+      exit: 1
+      stdout: "not sent: curl error 67: Login denied\nclient sent: (no AUTH)\npassword on the wire, as is or in base64: False\n"
+
+  - id: server-refuses-plain-unchecked
+    claim: A client that sends AUTH PLAIN and AUTH LOGIN regardless sees only CRAM-MD5 offered and gets 538 Encryption required for each, the right password and a wrong one alike.
+    program: log-in.cs
+    args: [raw]
+    expect:
+      exit: 0
+      stdout: "250 AUTH CRAM-MD5\n538 5.7.11 Encryption required for requested authentication mechanism\n538 5.7.11 Encryption required for requested authentication mechanism\n538 5.7.11 Encryption required for requested authentication mechanism\n"
+
+  - id: loosened-plain
+    claim: With AllowPlaintextAuthentication the same AUTH=PLAIN request is accepted 250 and judged PLAIN, and the recorded exchange holds the user name and password in base64.
+    program: log-in.cs
+    args: [loose]
+    expect:
+      exit: 0
+      stdout: "sent: SMTP 250\nlogin judged: PLAIN ann@example.com accepted\nclient sent: AUTH PLAIN\npassword on the wire, as is or in base64: True\n"
