@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-choose-a-block-size]]
+=== Choosing a TFTP Block Size
+
+==== Problem
+
+You are fetching a file over Trivial File Transfer Protocol (TFTP) and you want to choose the size of the blocks it travels in with `--tftp-blksize`, and to see in the trace which block size and file size the server agreed to.
+
+==== Solution
+
+Ask for 1,024-byte blocks with `curl -v` and read the option lines in its trace; here they are picked out with `grep`, which needs a POSIX shell (Git Bash on Windows):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+TFTP sends a file in blocks, one datagram each, and the sender waits for an acknowledgement of every block before it sends the next (<<rfc1350>>). A block is 512 bytes unless the two sides agree otherwise, and a transfer ends with a block shorter than that. Datagrams are User Datagram Protocol (UDP) packets, so the server listens on a UDP port. `--directory site` is all `surl` needs to serve `big.bin`, a file of 3,000 random bytes; `-v` and `--log-file` are only there so the server can be asked what it saw.
+
+The block size is negotiated, not imposed. In an extension to the protocol, the client puts options after the file name in its read request, and the server answers with an option acknowledgement (OACK) that lists the ones it accepts, with the values it will use. `--tftp-blksize 1024` adds `blksize` to the request, and `curl` also asks for `tsize`, the file size, by sending `0`. In the trace, `curl` shows each option the server answered: `tsize` 3000, the size of the file, and `blksize` 1024, the block size it agreed to. The last line reads `requested (1024)` because `curl` compares what it asked for with what came back; the transfer carries on with the answer. The `server-log` case shows the other side of the same exchange: the request with `tsize` `0` and the `blksize` asked for, and `surl`{apos}s OACK with the real size. A size above 65464 bytes is agreed at 65464, the largest the server accepts, and the file still arrives whole.
+
+`-s` keeps `curl`{apos}s progress meter off the screen and `-o copy.bin` writes the file to a local one, which the `same-bytes` case compares with the served file. A larger block does not change what arrives. The copy is the same bytes (the `same-bytes` case compares them with `cmp`), and the number of blocks falls: the server{apos}s log counts 6 blocks at the default 512 and 3 at 1,024. Every block is one acknowledgement to wait for, so fewer blocks are fewer waits. The default needs no option: without `--tftp-blksize`, `curl` asks for 512 and the server agrees.
+
+The block size changes nothing about what the server refuses. A file that is not there is still answered with TFTP error 1, and `curl` exits `68`, file not found, whatever size it asked for. Nothing here loosens anything: reading is the default, and writes need `--allow-uploads`, which this recipe does not use (see <<tftp-download-a-file>>).
+
+The server{apos}s log goes to a folder of its own, `logs`, and a second `surl` serves that folder on a second port. Serving the log from the folder it is written in would log every read of it, and each read would grow the file it is reading.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-choose-a-block-size-in-csharp>> for the same task from C#.
+* <<tftp-choose-a-block-size-from-an-agent>> for the same task from an agent.
+* <<tftp-download-a-file>> for a plain TFTP download, a missing file and a refused write.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>.

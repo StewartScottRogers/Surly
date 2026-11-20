@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: redis-inspect-keys-an-app-left
+title: Inspecting Keys an App Left Behind
+protocols: [redis]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, list_keys, read_key, get_events, curl]
+curl-options: [-s, -S, -u]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After an app has written five keys with curl, an agent lists the keys that match app:* with list_keys, reads each value with read_key, and tells the two with an hour's expiry from the two with none by the expires_at that list_keys gives only a key that has one; the fifth key, other:x, is not listed.
+    program: program.cs
+    args: [inspect]
+    expect:
+      exit: 0
+      stdout: "app:cache:home = page, NO EXPIRY\napp:config = v1, NO EXPIRY\napp:session:1 = s1, expires in about 60 minutes\napp:session:2 = s2, expires in about 60 minutes\n4 keys, 2 without an expiry\n"
+
+  - id: pages
+    claim: list_keys lists in order, cuts a page at limit and says has_more true, and after_key starts the next page after the last key given; the second page is the last.
+    program: program.cs
+    args: [pages]
+    expect:
+      exit: 0
+      stdout: "page 1: app:cache:home, app:config, has_more True\npage 2: app:session:1, app:session:2, has_more False\n"
+
+  - id: what-the-server-recorded
+    claim: get_events, filtered to changes of the keyspace, lists the five writes the app made, in order and each as database and key, other:x included; filtered to the account app it counts five accepted logins, one per curl run.
+    program: program.cs
+    args: [recorded]
+    expect:
+      exit: 0
+      stdout: "written: 0/app:session:1\nwritten: 0/app:session:2\nwritten: 0/app:cache:home\nwritten: 0/app:config\nwritten: 0/other:x\nlogins as app: 5 accepted\n"
+
+  - id: wrong-password
+    claim: An app that runs with the wrong password is refused at its login, WRONGPASS, and curl exits 67; the server records the login as judged and not accepted, list_keys finds none of the app's keys, and read_key of one is a tool error, No such key.
+    program: program.cs
+    args: [wrong-password]
+    expect:
+      exit: 0
+      stdout: "app: exit 67, curl: (67) Redis server answered HELLO with error: WRONGPASS\nlogin judged: account app, accepted False\napp's keys: []\nread_key app:config: error: No such key.\n"

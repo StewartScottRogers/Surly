@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs smoke.cs, a C# program on the official MCP SDK that starts both hosts from
+# PATH; its argument picks which listeners are checked.
+schema: 2
+key: surl-smoke-test-every-listener-from-an-agent
+title: Smoke-Testing Every Listener from an Agent
+protocols: [http, ftp, smtp, imap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, stop_server, curl, get_events]
+exit-codes: [0, 7, 28]
+references: [surl-readme, curl-readme, mcp-spec, rfc9110, rfc959, rfc5321, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Every listener answers its one request through the curl tool, HTTP with 404 for the root, FTP refusing the anonymous login with 530 (exit 67), SMTP and IMAP completing a NOOP; the server's events show one exchange started per listener, and the check exits 0.
+    program: smoke.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ok http: curl exit 0, reply 404\nok ftp: curl exit 67, reply 530\nok smtp: curl exit 0, reply 250\nok imap: curl exit 0, reply 000\nexchanges: http, ftp, smtp, imap\n"
+
+  - id: hung-listener
+    claim: A listener that accepts the connection but never answers fails the check after 3 seconds with curl exit 28, and the listener after it is not tried.
+    program: smoke.cs
+    args: [hung]
+    expect:
+      exit: 28
+      stdout-matches: '^ok http: curl exit 0, reply 404\nFAIL smtp://127\.0\.0\.1:\d+/: curl exit 28\n$'
+
+  - id: nothing-listening
+    claim: The URL of a server stop_server has stopped fails the check at once with curl exit 7, could not connect.
+    program: smoke.cs
+    args: [gone]
+    expect:
+      exit: 7
+      stdout-matches: '^FAIL http://127\.0\.0\.1:\d+/: curl exit 7\n$'

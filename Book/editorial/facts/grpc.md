@@ -1,0 +1,33 @@
+<!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
+# grpc facts
+Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-20, windows.
+
+## Listen URLs and readiness
+`grpc` (HTTP/2 prior knowledge, plain) and `grpcs` (TLS, needs `--cert` or `--self-signed`); TCP, `ready: port`. Built in: `surl.test.Echo` (`Echo`, `Expand`, `Collect`, `Chat`) and server reflection `v1` and `v1alpha`. Reflection cannot be turned off, so a server "with no reflection" cannot be built. `echo.proto` is printed by `surl --aihelp grpc` (also a fixture of grpc-call-a-method).
+
+## Server options that matter
+- `--allow-anonymous` (loosens, warns): calls with no credentials. See grpc-call-a-method for `--user`, `--allow-plaintext-auth`.
+- Request fields of `EchoRequest`: `message` 1, `count` 2, `status_code` 3, `status_message` 4, `delay_milliseconds` 5. JSON names `statusCode`, `statusMessage`, `delayMilliseconds`.
+
+## Client: curl
+- `grpc://host:port/<pkg.Service>/<Method>`, request `-d '{...}'` JSON; reply printed as JSON, one object per message, default values left out (`index` 0).
+- `--grpc-proto file.proto`: types from the file, no reflection. The file decides the JSON names (field numbers on the wire). Errors: unknown field `curl: (2) -d: the data is not a surl.test.Ask message as JSON (UnknownField)` (exit 2); method not in the file `--grpc-proto: service surl.test.Echo has no method Chat` (2); missing file exit 26 `File "missing.proto" was not found`; syntax error exit 26 `bad.proto:1:28: Expected a service name, found "{".`; a service the server does not have, with a file: `grpc-status 12 (UNIMPLEMENTED): unknown service`, exit 22.
+- Any `grpc-status` other than 0: exit 22, stdout the replies already sent, stderr `curl: (22) grpc-status 5 (NOT_FOUND): no such order`. Empty message: `grpc-status 14 (UNAVAILABLE): `. `statusCode` outside 0..16 (99, -1): `grpc-status 3 (INVALID_ARGUMENT): request field out of range`. `grpc-message` percent-encoding is undone (`disk 100% full`).
+- `-m 1` with `delayMilliseconds` 3000: exit 28, no status. The text includes the elapsed milliseconds; match `curl: (28)`.
+- With no body, `GET`: curl without `-d` calls with an empty request; reply `{}` for Echo.
+
+## MCP
+surl-mcp `start_server(listen_urls ["grpc://127.0.0.1:0"], arguments ["--allow-anonymous"])`. curl-mcp `curl(args)` as the console; a failing status is a tool error (`isError` true) with `exitCode` 22 and `standardError`; `.proto` files go in `CURL_MCP_ROOT` (recipe fixtures). `get_events` gives `exchange_ended` with `sent_byte_count`; `get_exchanges` gives base64 HTTP/2 frames with compressed headers.
+
+## C#
+- Surl.Api hosts `grpc://127.0.0.1:0`; `BoundUrl.Port` for the framework client: `HttpClient` with `Version = 2.0`, `VersionPolicy = RequestVersionExact`, a `POST` of `[0, 4-byte big-endian length, message]`, `Content-Type: application/grpc`, header `TE: trailers` (the server answers 13 `te: trailers required` without it). Status in `response.TrailingHeaders` (`grpc-status`, `grpc-message`), or in `Headers` when the call fails before a reply.
+- Curl.Api 0.2.0: `GET grpc://.../surl.test.Echo/Echo` = reflection call with an empty request, body `{}`. A `POST` body is not sent (status 0, `{}`); with `Content-Type: application/json` it fails `HTTP status 415`. No option for a `.proto` file. Unknown service `CurlException` 22 `HttpReturnedError`; unknown method 2 `FailedInit`.
+- Libcurl 0.2.0: `UnsupportedProtocol` for `grpc://` (and `kafka://`).
+
+## Gotchas
+- Reflection request by hand: `ServerReflectionRequest.list_services` is field 7 (`3A 00`); the answer's field 6 holds the services.
+
+## Recipes
+grpc-call-with-a-proto-file, grpc-test-a-failing-call (each with -in-csharp and -from-an-agent); also grpc-call-a-method.
+
+- Libcurl answers `UnsupportedProtocol` for this scheme by design: Libcurl mirrors upstream libcurl's protocol set, and extensions never change Libcurl or `curl -V`. Use Curl.Api or the console (Curl session, 2026-11-20).

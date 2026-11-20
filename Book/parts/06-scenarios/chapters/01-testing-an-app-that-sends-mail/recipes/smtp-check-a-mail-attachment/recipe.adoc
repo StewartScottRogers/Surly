@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-check-a-mail-attachment]]
+=== Checking a Mail's Attachment
+
+==== Problem
+
+Your app sends a report as a Multipurpose Internet Mail Extensions (MIME) attachment; you want the test to fetch the stored message and compare the attachment{apos}s bytes with the report.
+
+==== Solution
+
+Run one `surl` that serves mail for your domain over Simple Mail Transfer Protocol (SMTP) and Internet Message Access Protocol (IMAP), send the mail as the app would, and run a short script that fetches the attachment{apos}s part over IMAP, decodes it and compares it with the report. The script needs a POSIX shell (Git Bash on Windows):
+
+include::check-attachment.sh[]
+
+include::.generated/solution.adoc[]
+
+The first `curl` stands in for the app; in a real test the app sends, and the test runs the script.
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL runs both over one mail store, so what the app sends is read back from the same process (<<surl-readme>>). `--mail-domain example.com` serves that domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address: the app sends as `app@example.com`, and the test reads as `ann@example.com`. The sending side is the usual one: `-u` the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T report-mail.eml` the message, and `--crlf` the carriage return and line feed every line of a message ends in (<<rfc5321>>, <<rfc5322>>). The attachment travels as text: the report{apos}s bytes in base64, in the message{apos}s second part.
+
+IMAP numbers the parts of a MIME message, and a fetch can name one (<<rfc9051>>). `-X "FETCH 1 BODYSTRUCTURE"` shows the layout the server stored: a `multipart/mixed` message whose part 1 is the `text/plain` note and part 2 the `text/csv` attachment, encoded `BASE64`, with the file name `report.csv`. `INBOX;UID=1;SECTION=2.MIME` fetches only part 2{apos}s own header, where a test can check the name and type, and `SECTION=2` fetches its body as stored, which is still base64, not the report.
+
+The script turns that body back into bytes. `-o part.b64` writes it to a file, and `-s` with `-S` keeps `curl` quiet but for an error; a failed fetch ends the script with `curl`{apos}s exit code. `tr -d '\r'` removes the carriage returns the stored lines end in, `base64 -d` decodes, and `cmp -s` compares the result with `report.csv` byte for byte. On a match it says how many bytes matched and exits `0`; otherwise it says the attachment differs and exits `1`. Comparing bytes, not text, is the point: an attachment that differs by one byte, or an older report, as in the second mail, is caught.
+
+A missing attachment needs its own check, because asking for a part that is not there is not an error. For the third mail, which has no attachment, `SECTION=2` gives nothing and `curl` exits `0`, as `-w` with `%{size_download}` shows, zero bytes. The script tests for an empty part first and exits `1`, rather than letting `base64 -d` and `cmp` compare nothing with the report.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-a-mail-attachment-in-csharp>> for the same test in C#, with the app on .NET{apos}s `SmtpClient`.
+* <<smtp-check-a-mail-attachment-from-an-agent>> for the same test run by an agent.
+* <<smtp-check-the-mail-an-app-sent>> for checking the sender, recipient and subject.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc5322>>, <<rfc9051>>.

@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: dns-read-answers-as-json-from-an-agent
+title: DNS Answers as JSON from an Agent
+protocols: [dns]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, add_dns_zone, read_zone, curl, transfer]
+curl-options: [-s, --dns-json, --dns-transport]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, mcp-spec, rfc1035, rfc4501]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: add_dns_zone seeds a zone into a running DNS server, and curl-mcp's curl tool with --dns-json looks up MX, TXT and AAAA and answers each as JSON; the agent reads status and each record's data object, with curl's exit code 0.
+    program: program.cs
+    args: [lookup]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone: example.test\nMX: exit 0, NOERROR, 2 records\n  {\"preference\":10,\"exchange\":\"mail.example.test.\"}\n  {\"preference\":20,\"exchange\":\"mail2.example.test.\"}\nTXT: exit 0, NOERROR, 1 records\n  {\"txt\":[\"v=spf1 mx -all\",\"second string\"]}\nAAAA: exit 0, NOERROR, 1 records\n  {\"address\":\"2001:db8::25\"}\ntool error: no\n"
+
+  - id: outside-the-zone
+    claim: A name in no zone the server holds is answered REFUSED with no records, and the curl tool still reports exit 0 and no tool error; the refusal is in status.
+    program: program.cs
+    args: [outside-the-zone]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone: example.test\nA: exit 0, REFUSED, 0 records\ntool error: no\n"
+
+  - id: no-such-type
+    claim: A name the zone holds, asked for a type it has no record of, is answered NOERROR with no records.
+    program: program.cs
+    args: [no-such-type]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone: example.test\nSRV: exit 0, NOERROR, 0 records\ntool error: no\n"
+
+  - id: no-zone
+    claim: A server that was given no zone refuses every name, example.test included.
+    program: program.cs
+    args: [no-zone]
+    expect:
+      exit: 0
+      stdout: "MX: exit 0, REFUSED, 0 records\ntool error: no\n"
+
+  - id: tcp
+    claim: --dns-transport tcp in the curl tool's arguments asks over TCP, and the same server answers the same record.
+    program: program.cs
+    args: [tcp]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone: example.test\nAAAA: exit 0, NOERROR, 1 records\n  {\"address\":\"2001:db8::25\"}\ntool error: no\n"
+
+  - id: read-zone
+    claim: read_zone with no apex lists the zones the server holds, each with its final dot; with an apex it answers the zone as master-file text, and an apex the server does not hold is a tool error, No such zone.
+    program: program.cs
+    args: [read-zone]
+    expect:
+      exit: 1
+      stdout: "add_dns_zone: example.test\nread_zone: example.test.\nexample.test. 300 IN MX 10 mail.example.test.\nread_zone nope.test: error: No such zone.\ntool error: yes\n"
+
+  - id: second-zone
+    claim: A second zone for an apex the server already holds is a tool error whose text says it was refused, and the first zone stays.
+    program: program.cs
+    args: [second-zone]
+    expect:
+      exit: 1
+      stdout: "add_dns_zone: example.test\nadd_dns_zone again: error: Zones: The zone example.test was refused: a second zone for example.test.\ntool error: yes\n"
+
+  - id: no-dns-listener
+    claim: add_dns_zone on a server with no DNS listener, here an HTTP one, is a tool error, since the instance holds no DNS zones.
+    program: program.cs
+    args: [no-dns-listener]
+    expect:
+      exit: 1
+      stdout: "add_dns_zone: error: Zones: The zone example.test was refused: This instance holds no DNS zones.\ntool error: yes\n"
+
+  - id: transfer-has-no-json-switch
+    claim: The transfer tool takes a dns URL too but has no field for --dns-json, so its body is the answer as dig-like text and its statusCode is 0.
+    program: program.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "add_dns_zone: example.test\ntransfer: statusCode 0, body starts status: NOERROR\ntool error: no\n"

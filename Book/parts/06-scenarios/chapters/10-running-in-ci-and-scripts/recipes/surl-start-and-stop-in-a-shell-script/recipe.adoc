@@ -1,0 +1,49 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-start-and-stop-in-a-shell-script]]
+=== Starting and Stopping in a Shell Script
+
+==== Problem
+
+You want a script to start the server in the background, read its port from the Listening on line, run the tests and stop the server on any exit.
+
+==== Solution
+
+Wrap the tests in a script that starts `surl` on port 0, waits for its `Listening on` line, hands the URL to the tests in `SURL_URL`, and stops `surl` from an `EXIT` trap. The script needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::with-surl.sh[]
+----
+
+The tests here are one fetch:
+
+[source,sh]
+----
+include::tests.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` with `--directory` serves the folder given as the script{apos}s first argument over Hypertext Transfer Protocol (HTTP) on a port the system picks, so two runs on one machine never ask for the same one. Once it has bound, `surl` writes `Listening on http://127.0.0.1:<port>/` to standard output; the script waits for that line rather than sleeping a guessed time, and `sed` takes the URL from it. The script must not pass `-s` to `surl`, which silences the line. `tests.sh` stands for the tests: `curl` with `-f` fails on an error status, `-s` keeps it quiet and `-S` still prints the error.
+
+While it waits, `kill -0` asks whether `surl` is still running. If it is not, it refused to start: the script collects its exit code with `wait`, prints what `surl` wrote to standard error, and exits with that code without running the tests. A directory that does not exist is exit 37 with `surl: (37) Could not open directory nowhere`; a taken port is 45 (<<surl-recover-when-a-port-is-taken>>). A hundred tries of a tenth of a second is the limit for a `surl` that runs but never writes the line.
+
+The trap is what makes the stop happen on any exit. `trap stop EXIT` runs `stop` however the shell ends; `stop` keeps the exit status it was called with, stops `surl`, waits for it so that the port is free when the script returns, and exits with the kept status. So a failing test, here `curl -f` exiting 22 for a `404`, still stops the server, and the script still exits 22. The `INT` and `TERM` traps turn Ctrl+C and a `kill` into an ordinary `exit 130` or `exit 143`, which runs the `EXIT` trap too.
+
+The command runs in the background and the script `wait`{apos}s for it. A shell acts on a trapped signal only between commands, so with the tests in the foreground a cancelled continuous integration (CI) job would leave `surl` running until the tests ended on their own; `wait` is interrupted by the signal at once. `stop` then ends the command as well. After any of these exits, `curl` to the old URL, its body dropped with `-o /dev/null`, exits 7: nothing listens.
+
+`kill` sends SIGTERM. On Linux and macOS `surl` handles it and exits 0. On Windows, Git Bash{apos}s `kill` cannot signal a native program and ends `surl` outright, so the shell reports 143. The script prints the code and does not judge it; <<surl-run-a-test-server-in-ci>> does.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-find-the-port-it-chose>> for the `Listening on` line on its own.
+* <<surl-run-a-test-server-in-ci>> for a CI step that also checks how `surl` ended.
+* <<surl-stop-servers-cleanly-in-teardown>> for the same guarantee from a C# test.
+* <<surl-readme>>, <<curl-manual>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-set-client-defaults-once]]
+=== Setting Client Defaults Once
+
+==== Problem
+
+You want one `CurlClient` with a user agent and timeouts set once, for every request your C# code makes over Hypertext Transfer Protocol (HTTP), and a test that sees the user agent arrive at a server run with `Surl.Api`.
+
+==== Solution
+
+Create the client from a `CurlClientOptions` holding `UserAgent`, `Timeout` and `ConnectTimeout`, send requests through it, and read the `User-Agent` of each request from the exchanges the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`CurlClientOptions` is the settings a `CurlClient` applies to every request it sends; `CurlClient.Create(options)` fixes them for the client{apos}s lifetime. Each property is a `curl` option by another name (<<curl-readme>>): `UserAgent` is `-A`, the `User-Agent` header (<<rfc9110>>); `Timeout` is `--max-time`, the longest a whole transfer may take; `ConnectTimeout` is `--connect-timeout`, the longest the connection alone may take. Set them once, where the client is made, and the code that builds each `CurlRequest` never thinks about them.
+
+The test reads them where they land. `RecordExchanges` on the `SurlServerOptions` has the `SurlServer` keep the bytes of every exchange; each `CurlResponse` body is read to its end so the request is complete, and the program then splits what the server received into request heads and prints each one{apos}s `User-Agent` line. All three requests carry `report-tests/1.0`, and the program exits `0`.
+
+One request can differ without changing the client. A `CurlRequest` whose `Http` property holds a `CurlHttpOptions` with its own `UserAgent` sends that instead, `one-off/2.0` here, and the next request is back to the default. The program counts that as a failure and exits `1`, which is what the test is for.
+
+Leave the options out and there is no default to fall back on: `CurlClient.Create()` with nothing set sends no `User-Agent` header at all, unlike the `curl` command, which sends its own. The test catches that with exit `1`.
+
+`Timeout` is the default that matters most on a bad day. `surl` holds requests for `slow.txt` for five seconds, set with a `SurlFault` delay at the command stage; the client gives up at two, and `SendAsync` throws `CurlException` whose `Code` is `OperationTimedOut`, `curl`{apos}s exit code `28`, before the server has answered. Left unset, `Timeout` means no limit (<<curl-readme>>), and a hung server hangs the test with it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-check-headers-reach-the-server-in-csharp>> for headers added per request rather than per client.
+* <<http-time-out-a-hanging-server-in-csharp>> for timeouts against a server that never answers.
+* <<http-serve-and-fetch-in-process>> for the server and client in one program.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

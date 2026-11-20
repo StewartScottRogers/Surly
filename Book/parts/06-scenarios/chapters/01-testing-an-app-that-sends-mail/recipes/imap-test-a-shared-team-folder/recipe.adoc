@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-test-a-shared-team-folder]]
+=== Testing a Shared Team Folder
+
+==== Problem
+
+Your team inbox is a shared Internet Message Access Protocol (IMAP) folder; you want two accounts sharing it and a test that both see, and one can flag, a message delivered to it.
+
+==== Solution
+
+Run one `surl` that shares a folder named `team` between Ann and Bob, then, in one `curl`, append the notice to it as Ann, flag it as Bob, and search it for flagged mail as Ann:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--shared-folder team=ann@example.com,bob@example.com` creates one folder, `team`, and gives it to the members named, here two mailboxes made with `--mailbox` under `--mail-domain example.com` (<<surl-readme>>). It belongs to neither of them. Each member{apos}s `LIST` shows it as `Shared/team`, under a `Shared` folder that cannot itself be selected, and `NAMESPACE` names `Shared/` as the shared namespace, which is how an IMAP client learns where shared folders live (<<rfc9051>>). The members use it as equals: what one puts in, the other reads, and a flag one sets, the other sees, because the folder and its flags are stored once.
+
+The solution is the test, three transfers joined by `--next`, each with its own `-u` login. `-T notice.eml` on an IMAP URL is an `APPEND`: `curl` sends the message to the folder named in the URL, with its size in octets first and the `\Seen` flag (<<curl-manual>>). `-X "STORE 1 +FLAGS (\Flagged)"` selects the folder and adds `\Flagged` to message 1; the server answers with the message{apos}s flags, `\Flagged` and the `\Seen` the append set. The URL `Shared/team?FLAGGED` is a `SEARCH`, and `* SEARCH 1` is Ann{apos}s view of Bob{apos}s flag. Fetching `Shared/team;UID=1;SECTION=HEADER.FIELDS%20(FROM%20SUBJECT)` as each member gives both the same two fields. The fixture{apos}s lines already end in a carriage return and line feed: an append states its size before the message, so `curl` refuses `--crlf` there with exit `25`, `Cannot APPEND with CRLF conversion making size unknown`.
+
+A shared folder has no mail address. `surl` delivers Simple Mail Transfer Protocol (SMTP) mail to mailboxes only (<<rfc5321>>), so mail to `team@example.com` is accepted `250` and discarded, as mail to an unknown address in the domain is (<<surl-readme>>). In that case the app logs in as `app@example.com`, `--mail-from` and `--mail-rcpt` give the envelope sender and recipient, `--crlf` is allowed because SMTP sends no size first, and `-w "%{response_code}\n"` prints the server{apos}s last reply code; `STATUS` then still counts only the messages appended before. Mail reaches the folder by an append, as above, or by a member moving it there: the app sends to Ann, and `-X "MOVE 1 Shared/team"` on her `INBOX` moves it, after which Bob{apos}s `SEARCH ALL` lists it and Ann{apos}s `INBOX` is empty. A team that wants every member to get mail sent to one address gives each a copy with `--mail-alias`, which is <<smtp-route-mail-through-aliases>>.
+
+The folder is closed to everyone else, which is the default and needs no option. Carol has a mailbox on the same server, but her `LIST` shows only her `INBOX`; selecting `Shared/team` is answered as a folder that does not exist, and `curl` exits `67`, `Select failed`; her append fails with exit `25`. Members cannot remove the folder either: `DELETE Shared/team` is refused `NO [NOPERM] A shared folder cannot be deleted`, and `curl` exits `21`, quote command returned error. Membership is what `--shared-folder` names when `surl` starts (<<surl-readme>>). In these cases `-s` keeps `curl` quiet, `-S` still shows its error, and `-v` shows the commands and replies, where the append line and the `NOPERM` reply are read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-test-a-shared-team-folder-in-csharp>> for the same test in C#.
+* <<imap-test-a-shared-team-folder-from-an-agent>> for the same test run by an agent.
+* <<smtp-route-mail-through-aliases>> for one address that reaches several mailboxes.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

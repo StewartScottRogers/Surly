@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-smoke-test-every-listener]]
+=== Smoke-Testing Every Listener
+
+==== Problem
+
+After standing up a test environment you want one quick check that every listener answers before the suite runs, failing fast on the one that does not.
+
+==== Solution
+
+Give a short script every listen URL of the environment. It sends each one request in its own protocol, with a time limit, and stops at the first that does not answer. It needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::smoke.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The environment is one `surl` with four listeners: Hypertext Transfer Protocol (HTTP, <<rfc9110>>) serving `--directory site`, File Transfer Protocol (FTP, <<rfc959>>), Simple Mail Transfer Protocol (SMTP, <<rfc5321>>) and Internet Message Access Protocol (IMAP, <<rfc9051>>), the last two over one mail store with `--mail-domain example.com` and the mailbox `--mailbox app@example.com:secret`. `-v` with `--log-file surl.log` writes every line each listener receives and sends to the file.
+
+A port that accepts a connection is not a listener that answers, so the smoke test asks each one something. `curl` sends a `GET` of the root over HTTP and, with `-X NOOP`, the protocol{apos}s no-op command over the others; the request changes nothing on the server and needs no login over SMTP and IMAP. A listener passes if `curl` got any reply: HTTP{apos}s `404` for a directory, and FTP{apos}s `530`, which refuses `curl`{apos}s anonymous login, are answers and count. `-w` prints `%{response_code}`, the reply code, and `%{num_connects}`, whether a connection was made; `-o /dev/null` drops the body and `-s` the progress meter. `curl` reports no reply code for IMAP, so there the pass is its exit code 0.
+
+`-m 3` gives each request 3 seconds. A listener that accepts the connection and then says nothing, here an SMTP `surl` started with `--fault "delay;ms=60000"` to hold every connection for a minute, fails with `curl`{apos}s exit 28 after those 3 seconds, and the script names its URL and stops; the IMAP listener after it is never asked. A port where nothing listens fails at once with exit 7. Either way the script exits with `curl`{apos}s code, so a continuous integration (CI) job can end there before the suite starts. `--fault` makes a server misbehave on purpose, for tests only; the environment itself runs without it.
+
+`surl.log` shows what the check cost the server: one request line per listener, the `GET`, the FTP `USER anonymous`, the SMTP `NOOP` and IMAP{apos}s tagged `NOOP`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-smoke-test-every-listener-in-csharp>> for the same check from a C# test.
+* <<surl-smoke-test-every-listener-from-an-agent>> for the same check from an agent.
+* <<surl-run-a-test-server-in-ci>> for starting the environment in a CI step.
+* <<http-time-out-a-hanging-server>> for timeouts on their own.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>, <<rfc959>>, <<rfc5321>>, <<rfc9051>>.

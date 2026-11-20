@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs replay.cs, a C# program on the official MCP SDK that
+# starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: kafka-replay-a-topic-from-an-offset-from-an-agent
+title: Replaying Kafka from Offsets from an Agent
+protocols: [kafka]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, publish_message, read_log, curl]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 3, 8]
+references: [surl-readme, curl-readme, kafka-protocol]
+triplet: kafka-replay-a-topic-from-an-offset
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After five records are in the topic, the curl tool with ?offset=3 answers exit 0 and the output d and e, a newline after each, and not the three records before them.
+    program: replay.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no, output [d|e|]\n"
+
+  - id: whole-log
+    claim: With no offset, and with ?offset=0, the curl tool answers every record, the old ones too.
+    program: replay.cs
+    args: [whole-log]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no, output [a|b|c|d|e|]\ncurl exit 0, tool error no, output [a|b|c|d|e|]\n"
+
+  - id: caught-up
+    claim: An offset equal to the record count, 5, answers exit 0 with empty output and no tool error; after one more record the same offset answers only that record.
+    program: replay.cs
+    args: [caught-up]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no, output []\ncurl exit 0, tool error no, output [f|]\n"
+
+  - id: past-the-end
+    claim: An offset past the end, 9, is a tool error, curl's exit 8, with the broker's error 1, OFFSET_OUT_OF_RANGE, as curl wrote it on standard error.
+    program: replay.cs
+    args: [past-the-end]
+    expect:
+      exit: 0
+      stdout: "curl exit 8, tool error yes, output [], error curl: (8) Kafka broker answered error 1 (OFFSET_OUT_OF_RANGE) for topic orders partition 0\n"
+
+  - id: not-a-number
+    claim: An offset that is not a number is refused by curl before it connects, exit 3, a tool error, naming the form offset=<number>.
+    program: replay.cs
+    args: [not-a-number]
+    expect:
+      exit: 0
+      stdout: "curl exit 3, tool error yes, output [], error curl: (3) Kafka URL query is offset=<number>\n"
+
+  - id: read-log
+    claim: read_log gives the broker's own log with the offsets curl never prints, here d and e at 3 and 4 with the next offset 5, a limit of 2 from 0 with more to come, and an offset past the end as a tool error saying the log holds 0 to 5; the records d and e were produced by the curl tool with -d and a to c by publish_message, and the log holds them all.
+    program: replay.cs
+    args: [read-log]
+    expect:
+      exit: 0
+      stdout: "read_log 3: 3=d 4=e, next 5, more False\nread_log 0: 0=a 1=b, next 2, more True\nread_log 9: error: Offset 9 is outside the log, which holds 0 to 5.\n"
+
+  - id: fresh-broker
+    claim: A new broker has an empty log, so the saved offset 5 is past its end and the consume is the same exit 8 tool error; the consumer must read from 0 again.
+    program: replay.cs
+    args: [fresh-broker]
+    expect:
+      exit: 0
+      stdout: "curl exit 8, tool error yes, output [], error curl: (8) Kafka broker answered error 1 (OFFSET_OUT_OF_RANGE) for topic orders partition 0\n"

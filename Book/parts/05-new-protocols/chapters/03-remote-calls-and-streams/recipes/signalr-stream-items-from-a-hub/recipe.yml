@@ -1,0 +1,76 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: signalr-stream-items-from-a-hub
+title: Streaming Items from a Hub
+protocols: [signalr]
+tier: new-protocols
+surl-options: [--allow-anonymous]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, curl-protocols, signalr-hub-protocol, rfc6455]
+
+# main accepts anyone. plain is the default: no account and no --allow-anonymous.
+servers:
+  main:
+    command: surl --allow-anonymous signalr://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl signalr://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A stream invocation (type 4) of the hub method Count with 5 writes the five stream items, 1 to 5, one per line as they arrive, and ends at the stream's completion with exit 0.
+    run: curl -s -S -d "{\"type\":4,\"target\":\"Count\",\"arguments\":[5]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "1\n2\n3\n4\n5\n"
+
+  - id: empty-stream
+    claim: A stream of no items, Count with 0, is complete at once; curl writes nothing and exits 0.
+    run: curl -s -S -d "{\"type\":4,\"target\":\"Count\",\"arguments\":[0]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: unknown-method
+    claim: A stream invocation of a method the hub does not have is answered with a completion carrying an error; curl prints it on stderr, writes no item, and exits 22.
+    run: curl -s -S -d "{\"type\":4,\"target\":\"Shout\",\"arguments\":[]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "SignalR hub method failed: Unknown hub method."
+
+  - id: wrong-message-type
+    claim: Count is a streaming method, so an ordinary invocation (type 1) of it is refused with "The method was invoked with the wrong message type.", exit 22.
+    run: curl -s -S -d "{\"type\":1,\"target\":\"Count\",\"arguments\":[3]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "SignalR hub method failed: The method was invoked with the wrong message type."
+
+  - id: not-a-stream-method
+    claim: The same refusal the other way round, a stream invocation (type 4) of Echo, which returns one result and is no stream.
+    run: curl -s -S -d "{\"type\":4,\"target\":\"Echo\",\"arguments\":[\"hi\"]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "SignalR hub method failed: The method was invoked with the wrong message type."
+
+  - id: invalid-arguments
+    claim: Count with an argument that is not a non-negative whole number, here -1, is refused with "Invalid arguments for the hub method.", exit 22, and no item.
+    run: curl -s -S -d "{\"type\":4,\"target\":\"Count\",\"arguments\":[-1]}" signalr://127.0.0.1:{{port}}/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "SignalR hub method failed: Invalid arguments for the hub method."
+
+  - id: refused-by-default
+    claim: Without an account or --allow-anonymous the negotiate request is refused 401 Unauthorized, and curl exits 22 before any item.
+    run: curl -s -S -d "{\"type\":4,\"target\":\"Count\",\"arguments\":[5]}" signalr://127.0.0.1:{{port2}}/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "The negotiate request failed with HTTP status 401."

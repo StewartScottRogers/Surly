@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: dns-read-answers-as-json
+title: Reading DNS Answers as JSON
+protocols: [dns]
+tier: new-protocols
+surl-options: [--directory]
+curl-options: [-s, --dns-json, --dns-transport]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc1035, rfc4501]
+
+# The zone is a master file under .surl/dns in the served directory, named for its apex.
+fixtures:
+  site/.surl/dns/example.test.zone: |
+    $ORIGIN example.test.
+    $TTL 300
+    @    IN SOA  ns1.example.test. hostmaster.example.test. 1 3600 600 86400 300
+    @    IN NS   ns1.example.test.
+    @    IN MX   10 mail.example.test.
+    @    IN MX   20 mail2.example.test.
+    @    IN TXT  "v=spf1 mx -all" "second string"
+    @    IN AAAA 2001:db8::25
+    mail IN A    192.0.2.25
+
+# main holds the zone. bare is a dns server with no zone at all.
+servers:
+  main:
+    command: surl --directory site dns://127.0.0.1:{{port}}/
+    ready: port
+  bare:
+    command: surl dns://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A curl run with --dns-json asks the server for the MX records of example.test and writes the whole answer as one line of JSON; the two exchanges come with their preferences, 10 and 20, as numbers, and curl exits 0.
+    run: curl -s --dns-json "dns://127.0.0.1:{{port}}/example.test?type=MX"
+    expect:
+      exit: 0
+      stdout-matches: '\A\{"id":\d+,"opcode":"QUERY","status":"NOERROR","flags":\["qr","aa","rd"\],"question":\[\{"name":"example\.test\.","type":"MX","class":"IN"\}\],"answer":\[\{"name":"example\.test\.","type":"MX","class":"IN","ttl":300,"data":\{"preference":10,"exchange":"mail\.example\.test\."\}\},\{"name":"example\.test\.","type":"MX","class":"IN","ttl":300,"data":\{"preference":20,"exchange":"mail2\.example\.test\."\}\}\],"authority":\[.*\],"additional":\[.*\]\}\n\Z'
+
+  - id: txt
+    claim: A TXT record is written as its character-strings, an array in the order the zone gives them.
+    run: curl -s --dns-json "dns://127.0.0.1:{{port}}/example.test?type=TXT"
+    expect:
+      exit: 0
+      stdout-matches: '"answer":\[\{"name":"example\.test\.","type":"TXT","class":"IN","ttl":300,"data":\{"txt":\["v=spf1 mx -all","second string"\]\}\}\]'
+
+  - id: aaaa
+    claim: An AAAA record is written as its address in its short form, in the field address.
+    run: curl -s --dns-json "dns://127.0.0.1:{{port}}/example.test?type=AAAA"
+    expect:
+      exit: 0
+      stdout-matches: '"answer":\[\{"name":"example\.test\.","type":"AAAA","class":"IN","ttl":300,"data":\{"address":"2001:db8::25"\}\}\]'
+
+  - id: outside-the-zone
+    claim: A name in no zone the server holds is answered REFUSED with no records, and curl still exits 0, because the answer is the output asked for.
+    run: curl -s --dns-json "dns://127.0.0.1:{{port}}/nope.invalid?type=A"
+    expect:
+      exit: 0
+      stdout-matches: '\A\{"id":\d+,"opcode":"QUERY","status":"REFUSED","flags":\["qr","rd"\],"question":\[\{"name":"nope\.invalid\.","type":"A","class":"IN"\}\],"answer":\[\],"authority":\[\],"additional":\[\]\}\n\Z'
+
+  - id: no-zone-at-all
+    claim: A server started with no zone refuses every name, example.test included.
+    run: curl -s --dns-json "dns://127.0.0.1:{{port2}}/example.test?type=MX"
+    expect:
+      exit: 0
+      stdout-matches: '"status":"REFUSED".*"answer":\[\],"authority":\[\],"additional":\[\]'
+
+  - id: no-such-type
+    claim: A name the zone holds, asked for a type it has no record of, is answered NOERROR with an empty answer and the zone's SOA record in authority, so a script tells it from a refusal by the status.
+    run: curl -s --dns-json "dns://127.0.0.1:{{port}}/example.test?type=SRV"
+    expect:
+      exit: 0
+      stdout-matches: '"status":"NOERROR".*"answer":\[\],"authority":\[\{"name":"example\.test\.","type":"SOA","class":"IN","ttl":300,"data":\{"mname":"ns1\.example\.test\.","rname":"hostmaster\.example\.test\.","serial":1,"refresh":3600,"retry":600,"expire":86400,"minimum":300\}\}\]'
+
+  - id: tcp-transport
+    claim: --dns-transport tcp asks over TCP instead of UDP, and the server answers the same records.
+    run: curl -s --dns-json --dns-transport tcp "dns://127.0.0.1:{{port}}/example.test?type=AAAA"
+    expect:
+      exit: 0
+      stdout-matches: '"answer":\[\{"name":"example\.test\.","type":"AAAA","class":"IN","ttl":300,"data":\{"address":"2001:db8::25"\}\}\]'
+
+  - id: text-without-the-flag
+    claim: Without --dns-json curl writes the same answer as dig-like text, a header line and then a line per record, which is what a script has to parse by hand.
+    run: curl -s "dns://127.0.0.1:{{port}}/example.test?type=MX"
+    expect:
+      exit: 0
+      stdout-matches: '\A;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: \d+\n.*example\.test\.\t300\tIN\tMX\t10 mail\.example\.test\.\n'

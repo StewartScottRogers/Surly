@@ -1,0 +1,113 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: kafka-replay-a-topic-from-an-offset
+title: Replaying a Topic from an Offset
+protocols: [kafka]
+tier: new-protocols
+surl-options: [--allow-anonymous]
+curl-options: [-s, -S, -d, --next]
+exit-codes: [0, 3, 8]
+references: [surl-readme, curl-readme, curl-protocols, kafka-protocol]
+triplet: kafka-replay-a-topic-from-an-offset
+
+# main holds the log the consumer reads: three records are produced before the first case,
+# so the consumer has already seen offsets 0 to 2 and saved the offset 3.
+servers:
+  main:
+    command: surl --allow-anonymous kafka://127.0.0.1:{{port}}/
+    ready: port
+
+seed:
+  - curl -s -d a kafka://127.0.0.1:{{port}}/orders --next -s -d b kafka://127.0.0.1:{{port}}/orders --next -s -d c kafka://127.0.0.1:{{port}}/orders
+
+cases:
+  - id: solution
+    role: solution
+    claim: After two more records are produced, a consume from the saved offset 3 writes those two values and none of the three before them, oldest first, exit 0.
+    run: curl -s -d d kafka://127.0.0.1:{{port}}/orders --next -s -d e kafka://127.0.0.1:{{port}}/orders --next -s "kafka://127.0.0.1:{{port}}/orders?offset=3"
+    expect:
+      exit: 0
+      stdout: "d\ne\n"
+
+  - id: no-offset-is-zero
+    claim: A consume with no offset starts at 0 and writes every record, the old ones too, so the offset is what makes a read a replay from a point.
+    run: curl -s kafka://127.0.0.1:{{port}}/orders
+    expect:
+      exit: 0
+      stdout: "a\nb\nc\nd\ne\n"
+
+  - id: offset-zero
+    claim: ?offset=0 is the same as no offset, a replay of the whole log.
+    run: curl -s "kafka://127.0.0.1:{{port}}/orders?offset=0"
+    expect:
+      exit: 0
+      stdout: "a\nb\nc\nd\ne\n"
+
+  - id: from-the-middle
+    claim: An offset names the first record to write; ?offset=2 skips a and b and writes c, d and e.
+    run: curl -s "kafka://127.0.0.1:{{port}}/orders?offset=2"
+    expect:
+      exit: 0
+      stdout: "c\nd\ne\n"
+
+  - id: with-a-partition
+    claim: The offset goes after the partition in the same URL; /orders/0?offset=4 writes the last record.
+    run: curl -s "kafka://127.0.0.1:{{port}}/orders/0?offset=4"
+    expect:
+      exit: 0
+      stdout: "e\n"
+
+  - id: caught-up
+    claim: A consumer that has read everything holds the offset 5, the number of records; a consume from it writes nothing and exits 0, which is the end of the log and not an error.
+    run: curl -s "kafka://127.0.0.1:{{port}}/orders?offset=5"
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: resume-after-caught-up
+    claim: Once one more record is produced, the same consume from offset 5 writes only that record.
+    run: curl -s -d f kafka://127.0.0.1:{{port}}/orders --next -s "kafka://127.0.0.1:{{port}}/orders?offset=5"
+    expect:
+      exit: 0
+      stdout: "f\n"
+
+  - id: past-the-end
+    claim: An offset past the end, here 9 for a log of 6 records, is answered error 1, OFFSET_OUT_OF_RANGE, writes nothing, and curl exits 8.
+    run: curl -sS "kafka://127.0.0.1:{{port}}/orders?offset=9"
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "error 1 (OFFSET_OUT_OF_RANGE) for topic orders partition 0"
+
+  - id: just-past-the-count
+    claim: The line sits exactly at the record count; with 6 records, offset 7 is already refused.
+    run: curl -sS "kafka://127.0.0.1:{{port}}/orders?offset=7"
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "OFFSET_OUT_OF_RANGE"
+
+  - id: offsets-are-per-topic
+    claim: Each topic has its own offsets; a topic with one record has the end at 1 where orders has it at 6.
+    run: curl -s -d only kafka://127.0.0.1:{{port}}/refunds --next -s "kafka://127.0.0.1:{{port}}/refunds?offset=1" --next -s "kafka://127.0.0.1:{{port}}/refunds?offset=0"
+    expect:
+      exit: 0
+      stdout: "only\n"
+
+  - id: not-a-number
+    claim: An offset that is not a whole number, such as -1 or abc, is refused by curl before it connects, exit 3, naming the form offset=<number>.
+    run: curl -sS "kafka://127.0.0.1:{{port}}/orders?offset=abc"
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "Kafka URL query is offset=<number>"
+
+  - id: after-a-restart
+    claim: This surl keeps its log in memory, so after a restart a saved offset of 6 is past the end of an empty log and is refused as error 1; the consumer must read from 0 again.
+    restart: [main]
+    run: curl -sS "kafka://127.0.0.1:{{port}}/orders?offset=6"
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "OFFSET_OUT_OF_RANGE"

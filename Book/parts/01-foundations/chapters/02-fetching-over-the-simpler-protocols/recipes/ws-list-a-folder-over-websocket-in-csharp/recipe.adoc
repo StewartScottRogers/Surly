@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-list-a-folder-over-websocket-in-csharp]]
+=== Listing a Folder over WebSocket in C#
+
+==== Problem
+
+Your C# client reads a folder listing over a WebSocket. You want `Curl.Api` to receive the listing as one text message, and your code to handle the refused upgrade when the server does not list folders.
+
+==== Solution
+
+Start a `SurlServer` with `ListDirectories` on and a few files in memory, open a WebSocket to its root with `ConnectWebSocketAsync`, and read the message:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `ws://127.0.0.1:0`, and port 0 asks the system for a free port; `Files` is an in-memory store, where `notes/today.txt` makes a folder, and `SurlServer.BoundUrl` is the address to connect to. `ListDirectories` is the spelling of `surl --list-directories`. `SurlServer` stops when the `await using` ends.
+
+A WebSocket (<<rfc6455>>) begins as an HTTP request that asks to be upgraded. `CurlClient.ConnectWebSocketAsync` makes that request and, if the server accepts, returns a `CurlWebSocket`; `ReceiveAsync` reads one whole message as a `CurlWebSocketMessage`, whose `Type` says what it is and whose `Text` is its text. The listing is one `Text` message, one entry per line with a slash after each folder, and `Close` follows it, the server{apos}s closing frame, which carries no status, so `CloseStatus` is empty. A sub-folder is listed the same way with or without the closing slash. A path that is a file is sent as its own bytes in a `Binary` message, so a client can tell a listing from a file by `Type`. The server holds a dot file as well, and neither lists nor serves it: the listing has two entries, and asking for `.secret` is refused like a path that is not there.
+
+A refusal is an exception, not a message. When the server answers the upgrade with anything but `101`, as it does for a missing path, a dot file, or a folder when `ListDirectories` is off, `ConnectWebSocketAsync` throws a `CurlException` whose `Code` is `HttpReturnedError`, which is `curl` exit `22`, and no `CurlWebSocket` exists to read from. Over HTTP a missing path is an ordinary response and nothing is thrown (see <<http-serve-and-fetch-in-process>>); here the upgrade is the whole request, so the answer is the failure. `--list-directories` loosens `surl`: it is off by default, and a refusal for a folder looks like the refusal for a missing path, so the program cannot tell them apart from the exception alone.
+
+`SurlServerOptions.Log` takes a `TextWriter`, and with `LogLevel.Verbose` the server writes what `surl -v` would: its line for the listing says `Sent 17 bytes of / as a text message in 1 frames`, so the listing is one frame as well as one message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-list-a-folder-over-websocket>> for the same task on the console.
+* <<ws-list-a-folder-over-websocket-from-an-agent>> for the same task from an agent.
+* <<ws-receive-a-file-as-a-message>> for a file as a message.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>, <<rfc9110>>.

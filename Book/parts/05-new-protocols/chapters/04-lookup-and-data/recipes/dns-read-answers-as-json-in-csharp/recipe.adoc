@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-read-answers-as-json-in-csharp]]
+=== DNS Answers as JSON in C#
+
+==== Problem
+
+Your test checks the MX, TXT and AAAA records of a domain and wants each answer as JavaScript Object Notation (JSON), with a name outside the zone refused. You want the Domain Name System (DNS) server and the client in one .NET program, with no zone file on disk and no process to start.
+
+==== Solution
+
+Start a `SurlServer` with a `dns` listener, seed a zone into it from text, look up each record type with a `CurlClient`, and write each answer as a line of JSON:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `dns://127.0.0.1:0`: port 0 asks the system for a free port, and the one listen URL serves UDP and TCP on it (<<surl-readme>>). The console recipe puts the zone in a master file under `.surl/dns` before `surl` starts. In process, `server.Zones.AddZoneAsync` takes the apex and the zone as master-file text (<<rfc1035>>, section 5) and adds it to the running server, so a test seeds a zone per test and needs no folder. `server.Zones`, a `SurlServerZones`, holds the zones, and `Zones.ReadAsync` reads one back, as the claims show: a record a line, every name absolute, the TTL and class `IN` on every line. A second zone for an apex the server already holds is refused with `SurlSeedRefusedException`, whose `Store` is `Zones`, until the server is reset; so is a seed into a server that has no DNS listener. A seed that cannot work throws instead of failing silently, and the program prints the store and the refusal and exits `1`.
+
+A `CurlRequest` is the method and the URL, as `curl` takes them, and `CurlClient.SendAsync` takes the same `dns` URL the console recipe uses, `dns://127.0.0.1:port/example.test?type=MX`, with the name as the path and the type in `type=` (<<rfc4501>>, <<curl-readme>>). The `Body` of the `CurlResponse` is the answer. That is where this surface differs from the console: `--dns-json` is a command-line option and this program sets none, so the body is the answer as text in `dig`{apos}s layout, a header line and then a line per record. The program reads that text: `status` from the header line, and one entry per line of the answer section, whose fields are separated by tabs. It writes each lookup as a JSON object with `System.Text.Json.Nodes`. A program that wants the server{apos}s own JSON writes the whole answer from the console (<<dns-read-answers-as-json>>) or through the agent{apos}s `curl` tool (<<dns-read-answers-as-json-from-an-agent>>), where `--dns-json` is an argument.
+
+The answers are the ones the console shows. MX is two entries with their preference and exchange in `data`; TXT is its character-strings, quoted and separated by a space, as a zone file writes them; AAAA is its address. A name in no zone the server holds is answered `REFUSED`, and `SendAsync` throws nothing for it: like `curl` on the console, a refusal is a complete answer, so the program reads `status` to tell it apart. A name the zone does hold, asked for a type it has no record of, is `NOERROR` with no entries. A server started with no zone refuses every name.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-read-answers-as-json>> for the same lookups on the console, with the server{apos}s own JSON.
+* <<dns-read-answers-as-json-from-an-agent>> for an agent that reads the zone back and asks the same questions.
+* <<rfc1035>>, <<rfc4501>>, <<surl-readme>>, <<curl-readme>>.

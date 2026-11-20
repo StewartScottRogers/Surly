@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-smoke-test-every-listener-from-an-agent]]
+=== Smoke-Testing Every Listener from an Agent
+
+==== Problem
+
+As an artificial intelligence (AI) agent: after standing up a test environment you want one quick check that every listener answers before the suite runs, failing fast on the one that does not.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it stands the environment up with `start_server`, sends each bound URL one request through `curl` with a 3-second limit, stops at the first that gets no answer, and reads `get_events` to see what the server saw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from `PATH`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client (<<mcp-spec>>). `start_server` takes four `listen_urls` on port 0, Hypertext Transfer Protocol (HTTP, <<rfc9110>>), File Transfer Protocol (FTP, <<rfc959>>), Simple Mail Transfer Protocol (SMTP, <<rfc5321>>) and Internet Message Access Protocol (IMAP, <<rfc9051>>), and `arguments` in `surl`{apos}s words, `--mail-domain` and `--mailbox` for the mail store SMTP and IMAP share. Its answer{apos}s `bound_urls` are what the check walks.
+
+A port that accepts a connection is not a listener that answers, so the check asks each one something through `curl-mcp`{apos}s `curl` tool, `curl`{apos}s command line run in-process: a `GET` of the root over HTTP and, with `-X NOOP`, the protocol{apos}s no-op command over the others. `-m 3` gives each request 3 seconds, `-s` drops the progress meter, `-o smoke.out` keeps the body inside the folder, and `-w "%{response_code}"` prints the reply code into the answer{apos}s `standardOutput`. A listener passes if `curl` exited 0 or got a reply code: HTTP{apos}s `404` for a directory, and FTP{apos}s `530`, which refuses `curl`{apos}s anonymous login with exit 67, both count. `curl` reports no reply code for IMAP, so there the pass is exit 0.
+
+A listener that accepts and then says nothing, here a second `start_server` for SMTP with `--fault "delay;ms=60000"` holding every connection for a minute, fails with exit 28 after the 3 seconds; the check prints its URL and returns 28, and the IMAP listener after it is never asked. `--fault` makes a server misbehave on purpose, for tests only; the environment runs without it. The URL of a server `stop_server` has stopped fails at once with exit 7: `stop_server` releases the ports, and nothing listens there.
+
+`get_events` with `kinds` `exchange_started` answers one event per exchange the environment started, each with its `scheme`: after a passing check, one each for HTTP, FTP, SMTP and IMAP.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-smoke-test-every-listener>> for the same check on the console.
+* <<surl-smoke-test-every-listener-in-csharp>> for the same check from a C# test.
+* <<surl-run-a-test-server-in-ci-from-an-agent>> for running the tests and stopping the servers afterwards.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<rfc9110>>, <<rfc959>>, <<rfc5321>>, <<rfc9051>>.

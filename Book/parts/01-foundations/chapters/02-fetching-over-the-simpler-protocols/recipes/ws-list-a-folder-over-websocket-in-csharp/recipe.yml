@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ws-list-a-folder-over-websocket-in-csharp
+title: Listing a Folder over WebSocket in C#
+protocols: [ws, http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlWebSocket, CurlWebSocketMessage, CurlException, LogLevel]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc6455, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With ListDirectories on, ConnectWebSocketAsync to the root of a server holding hello.txt, a notes folder and a dot file receives one Text message listing hello.txt and notes/, and then the server's Close.
+    program: list-folder.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "/: Text, hello.txt|notes/|\nthen: Close\n"
+
+  - id: sub-folder
+    claim: A sub-folder is listed the same way with or without the closing slash.
+    program: list-folder.cs
+    args: [notes/, notes]
+    expect:
+      exit: 0
+      stdout: "/notes/: Text, today.txt|\nthen: Close\n/notes: Text, today.txt|\nthen: Close\n"
+
+  - id: file-is-binary
+    claim: A path that is a file is still sent as its own bytes, as a Binary message, where a listing is a Text message.
+    program: list-folder.cs
+    args: [hello.txt]
+    expect:
+      exit: 0
+      stdout: "/hello.txt: Binary, hello from surl|\nthen: Close\n"
+
+  - id: dot-file-and-missing-path
+    claim: A dot file the server holds is left out of the listing and refused when asked for, the same as a path that is not there, with a CurlException whose Code is HttpReturnedError, 22.
+    program: list-folder.cs
+    args: [.secret, nowhere/]
+    expect:
+      exit: 0
+      stdout: "/.secret: refused, HttpReturnedError (22)\n/nowhere/: refused, HttpReturnedError (22)\n"
+
+  - id: listings-off
+    claim: Without ListDirectories the server refuses the upgrade for the root, and ConnectWebSocketAsync throws a CurlException with Code HttpReturnedError, 22, before any message.
+    program: list-folder.cs
+    args: ["off"]
+    expect:
+      exit: 0
+      stdout: "/: refused, HttpReturnedError (22)\n"
+
+  - id: server-log
+    claim: The server's own log, taken through SurlServerOptions.Log at LogLevel.Verbose, counts the listing as 17 bytes sent as a text message in 1 frame.
+    program: list-folder.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout: "/: Text, hello.txt|notes/|\nthen: Close\nSent 17 bytes of / as a text message in 1 frames\n"

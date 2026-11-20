@@ -1,0 +1,50 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-test-server-in-ci]]
+=== Running a Test Server in CI
+
+==== Problem
+
+Your continuous integration (CI) job needs servers that start, report their ports, serve the tests and stop with a clean exit code every time, on every runner.
+
+==== Solution
+
+Make the job's test step one script that starts `surl` on port 0, writes the bound URLs to `servers.env`, runs the tests, stops `surl` and fails the step on anything but a clean run. The scripts need a POSIX shell, which every Linux and macOS runner has and Windows runners have as Git Bash:
+
+[source,sh]
+----
+include::ci-servers.sh[]
+----
+
+The tests stand for the job's own: a fetch and a mail.
+
+[source,sh]
+----
+include::tests.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+One `surl` serves both listen URLs. `--directory site` serves the folder over Hypertext Transfer Protocol (HTTP), and Simple Mail Transfer Protocol (SMTP, <<rfc5321>>) delivers into a mail store: `--mail-domain example.com` is the domain it accepts mail for and `--mailbox app@example.com:secret` the one mailbox and its login. `-v` writes a log line for every event to standard error, which the step keeps in `surl.log`. Port 0 lets the system pick each port, so runs that share a runner never clash, and `surl` writes one `Listening on` line per listen URL, in command-line order, once both have bound. The step waits for both lines, then writes the URLs as `HTTP_URL=...` and `SMTP_URL=...` to `servers.env`, which it reads into the environment for the tests and which a later step could read the same way.
+
+Every way the step can end gives the job a meaningful exit code. If `surl` exits before writing its lines, it refused to start; the step prints its message and exits with its code: 45 when a fixed port is taken, as here, where the step was asked for a port another server holds. If the tests fail, the step exits with their code, 67 here for an SMTP login with the wrong password, after stopping `surl` all the same. Otherwise it exits 0.
+
+Stopping is checked as well. The step sends SIGTERM with `kill` and collects `surl`{apos}s exit code with `wait`. On Linux and macOS `surl` handles the signal and exits 0; on Windows, Git Bash{apos}s `kill` ends the native `surl` process outright and the shell reports 143. Both mean it was stopped when asked. Any other code means `surl` had already ended, which no test may cause unnoticed: a test that kills it, here with SIGKILL, leaves 137, and the step fails with that code although the test command passed. `wait` also means the port is free before the step returns.
+
+`tests.sh` fetches the greeting with `curl` (`-f` fails on an error status, `-s` keeps quiet, `-S` still prints the error) and mails it: `-u` logs in as the mailbox, `--mail-from` and `--mail-rcpt` are the envelope, and `-T -` sends the message from standard input. `set -e` ends the tests at the first failure. What the server recorded is in `surl.log`: `Message stored: <n> bytes for 1 recipients` for the mail the tests sent.
+
+Nothing here is particular to one runner. The listen URLs name `127.0.0.1` and port 0, the scripts are POSIX `sh`, and the step reads the ports from `surl` rather than assuming them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-test-server-in-ci-in-csharp>> for the same job from a C# test.
+* <<surl-run-a-test-server-in-ci-from-an-agent>> for the same job from an agent.
+* <<surl-start-and-stop-in-a-shell-script>> for stopping on any exit, a cancelled job included.
+* <<surl-hand-bound-ports-to-the-app>> for handing the ports to an app under test.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

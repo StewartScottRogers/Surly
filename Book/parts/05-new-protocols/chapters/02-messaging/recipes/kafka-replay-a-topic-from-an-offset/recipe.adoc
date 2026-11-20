@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-replay-a-topic-from-an-offset]]
+=== Replaying a Topic from an Offset
+
+==== Problem
+
+Your consumer restarts from an offset it saved and must not see the records before it. You want to read a topic from an offset, to see the end of the log read as empty, and to see an offset past the end refused.
+
+==== Solution
+
+Start `surl` as a Kafka broker that takes anonymous clients. The consumer has read the records at offsets 0, 1 and 2 and saved the offset 3. Two more records arrive, and the consumer reads from the saved offset with `?offset=3`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Kafka keeps a topic as a log. Each record in a partition has an offset, a number that starts at 0 and goes up by one for every record appended, and a consumer reads from the offset it asks for, in order, to the end. Reading removes nothing, which is why a consumer that remembers an offset can come back to it (<<kafka-protocol>>). `surl` on a `kafka` listen URL is a broker with one partition per topic, `0`, and `curl`{apos}s `kafka://` scheme is its client; upstream curl has no such scheme, so both are judged by the Kafka protocol guide (<<surl-readme>>, <<curl-protocols>>).
+
+The query `?offset=N` on the topic's URL is the first offset to read. The URL is quoted because some shells treat `?` as a wildcard. `curl` writes each record's value and a newline, so the consumer gets `d` and `e` and not `a`, `b` or `c`. Without a query the read starts at `0`, and `?offset=0` says the same thing: both are a replay of the whole log, the five records so far. `?offset=2` starts in the middle. After the partition, `/orders/0?offset=4`, the query works the same way. `curl` does not print offsets; the consumer's offset is the count of records it has read, so a consumer that has read three holds `3` and asks for `?offset=3`.
+
+The log has an end, and an offset can be at it or past it. The offset equal to the number of records is the end: the read writes nothing and `curl` exits `0`. It is not an error, it is a consumer that has caught up, and the next record produced is the one a read from that offset gets. An offset past the end is answered error `1`, `OFFSET_OUT_OF_RANGE`, and `curl` exits `8`, a reply it could not use; with six records, `7` is already past it. The two cases need telling apart in a consumer: an empty answer means wait, an out of range one means the saved offset no longer matches the log. Offsets belong to a topic, so a topic with one record has its end at `1` while `orders` has its end at the number of its own records.
+
+This `surl` keeps its log in memory. After a restart the log is empty, and the saved offset, here `6`, is past the end of it, so the read is refused with the same error `1`. A consumer in that position has to read from `0` again, or the test has to produce the records again before it resumes.
+
+An offset that is not a whole number, such as `abc`, is refused by `curl` itself before it connects, exit `3`, naming the form `offset=<number>`.
+
+`--allow-anonymous` lets clients in with no login, and `surl` writes a `surl: warning:` line on start while it is on. It is the way into a test broker, not into one anybody else can reach (<<surl-readme>>). `-s` silences `curl`{apos}s progress meter and error messages, and `-S` puts the error message back, so the broker's error shows on standard error. `-d d` produces one record whose value is `d`, at the end of the log. `--next` lets one `curl` command produce and then read, each transfer with its own options.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-produce-and-consume>> for producing, consuming and the login rules.
+* <<kafka-replay-a-topic-from-an-offset-in-csharp>> for the same task in a C# test.
+* <<kafka-replay-a-topic-from-an-offset-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<kafka-protocol>>.

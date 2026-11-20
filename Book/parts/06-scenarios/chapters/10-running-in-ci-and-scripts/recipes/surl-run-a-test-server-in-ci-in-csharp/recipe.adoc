@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-test-server-in-ci-in-csharp]]
+=== Running a Test Server in CI
+
+==== Problem
+
+In a C# test: your continuous integration (CI) job needs servers that start, report their ports, serve the tests and stop with a clean exit code every time, on every runner.
+
+==== Solution
+
+Start the servers in-process with `SurlServer.StartAsync` on port 0, print the bound URLs, run the tests, and stop the server in a `finally` with `StopAsync`, failing the run on any code but `Ok`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds a Hypertext Transfer Protocol (HTTP) and a Simple Mail Transfer Protocol (SMTP, <<rfc5321>>) listen URL, both on port 0; `Files` serves the greeting from memory, and `MailDomains` and `Mailboxes` are `--mail-domain` and `--mailbox`: one domain and one mailbox with its login. `StartAsync` returns once every listener has bound, and `BoundUrls` holds the URLs in the order of `ListenUrls` with the ports the system picked. The run prints them as `HTTP_URL=...` and `SMTP_URL=...`, so the job{apos}s log says where the servers were.
+
+The tests use `Curl.Api`: a `CurlRequest` for the greeting on a `CurlClient`, then a `PUT` to the SMTP URL with `CurlMailOptions` for the envelope, `CurlAuthenticationOptions` for the mailbox login and the message as a `CurlContent` stream, answered by a `CurlResponse` whose `StatusCode` is SMTP{apos}s `250`. A failure is a `CurlException`; its `Code` is the number `curl` would exit with, and the run returns it. With the wrong password that is 67, `LoginDenied`. What the server recorded comes from its mail store without a client: `server.Mail.ListMessagesAsync` answers a `SurlMessagePage` whose `Messages` hold one message after a passing run and none after the refused login.
+
+A server that cannot start throws `SurlServerStartException` from `StartAsync`, with `ExitCode` the `surl` exit code: `BindFailed`, 45, when a port asked for is held, here by a `TcpListener` standing in for anything else on the runner. The run returns 45 before any test runs. Port 0 is what keeps that from happening in practice.
+
+`StopAsync` sits in `finally`, so the server stops whether the tests passed, failed or threw. It returns a `SurlExitCode`: `Ok`, 0, after each of these runs, the failing one included. The run fails on any other value. In-process there is no signal and no process to end, so the code is the same on Windows, Linux and macOS, unlike a `surl` process stopped from a shell (<<surl-run-a-test-server-in-ci>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-test-server-in-ci>> for the same job on the console.
+* <<surl-run-a-test-server-in-ci-from-an-agent>> for the same job from an agent.
+* <<surl-stop-servers-cleanly-in-teardown>> for stopping several servers when a test throws.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

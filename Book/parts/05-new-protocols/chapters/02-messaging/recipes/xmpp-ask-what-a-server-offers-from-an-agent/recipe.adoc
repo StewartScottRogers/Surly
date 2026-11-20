@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[xmpp-ask-what-a-server-offers-from-an-agent]]
+=== Asking What XMPP Offers from an Agent
+
+==== Problem
+
+Your chat client checks what a server offers with service discovery before it relies on a feature. You want an artificial intelligence (AI) agent to ask a server what it offers and to write the answer out, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts an XMPP server with `start_server`, and asks it with the `curl` tool, trusting the server's certificate and logging in:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in, the folder that holds `server.pem` and `server.key`, the certificate and key the `openssl` line in setup made. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+The Extensible Messaging and Presence Protocol (XMPP) is the protocol of Jabber chat: a client opens a stream to a server's domain, logs in with the Simple Authentication and Security Layer (SASL), binds a resource, and exchanges stanzas (<<rfc6120>>). Service discovery is a question and its answer in an IQ stanza: `disco#info` asks what an entity is and which features it answers, `disco#items` asks which entities are under it.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `xmpp://127.0.0.1:0`, port 0 for a free port, and `arguments` are `surl`{apos}s own words: `--cert` and `--key` give the certificate, so the server offers `STARTTLS` and requires it before a login (<<rfc8446>>), and `--user` twice makes the two accounts. The answer's `server_id` names the server for the other `surl-mcp` tools, and `bound_urls` has the real port.
+
+The `curl` tool runs `curl` in-process with the arguments an agent gives it, as the command line would. `-s` keeps the progress meter out and `-S` the error message in; `--cacert server.pem` is `curl` trusting the certificate, and `-u alice:s3cret` the login. The path of the URL is the entity to ask. With no `-d`, `curl` asks disco info and writes the answer on `standardOutput`, which the program reads from the JavaScript Object Notation (JSON) text the tool answers with. For the server's own domain, `127.0.0.1`, it is an identity of category `server` and type `im`, an instant-messaging server, and the features `disco#info`, `disco#items` and `urn:xmpp:ping`; for `alice@127.0.0.1` an identity of category `account` and type `registered` and the two discovery features, with no ping.
+
+`curl` asks info and nothing else, and `get_exchanges` shows it. It answers what each client sent and what the server sent back, as text, under `exchanges` and their `chunks`, each with a `direction`. After a `curl` call with `?disco;items` on the path, the one question the server received is an IQ `get` to `127.0.0.1` with a `query` in the `disco#info` namespace; the answer printed is the info answer. The program prints the chunks the server received that name a discovery namespace.
+
+A failed `curl` call is a tool error that carries `curl`{apos}s exit code and its message on `standardError`, so an agent can act on the code. A node the server does not have, `?disco;node=x`, is the stanza error `item-not-found`; `bob`, an account with no stream bound, is `service-unavailable`, since the server answers for the streams it holds; `example.com` is `remote-server-not-found`, since it talks to no other server. Each is exit `8`, a reply `curl` could not use. The question is asked after the login: with no `-u` `curl` asks for SASL `ANONYMOUS`, which this server does not offer, and a wrong password is `not-authorized`; both exit `67`, login denied. Without `--cacert`, `curl` does not trust the certificate and stops before it logs in, exit `60`. The text of that failure is the TLS library's and differs by platform, so the program prints the exit code alone.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<xmpp-ask-what-a-server-offers>> for the same task on the console.
+* <<xmpp-ask-what-a-server-offers-in-csharp>> for the same task in a C# test, with the items answer.
+* <<xmpp-send-a-message>> for logging in and sending a message.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6120>>, <<rfc8446>>.

@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs run-in-ci.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the run.
+schema: 2
+key: surl-run-a-test-server-in-ci-from-an-agent
+title: Running a Test Server in CI
+protocols: [http, smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_mailboxes, stop_server, list_servers]
+exit-codes: [0, 45, 67]
+references: [surl-readme, curl-readme, mcp-spec, rfc5321]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent starts HTTP and SMTP on free ports and reports both bound URLs, the tests fetch the greeting and mail it (curl exit 0 twice), the mailbox holds the one message, stop_server succeeds and no server is left running; the run exits 0.
+    program: run-in-ci.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP_URL=http://127\.0\.0\.1:[1-9]\d*/\nSMTP_URL=smtp://127\.0\.0\.1:[1-9]\d*/\nfetch: curl exit 0\nmail: curl exit 0\nserver stored 1 message\(s\)\nstop_server: tool error False; servers left: 0\n$'
+
+  - id: tests-fail
+    claim: When a test fails, here an SMTP login with the wrong password that the curl tool answers with exit code 67, nothing is stored, the server is still stopped, and the run exits 67.
+    program: run-in-ci.cs
+    args: [wrong-password]
+    expect:
+      exit: 67
+      stdout-matches: '\nfetch: curl exit 0\nmail: curl exit 67\nserver stored 0 message\(s\)\nstop_server: tool error False; servers left: 0\n$'
+
+  - id: port-taken
+    claim: When the server cannot start, here because the HTTP port asked for is held by another listener, start_server answers a tool error with exit_code 45 and exit_code_name BindFailed; no test runs and the run exits 45.
+    program: run-in-ci.cs
+    args: [port-taken]
+    expect:
+      exit: 45
+      stdout: "server did not start: BindFailed (45)\n"

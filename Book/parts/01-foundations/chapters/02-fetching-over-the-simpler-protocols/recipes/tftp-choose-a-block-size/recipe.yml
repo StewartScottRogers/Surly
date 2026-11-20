@@ -1,0 +1,76 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: tftp-choose-a-block-size
+title: Choosing a TFTP Block Size
+protocols: [tftp]
+tier: foundations
+surl-options: [--directory, -v, --log-file]
+curl-options: [-v, -s, -o, --tftp-blksize]
+exit-codes: [0, 68]
+references: [surl-readme, curl-readme, rfc1350]
+
+fixtures: {}
+
+# A 3,000-byte file of random bytes: six blocks of 512, three of 1,024.
+setup:
+  - mkdir -p site logs
+  - head -c 3000 /dev/urandom > site/big.bin
+
+servers:
+  main:
+    command: surl -v --log-file logs/surl.log --directory site tftp://127.0.0.1:{{port}}/
+    ready: none
+  reader:
+    command: surl --directory logs tftp://127.0.0.1:{{port2}}/
+    ready: none
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --tftp-blksize 1024, curl asks for that block size and the file size, and its trace shows the server answering with tsize 3000 and blksize 1024, the options it accepted.
+    run: curl -v --tftp-blksize 1024 -o copy.bin tftp://127.0.0.1:{{port}}/big.bin 2>&1 | grep -E "blksize|tsize"
+    expect:
+      exit: 0
+      stdout: "* got option=(tsize) value=(3000)\n* tsize parsed from OACK (3000)\n* got option=(blksize) value=(1024)\n* blksize parsed from OACK (1024) requested (1024)\n"
+
+  - id: same-bytes
+    claim: The larger block size changes how the file travels and not what arrives; the copy is byte for byte the served file.
+    run: curl -s --tftp-blksize 1024 -o copy.bin tftp://127.0.0.1:{{port}}/big.bin && cmp copy.bin site/big.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: default-size
+    claim: Without the option curl asks for a block of 512 bytes, the size RFC 1350 fixed, and the server agrees to it.
+    run: curl -v -o copy.bin tftp://127.0.0.1:{{port}}/big.bin 2>&1 | grep "blksize parsed"
+    expect:
+      exit: 0
+      stdout: "* blksize parsed from OACK (512) requested (512)\n"
+
+  - id: too-large
+    claim: A block size above 65464 bytes is agreed at 65464, the largest the server accepts, and the file still arrives whole.
+    run: curl -v --tftp-blksize 70000 -o copy.bin tftp://127.0.0.1:{{port}}/big.bin 2>&1 | grep "blksize parsed" && cmp copy.bin site/big.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "* blksize parsed from OACK (65464) requested (65464)\nidentical\n"
+
+  - id: server-log
+    claim: The server's own log shows the request, with the tsize 0 that asks for the file size and the blksize asked for, and its answer with the size and the block size agreed.
+    run: curl -s --tftp-blksize 1024 -o copy.bin tftp://127.0.0.1:{{port}}/big.bin && curl -s tftp://127.0.0.1:{{port2}}/surl.log | grep -a -E "^#[0-9]+ [<>] " | grep -a -o -E "tsize.x00[0-9]+.x00blksize.x00[0-9]+" | head -n 2
+    expect:
+      exit: 0
+      stdout-matches: '^tsize\\x000\\x00blksize\\x001024\ntsize\\x003000\\x00blksize\\x001024\n'
+
+  - id: fewer-blocks
+    claim: The 1,024-byte block carries the 3,000 bytes in 3 blocks, where the default 512 needs 6, as the server's log counts them.
+    run: curl -s --tftp-blksize 1024 -o a.bin tftp://127.0.0.1:{{port}}/big.bin && curl -s -o b.bin tftp://127.0.0.1:{{port}}/big.bin && curl -s tftp://127.0.0.1:{{port2}}/surl.log | grep -a -E "^#[0-9]+ [*] (Read of|All)" | grep -a -o -E "in blocks of [0-9]+|in [0-9]+ blocks"
+    expect:
+      exit: 0
+      stdout-matches: 'in blocks of 1024\nin 3 blocks\nin blocks of 512\nin 6 blocks\n$'
+
+  - id: missing-file
+    claim: A file that is not there is refused whatever the block size, and curl exits 68, file not found.
+    run: curl -s --tftp-blksize 1024 -o {{null}} tftp://127.0.0.1:{{port}}/missing.bin
+    expect:
+      exit: 68

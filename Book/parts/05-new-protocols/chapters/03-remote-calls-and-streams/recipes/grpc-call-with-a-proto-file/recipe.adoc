@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-call-with-a-proto-file]]
+=== Calling gRPC with a Proto File
+
+==== Problem
+
+Your production server has no reflection, so the client must call with the `.proto` file. You want the same call made with the proto file and with reflection, with the same answer.
+
+==== Solution
+
+Start `surl` as a gRPC server, and call its `Echo` method with `curl`, giving the service's `.proto` file with `--grpc-proto` and the request message as JSON with `-d`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+gRPC (gRPC Remote Procedure Calls) runs each call as one HTTP/2 (Hypertext Transfer Protocol version 2) request: a `POST` to `/<service>/<method>`, whose body is the request message in Protocol Buffers' binary encoding, and whose answer is the reply messages followed by trailers carrying `grpc-status` (<<grpc-http2>>). Upstream curl has no `grpc` scheme; the Curl port adds it, and `surl` serves it (<<curl-protocols>>, <<surl-readme>>). The URL's path is the method's full name: the package `surl.test`, the service `Echo`, the method `Echo`.
+
+`-d` gives the request message as JavaScript Object Notation (JSON), and to turn it into the binary message `curl` needs the method's types: which fields the request has, their names and their numbers. There are two places to get them. Without `--grpc-proto`, `curl` asks the server, over gRPC server reflection, a service a server offers for exactly this. With `--grpc-proto echo.proto`, it reads them from a file and does not ask. A server with reflection turned off, as many production servers have it, can only be called the second way. `surl` always serves reflection, so this recipe cannot turn it off; the claims instead show that the file is what `curl` reads. The call is the same and the reply is the same: the Solution and the reflection case print one message, `hello`, as JSON. `Expand`, a method that answers with a stream, works the same way with the file: with a `count` of 2 it answers two messages, each printed as its own JSON object, and the first leaves out the `index` of 0, the field's default, as the Protocol Buffers JSON mapping says.
+
+The file decides the names. `renamed.proto`, a client's own copy of the service, calls field 1 `text` where the server calls it `message`. On the wire a field is its number, so the server cannot tell the difference: the request `{"text":"hello"}` is sent with the file and the reply is printed as `text`. The names the server knows are then not fields, and `{"message":"hello"}` is refused by `curl` before it calls anything, exit `2`, `UnknownField`, naming the file's type `surl.test.Ask`. Without the file the rule is the other way: `{"text":"hello"}` is refused, naming the server's `surl.test.EchoRequest`. A method the file does not declare, here `Chat`, is refused before the call, exit `2`, even though the server has it.
+
+`curl` trusts the file for what it names, and the server judges the call. `other.proto` declares a service `shop.Echo`; `curl` makes the call, since the file says the method exists, and the server answers `UNIMPLEMENTED` (12), unknown service, which `curl` reports with exit `22`, as it does for any `grpc-status` other than 0. Reflection protects against this mistake, since the types come from the server that will answer. A file that is not there, or that does not parse, is refused with exit `26`, a read error: for the missing one the message names the file, for the other it gives the file, line and column and what was expected.
+
+`--allow-anonymous` lets a call with no credentials in, and `surl` writes a `surl: warning:` line on start while it is on (<<surl-readme>>). `-s` keeps `curl` quiet and `-S` still shows an error when there is one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-call-a-method>> for the call by reflection, the other call shapes and the login rules.
+* <<grpc-call-with-a-proto-file-in-csharp>> for the same task in a C# test.
+* <<grpc-call-with-a-proto-file-from-an-agent>> for the same task from an agent.
+* <<grpc-http2>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

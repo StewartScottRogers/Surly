@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: grpc-test-a-failing-call
+title: Testing a Failing gRPC Call
+protocols: [grpc]
+tier: new-protocols
+surl-options: [--allow-anonymous]
+curl-options: [-s, -S, -d, -m]
+exit-codes: [0, 22, 28]
+references: [surl-readme, curl-readme, curl-protocols, grpc-http2]
+triplet: grpc-test-a-failing-call
+
+fixtures: {}
+
+servers:
+  main:
+    command: surl --allow-anonymous grpc://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A request that asks for statusCode 5 and statusMessage "no such order" is answered with that status; curl prints no reply, writes the status, its name and the message on stderr, and exits 22.
+    run: curl -s -S -d "{\"message\":\"order 7\",\"statusCode\":5,\"statusMessage\":\"no such order\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "curl: (22) grpc-status 5 (NOT_FOUND): no such order"
+
+  - id: another-status
+    claim: Any other status is made the same way; statusCode 3 is INVALID_ARGUMENT with its message, and exit 22 again.
+    run: curl -s -S -d "{\"statusCode\":3,\"statusMessage\":\"quantity must be positive\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 3 (INVALID_ARGUMENT): quantity must be positive"
+
+  - id: no-message
+    claim: A status with no statusMessage has an empty message; statusCode 14 is UNAVAILABLE, the status a client retries on, and curl names it with nothing after the colon.
+    run: curl -s -S -d "{\"statusCode\":14}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 14 (UNAVAILABLE): "
+
+  - id: zero-is-ok
+    claim: statusCode 0 is OK; the call succeeds, prints the reply, and exits 0, so a request can pass the status field and fail only when it asks to.
+    run: curl -s -S -d "{\"message\":\"order 7\",\"statusCode\":0}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"order 7\"\n}\n"
+
+  - id: percent-in-the-message
+    claim: A message with a percent sign arrives whole, though gRPC percent-encodes the grpc-message trailer on the wire.
+    run: curl -s -S -d "{\"statusCode\":9,\"statusMessage\":\"disk 100% full\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 9 (FAILED_PRECONDITION): disk 100% full"
+
+  - id: out-of-range
+    claim: A status number that is not one of gRPC's 17, such as 99, is refused by the server as INVALID_ARGUMENT, request field out of range, not made into a status of that number.
+    run: curl -s -S -d "{\"statusCode\":99,\"statusMessage\":\"odd\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 3 (INVALID_ARGUMENT): request field out of range"
+
+  - id: after-some-replies
+    claim: A stream can fail part way; Expand with a count of 3 and statusCode 13 sends its three replies first, which curl prints, then ends INTERNAL with the message, exit 22.
+    run: curl -s -S -d "{\"message\":\"s\",\"count\":3,\"statusCode\":13,\"statusMessage\":\"boom\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 22
+      stdout: "{\n  \"message\": \"s\"\n}\n{\n  \"message\": \"s\",\n  \"index\": 1\n}\n{\n  \"message\": \"s\",\n  \"index\": 2\n}\n"
+      stderr-contains: "grpc-status 13 (INTERNAL): boom"
+
+  - id: server-says-deadline
+    claim: The server can answer the status DEADLINE_EXCEEDED (4) itself; it is a status like the others, exit 22.
+    run: curl -s -S -d "{\"statusCode\":4}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 4 (DEADLINE_EXCEEDED)"
+
+  - id: client-gives-up
+    claim: A call the server holds back, delayMilliseconds 3000, that curl stops waiting for with -m 1 is not a gRPC status; curl exits 28, timed out, and prints no reply.
+    run: curl -s -S -m 1 -d "{\"message\":\"x\",\"delayMilliseconds\":3000}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 28
+      stdout: ""
+      stderr-contains: "curl: (28)"

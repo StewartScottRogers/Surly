@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-read-answers-as-json-from-an-agent]]
+=== DNS Answers as JSON from an Agent
+
+==== Problem
+
+Your agent checks the MX, TXT and AAAA records of a domain and wants each answer as JavaScript Object Notation (JSON) it can read field by field, with a name outside the zone refused. You want it to seed a Domain Name System (DNS) zone, look the records up and read the answers with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a `dns` server with `start_server`, seeds a zone with `add_dns_zone`, and looks each record type up with the `curl` tool and `--dns-json`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here `dns://127.0.0.1:0`, and answers the `server_id` and, in `bound_urls`, the URL it bound; port 0 asks for a free port, and the one listener serves UDP and TCP on it (<<surl-readme>>).
+
+`add_dns_zone` takes the `server_id`, the `apex` and `zone_text`, a zone in master-file form (<<rfc1035>>, section 5), and answers the apex and its size in bytes. The console recipe puts the same text in a file under `.surl/dns` before `surl` starts; here the agent seeds a running server, so a second scenario can start from a clean one. A second zone for an apex the server holds is a tool error, as is a zone for a server with no `dns` listener, which says it holds no DNS zones. `read_zone` reads the zones back: with no `apex` it lists them, each with its final dot, and with one it answers the zone as master-file text, every name absolute and the time to live and class on each line. An apex the server does not hold is a tool error, `No such zone.`
+
+The `curl` tool runs `curl`{apos}s own arguments. `-s` keeps the progress meter out of the answer, `--dns-json` writes the answer as one line of JSON, and the URL is the form RFC 4501 gives a DNS query: the server and port, the name as the path, and `type=` (<<rfc4501>>, <<curl-readme>>). `curl-mcp` answers in text that is JSON, with `exitCode` and `standardOutput.content`; the content is itself the JSON the server answered, so the program parses twice. Its `status` is `NOERROR` and its `answer` holds the records, each with a `data` object named for the type: `preference` and `exchange` for MX, `txt` as an array of character-strings for TXT, `address` for AAAA. `--dns-transport tcp` in the same arguments asks over TCP.
+
+An agent should read `status`, not the exit code or the tool error. A name in no zone the server holds is answered `REFUSED` with no records, and a name the zone does hold, asked for a type it has no record of, is `NOERROR` with none. Both are complete answers, so `curl` exits `0` and the tool reports no error, as `dig` does. A server started with no zone refuses every name.
+
+`transfer`, the other tool of `curl-mcp`, takes a `dns` URL too, but it describes a request by fields and has none for `--dns-json`, so its body is the answer as `dig`{apos}s text and its `statusCode` is `0`. The `curl` tool is the one that asks for JSON.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-read-answers-as-json>> for the same task on the console.
+* <<dns-read-answers-as-json-in-csharp>> for the same lookups from a C# program with `Surl.Api` and `Curl.Api`.
+* <<rfc1035>>, <<rfc4501>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs fail-a-call.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: grpc-test-a-failing-call-from-an-agent
+title: Failing a gRPC Call from an Agent
+protocols: [grpc]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl]
+curl-options: [-s, -S, -d, -m]
+exit-codes: [0, 22, 28]
+references: [surl-readme, curl-readme, grpc-http2]
+triplet: grpc-test-a-failing-call
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A request that asks for statusCode 5 and statusMessage "no such order" is answered with that status; the curl tool answers exit 22 as a tool error, with no output and grpc-status 5 (NOT_FOUND) and the message on standard error.
+    program: fail-a-call.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "curl exit 22, tool error yes, output [], grpc-status 5 (NOT_FOUND): no such order\n"
+
+  - id: statuses
+    claim: Status 3 is INVALID_ARGUMENT with its message, and status 14, UNAVAILABLE, with no statusMessage has an empty message; each is exit 22 and a tool error.
+    program: fail-a-call.cs
+    args: [statuses]
+    expect:
+      exit: 0
+      stdout: "curl exit 22, tool error yes, output [], grpc-status 3 (INVALID_ARGUMENT): quantity must be positive\ncurl exit 22, tool error yes, output [], grpc-status 14 (UNAVAILABLE):\n"
+
+  - id: zero-is-ok
+    claim: statusCode 0 is OK; the call succeeds, the reply is the output, exit 0, and it is not a tool error.
+    program: fail-a-call.cs
+    args: [zero]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no, output [{ \"message\": \"order 7\" }]\n"
+
+  - id: message-and-range
+    claim: A message with a percent sign arrives whole, and a status number that is not a status, 99, is refused by the server as INVALID_ARGUMENT, request field out of range.
+    program: fail-a-call.cs
+    args: [message]
+    expect:
+      exit: 0
+      stdout: "curl exit 22, tool error yes, output [], grpc-status 9 (FAILED_PRECONDITION): disk 100% full\ncurl exit 22, tool error yes, output [], grpc-status 3 (INVALID_ARGUMENT): request field out of range\n"
+
+  - id: part-way
+    claim: A stream can fail part way; Expand with a count of 3 and statusCode 13 answers its three replies as output and also ends INTERNAL with the message, exit 22, so an agent reads both.
+    program: fail-a-call.cs
+    args: [part-way]
+    expect:
+      exit: 0
+      stdout: "curl exit 22, tool error yes, output [{ \"message\": \"s\" } { \"message\": \"s\", \"index\": 1 } { \"message\": \"s\", \"index\": 2 }], grpc-status 13 (INTERNAL): boom\n"
+
+  - id: deadlines
+    claim: The server can answer DEADLINE_EXCEEDED (4) as a status, exit 22; a call it holds back for 3000 milliseconds that curl stops waiting for with -m 1 is exit 28, timed out, with no status at all.
+    program: fail-a-call.cs
+    args: [deadlines]
+    expect:
+      exit: 0
+      stdout: "curl exit 22, tool error yes, output [], grpc-status 4 (DEADLINE_EXCEEDED):\ncurl exit 28, tool error yes, output [], timed out\n"

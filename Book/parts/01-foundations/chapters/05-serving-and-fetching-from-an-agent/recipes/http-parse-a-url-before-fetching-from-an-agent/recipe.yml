@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs check-url.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH. Its argument is the URL a user gave; PORT in it stands for the server's bound port.
+schema: 2
+key: http-parse-a-url-before-fetching-from-an-agent
+title: Checking a URL Before Fetching
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, parse_url, transfer, list_servers]
+exit-codes: [0, 1]
+references: [curl-readme, surl-readme, rfc3986]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: parse_url splits a good URL into scheme, host, port and path; they match the server's bound URL, and only then does transfer fetch it, 200, the server's one exchange.
+    program: check-url.cs
+    args: ["http://127.0.0.1:PORT/hello.txt"]
+    expect:
+      exit: 0
+      stdout: "scheme http, host 127.0.0.1, port PORT, path /hello.txt\nok\nstatusCode: 200\nexchanges on the server: 1\n"
+
+  - id: wrong-scheme
+    claim: An https URL for a plain http server parses, but its scheme does not match, so nothing is fetched and the server has no exchange.
+    program: check-url.cs
+    args: ["https://127.0.0.1:PORT/hello.txt"]
+    expect:
+      exit: 1
+      stdout: "scheme https, host 127.0.0.1, port PORT, path /hello.txt\nwrong scheme: https, the server speaks http\nexchanges on the server: 0\n"
+
+  - id: default-port
+    claim: With the DefaultPort flag, a URL that leaves the port out parses with the scheme's port, 80 for http, which the agent sees is not the server's.
+    program: check-url.cs
+    args: ["http://127.0.0.1/hello.txt"]
+    expect:
+      exit: 1
+      stdout: "scheme http, host 127.0.0.1, port 80, path /hello.txt\nwrong port: 80, the server is on PORT\nexchanges on the server: 0\n"
+
+  - id: port-out-of-range
+    claim: A port above 65535 is not a URL at all; parse_url is a tool error, UrlRefused with BadPortNumber.
+    program: check-url.cs
+    args: ["http://127.0.0.1:99999/hello.txt"]
+    expect:
+      exit: 1
+      stdout: "not a URL: The URL parser refused url: CURLUcode 4 (BadPortNumber)\nexchanges on the server: 0\n"
+
+  - id: misspelt-scheme
+    claim: A scheme curl does not support, such as htp, is refused as UnsupportedScheme.
+    program: check-url.cs
+    args: ["htp://127.0.0.1:PORT/hello.txt"]
+    expect:
+      exit: 1
+      stdout: "not a URL: The URL parser refused url: CURLUcode 5 (UnsupportedScheme)\nexchanges on the server: 0\n"
+
+  - id: no-scheme
+    claim: A URL with no scheme is refused as BadScheme; parse_url does not guess one.
+    program: check-url.cs
+    args: ["127.0.0.1:PORT/hello.txt"]
+    expect:
+      exit: 1
+      stdout: "not a URL: The URL parser refused url: CURLUcode 27 (BadScheme)\nexchanges on the server: 0\n"

@@ -47,11 +47,21 @@ Linux case shows the password was not checked.
 - CoAP on Linux and macOS: no failure at once; curl keeps retransmitting and outlived verify's 60 s
   timeout. Mark the case `[windows]`; no Linux case is practical. `--retry 5 --retry-all-errors
   --retry-delay 1` still works there (the retransmission reaches surl once it is up).
+- DNS (`dns://`): a query to a live surl DNS server works on Windows; no recipe claims a platform difference yet. A query to a port where nothing listens is expected to behave like CoAP above (not probed). `dns` also listens on TCP, so `ready: port` is safe for it.
 - Readiness for UDP servers stays `ready: none` everywhere.
 
 ## Paths and shells
 - `-o NUL` is Windows only in prose; cases use `{{null}}`.
+- Stopping a backgrounded surl from `sh` (2026-11-20, Windows probed; Linux/macOS from surl's help, CI checks):
+  Linux and macOS: `kill $pid; wait $pid` gives 0 (surl handles SIGTERM). Windows Git Bash: `kill` (TERM)
+  ends the native surl outright after about 3 s, `wait` gives 143. `kill -INT` does nothing to it (surl keeps
+  serving; a later TERM then took 19 s and gave 130): never use INT. `kill -9` gives 137 everywhere. So a
+  script that judges surl's exit code accepts 0 or 143 (`surl-run-a-test-server-in-ci`); cases that show the
+  code are `[linux, macos]` 0 and `[windows]` 143.
+- A trapped signal interrupts `wait` at once but waits for a foreground command: run the tests with `&` and
+  `wait` so a TERM to the script acts at once (`surl-start-and-stop-in-a-shell-script`).
 
 ## Recipes
 ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope, ldaps-search-over-tls
-(and twins), https-refuse-clients-below-tls-1-3 (and twins), coap-get-a-resource, webtransport-open-a-stream.
+(and twins), https-refuse-clients-below-tls-1-3 (and twins), coap-get-a-resource, webtransport-open-a-stream,
+surl-start-and-stop-in-a-shell-script, surl-run-a-test-server-in-ci.

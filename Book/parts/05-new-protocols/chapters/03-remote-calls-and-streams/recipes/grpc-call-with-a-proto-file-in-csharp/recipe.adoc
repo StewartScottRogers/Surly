@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-call-with-a-proto-file-in-csharp]]
+=== Calling gRPC with Protos in C#
+
+==== Problem
+
+Your production server has no reflection, so the client must call with the `.proto` file. You want the same call made from the file and by reflection, with the same answer, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts a gRPC server, calls its `Echo` method with a request it encodes from the numbers in `echo.proto`, then asks the server what it serves by reflection and calls with `Curl.Api`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for a `grpc://` listener on port `0`, so the system picks a free port, and `AllowAnonymous`, the option `--allow-anonymous`, which lets a call with no credentials in. It loosens the defaults, for a server that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). `SurlServer` is the running server and its `BoundUrl` names the port it got; `surl.test.Echo` and server reflection are built in.
+
+gRPC (gRPC Remote Procedure Calls) runs each call as one HTTP/2 (Hypertext Transfer Protocol version 2) request: a `POST` to `/<service>/<method>`, whose body is a length-prefixed message in the Protocol Buffers binary encoding, and whose answer is the reply messages followed by trailers carrying `grpc-status` (<<grpc-http2>>). `Curl.Api` is used here for a call by reflection with an empty request. A program that must send a message, and must work with no reflection, does what the file is for itself, using the framework's `HttpClient` over HTTP/2 with prior knowledge, which is how the `grpc` listener starts every connection.
+
+A `.proto` file gives names and numbers: `EchoRequest` has `message` as field 1 and `count` as field 2, `EchoReply` has `message` as field 1 and `index` as field 2. The names are for people and for JSON; on the wire a field is its number, a wire type, and its value. The program holds the numbers as constants, `Text(1, "hello")` is the bytes `0A 05 68 65 6C 6C 6F`, a field 1 of five bytes, and the reply is the same seven bytes, whose field 1 reads `hello`. The call ends with `grpc-status` `0`, which the program reads from the response's `TrailingHeaders`. `Expand`, with `count` as field 2, answers two messages in one response, each decoded the same way, the second with `index` 1. The `TE: trailers` header that gRPC requires, and the five bytes in front of each message, a flag and a length, are the rest of the framing.
+
+Only the numbers matter. The same `hello` sent as field 9, a number `EchoRequest` has no field for, is not an error: the server reads nothing from it and the reply message is empty. A client that numbers a field wrongly gets silence, not an error, which is why the file, and not a guess, is the source of the numbers.
+
+Reflection is the other source. It is a gRPC service itself, and the program calls it the same way: a `ServerReflectionRequest` with field 7, `list_services`, set to an empty string, answered with the services the server serves, the two reflection services and `surl.test.Echo`. A client with reflection can then fetch the file's descriptor and build its messages from it, which `curl` does; this program has the file's numbers already. `Curl.Api` does the same internally: a `CurlRequest` with `GET` of `grpc://.../surl.test.Echo/Echo`, sent by a `CurlClient`, finds the types by reflection and returns a `CurlResponse` whose `Body` is the reply as JSON. It sends an empty request, so the reply is the empty reply, `{}`, and the same empty request by hand is a reply of no bytes. For a method with a message to send, the by-hand call is what the library lacks.
+
+When reflection cannot find what was asked, `SendAsync` throws a `CurlException` whose `Code` is the exit code `curl` would use: for a service the server does not serve, `22`, `HttpReturnedError`, and for a method the service does not have, `2`, `FailedInit`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-call-with-a-proto-file>> for the same call on the command line, with the file.
+* <<grpc-call-with-a-proto-file-from-an-agent>> for the same task from an agent.
+* <<grpc-test-a-failing-call-in-csharp>> for the status in the trailers when a call fails.
+* <<grpc-http2>>, <<surl-readme>>, <<curl-readme>>.

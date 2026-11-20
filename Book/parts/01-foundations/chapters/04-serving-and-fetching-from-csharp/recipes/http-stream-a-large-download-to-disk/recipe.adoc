@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-stream-a-large-download-to-disk]]
+=== Streaming a Large Download to Disk
+
+==== Problem
+
+You want a C# program to copy a large file served over Hypertext Transfer Protocol (HTTP) by `Surl.Api` straight to disk with `Curl.Api`, without ever holding the whole file in memory.
+
+==== Solution
+
+Read `CurlResponse.Body` a buffer at a time and write each buffer to a `FileStream` as it arrives:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program first writes a 64 mebibyte (MiB) file of seeded random bytes into `served/`, one block at a time, and notes its Secure Hash Algorithm 256 (SHA-256) digest. `SurlServerOptions.DataDirectory` then has the `SurlServer` serve that folder from disk, as `surl --directory` would, rather than from the in-memory `Files` store, which would put the whole file in the process before the client starts.
+
+`CurlClient.SendAsync` sends the `CurlRequest` and returns the `CurlResponse` as soon as the status line and headers are in: `200` and a `Content-Length` of 67108864. The body has not arrived yet. `Body` is a stream that the transfer fills as bytes come off the connection, and it is read asynchronously only, with `ReadAsync` or `CopyToAsync` (<<curl-readme>>). The loop reads up to 81920 bytes, writes them to `large.bin`, and goes round again until `ReadAsync` returns 0 at the end of the body. If the program falls behind, `Curl.Api` pauses receiving until it catches up rather than piling up bytes on the program{apos}s behalf (<<curl-readme>>). `await body.CopyToAsync(file)` is the same loop in one line; the program writes it out so it can measure inside it.
+
+The measurement is the managed heap after a full garbage collection, `GC.GetTotalMemory(true)`, taken before the request and every 8 MiB of the copy. Streaming, it never rises 16 MiB above where it started, a quarter of the file, while the copy on disk has the served length and the same digest. That holds with the server in the same process, serving from disk.
+
+The `buffer` case does what a quick program often does: copies the whole body into a `MemoryStream` and writes that to disk. The file comes out the same, length and digest, but the heap grows by 16 MiB or more on the way: the memory a program needs grows with the file, where the streaming copy needs one buffer.
+
+Disposing `Body` before its end aborts the transfer (<<curl-readme>>), so the `await using` here is what closes the request once the loop is done, or when it throws.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-verify-a-download-checksum-in-csharp>> for checking a download against a digest the server publishes.
+* <<http-resume-an-interrupted-download-in-csharp>> for finishing a large download that was cut off.
+* <<http-limit-download-speed>> for a large download over a slow link, on the console.
+* <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-download-anonymously-from-an-agent]]
+=== Downloading Anonymous FTP from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to download a file over File Transfer Protocol (FTP) without logging in, and to learn from the refusal that the server has to be started with `--allow-anonymous`.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with an `ftp` listen URL and no option, calls `curl` on the URL the server bound, and reads the exit code. The program as printed is the refused first step; the next case in the table starts the server with the option:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, and port 0 asks for a free port; the program fetches from `bound_urls`, never from what it asked for. `files` puts content in memory, relative path to text. `arguments` is `surl`{apos}s own words, and this is where the recipe turns: a server started with none has no account and does not let an anonymous client in. `curl` runs `curl` with `args` as its command line, `-s` keeps the progress meter out of the answer, and the download with no login is refused, which `curl` reports as exit `67`, login denied. A failed `curl` is an answer, not an exception: it is text, JSON, with `exitCode`, `standardOutput` and `standardError`, each with its `content`, and, when `curl` fails, a `failure` with the exit code in words, `curl exit code 67 (LoginDenied)`. That is what an agent should read: the server refused the login, not the file, and the way forward is the server{apos}s option, not a retry.
+
+Starting the server again with `"--allow-anonymous"` in `arguments` is the fix, and it loosens `surl`: anyone who can reach the port can read what it serves, and `surl` warns on start. With it the same download works, exit `0`. `get_exchanges` answers what the client sent on the one control connection, and FTP (<<rfc959>>) is text, so the program prints it: `USER anonymous` and a `PASS`, which `curl` fills in itself when it is given no user, then `PWD`, `EPSV` to open a passive data connection, `TYPE I` for a binary transfer, `SIZE` and `RETR hello.txt`. The login is not checked against anything: with the option on, a user name and password nobody configured, given with `-u`, are accepted too, and the file arrives. The option is for a server with nothing to protect, not a way of having accounts.
+
+A file that is not there is refused and `curl` exits `78`, remote file not found, even though the login is accepted. A file whose name begins with a dot is never served, even when the server holds it, and gets the same answer.
+
+`transfer` describes the request by fields instead of a command line, and reaches the same servers. Against the server that refuses, it is a tool error, with a `failure` of kind `CurlExit` and the exit code `67`. Against the one that allows, the answer has `statusCode` 226, the status of the finished transfer, since FTP has no response status of the HTTP kind, and the file is in `body`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-download-anonymously>> for the same task on the console.
+* <<ftp-download-with-curl-api>> for a download with an account from C#.
+* <<tftp-download-a-file-from-an-agent>> for the simpler protocol, which has no login at all.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

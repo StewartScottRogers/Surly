@@ -82,8 +82,14 @@ surl-mcp 1.0.0, curl-mcp 0.1.0.0, 2026-11-20, windows.
   `{kind UrlRefused, text "The URL parser refused url: CURLUcode 3 (MalformedInput)"}`.
 - `version()`: protocols (27 on Windows) + extendedProtocols; no `rtmp`; features include `IPv6`, `SSL`.
 - `start_server` takes `http://[::1]:0`; `--user` value is split at the first colon (password may hold `:`).
+- `SurlServerOptions.Log` with `LogLevel.Verbose` also writes the `Listening on <url>` line first. A `TextWriter`
+  adapter that forwards whole lines to a test's output works (surl-send-server-logs-to-test-output). In-memory
+  404 path on Windows: `nothing exists at C:\surl\summary.csv`.
 
 ## Recipes
 surl-keep-the-server-log-for-a-failed-run (+ -in-csharp, -from-an-agent), http-find-failed-logins-in-the-log,
 http-print-the-failing-exchange, curl-check-many-urls-from-one-config, curl-write-a-test-report-with-write-out,
-curl-build-test-urls-safely, curl-check-what-a-build-supports.
+curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-logs-to-test-output.
+
+- Decided by Surl (2026-11-20): with `--log-file f --trace-ascii t`, exchange lines go only to t; the log file gets the dump only when there is no trace file (Surl ADR-0033 s.6). Secrets in -v/--trace/--log-file are being redacted (BL-1417); until then, filter them before keeping a log.
+- Surl.Api `StopAsync` waits up to about 7 s while a client holds a connection: a 5 s shutdown grace plus a 2 s lingering close (Surl ADR-0099 decision 4). Dispose clients first.

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-replay-a-topic-from-an-offset-in-csharp]]
+=== Replaying Kafka from Offsets in C#
+
+==== Problem
+
+Your consumer restarts from a saved offset and must not see the records before it. You want a read from an offset, the end of the log read as empty, and an offset past the end refused, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts a Kafka broker, gives it five records, and reads the topic with a `CurlClient` from several offsets, then asks the broker for its own log and starts a second, empty broker:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for a `kafka://` listener on port `0`, so the system picks a free port, and `AllowAnonymous`, the option `--allow-anonymous`, which accepts a client with no login. It loosens the defaults, for a broker that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). `SurlServer` is the running broker, and its `BoundUrl` names the port it got.
+
+A Kafka topic is a log: each record in it has an offset, 0 for the first, and a consumer reads from the offset it asks for to the end (<<kafka-protocol>>). The program seeds it with `server.Messages`, a `SurlMessages`: `PublishAsync` appends a record to the topic the way a producer would, so `orders` holds `a` to `e` at offsets 0 to 4. The topic is filled on the server's side and read through `Curl.Api`.
+
+A consume is a `GET` of `<BoundUrl>orders`, and the query `?offset=N` is the first offset to read. `CurlClient.SendAsync` sends a `CurlRequest` and returns a `CurlResponse` whose `Body` is the records' values, each followed by a newline; the program splits it into a list. The consumer saved offset 3, so `?offset=3` gives `d` and `e`. With no query, and with `?offset=0`, the read starts at the first record and gives all five, and `?offset=2` gives the last three. The client is not told the offsets: a consumer keeps the count of the records it has read, and that count is the offset to ask for next.
+
+An offset equal to the number of records is the end of the log: the read is an empty answer and nothing is thrown, a consumer that has caught up. Once `f` is published, the same offset, 5, gives `f`. An offset past the end, 7 when there are six records, is answered with error `1`, `OFFSET_OUT_OF_RANGE`, and `SendAsync` throws a `CurlException` whose `Code` is `8`, `WeirdServerReply`, the code the console `curl` exits with, and whose `Message` names the broker's error. An offset that is not a number, `abc`, never reaches the broker: `Code` is `3`, `UrlMalformat`. A test tells an empty answer, which means wait, from the exception, which means the saved offset no longer fits the log.
+
+The broker can be asked for its log without any client. `ReadLogAsync` on `server.Messages` returns a `SurlLogPage`, whose `Records` are each a `SurlLogRecord` with its `Offset` and `Payload`, and whose `NextOffset` is where the following read starts: from offset 4 the page holds `e` and `f` at offsets 4 and 5, and the next offset is 6. This is how a test checks offsets the client never prints. A read from offset 7, past the end of a log of six, is not an empty page: it throws `SurlReadRefusedException`.
+
+The log is in memory. The last lines start a second `SurlServer`, which has an empty log, and read it from the saved offset 6: the offset is past the end of an empty log, and the same `CurlException` with code `8` is thrown. A consumer that outlives its broker in a test has to read from 0 again, or the test has to publish the records again first.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-replay-a-topic-from-an-offset>> for the same reads on the command line.
+* <<kafka-replay-a-topic-from-an-offset-from-an-agent>> for the same, driven by an agent.
+* <<kafka-produce-and-consume>> for producing, and the login rules.
+* <<surl-readme>>, <<curl-readme>>, <<kafka-protocol>>.

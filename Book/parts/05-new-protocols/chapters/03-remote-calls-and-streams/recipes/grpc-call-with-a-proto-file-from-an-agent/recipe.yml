@@ -1,0 +1,143 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs call-with-proto.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: grpc-call-with-a-proto-file-from-an-agent
+title: Calling gRPC with Protos from an Agent
+protocols: [grpc]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, get_events, curl]
+curl-options: [-s, -S, -d, --grpc-proto]
+exit-codes: [0, 2, 22, 26]
+references: [surl-readme, curl-readme, grpc-http2]
+triplet: grpc-call-with-a-proto-file
+
+# echo.proto is the service surl serves, as its documentation prints it. renamed.proto is a client's own
+# copy that gives the same fields other names. other.proto names a service the server does not serve.
+# bad.proto is not a proto file.
+fixtures:
+  echo.proto: |
+    syntax = "proto3";
+
+    package surl.test;
+
+    message EchoRequest {
+      string message = 1;
+      uint32 count = 2;
+      int32 status_code = 3;
+      string status_message = 4;
+      uint32 delay_milliseconds = 5;
+    }
+
+    message EchoReply {
+      string message = 1;
+      uint32 index = 2;
+    }
+
+    service Echo {
+      rpc Echo (EchoRequest) returns (EchoReply);
+      rpc Expand (EchoRequest) returns (stream EchoReply);
+      rpc Collect (stream EchoRequest) returns (EchoReply);
+      rpc Chat (stream EchoRequest) returns (stream EchoReply);
+    }
+  renamed.proto: |
+    syntax = "proto3";
+
+    package surl.test;
+
+    message Ask {
+      string text = 1;
+      uint32 times = 2;
+    }
+
+    message Answer {
+      string text = 1;
+      uint32 position = 2;
+    }
+
+    service Echo {
+      rpc Echo (Ask) returns (Answer);
+      rpc Expand (Ask) returns (stream Answer);
+    }
+  other.proto: |
+    syntax = "proto3";
+
+    package shop;
+
+    message Ask {
+      string text = 1;
+    }
+
+    service Echo {
+      rpc Echo (Ask) returns (Ask);
+    }
+  bad.proto: |
+    syntax = "proto3"; service {
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool with --grpc-proto echo.proto, the request {"message":"hello"} and the method's URL answers exit 0 and the reply as JSON, message hello, with no tool error.
+    program: call-with-proto.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no: { \"message\": \"hello\" }\n"
+
+  - id: reflection
+    claim: Without --grpc-proto the same call finds the types by reflection and answers the same reply.
+    program: call-with-proto.cs
+    args: [reflection]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no: { \"message\": \"hello\" }\n"
+
+  - id: bytes
+    claim: The two calls differ on the server, which get_events reports as the bytes each exchange sent; the call by reflection made the server send more, because it answered the reflection request too.
+    program: call-with-proto.cs
+    args: [bytes]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no: { \"message\": \"hello\" }\ncurl exit 0, tool error no: { \"message\": \"hello\" }\nexchanges: 2; the call by reflection made the server send more than the call with the file: True\n"
+
+  - id: streaming
+    claim: A server-streaming method is called the same way with the file; Expand with a count of 2 answers two messages, each its own JSON object, and the first leaves out the index of 0.
+    program: call-with-proto.cs
+    args: [streaming]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no: { \"message\": \"hi\" } { \"message\": \"hi\", \"index\": 1 }\n"
+
+  - id: names-from-the-file
+    claim: The file decides the field names. With renamed.proto the request {"text":"hello"} is answered with text, {"message":"hello"} is refused by curl before the call, exit 2, UnknownField, naming the file's surl.test.Ask, and without the file {"text":"hello"} is refused, naming the server's surl.test.EchoRequest; each refusal is a tool error.
+    program: call-with-proto.cs
+    args: [names]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no: { \"text\": \"hello\" }\ncurl exit 2, tool error yes: curl: (2) -d: the data is not a surl.test.Ask message as JSON (UnknownField)\ncurl exit 2, tool error yes: curl: (2) -d: the data is not a surl.test.EchoRequest message as JSON (UnknownField)\n"
+
+  - id: method-not-in-the-file
+    claim: A method the file does not declare is refused before the call, exit 2, a tool error, even though the server has it; renamed.proto has no Chat.
+    program: call-with-proto.cs
+    args: [method]
+    expect:
+      exit: 0
+      stdout: "curl exit 2, tool error yes: curl: (2) --grpc-proto: service surl.test.Echo has no method Chat\n"
+
+  - id: file-problems
+    claim: A file that is not there and a file that does not parse are each refused with exit 26, a tool error; the first message names the file, the second gives the line and column and what was expected.
+    program: call-with-proto.cs
+    args: [file-problems]
+    expect:
+      exit: 0
+      stdout: "curl exit 26, tool error yes: curl: (26) --grpc-proto: missing.proto:0:0: File \"missing.proto\" was not found.\ncurl exit 26, tool error yes: curl: (26) --grpc-proto: bad.proto:1:28: Expected a service name, found \"{\".\n"
+
+  - id: wrong-service
+    claim: curl trusts the file; other.proto declares a service shop.Echo, the call is made, and the server answers UNIMPLEMENTED (12), unknown service, a tool error, curl exit 22.
+    program: call-with-proto.cs
+    args: [wrong-service]
+    expect:
+      exit: 0
+      stdout: "curl exit 22, tool error yes: curl: (22) grpc-status 12 (UNIMPLEMENTED): unknown service\n"

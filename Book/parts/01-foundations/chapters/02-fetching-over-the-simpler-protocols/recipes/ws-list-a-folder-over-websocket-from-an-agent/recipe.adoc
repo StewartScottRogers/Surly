@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-list-a-folder-over-websocket-from-an-agent]]
+=== Listing Folders over WebSocket from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to receive a folder{apos}s listing over a WebSocket through `curl-mcp`, and to understand the exit `22` it gets when the server does not list folders.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with a `ws` listen URL and `--list-directories`, calls `curl` on the URL the server bound, and reads the server{apos}s record with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ws://127.0.0.1:0`, and port 0 asks for a free port; the program connects to `bound_urls`, never to what it asked for. `files` puts content in memory, relative path to text, so `notes/today.txt` makes a folder. `arguments` is `surl`{apos}s own words: `--list-directories` is the option that makes a folder answer an upgrade with its listing, and it loosens `surl`, which is why a server started without it is the refusal case.
+
+`curl` runs `curl` with `args` as its command line, so every option of `curl` is available, and `-s` keeps the progress meter out of the answer. A WebSocket (<<rfc6455>>) begins as an HTTP request that asks to be upgraded, and `curl` writes each message it receives to standard output, so the listing is in `standardOutput`: one entry per line, a slash after each folder, no dot file. The answer is text, JSON, with `exitCode`, `standardOutput` and `standardError`, each with its `content`, and, when `curl` fails, a `failure` with the exit code in words. A sub-folder is listed with or without the closing slash, and a path that is a file comes back as the file.
+
+`get_exchanges` answers what each client sent and what the server answered, byte for byte. The first chunk, `received`, is the upgrade request; then the server `sent` its `101 Switching Protocols`, a text frame and a close frame. After the upgrade the chunks are binary, so each has `encoding` `base64`: the first byte of a frame says what it is, 0x81 for a text frame and 0x88 for a close, and the second is the length of the payload, 17 bytes for `hello.txt` and `notes/` with their line ends. That is how an agent can tell that the listing was one message.
+
+`transfer` describes the request by fields instead, and over WebSocket it answers `statusCode` 101, the status of the upgrade, with the listing in `body`; that is an answer, not a tool error.
+
+When the server was started without `--list-directories`, the upgrade for a folder is refused with `404 Not Found`, and the `curl` tool answers `exitCode` 22 and a `failure` that spells it out, `HttpReturnedError`: `curl` treats anything but `101` as a failure of the upgrade. The same exit `22` comes back for a path that is not there and for a dot file the server holds but never serves, so the exit code alone does not tell an agent whether listings are off, the path is wrong or the file is hidden. The agent should read the server{apos}s own record, with `get_exchanges`, before it decides.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-list-a-folder-over-websocket>> for the same task on the console.
+* <<ws-list-a-folder-over-websocket-in-csharp>> for the same task from C#.
+* <<ws-receive-a-file-as-a-message>> for a file as a message.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-collect-mail-as-it-arrives]]
+=== Collecting Mail as It Arrives
+
+==== Problem
+
+Your C# test runs an app that sends mail over Simple Mail Transfer Protocol (SMTP); you want a callback that gathers every delivered mail into a list while the app runs, so the test asserts on the list without polling.
+
+==== Solution
+
+Start a `SurlServer` in the test, register a callback with `OnEvent` for deliveries to its mail store, read each new message into a list as its event comes, and assert on the list once the app is done:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `smtp://` listen URL on port 0, `MailDomains` for `--mail-domain example.com`, a `Mailboxes` entry, `--mailbox`, for the app and each customer, and `MailAliases`, `--mail-alias`, making `team@example.com` an alias for Ann and Bob (<<surl-readme>>). `SurlServer.StartAsync` returns once the server is bound, and `BoundUrl` is its URL.
+
+`OnEvent` takes a `SurlEventQuery` and a callback, and runs the callback for every event the query matches from then on; the `IDisposable` it returns stops it. The query here is `Kind` `SurlEventKind.StoreChanged` with `Store` `StoreKind.Mail`: a change to the mail store. Each event is a `StoreChangedEvent`; the callback keeps those whose `Change` is `StoreChange.Delivered` and reads the rest from its `Name`, which for mail is the owner, the mailbox and the unique identifier (UID), as in `ann@example.com/INBOX/;UID=1`. With those, `SurlServer.Mail`, a `SurlServerMail`, reads the message from the store with `ReadMessageAsync`, without a client and without setting a flag; the `SurlMailMessage` it returns holds the exact `Bytes`, from which the callback takes the `Subject` line. The server runs the callback off its serving path, one event at a time and in order, so the list fills in delivery order (<<surl-readme>>).
+
+The app sends with `Curl.Api`: one `CurlClient`, and for each mail a `CurlRequest` with `HttpMethod.Put` to the SMTP URL, `CurlAuthenticationOptions` with the app{apos}s login, `CurlMailOptions` with the envelope sender and recipient, and the message as `CurlContent.FromStream`, a stream body, which `Curl.Api` uploads as the mail. The `CurlResponse` `StatusCode` is the server{apos}s last reply, `250` (<<rfc5321>>). No loosening is needed: `curl`{apos}s engine logs in with `CRAM-MD5`, which never sends the password.
+
+The test does not poll. The callback completes a `TaskCompletionSource` when the list holds as many entries as the test expects, and the test waits on that task, with a two-second limit so a missing mail fails the test instead of hanging it. Three confirmations give three entries, Ann{apos}s two as her UIDs 1 and 2. One mail to the alias is two deliveries, so it gives two entries, one per mailbox. Mail to `nobody@example.com`, inside the domain but with no mailbox, is accepted `250` and discarded, as `surl` does not tell a sender which addresses exist; no delivery happens, so no event comes, the list stays empty, and the wait ends with `0 of 1` and exit `1`. The list shows what was delivered, not what was sent.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-poll-until-the-mail-arrives>> for waiting on the console by searching the mailbox.
+* <<smtp-wait-for-an-apps-mail>> for an agent waiting on the same delivery event.
+* <<smtp-assert-mail-in-an-xunit-fixture>> for a fixture that checks exactly what each test sent.
+* <<surl-readme>>, <<rfc5321>>.
