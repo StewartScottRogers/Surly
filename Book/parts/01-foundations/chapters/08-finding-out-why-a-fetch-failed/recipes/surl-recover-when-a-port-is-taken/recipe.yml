@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# The server under servers: is the "something else" that holds the port; the script starts its own surl.
+schema: 1
+key: surl-recover-when-a-port-is-taken
+title: Recovering When a Port Is Taken
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s]
+exit-codes: [0, 3, 45]
+references: [surl-readme]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  start-surl.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Starts surl on the port asked for. If surl exits 45 because the port is taken, starts it
+    # again on port 0 and reads the port it chose from its Listening on line. Then fetches
+    # hello.txt and stops surl. Any other refusal is passed on. Usage: sh start-surl.sh <port>
+    start() {   # start surl on port $1; returns 0 once it listens, or surl's exit code
+      surl --directory site "http://127.0.0.1:$1/" > listening.txt 2> surl.log &
+      pid=$!
+      tries=0
+      until grep -q '^Listening on ' listening.txt; do
+        if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; return $?; fi
+        tries=$((tries + 1))
+        if [ "$tries" -ge 50 ]; then kill "$pid"; return 1; fi
+        sleep 0.1
+      done
+    }
+    start "$1"; code=$?
+    if [ "$code" -eq 45 ]; then
+      echo "exit 45: $(cat surl.log)"
+      start 0; code=$?
+    fi
+    if [ "$code" -ne 0 ]; then cat surl.log >&2; exit "$code"; fi
+    url=$(sed -n 's|^Listening on ||p' listening.txt | head -n 1)
+    echo "listening on $url"
+    curl -s "${url}hello.txt"
+    status=$?
+    kill "$pid"
+    exit $status
+
+# Something else holding the port: here another surl, serving nothing, on {{port}}.
+servers:
+  holder:
+    command: surl http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Asked for a port another server holds, surl exits 45 with Could not bind ... Address already in use; the script starts it again on port 0, reads the port it chose from its Listening on line, and curl fetches the file there.
+    run: sh start-surl.sh {{port}}
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: '^exit 45: surl: \(45\) Could not bind http://127\.0\.0\.1:\d+/: Address already in use\nlistening on http://127\.0\.0\.1:[1-9]\d*/\nhello from surl\n$'
+
+  - id: plain-45
+    claim: 'surl on its own, on the taken port, writes "surl: (45) Could not bind <url>: Address already in use" to standard error and exits 45 at once.'
+    run: surl --directory site http://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 45
+      stdout-matches: '^surl: \(45\) Could not bind http://127\.0\.0\.1:\d+/: Address already in use\n$'
+
+  - id: free-port
+    claim: On a port nothing holds, the first start succeeds and the script never falls back to port 0.
+    run: sh start-surl.sh {{port2}}
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: '^listening on http://127\.0\.0\.1:\d+/\nhello from surl\n$'
+
+  - id: other-refusals
+    claim: Only 45 means the port is taken; a port that is not a port is exit 3, URL rejected, and the script passes it on instead of trying port 0.
+    run: sh start-surl.sh 70000
+    expect:
+      exit: 3
+      stdout: ""
+      stderr-contains: "surl: (3) URL rejected: Port number was not a decimal number between 0 and 65535"
+
+  - id: exit-code-45
+    claim: surl's own help names exit code 45 BindFailed and says what to do next, port 0 and the Listening on line among it.
+    run: surl --aihelp exit-codes
+    expect:
+      exit: 0
+      stdout-matches: '\| 45 \| `BindFailed` \| A listener cannot bind its address and port \| Use another port, or port 0 and read the bound port from the Listening on line'

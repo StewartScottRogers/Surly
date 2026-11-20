@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-resume-an-interrupted-download-from-an-agent]]
+=== Resuming an Interrupted Download from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent that finds a half-downloaded file to resume it with `curl -C -` through `curl-mcp`, and to confirm the result against the copy the server holds, using Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK). It starts `surl-mcp` and `curl-mcp`, starts a server with the whole file, runs `curl -C -` with the `curl` tool, and compares the file on disk with what `read_file` returns:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine them to the folder the program runs in; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The partial file, `dl/records.txt`, is inside that folder, as `curl-mcp` requires of any file it writes. The argument after `--` picks the mode and the file.
+
+`start_server` holds `records.txt` in memory, 300 bytes, thirty lines of ten, and answers `bound_urls`. The `curl` tool runs `curl` as its command line would, and answers `exitCode` and the captured streams as JSON. `-C -` makes `curl` take the size of the output file, 125 bytes, as the offset and ask for the rest; `-s` keeps it quiet, `-o` names the partial file and `-w` prints the status and the bytes downloaded, which come back in `standardOutput`: `206 175`, only the missing part. Nothing in the tool call says how much to fetch; the file says so.
+
+The program does not take `curl`{apos}s word for what it sent. `get_exchanges` returns what the server received, and the first chunk in the `received` direction holds the whole request head as text, in which the program finds `Range: bytes=125-` (<<rfc9110>>). Then `read_file` returns the server{apos}s own copy of `/records.txt`, as structured content with its `text`, and the program compares that with the file on disk. A match is proof the task asks for; an exit code of `0` from `curl` alone is not.
+
+The same command line works for the other states an agent may find. With no partial file there is no offset, no `Range` is sent, and the whole file comes back with `200`. With a file that is already whole, the offset is its end, the server answers `416 Range Not Satisfiable`, nothing is downloaded and `curl` exits `0`, leaving the file as it was.
+
+A partial file is trusted, not checked. If its first 125 bytes are not the original{apos}s, `curl` still exits `0` and reports `206 175`, and only the comparison with `read_file` shows the file is wrong. An agent that suspects the file has changed can add `-H "If-Range: <date>"`, the `Last-Modified` it saved from the first response. With a date that is not the file{apos}s, the server sends the whole file with `200`; `curl` will not append that to a partial file, writes nothing and exits `33`, and the `curl` tool reports it as a tool error with a failure of kind `CurlExit`. The partial file is untouched, so the agent knows to delete it and start again.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-resume-an-interrupted-download>> for the same task on the console.
+* <<http-resume-an-interrupted-download-in-csharp>> for the same task from C#.
+* <<http-download-a-byte-range-from-an-agent>> for asking for a range yourself.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

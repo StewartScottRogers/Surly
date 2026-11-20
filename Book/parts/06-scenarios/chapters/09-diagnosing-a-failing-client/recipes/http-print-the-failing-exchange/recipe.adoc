@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-print-the-failing-exchange]]
+=== Printing the Failing Exchange
+
+==== Problem
+
+When an assertion fails you want the test to print the request and response that caused it, so the continuous integration (CI) log shows the cause.
+
+==== Solution
+
+Start the in-process server with `RecordExchanges` on and a verbose `Log`, give the test its own client, and when the assertion fails print that exchange: the server's log lines for it, then its bytes in the order they crossed:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`RecordExchanges` makes the server keep every exchange it serves, and `server.Exchanges` lists them as `SurlExchangeRecord` values, oldest first. For Hypertext Transfer Protocol (HTTP) an exchange is a connection, so the test makes its fetch on a `CurlClient` of its own: its connection, and so its exchange, is the one after those already recorded, `Exchanges[before]`. A client shared between tests could carry several of them on one connection. Each record has its `ExchangeId`, `Scheme`, the `Client` address, and `Chunks`, one per read or write, each with a `Direction`, `Received` or `Sent`, and its `Bytes`; the test prints them as lines, `>` for what the client sent and `<` for what it was answered.
+
+`Log` with `LogLevel.Verbose` keeps `surl`{apos}s log in a `StringWriter`, a line for each exchange event, each line led by its exchange number. The test prints the lines whose number is this exchange's, and they say in words what the bytes show: `Login accepted: Digest app`, then `GET /Report.csv: 404, nothing exists at` the path it looked for. `SurlServerOptions` also holds `Accounts`, one `SurlAccount`, and the file in `Files`; the `CurlRequest` logs in with `CurlAuthenticationOptions` and `HttpAuthenticationMethods.Digest` (<<rfc7616>>), and the test reads `StatusCode` from the `CurlResponse`.
+
+The fetch asks for `Report.csv`, and the server has `report.csv`: the assertion that it is answered `200` fails on a `404` (<<rfc9110>>). The test prints a `FAIL` line, the exchange's number and client address, the log lines, and the bytes: the first request with no login, the `401` with its Digest challenges, the second request with its `Authorization` header, and the `404`. The request line shows the wrong case at once. With the right path and a wrong password the failure is a `401`, the log line is `Login refused: Digest app`, and the printed request holds Digest's `response`, a hash, never the password. A Basic login's `Authorization` header is the password in base64 (<<http-find-failed-logins-in-the-log>> shows one in a log), so print such an exchange only where the CI log is private. When the assertion holds, the test prints one line and nothing else.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-record-what-the-client-sent>> for `RecordExchanges` on its own.
+* <<http-find-failed-logins-in-the-log>> for the same login lines read from a log file.
+* <<surl-keep-the-server-log-for-a-failed-run-in-csharp>> for keeping the log as an artifact without its secrets.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc9110>>.

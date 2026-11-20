@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-a-flaky-endpoint-in-csharp]]
+=== Retrying a Flaky Endpoint in C#
+
+==== Problem
+
+Your .NET client retries, with a growing wait, when a server answers `503 Service Unavailable`. In a test, you want an in-process Hypertext Transfer Protocol (HTTP) server that answers `503` twice and then serves the file, and you want both sides to say what happened.
+
+==== Solution
+
+Start a `SurlServer` with a `SurlFault` that answers the first two requests for `/hello.txt` with `503`, fetch it with a `CurlClient` in a loop that waits one second, then two, and count what each side saw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlFault.ProtocolError("503")` makes a rule that answers a request with the reply it names instead of serving it, as `surl --fault error;reply=503` does. The reply must fit its protocol{apos}s error shape, an HTTP status from 400 to 599, so the rule needs to know the protocol: `with { Scheme = "http" }` says it. `Path` limits the rule to requests for `/hello.txt` and `Times = 2` spends it after two answers. Rules in `SurlServerOptions.Faults` are there from the start and are numbered `f1`, `f2` and so on.
+
+A `503` is an answer, not a failure: `CurlClient.SendAsync`, given a `CurlRequest` for the file, returns a `CurlResponse` whose `StatusCode` is `503` and throws nothing. The retrying is the program{apos}s. It treats the statuses `curl --retry` counts as transient, `408`, `429`, `500`, `502`, `503` and `504` (<<curl-manual>>), as worth another try and every other status as the answer. Before each retry it waits, one second at first and twice as long each time, as `curl --retry` does without `--retry-delay`. Each body is read to its end and disposed before the next attempt, so the client can use the connection again. The third attempt gets `200 OK` and the file, after two retries, and the program exits `0`.
+
+The failure paths come from the argument. With `0` retries the first `503` is the answer, and the program exits `22`, the code `curl -f` exits with for an error status; with `1` the one retry gets the second `503` and the program gives up with `22` too. A `404 Not Found` for a file that is not there is not worth a retry, so the program stops at once. The exit codes are the program{apos}s choice, not the library{apos}s.
+
+The server keeps its own count. `RecordExchanges = true` makes it keep a record of every exchange and every event. `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.FaultApplied` finds each time the rule answered, `2` after a success, `1` with no retry and `0` for the `404`, since the rule is scoped to `/hello.txt`. `Faults.List()` reads the rule back as a `SurlFaultRule`: `f1`, with `Remaining` the uses it has left. A test can assert on both: a client that says it retried twice and a server that says it answered `503` twice agree.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-a-flaky-endpoint>> for the same test on the console, with `curl --retry`.
+* <<http-retry-a-flaky-endpoint-from-an-agent>> for the same test from an agent.
+* <<http-recover-from-a-dropped-connection-in-csharp>> for a connection dropped instead of a `503`.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

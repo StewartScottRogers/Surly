@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-until-the-server-is-up-in-csharp]]
+=== Retrying Until Servers Start in C#
+
+==== Problem
+
+Your C# test runs a client that may start before the server it talks to is listening. You want a bounded retry loop around `Curl.Api` that keeps trying while the connection is refused and succeeds once the `Surl.Api` server is up.
+
+==== Solution
+
+Catch the `CurlException` whose `Code` is `CouldntConnect`, wait a second and try again, up to a fixed number of attempts. The program starts the client two seconds before the server to make the race certain:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Client and server have to agree on a port before the server is up, as a fixture handing a port to the code under test would. The program asks the system for a free one with a `TcpListener` on port 0, releases it, and gives that port to both sides. The server, a `SurlServer` started from a `SurlServerOptions` holding the listen URL and one file in memory, starts on its own schedule: two seconds after the client, before it, or never, by the second argument after `--`.
+
+`CurlClient.SendAsync`, given a `CurlRequest` for the file, throws a `CurlException` when nothing listens on the port. Its `Code` is the `CurlCode` `curl` would exit with, `7`, `CouldntConnect`. The program catches that code alone, with a `when` filter, and retries a second later; any other failure is not a server that is still starting, and goes up uncaught. Once the server listens, `SendAsync` returns a `CurlResponse`, `200 OK` with the file, and the loop ends. How many attempts that takes depends on how quickly the server starts, at least two here; the program prints each one.
+
+The loop is bounded by the first argument. With no server at all, three attempts a second apart all fail with `7`, and the program gives up and exits `7`, the code `curl` exits with. With the server started first, the first attempt gets the file. The waits and the limit are the program{apos}s: each `SendAsync` here is one attempt, and the retry policy is whatever the test writes around it, here the same as `curl --retry 9 --retry-connrefused --retry-delay 1` on the console.
+
+When the client is done, the program stops the server with `StopAsync`, which returns the exit code a `surl` process would have exited with, `Ok`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-until-the-server-is-up>> for the same wait on the console, with `curl --retry-connrefused`.
+* <<http-retry-until-the-server-is-up-from-an-agent>> for the same wait from an agent.
+* <<http-tell-a-dead-server-from-a-missing-file-in-csharp>> for telling `CouldntConnect` from a `404`.
+* <<surl-readme>>, <<curl-readme>>.

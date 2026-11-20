@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-list-a-bucket-from-an-agent]]
+=== Listing a Bucket from an Agent
+
+==== Problem
+
+Your app lists the objects under a prefix before it processes them, and an agent tests that for you. You want listings refused until they are allowed, then the keys under one prefix listed, by an agent driving `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+An agent starts three S3 servers with `surl-mcp`, one that allows listings, one that does not and one that also allows anonymous callers, and lists the bucket through `curl-mcp`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) lists a bucket with ListObjectsV2, which takes a prefix and a delimiter and answers the keys under the prefix, folding any that continue past the delimiter into one common prefix (<<aws-s3-api>>). In the Curl port an `s3://` URL whose path is empty or ends in a slash is that listing, and `curl` writes the keys to standard output, one to a line. `s3://photos/2026/` is the keys under `2026/`; `s3://photos/` is one level, the folders as prefixes that end in a slash. The recipe <<s3-list-a-bucket>> does the same with the two programs on a console.
+
+`start_server` of `surl-mcp` starts a server. `listen_urls` is `s3://127.0.0.1:0`, where port `0` takes a free port that `bound_urls` reports, and `arguments` are `surl`{apos}s own options: `--cert server.pem` and `--key server.key`, since S3 is spoken over Transport Layer Security from the first byte (<<rfc8446>>), which the `openssl` line made in the folder `SURL_MCP_ROOT` names; `--user AKIAIOSFODNN7EXAMPLE:s3cret`, the access key ID and secret access key; `--list-directories`, which turns listings on; and `--allow-anonymous` for the third server (<<surl-readme>>). `files` is the content in memory, where `photos/2026/jan.jpg` is the object `2026/jan.jpg` in the bucket `photos`.
+
+`curl` of `curl-mcp` runs `curl`{apos}s own arguments, in the folder `CURL_MCP_ROOT` names, and answers in text as JSON: `exitCode`, and `standardOutput` and `standardError`, each an object whose `content` is the text. `--connect-to ::127.0.0.1:<port>` sends the connection to the server whatever bucket host name the URL gives, where `curl` would send it to `photos.s3.us-east-1.amazonaws.com`; `--cacert server.pem` trusts the certificate; and `-u` signs the request with AWS Signature Version 4, the scheme S3 uses. A listing is a successful answer with exit `0`, and an empty prefix is too: nothing is under it, and nothing is wrong.
+
+A refusal is exit `22` with the S3 error in `standardError` and nothing in `standardOutput`. A bucket that is not in the store is `404 NoSuchBucket`. A listing with no `-u` is `403 AccessDenied`, although the server allows listings. On the server without `--list-directories` a signed listing is the same `403 AccessDenied`, and a signed get of one object by its key is served: the option decides whether a client may enumerate what is stored, not whether it may read it. On the server with `--allow-anonymous` and `--list-directories` an unsigned listing is served, so a test needs no keys, and so does anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on (<<surl-readme>>).
+
+`list_files` of `surl-mcp` lists a folder of the store directly, by its path, `/photos/2026`, and asks no one{apos}s permission, as the test{apos}s own hand does and a client does not. It answers the same two files as the two keys, so an agent can check what a listing should hold against what the server holds.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-list-a-bucket>> for the same task on the console.
+* <<s3-list-a-bucket-in-csharp>> for the same task from a C# test.
+* <<s3-tell-the-refusals-apart-from-an-agent>> for the refusals with an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc8446>>.

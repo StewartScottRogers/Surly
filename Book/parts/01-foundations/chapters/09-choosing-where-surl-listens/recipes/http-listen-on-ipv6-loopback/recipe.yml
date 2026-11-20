@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-listen-on-ipv6-loopback
+title: Listening on IPv6 Loopback
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s, -g, -v, -w, -o]
+exit-codes: [0, 3, 7]
+references: [surl-readme, rfc3986, rfc4291]
+
+fixtures:
+  both/hello.txt: "hello from surl\n"
+  both/f1.txt: "one\n"
+  both/f2.txt: "two\n"
+  six/hello.txt: "hello from surl\n"
+
+servers:
+  main:
+    command: surl --directory both http://127.0.0.1:{{port}}/ http://[::1]:{{port}}/
+    ready: port
+  v6only:
+    command: surl --directory six http://[::1]:{{port2}}/
+    ready: none
+
+cases:
+  - id: solution
+    role: solution
+    claim: One surl listening on 127.0.0.1 and on [::1] at the same port answers a fetch of the same file at each address.
+    run: curl -s http://127.0.0.1:{{port}}/hello.txt http://[::1]:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\nhello from surl\n"
+
+  - id: which-address
+    claim: curl reports the address that answered, remote_ip, as 127.0.0.1 for the first URL and ::1 for the second.
+    run: curl -s -o {{null}} -o {{null}} -w "%{remote_ip}\n" http://127.0.0.1:{{port}}/hello.txt http://[::1]:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "127.0.0.1\n::1\n"
+
+  - id: host-header
+    claim: The Host header of a request to the IPv6 address keeps the brackets and the port, as [::1]:port.
+    run: curl -s -v -o {{null}} http://[::1]:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stderr-contains: "> Host: [::1]:"
+
+  - id: long-form
+    claim: The address may be written in full, [0:0:0:0:0:0:0:1], and is the same address.
+    run: curl -s http://[0:0:0:0:0:0:0:1]:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: ipv6-only-reached
+    claim: A surl that listens only on [::1] answers a client at [::1].
+    run: curl -s http://[::1]:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: ipv6-only-refuses-ipv4
+    claim: The same port on 127.0.0.1 is not open to that surl, so an IPv4 client gets exit 7, could not connect.
+    run: curl -s http://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 7
+
+  - id: no-brackets
+    claim: An IPv6 address without brackets is malformed, because its colons are taken for a port, and curl exits 3.
+    run: curl -s http://::1:{{port}}/hello.txt
+    expect:
+      exit: 3
+
+  - id: no-brackets-listen
+    claim: The same mistake in surl's listen URL is refused at once, exit 3, URL rejected, and nothing listens.
+    run: surl http://::1:{{port3}}/
+    expect:
+      exit: 3
+      stderr-contains: "surl: (3) URL rejected"
+
+  - id: brackets-in-a-path
+    claim: Without -g curl treats [1-2] in the path as a range and fetches two files, f1.txt and f2.txt, though the address in the URL has brackets of its own.
+    run: curl -s "http://[::1]:{{port}}/f[1-2].txt"
+    expect:
+      exit: 0
+      stdout: "one\ntwo\n"
+
+  - id: glob-off
+    claim: With -g the brackets in the path are literal, so f[1-2].txt is a file name that does not exist, 404, while the address still works.
+    run: curl -s -g -o {{null}} -w "%{http_code}" "http://[::1]:{{port}}/f[1-2].txt"
+    expect:
+      exit: 0
+      stdout: "404"

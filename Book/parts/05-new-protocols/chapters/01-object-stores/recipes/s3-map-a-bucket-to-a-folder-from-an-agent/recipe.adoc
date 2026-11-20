@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-map-a-bucket-to-a-folder-from-an-agent]]
+=== Mapping a Bucket from an Agent
+
+==== Problem
+
+Your test data sits in a folder whose name is not the bucket name your app uses, and an agent sets the test up. You want the bucket mapped onto that folder and its files served as objects, by an agent driving `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+An agent starts an S3 server with `surl-mcp`, whose `--bucket pics=/gallery` makes the bucket `pics` the folder `gallery`, and reads, lists and writes the bucket through `curl-mcp`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+In the S3 server, each top-level folder of the store is a bucket named for the folder, and the path under it is the key (<<aws-s3-api>>, <<surl-readme>>). That fits a store built for the test, but not data that exists already: your app asks for the bucket `pics` and the folder is `gallery`. The recipe <<s3-map-a-bucket-to-a-folder>> does it on a console. `--bucket <name>=<path>` maps a bucket name onto a path in the store, which is a path in the store and not on the disk: it starts with a slash, and `/gallery` is the folder `gallery` of the store.
+
+`start_server` of `surl-mcp` starts a server. `listen_urls` holds an `s3` and an `https` URL, each on port `0`, which takes a free port; `bound_urls` lists them in order. `arguments` are `surl`{apos}s own options: `--cert server.pem` and `--key server.key`, since S3 is spoken over Transport Layer Security from the first byte (<<rfc8446>>), which the `openssl` line made in the folder `SURL_MCP_ROOT` names; `--user AKIAIOSFODNN7EXAMPLE:s3cret`, the access key ID and secret access key; `--bucket pics=/gallery`; and `--allow-uploads` and `--list-directories`, which put and list need. `files` is the content in memory, where `gallery/sunset.txt` is the file `sunset.txt` of the folder `gallery`. The answer carries a `server_id`, which later calls name.
+
+`curl` of `curl-mcp` runs `curl`{apos}s own arguments, in the folder `CURL_MCP_ROOT` names, and answers in text as JSON: `exitCode`, and `standardOutput` and `standardError`, each an object whose `content` is the text. `--connect-to ::127.0.0.1:<port>` sends the connection to the server whatever bucket host name the URL gives, where `curl` would send `s3://pics/sunset.txt` to `pics.s3.us-east-1.amazonaws.com`; `--cacert server.pem` trusts the certificate; and `-u` signs the request with AWS Signature Version 4, the scheme S3 uses. The listing `s3://pics/` is the folder, one level.
+
+The mapping adds a name and removes none. `s3://pics/sunset.txt` and `s3://gallery/sunset.txt` read the same file, and a folder `--bucket` does not mention, `other` here, is a bucket under its own name. A bucket that is neither mapped nor a folder is exit `22` with `404 NoSuchBucket` in `standardError`. A signed put with `-T up.txt` into `pics` succeeds, and `read_file` of `surl-mcp`, given the path `/gallery/up.txt`, finds it: the put went to the folder. `list_files` of the store{apos}s root, `/`, shows `gallery` and `other` and no `pics`, because the bucket is a name for the folder and not another folder.
+
+Bucket names belong to the object-storage servers only. On the `https` listener of the same server the file is at the folder{apos}s own path, `/gallery/sunset.txt`, read with the same account sent as HTTP Basic (<<rfc7617>>), which is safe because the connection is encrypted; and `/pics/sunset.txt` is not found, which `curl -f` turns into exit `22`.
+
+The folder is checked when the server starts. A bucket mapped to a folder that is not there is not served as an empty bucket: `start_server` answers a tool error whose `exit_code` is `37`, as `surl` exits, and whose text is `surl`{apos}s own message, naming the folder and the bucket. That needs a folder on disk, so the program gives `--directory spare`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-map-a-bucket-to-a-folder>> for the same task on the console.
+* <<s3-map-a-bucket-to-a-folder-in-csharp>> for the same task from a C# test.
+* <<s3-list-a-bucket-from-an-agent>> for listing a bucket with an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc8446>>, <<rfc7617>>.

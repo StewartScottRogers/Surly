@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-time-out-a-hanging-server-from-an-agent]]
+=== Timing Out a Hanging Server from an Agent
+
+==== Problem
+
+Your client is meant to give up on a server that accepts a request and then says nothing. You want an artificial intelligence (AI) agent to set up a Hypertext Transfer Protocol (HTTP) server that stalls longer than the client's time limit, fetch from it, and see the client report a timeout instead of hanging, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent's side as a C# program on the MCP software development kit (SDK): it starts a server with `start_server` and a rule that holds the first request for `/hello.txt` five seconds, fetches it with `transfer` and `timeoutSeconds` 2, then asks the server what it held:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. The argument after `--` picks the scenario.
+
+`start_server` takes `arguments`, `surl`{apos}s own options as words, so the rule is the `--fault` item a console test would give: `delay;ms=5000` holds the exchange five seconds, `stage=command` waits until a request has arrived, so the connection is accepted at once and the client is left waiting, `path=/hello.txt` limits the rule to that path and `times=1` spends it after one hold. `start_server` answers `server_id` and `bound_urls`, the URL with the port the system chose.
+
+`transfer` makes one request. `timeoutSeconds` is the longest the whole transfer may take, as `curl -m` sets it. After two seconds with no answer the call is a tool error whose `failure` has `kind` `CurlExit` and `exitCode` `28`, `curl`{apos}s code for a timeout, before the five-second hold is over. An agent reads the `28` as a timeout, which is what the test is there to prove. Without `timeoutSeconds` there is no limit, and `transfer` waits out the hold and answers `200` after five seconds.
+
+`transfer` makes no retry. For one, the program uses `curl-mcp`{apos}s `curl` tool, which runs a `curl` command line in-process and answers its `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON) text. `-m 2` limits each try; `curl` counts a timeout as transient (<<curl-manual>>), so `--retry 1` tries again after one second, and `--no-progress-meter` keeps standard error to the timeout and the retry notice. The rule is spent, the retry gets the file, and `-w "%{http_code} %{num_retries}\n"` prints `200 1`.
+
+The server keeps its own record. `get_events` with `kinds` `fault_applied` lists each time a rule acted, with its `fault_kind` and its `target`, the path: one `delay` on `/hello.txt` in every scenario, whether the client waited for the answer or gave up. `list_faults` shows the rule, `f1`, with `remaining` `0`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-time-out-a-hanging-server>> for the same test on the console.
+* <<http-time-out-a-hanging-server-in-csharp>> for the same test from a C# program.
+* <<http-slow-down-one-path-from-an-agent>> for a slow path fetched beside a fast one.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>.

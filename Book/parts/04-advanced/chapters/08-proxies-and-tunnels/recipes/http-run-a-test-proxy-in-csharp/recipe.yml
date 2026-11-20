@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-run-a-test-proxy-in-csharp
+title: Running a Test Proxy in C#
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlClientOptions, CurlProxyOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [rfc9110, surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: One SurlServer holds an origin and a proxy; a CurlClient whose CurlProxyOptions name the proxy fetches hello.txt through it, 200 with Via 1.1 surl; the proxy received the request in absolute form and the origin in origin form with Via added and Proxy-Connection gone.
+    program: run-a-proxy.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^200 OK, Via: 1\.1 surl\nhello from surl\nproxy received: GET http://127\.0\.0\.1:\d+/hello\.txt HTTP/1\.1 \| Proxy-Connection: Keep-Alive\norigin received: GET /hello\.txt HTTP/1\.1 \| Via: 1\.1 surl\n$'
+
+  - id: outside-loopback-refused
+    claim: The proxy answers 403 Forbidden itself for an origin outside loopback, as an ordinary CurlResponse; nothing throws and no Via is added.
+    program: run-a-proxy.cs
+    args: [outside]
+    expect:
+      exit: 0
+      stdout: "403 Forbidden, Via: none\nproxy received: GET http://192.0.2.1/hello.txt HTTP/1.1 | Proxy-Connection: Keep-Alive\n"
+
+  - id: tunnel-refused
+    claim: With HttpProxyTunnel the client asks for a CONNECT tunnel instead; the proxy refuses it with 403 and SendAsync throws CurlException 7, CouldntConnect.
+    program: run-a-proxy.cs
+    args: [tunnel-outside]
+    expect:
+      exit: 1
+      stdout: "CurlException 7 CouldntConnect: CONNECT tunnel failed, response 403\n"
+
+  - id: allowed-origin-is-tried
+    claim: With --proxy-allow-origin 192.0.2.1 in AdditionalArguments the proxy tries that origin instead; nothing answers there, so after --head-timeout 2 it answers a gateway error (504 Gateway Timeout, or 502 Bad Gateway where the network refuses at once), not 403.
+    program: run-a-proxy.cs
+    args: [allowed]
+    expect:
+      exit: 0
+      stdout-matches: '^50[24] (Gateway Timeout|Bad Gateway), Via: none\n'
+
+  - id: every-origin-warns
+    claim: --proxy-allow-origin * admits every origin, and the server writes its warning to Log at start, before it listens.
+    program: run-a-proxy.cs
+    args: [every-origin]
+    expect:
+      exit: 0
+      stdout-matches: '^surl: warning: --proxy-allow-origin: the proxy connects to every origin address, not only loopback\nListening on '

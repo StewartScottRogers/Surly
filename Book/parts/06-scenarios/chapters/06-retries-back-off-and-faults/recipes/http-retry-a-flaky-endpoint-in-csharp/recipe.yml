@@ -1,0 +1,48 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-retry-a-flaky-endpoint-in-csharp
+title: Retrying a Flaky Endpoint in C#
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlFaultRule, SurlEventQuery, SurlEventKind, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first two requests are answered 503 Service Unavailable as ordinary responses; the client waits one second, then two, and its third attempt gets the file. The server counts two uses of the rule, which then has none left.
+    program: flaky.cs
+    args: ["3"]
+    expect:
+      exit: 0
+      stdout: "attempt 1: 503 Service Unavailable, waiting 1 s\nattempt 2: 503 Service Unavailable, waiting 2 s\nattempt 3: 200 OK, hello from surl\nretries: 2\nfault applied: 2\nf1 remaining: 0\n"
+
+  - id: no-retry
+    claim: A client that does not retry takes the first 503 as the answer and exits 22; the rule has acted once and has one use left.
+    program: flaky.cs
+    args: ["0"]
+    expect:
+      exit: 22
+      stdout: "attempt 1: 503 Service Unavailable\nretries: 0\nfault applied: 1\nf1 remaining: 1\n"
+
+  - id: too-few-retries
+    claim: With one retry allowed, the retry gets the second 503 and the client gives up with 22; the rule is spent all the same.
+    program: flaky.cs
+    args: ["1"]
+    expect:
+      exit: 22
+      stdout: "attempt 1: 503 Service Unavailable, waiting 1 s\nattempt 2: 503 Service Unavailable\nretries: 1\nfault applied: 2\nf1 remaining: 0\n"
+
+  - id: not-transient
+    claim: A 404 is not a status worth a retry, so the client stops at once, and the rule, scoped to /hello.txt, never acts.
+    program: flaky.cs
+    args: ["3", "missing.txt"]
+    expect:
+      exit: 22
+      stdout: "attempt 1: 404 Not Found\nretries: 0\nfault applied: 0\nf1 remaining: 2\n"

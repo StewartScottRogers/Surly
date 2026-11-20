@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[telnet-hold-a-line-session-in-csharp]]
+=== Holding a Telnet Session in C#
+
+==== Problem
+
+Your C# code talks to a line-based service over Telnet, and you want a test that holds a session with surl{apos}s Telnet server, checks that every line comes back and that `quit` ends the session, and reads what the server was told about the client.
+
+==== Solution
+
+Start a `SurlServer` on a Telnet listen URL, open a socket to the address it bound, send three lines ending in `quit`, and read until the server closes the connection:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `telnet://127.0.0.1:0`, port 0 asking the system for a free port, and `SurlServer.StartAsync` returns once the listener is bound. `SurlServer.BoundUrl` is the address it got, and the program reads its `Host` and `Port` to connect. `Log` is a `TextWriter` that receives what `surl` would print, and a `LogLevel` of `Verbose` is `-v`; the program reads the log back at the end of one scenario.
+
+The line session goes over a plain `TcpClient`, and that is a limit of `Curl.Api` at this version, not a choice: `CurlClient` has no way to send a line to a Telnet server. It sends no lines from a `CurlRequest` `Body`, and the session then waits for lines that never come. What `CurlClient` does do is open the session and deliver what the server sends, which the last scenario uses. On the console `curl` sends what it reads from standard input (<<telnet-hold-a-line-session>>), and from an agent the `curl` tool takes `stdin` (<<telnet-hold-a-line-session-from-an-agent>>).
+
+Telnet (<<rfc854>>) starts with the two ends agreeing on options, bytes that begin with `255`, and the program drops each three-byte option command before it prints, so what remains is the text: a banner line, then each line echoed, then `bye`. The server needs no reply to its offers to echo. Send `quit`, or `QUIT`, which is matched without regard to case, and it says `bye` and closes the connection, so `ReadAsync` returns `0`. Anything after `quit` is never read. A session that never sends it stays open: the program stops waiting after a second of silence and says so, and a real client needs a timeout of its own for that case. The limit on a line is `--max-line`, 8,192 bytes by default; a line of 9,000 characters is answered `line too long` and the connection closes, without `bye`.
+
+`CurlRequest` takes `Telnet`, a `CurlTelnetOptions`, which is `curl -t` as a property: its `TelnetOptions` is a list of `NAME=value` options, and `TTYPE=vt100` sets the terminal type the client reports. `CurlClient.SendAsync` returns a `CurlResponse` as soon as the session opens, and its `Body` is the stream of what the server sends, the banner first; the program reads one line and disposes the response, which ends the session. The server{apos}s verbose log then holds `The client{apos}s terminal type (TERMINAL-TYPE) is vt100.`
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<telnet-hold-a-line-session>> for the same session on the console.
+* <<telnet-hold-a-line-session-from-an-agent>> for the same session from an agent.
+* <<http-serve-and-fetch-in-process>> for the in-process server and client by themselves.
+* <<surl-readme>>, <<curl-readme>>, <<rfc854>>.

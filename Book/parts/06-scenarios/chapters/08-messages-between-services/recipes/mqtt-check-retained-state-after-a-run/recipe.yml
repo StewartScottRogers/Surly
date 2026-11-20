@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: mqtt-check-retained-state-after-a-run
+title: Checking Retained State After a Run
+protocols: [mqtt]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_retained_message]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After devices publish through curl-mcp to a broker started with --topic devices/#;retain, read_retained_message returns each topic's last message, so the lamp that reported on and then off is off, and every device is in the state expected.
+    program: check-retained.cs
+    args: [ok]
+    expect:
+      exit: 0
+      stdout: "devices/lamp/state: off\ndevices/door/state: closed\ndevices/heater/state: off\nevery device left the state it should\n"
+
+  - id: wrong-state
+    claim: A device left in the wrong state shows as the retained text against the expected one, and the check fails, exit 1.
+    program: check-retained.cs
+    args: [wrong]
+    expect:
+      exit: 1
+      stdout: "devices/lamp/state: off\ndevices/door/state: closed\ndevices/heater/state: on, expected off\n1 of 3 topics are wrong\n"
+
+  - id: silent-device
+    claim: A device that never reported has no retained message, and read_retained_message answers retained false for it, which the check reports as nothing retained.
+    program: check-retained.cs
+    args: [silent]
+    expect:
+      exit: 1
+      stdout: "devices/lamp/state: off\ndevices/door/state: closed\ndevices/heater/state: off\ndevices/pump/state: nothing retained, expected off\n1 of 4 topics are wrong\n"
+
+  - id: outside-the-filter
+    claim: A topic outside the --topic filter is not kept, even though the broker accepted the publish, so its state cannot be read back.
+    program: check-retained.cs
+    args: [outside]
+    expect:
+      exit: 1
+      stdout: "devices/lamp/state: off\ndevices/door/state: closed\ndevices/heater/state: off\nlab/heater/state: nothing retained, expected off\n1 of 4 topics are wrong\n"
+
+  - id: no-retain
+    claim: A broker started without retain keeps nothing, so every topic reads back as nothing retained.
+    program: check-retained.cs
+    args: [no-retain]
+    expect:
+      exit: 1
+      stdout: "devices/lamp/state: nothing retained, expected off\ndevices/door/state: nothing retained, expected closed\ndevices/heater/state: nothing retained, expected off\n3 of 3 topics are wrong\n"
+
+  - id: login-required
+    claim: Without --allow-anonymous the broker refuses every device with curl exit 8, and nothing is retained.
+    program: check-retained.cs
+    args: [refused]
+    expect:
+      exit: 1
+      stdout: "publish devices/lamp/state: exitCode 8\npublish devices/lamp/state: exitCode 8\npublish devices/door/state: exitCode 8\npublish devices/heater/state: exitCode 8\ndevices/lamp/state: nothing retained, expected off\ndevices/door/state: nothing retained, expected closed\ndevices/heater/state: nothing retained, expected off\n3 of 3 topics are wrong\n"

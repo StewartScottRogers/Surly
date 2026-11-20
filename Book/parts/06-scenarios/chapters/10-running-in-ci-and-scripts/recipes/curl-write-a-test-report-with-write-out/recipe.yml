@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: curl-write-a-test-report-with-write-out
+title: Writing a Test Report with Write-Out
+protocols: [http]
+tier: scenarios
+surl-options: [-v, --log-file, --directory]
+curl-options: [-s, -o, -w]
+exit-codes: [0, 7]
+references: [curl-manual, surl-readme, rfc9110]
+
+fixtures:
+  site/health.txt: "ok\n"
+  site/version.txt: "1.4.2\n"
+
+# The service under test, logging every exchange event to surl.log. No account, so GET needs no login.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command fetches three URLs, prints nothing, exits 0, and appends one JSON line per transfer to report.jsonl.
+    run: curl -s -o {{null}} -w "%output{>>report.jsonl}%{json}\n" "http://127.0.0.1:{{port}}/{health,version,missing}.txt"
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        report.jsonl: null
+
+  - id: status-and-size
+    claim: Each line holds the transfer's status and the bytes of body received, in the order the URLs were fetched; the missing file is 404 with no body.
+    run: grep -o -E -e ".http_code.:[0-9]+" -e ".size_download.:[0-9]+" report.jsonl
+    expect:
+      exit: 0
+      stdout: "\"http_code\":200\n\"size_download\":3\n\"http_code\":200\n\"size_download\":6\n\"http_code\":404\n\"size_download\":0\n"
+
+  - id: timing-and-url
+    claim: Each line also holds the URL that was fetched and the time the whole transfer took, in seconds.
+    run: grep -o -E -e ".time_total.:[0-9.]+" -e ".url.:.http[^,]*" report.jsonl
+    expect:
+      exit: 0
+      stdout-matches: '^"time_total":\d+\.\d{6}\n"url":"http://127\.0\.0\.1:\d+/health\.txt"\n"time_total":\d+\.\d{6}\n"url":"http://127\.0\.0\.1:\d+/version\.txt"\n"time_total":\d+\.\d{6}\n"url":"http://127\.0\.0\.1:\d+/missing\.txt"\n$'
+
+  - id: server-agrees
+    claim: The server's log has the same three requests with the same statuses.
+    run: 'grep -o -E "GET /[a-z]+\.txt: [0-9]+" surl.log'
+    expect:
+      exit: 0
+      stdout: "GET /health.txt: 200\nGET /version.txt: 200\nGET /missing.txt: 404\n"
+
+  - id: next-run-appends
+    claim: A second run appends its lines to the same file, so the report keeps both runs, and the status and size of each URL match between them.
+    run: curl -s -o {{null}} -w "%output{>>report.jsonl}%{json}\n" "http://127.0.0.1:{{port}}/{health,version,missing}.txt" && grep -o -E -e ".http_code.:[0-9]+" -e ".size_download.:[0-9]+" report.jsonl
+    expect:
+      exit: 0
+      stdout: "\"http_code\":200\n\"size_download\":3\n\"http_code\":200\n\"size_download\":6\n\"http_code\":404\n\"size_download\":0\n\"http_code\":200\n\"size_download\":3\n\"http_code\":200\n\"size_download\":6\n\"http_code\":404\n\"size_download\":0\n"
+
+  - id: server-down
+    claim: When nothing listens, curl exits 7 and still writes the line, with http_code 0 and exitcode 7.
+    run: curl -s -o {{null}} -w "%output{>>down.jsonl}%{json}\n" http://127.0.0.1:{{port9}}/health.txt || grep -o -E -e ".exitcode.:[0-9]+" -e ".http_code.:[0-9]+" down.jsonl
+    expect:
+      exit: 0
+      stdout: "\"exitcode\":7\n\"http_code\":0\n"
+
+  - id: hand-made-json-breaks
+    claim: A format written by hand with %{http_code} prints 000 when nothing listens, which is not a JSON number.
+    run: curl -s -o {{null}} -w "{\"status\":%{http_code}}" http://127.0.0.1:{{port9}}/health.txt
+    expect:
+      exit: 7
+      stdout: "{\"status\":000}"

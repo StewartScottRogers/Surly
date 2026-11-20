@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-move-a-firmware-fetch-to-http]]
+=== Moving a Firmware Fetch to HTTP
+
+==== Problem
+
+Your device fetches its firmware over Trivial File Transfer Protocol (TFTP). You want it to fetch the same images over Hypertext Transfer Protocol (HTTP) from the same files, and a test that shows the image it gets this way is identical to the one it got before.
+
+==== Solution
+
+Serve the folder of images on both protocols from one `surl`, fetch one image each way in a single `curl` command line, and compare the two copies with `cmp`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` can hold several listeners, and every listener serves the same store. Here `--directory site` is served at `tftp://127.0.0.1:8080/` and at `http://127.0.0.1:8080/`, so `site/firmware.bin` is the same file at the same path under both. TFTP runs over User Datagram Protocol (UDP) and HTTP over Transmission Control Protocol (TCP), and the two have separate port numbers, so one number serves both. This is what makes the test fair: the only thing that changes between the two fetches is the protocol.
+
+`curl` takes several URLs on one command line, and each `-o` goes with the URL that follows it; `-s` keeps the progress meter out of the output, so a failure shows only as the exit code. The solution writes the TFTP copy to `over-tftp.bin` and the HTTP copy to `over-http.bin`, then `cmp` exits `0` and says nothing when the two files hold the same bytes, and exits non-zero and says where they first differ when they do not. The `&&` makes `echo identical` run only after a fetch and a comparison that both succeeded. The images are 1,300 bytes of random data, so a client that dropped, repeated or reordered a block cannot pass by accident.
+
+TFTP sends a file in blocks of 512 bytes unless client and server agree otherwise (<<rfc1350>>), and a block shorter than 512 bytes ends the transfer. A file whose size is an exact multiple of 512 is therefore ended with an empty block, and that is the case a hand-written client most often gets wrong; the 1,024-byte image checks it. `--tftp-blksize 1024` asks for a larger block, which changes how the image travels and not what arrives. Both transfers report the 1,300 bytes the file holds. What HTTP adds is a way to ask first: a `HEAD` request, which `-I` sends, answers with `Content-Length` and no body (<<rfc9110>>), and TFTP has no request for a size.
+
+What changes for the script around the fetch is how it fails. TFTP has no status codes beyond a handful of errors: a missing file is error 1 and `curl` exits `68`. HTTP has a status line, and `curl` treats `404 Not Found` as a successful conversation and exits `0`; only with `-f` does it exit `22`. A device that tests for `68` must test for `22` after the move, and a device that never passed `-f` must start to, or a missing image will look like an empty one.
+
+Writes are refused on both sides, for different reasons, and `-T` is how `curl` asks for one: it sends a local file to the URL. `surl` accepts a write only with `--allow-uploads`, and it keeps that off. Over TFTP a write is error 2 and `curl` exits `69`. Over HTTP the same upload is `401 Unauthorized`, because a write needs a login and none is configured, and `-f` turns that into `22`. Moving to HTTP does not widen what a device may do; see <<surl-readme>> for the options that would.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-move-a-firmware-fetch-to-http-in-csharp>> and <<tftp-move-a-firmware-fetch-to-http-from-an-agent>> for the same move from C# and from an agent.
+* <<tftp-download-a-file>> for the TFTP side by itself.
+* <<http-fail-a-script-on-a-missing-file>> for `-f` and exit `22`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>, <<rfc9110>>.

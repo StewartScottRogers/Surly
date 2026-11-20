@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-recover-when-a-port-is-taken-in-csharp]]
+=== Recovering from Taken Ports in C#
+
+==== Problem
+
+Your C# test fixture asks `Surl.Api` for a fixed port, and sometimes something else already holds it. You want to catch that refusal by its exit code, `45`, and start the server again on port 0, without hiding any other mistake.
+
+==== Solution
+
+Catch `SurlServerStartException` with a `when` filter on `SurlExitCode.BindFailed`, and start again on port 0:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The something else here is a plain `TcpListener` on the loopback address, which the program starts first and whose port it then asks `SurlServer.StartAsync` for. The `SurlServerOptions` hold that listen URL and one file in memory. `StartAsync` does not return a server that cannot bind: it throws a `SurlServerStartException`, a start `surl` would refuse. Its `ExitCode` is the `SurlExitCode` a `surl` process would exit with, `BindFailed`, `45`, and its `Message` is `surl`{apos}s own line, `(45) Could not bind http://127.0.0.1:8080/: Address already in use`, naming the listen URL that failed.
+
+The `when` filter is the point of the recipe. `catch (SurlServerStartException refused) when (refused.ExitCode == SurlExitCode.BindFailed)` catches only a taken port; the program then starts again with port 0, which asks the operating system for a free one. `BoundUrl` names the port the server bound, neither the taken one nor 0, and a `CurlClient` fetches the file from it with a `CurlRequest`, a `200 OK` `CurlResponse`. On a port nothing holds, the first start succeeds on the port asked for, and nothing is caught.
+
+Any other refusal is a mistake port 0 would not fix, and a fixture that retried on every `SurlServerStartException` would hide it. A port that is not a port at all, `70000`, is `MalformedUrl`, `3`, `URL rejected`; the filter lets it past the first `catch`, and the program reports it and exits `3`, the code `surl` would.
+
+Port 0 from the start avoids the clash altogether (see <<surl-find-the-port-it-chose-in-csharp>>). A fixed port is still what some tests want, such as one an application under test is configured with, and this is the way back when it is taken.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-recover-when-a-port-is-taken>> for the same recovery on the console.
+* <<surl-recover-when-a-port-is-taken-from-an-agent>> for the same recovery from an agent.
+* <<http-catch-a-refused-start>> for the other refusals `StartAsync` can throw.
+* <<surl-readme>>, <<curl-readme>>.

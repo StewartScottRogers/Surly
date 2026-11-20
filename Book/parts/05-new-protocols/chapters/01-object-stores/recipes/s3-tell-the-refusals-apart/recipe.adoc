@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-tell-the-refusals-apart]]
+=== Telling S3 Refusals Apart
+
+==== Problem
+
+Your client must explain why S3 said no: unsigned, unknown key, bad signature. You want each refusal produced on purpose and named, and anonymous reads allowed only when you say so.
+
+==== Solution
+
+Send three requests to one `surl` in one `curl` command, each with `--next` after the last: one unsigned, one signed with an access key `surl` does not hold, and one signed with the right key and the wrong secret. Each is answered with its own error:
+
+include::.generated/solution.adoc[]
+
+The second server in the checked claims, with `--allow-anonymous`, shows what anonymous reads do and do not allow. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) says why it refused a request in the error body, in a short code (<<aws-s3-api>>). `surl` answers as S3 does, so a test can see the same codes a real bucket would give. Every request must be signed with AWS Signature Version 4, the scheme S3 uses, by an account: `--user AKIAIOSFODNN7EXAMPLE:s3cret` gives `surl` an access key ID and its secret access key, and `curl -u` with a pair makes `curl` sign with it. The signature proves the secret without sending it (<<surl-readme>>).
+
+Three codes are about the login, and each is a different mistake. A request with no `-u` is unsigned, and the answer is `403 AccessDenied`. A request signed with an access key `surl` does not hold is `403 InvalidAccessKeyId`: the account is the mistake, whatever the secret. A request signed with the right access key and the wrong secret is `403 SignatureDoesNotMatch`: the account is known, and the signature `surl` worked out for it is not the one it was sent. For each, `curl` writes nothing to standard output, names the S3 error on standard error, and exits `22`. The Solution runs all three in one command with `--next`, which starts the next transfer with its own options; the exit code is that of the last. `2>&1` puts the three messages on standard output so they sit together, and `-s` silences `curl`{apos}s progress meter while `-S` puts the error message back.
+
+`AccessDenied` is also the answer to a request that is signed correctly and not allowed. The server in the claims has neither `--allow-uploads` nor `--list-directories`, so a signed put and a signed listing are each `403 AccessDenied`, in the very words an unsigned get gets, `Access Denied`. The code and the message alone do not tell them apart; what you sent does. If the signature was good and the answer is `AccessDenied`, the operation is switched off on the server, and if it was missing, it was never checked. The same signed key reads `hello.txt` and gets it, which is the way to confirm that the key is not the trouble.
+
+Two answers are not refusals of the login at all. A key with no object is `404 NoSuchKey` and a bucket that is not a folder of the store is `404 NoSuchBucket`; both come to a request that was signed and allowed, and a client that treats every `403` and `404` alike will retry the wrong thing.
+
+Anonymous reads are off until you say so. `--allow-anonymous`, on the second server, serves an unsigned get, so a test can read with no keys, and so can anyone who can reach the listener: it is for tests only, and `surl` warns on every start while it is on (<<surl-readme>>). It loosens nothing else. An unsigned put is still `403 AccessDenied`, `--allow-uploads` given or not: anonymous covers reads only; and a request that does carry a login is still judged, so an unknown access key is `InvalidAccessKeyId` and a wrong secret `SignatureDoesNotMatch` on that server too.
+
+S3 is reached over Transport Layer Security from the first byte (<<rfc8446>>), so `surl`{apos}s `s3` listener needs a certificate and `curl` needs to trust it. `--directory store` is the store of the main server, `--cert server.pem` and `--key server.key` the certificate and key `surl` serves, and `-T note.txt` puts the local file `note.txt`. `--connect-to ::127.0.0.1:8080` sends every connection to `surl`, whatever host the URL names, and `curl` keeps the bucket{apos}s Amazon host name, `photos.s3.us-east-1.amazonaws.com`, which the certificate names with a wildcard along with `127.0.0.1`; `--cacert server.pem` trusts it, which no authority signed (<<curl-protocols>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-tell-the-refusals-apart-in-csharp>> for the same task from a C# test.
+* <<s3-tell-the-refusals-apart-from-an-agent>> for the same task with an agent.
+* <<s3-put-and-get-an-object>> for the store, the certificate and the signing.
+* <<s3-list-a-bucket>> for the listing permission.
+* <<surl-readme>>, <<curl-protocols>>, <<aws-s3-api>>, <<rfc8446>>.

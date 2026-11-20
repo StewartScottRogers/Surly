@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-fetch-a-file-with-an-awkward-name-in-csharp
+title: Fetching Files with Awkward Names in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc3986]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Uri.EscapeDataString turns each awkward name into the path surl serves, %20 for the space, %C3%A9 for é and %23 for the #, and all three files come back with 200.
+    program: fetch-named.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "my%20file.txt -> 200 spaced\ncaf%C3%A9.txt -> 200 accented\na%23b.txt -> 200 hashed\n"
+
+  - id: raw-space
+    claim: A raw space in the URL makes SendAsync throw a CurlException with code UrlMalformat (3), the exit code curl gives, before anything is sent.
+    program: fetch-named.cs
+    args: [raw, "my file.txt"]
+    expect:
+      exit: 1
+      stdout: "my file.txt -> CurlException 3 UrlMalformat\n"
+
+  - id: raw-hash
+    claim: A raw # starts the fragment, which is never sent, so the request is for /a and comes back 200 with the file named a, not the file asked for.
+    program: fetch-named.cs
+    args: [raw, "a#b.txt"]
+    expect:
+      exit: 0
+      stdout: "a#b.txt -> 200 just a\n"
+
+  - id: uri-encodes-some
+    claim: new Uri(baseUri, name) escapes the space and the é for you, but not the #, which it still takes for a fragment; the files come back, the third one wrongly.
+    program: fetch-named.cs
+    args: [uri]
+    expect:
+      exit: 0
+      stdout: "my%20file.txt -> 200 spaced\ncaf%C3%A9.txt -> 200 accented\na#b.txt -> 200 just a\n"
+
+  - id: latin1
+    claim: A name encoded as Latin-1, caf%E9.txt, is not valid UTF-8 and names no file; it is 404 Not Found, which SendAsync returns and does not throw.
+    program: fetch-named.cs
+    args: [raw, "caf%E9.txt"]
+    expect:
+      exit: 1
+      stdout: "caf%E9.txt -> 404\n"
+
+  - id: plus
+    claim: In a path a + is a plus, not a space, so my+file.txt is 404.
+    program: fetch-named.cs
+    args: [raw, "my+file.txt"]
+    expect:
+      exit: 1
+      stdout: "my+file.txt -> 404\n"
+
+  - id: double-encoded
+    claim: Encoding a name that is already encoded encodes its percent sign, so a%23b.txt is sent as a%2523b.txt, which names no file, and is 404.
+    program: fetch-named.cs
+    args: [escape, "a%23b.txt"]
+    expect:
+      exit: 1
+      stdout: "a%2523b.txt -> 404\n"

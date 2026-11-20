@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-map-a-bucket-to-a-folder-in-csharp]]
+=== Mapping a Bucket in C#
+
+==== Problem
+
+Your test data sits in a folder whose name is not the bucket name your app uses, and your test, in C#, hosts the server. You want the bucket mapped onto that folder and its files served as objects, from your own .NET code.
+
+==== Solution
+
+Start a Surl.Api server whose `Buckets` maps the bucket `pics` onto the folder `/gallery`, and read, list and ask for it with Curl.Api:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+In the S3 server, each top-level folder of the store is a bucket named for the folder, and the path under it is the key (<<aws-s3-api>>, <<surl-readme>>). That fits a store built for the test, but not data that exists already: your app asks for the bucket `pics` and the folder is `gallery`. The recipe <<s3-map-a-bucket-to-a-folder>> does it on a console with `--bucket pics=/gallery`; here the same string goes into `SurlServerOptions.Buckets`. The path is a path in the store, not on the disk: it starts with a slash, and `/gallery` is the folder `gallery` of the store.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties, and `SurlServer.StartAsync` starts what it describes. `ListenUrls` holds an `s3` and an `https` URL, each on port `0`, which takes a free port; `BoundUrls` lists them in order. `CertificateFile` and `KeyFile` are `--cert` and `--key`, since S3 is spoken over Transport Layer Security from the first byte (<<rfc8446>>); the `openssl` line makes a certificate for `127.0.0.1` and for every bucket host name in the region. `Accounts` holds a `SurlAccount`, the access key ID and secret access key that `--user` makes. `Files` is the content in memory, with no `--directory`, where `gallery/sunset.txt` is the file `sunset.txt` of the folder `gallery`, and `AllowUploads` and `ListDirectories` are `--allow-uploads` and `--list-directories`; listing is needed to list the bucket.
+
+`CurlClient.Create()` makes the client and `SendAsync` sends one `CurlRequest`. Its `Authentication`, a `CurlAuthenticationOptions`, holds `UserName` and `Password`, which are `-u`; with them Curl.Api signs the request with AWS Signature Version 4, the scheme S3 uses, and the same pair is sent as HTTP Basic to the `https` listener (<<rfc7617>>), which is safe because the connection is encrypted. Its `Tls`, a `CurlTlsOptions` whose `Origin` is a `CurlTlsPeerOptions`, holds the certificate as `CertificateAuthorityBlob`, which is `--cacert`. Its `Network`, a `CurlNetworkOptions`, holds `ConnectTo`, which is `--connect-to`: the URL `s3://pics/sunset.txt` names the bucket as its host, so Curl.Api would send the request to `pics.s3.us-east-1.amazonaws.com`, and `::127.0.0.1:` with the port sends the connection to the server instead, while the name stays in the request and in the certificate check. The `CurlResponse` has the `StatusCode` and a `Body` stream.
+
+The mapping adds a name and removes none. `s3://pics/sunset.txt` and `s3://gallery/sunset.txt` read the same file, and a folder `Buckets` does not mention, `other` here, is a bucket under its own name. A bucket that is neither mapped nor a folder is not a response: `SendAsync` throws `CurlException`, whose `Code` is `HttpReturnedError`, the number `22`, and whose `Message` names `404 NoSuchBucket`. The listing `s3://pics/` is the folder, one level, and a file that the test puts into the folder with `SurlServerFiles.PutAsync` on `server.Files`, which is the test{apos}s own hand and not a client{apos}s, is at once an object of the bucket.
+
+Bucket names belong to the object-storage servers only. On the `https` listener of the same server the file is at the folder{apos}s own path, `gallery/sunset.txt`, and `pics/sunset.txt` is a `404`. For HTTP that is a response, not an exception: the status is on `StatusCode` and the body is empty.
+
+Curl.Api cannot put an object to an `s3://` URL: a `PUT` whose `Body` is a `CurlContent` throws `CurlException` with code `4`, `NotBuiltIn`, and a message that says `s3://` sends only a `GET`, or a `PUT` with `-T`, which Curl.Api has no spelling for. The console recipe puts with `-T`; here the test writes the file into the folder itself.
+
+The folder is checked when the server starts. A bucket mapped to a folder that is not there is not served as an empty bucket: `SurlServer.StartAsync` throws `SurlServerStartException`, whose `ExitCode` is `37`, as `surl` exits, and whose `Lines` begin with the message that names the folder and the bucket. That needs a folder on disk, so the program points `DataDirectory`, which is `--directory`, at `spare`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-map-a-bucket-to-a-folder>> for the same task on the console.
+* <<s3-map-a-bucket-to-a-folder-from-an-agent>> for the same task with an agent.
+* <<s3-list-a-bucket-in-csharp>> for listing a bucket from C#.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc8446>>, <<rfc7617>>.

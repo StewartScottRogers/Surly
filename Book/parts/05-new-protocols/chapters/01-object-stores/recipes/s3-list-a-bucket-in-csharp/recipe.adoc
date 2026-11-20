@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-list-a-bucket-in-csharp]]
+=== Listing a Bucket in C#
+
+==== Problem
+
+Your app lists the objects under a prefix before it processes them, and your test, in C#, needs a bucket that refuses listings until they are allowed. You want it from your own .NET code, not a shell.
+
+==== Solution
+
+Start three Surl.Api servers on the same objects, one that allows listings, one that does not and one that also allows anonymous callers, and list the bucket with Curl.Api:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) lists a bucket with ListObjectsV2, which takes a prefix and a delimiter and answers the keys under the prefix, folding any that continue past the delimiter into one common prefix (<<aws-s3-api>>). In Curl.Api an `s3://` URL whose path is empty or ends in a slash is that listing, and the response body is the keys, one to a line, so the program reads it like any body. `s3://photos/2026/` is the keys under `2026/`; `s3://photos/` is one level, the folders as prefixes that end in a slash. The recipe <<s3-list-a-bucket>> does the same with the two programs on a console.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties, and `SurlServer.StartAsync` starts what it describes. `ListenUrls` holds `s3://127.0.0.1:0`, where port `0` takes a free port that `BoundUrl` reports. `CertificateFile` and `KeyFile` are `--cert` and `--key`: S3 is spoken over Transport Layer Security from the first byte (<<rfc8446>>), so the listener needs a certificate, and the `openssl` line makes one for `127.0.0.1` and for every bucket host name in the region. `Accounts` holds a `SurlAccount`, the pair that `--user AKIAIOSFODNN7EXAMPLE:s3cret` makes: the access key ID and the secret access key. `Files` is the content in memory, with no `--directory`, where `photos/2026/jan.jpg` is the object `2026/jan.jpg` in the bucket `photos`. `ListDirectories` is `--list-directories`, which turns listings on, and `AllowAnonymous` is `--allow-anonymous` (<<surl-readme>>).
+
+`CurlClient.Create()` makes the client and `SendAsync` sends one `CurlRequest`. Its `Authentication`, a `CurlAuthenticationOptions`, holds `UserName` and `Password`, which are `-u`; with them Curl.Api signs the request with AWS Signature Version 4, the scheme S3 uses, and with none the request goes unsigned. Its `Tls`, a `CurlTlsOptions` whose `Origin` is a `CurlTlsPeerOptions`, holds the certificate as `CertificateAuthorityBlob`, which is `--cacert`, so the client trusts a certificate no authority signed. Its `Network`, a `CurlNetworkOptions`, holds `ConnectTo`, which is `--connect-to`: the URL names the bucket as its host, so Curl.Api would send the request to `photos.s3.us-east-1.amazonaws.com`, and `::127.0.0.1:` with the port sends the connection to the server instead, while the name stays in the request and in the certificate check. The `CurlResponse` has the `StatusCode` and a `Body` stream.
+
+A refusal is not a response. Where `curl` exits `22`, `SendAsync` throws `CurlException`, whose `Code` is `HttpReturnedError`, the number `22`, and whose `Message` names the S3 error: a bucket that is not in the store is `404 NoSuchBucket`. A listing with no credentials is `403 AccessDenied`, although the server allows listings. On the server without `ListDirectories` a signed listing is the same `403 AccessDenied`, and a signed get of one object by its key is served, status `200`: the option decides whether a client may enumerate what is stored, not whether it may read it. A prefix with nothing under it is not an error; the body is empty. On the server with `AllowAnonymous` and `ListDirectories` a listing with no credentials is served, so a test needs no keys, and so does anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on.
+
+The program prints one line for each, and the claims below read what it printed. The servers run in the program{apos}s own process and stop when it disposes them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-list-a-bucket>> for the same task on the console.
+* <<s3-list-a-bucket-from-an-agent>> for the same task with an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc8446>>.

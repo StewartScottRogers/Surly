@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs build-urls.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: curl-build-test-urls-safely
+title: Building Test URLs Safely
+protocols: [http, ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [build_url, parse_url, curl, start_server, get_events]
+exit-codes: [0, 1]
+references: [curl-readme, libcurl-api, surl-readme, rfc3986, rfc7617, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: build_url with UrlEncode percent-encodes the @, colon, slash, space, percent and hash in the user name, password and path; parse_url with UrlDecode reads each part back as given; and the curl tool fetches the file with that login over HTTP (200) and FTP (226), exit 0 both times.
+    program: build-urls.cs
+    args: [build]
+    expect:
+      exit: 0
+      stdout-matches: '^http built: http://ann%40example\.com:p%40ss%3Aw%2Frd%20100%25@127\.0\.0\.1:<port>/q1%20report%23final\.txt\nhttp parts read back: True\nhttp exit 0: q1 final 200\nftp built: ftp://ann%40example\.com:p%40ss%3Aw%2Frd%20100%25@127\.0\.0\.1:<port>/q1%20report%23final\.txt\nftp parts read back: True\nftp exit 0: q1 final 226\n'
+
+  - id: server-recorded-the-account
+    claim: surl recorded one login judged per scheme, each as the account ann@example.com and accepted, so the percent-encoded user name reached it decoded.
+    program: build-urls.cs
+    args: [build]
+    expect:
+      exit: 0
+      stdout-matches: '\nrecorded: http ann@example\.com accepted\nrecorded: ftp ann@example\.com accepted\n$'
+
+  - id: raw-is-refused
+    claim: Without UrlEncode build_url puts the parts in as they are, and parse_url refuses the result as malformed, so the agent never uses it.
+    program: build-urls.cs
+    args: [raw]
+    expect:
+      exit: 1
+      stdout: "built: ftp://ann@example.com:p@ss:w/rd 100%@127.0.0.1:21/q1 report#final.txt\ncheck: UrlRefused: The URL parser refused url: CURLUcode 3 (MalformedInput)\nnot used\n"
+
+  - id: refused-in-clear
+    claim: On a server without --allow-plaintext-auth the same URLs are refused unchecked, HTTP Basic with 403 and the FTP password with 530 (curl exit 67), and surl records no judged login.
+    program: build-urls.cs
+    args: [in-clear]
+    expect:
+      exit: 1
+      stdout-matches: '\nhttp exit 0: 403\n.*\nftp exit 67: 530\n$'

@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-print-the-failing-exchange
+title: Printing the Failing Exchange
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlExchangeRecord, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc7616, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: passes-quietly
+    claim: When the fetch is answered 200 the test prints one PASS line and exits 0.
+    program: print-on-failure.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "PASS: GET /report.csv answered 200\n"
+
+  - id: solution
+    role: solution
+    claim: When a fetch of a path the server lacks is answered 404, the test says so, prints the exchange behind it, the request line the client sent included, and exits 1.
+    program: print-on-failure.cs
+    args: [Report.csv]
+    expect:
+      exit: 1
+      stdout-matches: '^FAIL: GET /Report\.csv answered 404, expected 200\nexchange \d+ on http from 127\.0\.0\.1:\d+\n.*\n> GET /Report\.csv HTTP/1\.1\n.*\n< HTTP/1\.1 404 Not Found\n< Date: [^\n]*\n< Server: surl\n< Content-Length: 0\n< \n$'
+
+  - id: log-says-why
+    claim: The server's log lines for that exchange come first, and say the login was accepted and why the answer was 404, nothing exists at that path.
+    program: print-on-failure.cs
+    args: [Report.csv]
+    expect:
+      exit: 1
+      stdout-matches: '\n  #(\d+) \* Login accepted: Digest app\n  #\1 \* GET /Report\.csv: 404, nothing exists at [^\n]*Report\.csv\n'
+
+  - id: bytes-in-order
+    claim: The bytes are printed in the order they crossed, so the Digest challenge (401) sits between the first request and the one that carries the Authorization header.
+    program: print-on-failure.cs
+    args: [Report.csv]
+    expect:
+      exit: 1
+      stdout-matches: '\n> GET /Report\.csv HTTP/1\.1\n> Host: [^\n]*\n> Accept: \*/\*\n> \n< HTTP/1\.1 401 Unauthorized\n.*\n> GET /Report\.csv HTTP/1\.1\n> Host: [^\n]*\n> Authorization: Digest username="app",[^\n]*\n.*\n< HTTP/1\.1 404 Not Found\n'
+
+  - id: wrong-password
+    claim: With a wrong password the test fails on a 401, the log lines say the Digest login as app was refused, and the printed exchange holds the Digest response but never the password.
+    program: print-on-failure.cs
+    args: [report.csv, guess]
+    expect:
+      exit: 1
+      stdout-matches: '^(?!.*guess)FAIL: GET /report\.csv answered 401, expected 200\n.*  #\d+ \* Login refused: Digest app\n.*> Authorization: Digest username="app",[^\n]*response="[0-9a-f]+"'

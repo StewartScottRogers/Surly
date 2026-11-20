@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: tftp-move-a-firmware-fetch-to-http-from-an-agent
+title: Moving a Firmware Fetch to HTTP
+protocols: [tftp, http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, transfer, curl, read_file]
+exit-codes: [22, 68, 69]
+references: [surl-readme, curl-readme, rfc1350, rfc9110]
+
+fixtures:
+  up.txt: "not wanted\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent serves one image over TFTP and HTTP from one server, fetches it both ways with transfer, and the two copies are the same 1300 bytes, base64 because they are binary, and the same as what read_file reads from the server's store.
+    program: firmware-over-http.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "tftp: status 0, 1300 bytes, base64 True\nhttp: status 200, 1300 bytes, base64 True\nidentical\nsame as the store\ntool error: no\n"
+
+  - id: exact-blocks
+    claim: An image of exactly 1024 bytes, two full TFTP blocks, arrives whole over both.
+    program: firmware-over-http.cs
+    args: [exact]
+    expect:
+      exit: 0
+      stdout: "tftp: status 0, 1024 bytes, base64 True\nhttp: status 200, 1024 bytes, base64 True\nidentical\nsame as the store\ntool error: no\n"
+
+  - id: missing
+    claim: A missing image over TFTP is a tool error whose failure is a CurlExit with curl exit code 68, TftpNotFound, and over HTTP it is an answer with statusCode 404 and no failure.
+    program: firmware-over-http.cs
+    args: [missing]
+    expect:
+      exit: 1
+      stdout-matches: '^tftp: CurlExit, TFTP: File Not Found\r?\ncurl exit code 68 \(TftpNotFound\)\r?\nhttp: 404 failure null\r?\ntool error: yes\r?\n$'
+
+  - id: write-refused
+    claim: The curl tool sending a file with -T is refused with exit 69 over TFTP and, with -f, exit 22 over HTTP.
+    program: firmware-over-http.cs
+    args: [write]
+    expect:
+      exit: 1
+      stdout: "tftp: exit 69\nhttp: exit 22\ntool error: yes\n"

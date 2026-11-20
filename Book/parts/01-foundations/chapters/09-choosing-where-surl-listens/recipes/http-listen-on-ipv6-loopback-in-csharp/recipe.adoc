@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-listen-on-ipv6-loopback-in-csharp]]
+=== Listening on IPv6 Loopback in C#
+
+==== Problem
+
+Your C# test must cover clients that use an Internet Protocol version 6 (IPv6) address. You want `Surl.Api` to listen on `[::1]` and `127.0.0.1`, and `Curl.Api` to fetch from each.
+
+==== Solution
+
+Put both listen URLs in `SurlServerOptions.ListenUrls`, start the server, and send a `CurlRequest` to each `Uri` in `BoundUrls`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` is the list of listen URLs `surl` takes as arguments. An IPv6 address in one is written in square brackets (<<rfc3986>>): `http://[::1]:0`. `::1` is the loopback address of IPv6 (<<rfc4291>>), a different address from `127.0.0.1`, so it is its own listener. Port 0 asks the system for a free port, and each listen URL gets its own: the two bound ports in the output differ, which the case checks. `SurlServer.StartAsync` returns once both are bound.
+
+`SurlServer.BoundUrls` is a `Uri` for each listen URL, in order, with the port that was bound. For the IPv6 one, `Uri.Host` keeps the brackets, `[::1]`, and `Uri.IdnHost` is the bare address, `::1`; `HostNameType` says `IPv6`. Build a request URL from the `Uri` and the brackets come along. Build one by hand from a bare address and they do not.
+
+`CurlClient` sends each `CurlRequest` and returns a `CurlResponse`. Its `Info`, a `TransferInfo`, has `PrimaryIp`, the address the answer came from: `127.0.0.1` for the first request, `::1` for the second. A test that must show an IPv6 client really spoke IPv6 can assert that, not only the `200`.
+
+A server with only `http://[::1]:0` is closed to IPv4. A request to `127.0.0.1` at its port finds nothing listening, and `SendAsync` throws a `CurlException` whose `Code` is `CouldntConnect`, 7, the exit code `curl` gives. That is how a test shows an IPv6-only server and a client that must fall back.
+
+The bare address is wrong on both sides. A listen URL `http://::1:0` makes `StartAsync` throw `SurlServerStartException` with `ExitCode` `MalformedUrl`, 3, the code `surl` would exit with, and nothing is bound. A request to `http://::1:port/` is the same mistake for the client: its colons are read as a port, and `SendAsync` throws `CurlException` with `Code` `UrlMalformat`, 3, before it connects. The program{apos}s own exit code, `1`, is its choice.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-listen-on-ipv6-loopback>> for the same task on the console.
+* <<http-listen-on-ipv6-loopback-from-an-agent>> for the same task from an agent.
+* <<surl-find-the-port-it-chose-in-csharp>> for reading back the port the server chose.
+* <<surl-readme>>, <<curl-readme>>, <<rfc3986>>, <<rfc4291>>.

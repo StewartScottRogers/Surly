@@ -1,0 +1,93 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: az-list-a-container-in-csharp
+title: Listing a Blob Container in C#
+protocols: [az]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, azure-blob-api, rfc6750, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Surl.Api server with ListDirectories, a Bearer token and an account answers Curl.Api's request for the container photos under the prefix 2026/ with the two blob names, in order, status 200.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^prefix: 200 \[2026/feb\.jpg, 2026/jan\.jpg\]\n'
+
+  - id: top-level
+    claim: The container's own URL lists one level, the folders as prefixes ending in a slash and the blobs at the top.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ntop: 200 \[2025/, 2026/, readme\.txt\]\n'
+
+  - id: empty-prefix
+    claim: A prefix with nothing under it lists nothing; the response is 200 with an empty body and nothing is thrown.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nempty: 200 \[\]\n'
+
+  - id: no-such-container
+    claim: A container that is not in the store throws CurlException with code 22, HttpReturnedError, and a message that names 404 ContainerNotFound.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno container: CurlException 22 HttpReturnedError: Azure Storage returned error 404: ContainerNotFound'
+
+  - id: shared-key-listing
+    claim: A listing signed with the account's Shared Key, from UserName and Password, is served like one with the Bearer token.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nshared key: 200 \[2026/feb\.jpg, 2026/jan\.jpg\]\n'
+
+  - id: no-token-listing
+    claim: A listing with no credentials throws CurlException with code 22 and a message that names 401 NoAuthenticationInformation, though the server allows listings.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno token: CurlException 22 HttpReturnedError: Azure Storage returned error 401: NoAuthenticationInformation'
+
+  - id: listing-off
+    claim: On a server without ListDirectories, a listing with the token throws CurlException with code 22 and a message that names 403 AuthorizationPermissionMismatch.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisting off: CurlException 22 HttpReturnedError: Azure Storage returned error 403: AuthorizationPermissionMismatch'
+
+  - id: listing-off-reads
+    claim: On a server without ListDirectories, a get of a blob by its name is still served, status 200.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisting off, get: 200 \[read me\]\n'
+
+  - id: anonymous-listing
+    claim: On a server with AllowAnonymous and ListDirectories, a listing with no credentials is served.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nanonymous: 200 \[2026/feb\.jpg, 2026/jan\.jpg\]\n'

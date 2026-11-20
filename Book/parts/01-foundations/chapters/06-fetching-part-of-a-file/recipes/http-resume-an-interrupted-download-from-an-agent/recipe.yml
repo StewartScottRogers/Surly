@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs resume.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its arguments pick the mode and the partial file.
+schema: 2
+key: http-resume-an-interrupted-download-from-an-agent
+title: Resuming an Interrupted Download from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, curl, get_exchanges, read_file]
+curl-options: [-C, -s, -o, -w, -H]
+exit-codes: [0, 33]
+references: [surl-readme, curl-readme, rfc9110]
+
+# dl/records.txt is what an interrupted download left: the first 125 bytes of a 300-byte file.
+fixtures:
+  dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Through the curl tool, -C - resumes the partial file; curl exits 0 with 206 and 175 bytes downloaded, the server received Range bytes=125-, and the file is identical to what read_file returns for the server's copy.
+    program: resume.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "partial: 125 bytes\nexitCode: 0\nstandardOutput: 206 175\nrequest: Range: bytes=125-\nfile: 300 bytes, identical to read_file: yes\ntool error: no\n"
+
+  - id: already-complete
+    claim: A file that is already whole is answered 416 with nothing downloaded, curl exits 0, the file is unchanged, and it is still identical to read_file.
+    program: resume.cs
+    args: []
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"
+    expect:
+      exit: 0
+      stdout: "partial: 300 bytes\nexitCode: 0\nstandardOutput: 416 0\nrequest: Range: bytes=300-\nfile: 300 bytes, identical to read_file: yes\ntool error: no\n"
+
+  - id: nothing-to-resume
+    claim: With no partial file curl -C - sends no Range, downloads the whole file with 200, and the file is identical to read_file.
+    program: resume.cs
+    args: [resume, dl/new.txt]
+    expect:
+      exit: 0
+      stdout: "partial: 0 bytes\nexitCode: 0\nstandardOutput: 200 300\nrequest: Range: (none)\nfile: 300 bytes, identical to read_file: yes\ntool error: no\n"
+
+  - id: wrong-prefix
+    claim: A partial file whose first bytes are not the original's is resumed all the same, curl exits 0, and only the comparison with read_file shows the file is not identical.
+    program: resume.cs
+    args: []
+    fixtures:
+      dl/records.txt: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    expect:
+      exit: 1
+      stdout: "partial: 125 bytes\nexitCode: 0\nstandardOutput: 206 175\nrequest: Range: bytes=125-\nfile: 300 bytes, identical to read_file: no\ntool error: no\n"
+
+  - id: if-range-changed
+    claim: With an If-Range date that is not the file's Last-Modified the server sends the whole file with 200, curl will not append it and exits 33, a tool error, and the partial file is left as it was.
+    program: resume.cs
+    args: [if-range-old]
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+    expect:
+      exit: 1
+      stdout: "partial: 125 bytes\nexitCode: 33\nstandardOutput: 200 0\nrequest: Range: bytes=125-\nfile: 125 bytes, identical to read_file: no\ntool error: yes\n"

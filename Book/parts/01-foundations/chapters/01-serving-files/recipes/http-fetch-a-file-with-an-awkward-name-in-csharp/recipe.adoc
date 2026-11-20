@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-fetch-a-file-with-an-awkward-name-in-csharp]]
+=== Fetching Files with Awkward Names in C#
+
+==== Problem
+
+Your C# client builds Uniform Resource Locators (URLs) for files with spaces, accented letters and a `#` in their names. You want a test that proves each encoded URL reaches its file, and shows what a raw `#` does instead.
+
+==== Solution
+
+Encode each name with `Uri.EscapeDataString` before it goes into the URL, and send the result with a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program hosts its own server. `SurlServerOptions.Files` holds four files in memory, keyed by their real names: `my file.txt`, `café.txt`, `a#b.txt` and a plain `a`, which is there to show where a raw `#` leads. `CurlClient` sends the request and returns a `CurlResponse` with its `Body` stream. A `CurlRequest` takes the URL as a string, so the encoding is the program{apos}s job. `Uri.EscapeDataString` (<<rfc3986>>) writes a space as `%20`, `é` as its two UTF-8 bytes, `%C3%A9`, and `#` as `%23`; `surl` decodes each once and finds the file. The program prints the path it sent, not the name, so the encoding is what you read.
+
+The failures differ in how loudly they arrive. A raw space never leaves the machine: `SendAsync` throws a `CurlException` whose `Code` is `UrlMalformat`, 3, the exit code `curl` gives for the same mistake. A raw `#` throws nothing. It starts the fragment, which is not sent, so the request is for `/a` and the answer is `200` with the wrong file. A test that checks only the status passes; check the body.
+
+`new Uri(baseUri, name)` is the tempting shortcut and it half works. It escapes the space and the `é` for you, and `AbsoluteUri` gives the encoded form, but it takes `#` for the fragment marker it is in a URL, so `a#b.txt` still asks for `/a`. `Uri.EscapeDataString` on each name is the one that handles all three.
+
+Encoding that is well formed but wrong is a `404 Not Found`, which `SendAsync` returns as an ordinary `CurlResponse`; the program counts it as a failure and exits `1`, its own choice, as with `curl -f`. `caf%E9.txt` is `é` in Latin-1, one byte that is not valid UTF-8. A `+` in a path is a plus, so `my+file.txt` is a different name. Encoding twice, as when a name that is already `a%23b.txt` goes through `EscapeDataString`, encodes the percent sign and asks for `a%2523b.txt`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fetch-a-file-with-an-awkward-name>> for the same task on the console.
+* <<http-fetch-a-file-with-an-awkward-name-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc3986>>.

@@ -1,0 +1,81 @@
+// Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+// Serves a file with Surl.Api, holding the first request for it five seconds, and fetches it with
+// Curl.Api under a time limit. Run: dotnet run hang.cs -- [limit] [retries]
+//   limit     timeout (the default): a 2 s limit on the whole transfer, CurlClientOptions.Timeout
+//             connect: a 2 s limit on connecting only, CurlClientOptions.ConnectTimeout
+//             cancel:  a CancellationToken cancelled after 2 s
+//             none:    no limit
+//   retries   how many retries the client may make after a timeout (0 if not given)
+#:package Surl.Api@1.0.0
+#:package Curl.Api@0.2.0
+
+using System.Diagnostics;
+using Curl.Api;
+using Curl.Api.Errors;
+using Surl.Api;
+using Surl.Protocol.Abstractions;
+
+string limit = args.Length > 0 ? args[0] : "timeout";
+int allowed = args.Length > 1 ? int.Parse(args[1]) : 0;
+
+// The server: one file in memory, a rule that holds the first request for it five seconds once it
+// has arrived, and a record of every event, so the program can count the holds afterwards.
+var options = new SurlServerOptions { ListenUrls = { "http://127.0.0.1:0" }, RecordExchanges = true };
+options.Files["hello.txt"] = "hello from surl\n"u8.ToArray();
+options.Faults.Add(SurlFault.Delay(TimeSpan.FromSeconds(5)) with { Stage = FaultStage.Command, Path = "/hello.txt", Times = 1 });
+await using SurlServer server = await SurlServer.StartAsync(options);
+
+// The client: its limit is a client option, as curl -m and --connect-timeout are, or a token per call.
+var clientOptions = limit switch
+{
+    "timeout" => new CurlClientOptions { Timeout = TimeSpan.FromSeconds(2) },
+    "connect" => new CurlClientOptions { ConnectTimeout = TimeSpan.FromSeconds(2) },
+    _ => new CurlClientOptions(),
+};
+await using CurlClient client = CurlClient.Create(clientOptions);
+
+int retries = 0;
+bool served = false;
+for (int attempt = 1; ; attempt++)
+{
+    using var cancel = new CancellationTokenSource();
+    if (limit == "cancel")
+    {
+        cancel.CancelAfter(TimeSpan.FromSeconds(2));
+    }
+
+    var clock = Stopwatch.StartNew();
+    string outcome;
+    try
+    {
+        CurlResponse response = await client.SendAsync(
+            new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}hello.txt"), cancel.Token);
+        await using Stream body = response.Body;
+        outcome = $"{response.StatusCode} {response.ReasonPhrase}, {(await new StreamReader(body).ReadToEndAsync()).TrimEnd()}";
+        served = true;
+    }
+    catch (CurlException failure)
+    {
+        // A transfer that ran out of time is a CurlException carrying curl's exit code.
+        outcome = $"CurlException {(int)failure.Code} ({failure.Code})";
+    }
+    catch (OperationCanceledException failure)
+    {
+        // A cancelled token is .NET's own cancellation, not one of curl's codes.
+        outcome = failure.GetType().Name;
+    }
+
+    Console.WriteLine($"attempt {attempt}: {outcome}, {(clock.Elapsed.TotalSeconds < 5 ? "within" : "after")} 5 s");
+    if (served || retries == allowed)
+    {
+        break;
+    }
+
+    retries++;
+}
+
+// What the server counted: the times the rule held a request.
+Console.WriteLine($"fault applied: {server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.FaultApplied }).Count}");
+
+// 0 once the file arrived; 28, curl's code for a timeout, otherwise.
+return served ? 0 : 28;

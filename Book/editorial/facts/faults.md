@@ -20,6 +20,10 @@ Over the head limit: `HTTP/1.1 431 Request Header Fields Too Large`, headers Dat
 - `delay` + `-m 1`: exit 28, `Operation timed out after 1006 milliseconds with 0 bytes received`. No limit: 200 after the hold; `%{time_total}` shows it.
 - `-Z` with two URLs on one host over http: WITHOUT `--parallel-immediate`, the second transfer waits for the first connection (PIPEWAIT), so a fast path behind a delayed one also times out (both `000 28`). With `--parallel-immediate` the fast one is 200 at once. Whole command exits 28 if any transfer did; `-w "%{url.path} %{http_code} %{exitcode}\n"` gives a line per transfer in completion order.
 - `-H @file` reads header lines from a file: keeps big cookies off the command line.
+- `error;scheme=http;reply=503;path=/x;times=2` (`reply=503` alone is enough; reason phrase `Service Unavailable`, `Content-Length: 0`, no Retry-After; connection kept alive, `-f` closes it). `curl --retry 3`: exit 0, `num_retries` 2; with `--no-progress-meter` stderr is `Warning: Problem : HTTP error. Retrying in 1 second. 3 retries left.` then `... Retrying in 2 seconds. 2 retries left.` (doubling back-off; upstream wording may be `Will retry in`). `--retry-delay 1`: 1 s each. `-s` hides the warnings. `-f --retry 1`: exit 22, `-w` still prints `503 1`. A 404 is not retried (`404 0`).
+- Timeout is transient: `-m 2 --retry 1` on a `delay;times=1` -> `200 1`, stderr `curl: (28) ...` then `Warning: Problem : timeout. Retrying in 1 second. 1 retry left.`; `-m` is per try (every request held: exit 28, `000 1`). `--connect-timeout 2` does not stop a `stage=command` delay (200 after the hold).
+- Refused connection (nothing listening, Windows: immediate, `curl: (7) Failed to connect to 127.0.0.1:<port> after N ms: Could not connect to server`): `--retry 5` alone makes no retry (`0`); `--retry-connrefused` does, notice `Warning: Problem : connection refused. Retrying in 1 second. 5 retries left.`
+- Server-side count on the console: `surl -v --log-file surl.log ...` then `grep -c` in a case (runs under cmd.exe through Git's grep). Lines: `#N < GET /x HTTP/1.1\r\n` (escaped), `GET /x: answered 503 Service Unavailable by fault rule f1.`, `GET held for 5 s by fault rule f1.` (logged for a request whose client gave up too), `surl: warning: --fault: 1 fault rule(s) ...`. `--log-level` takes none, error, info, verbose, trace (not debug).
 
 ## MCP
 - `start_server(arguments: ["--fault", "..."])` or `["--max-request-head", "1k"]`: options as surl's words.
@@ -28,7 +32,10 @@ Over the head limit: `HTTP/1.1 431 Request Header Fields Too Large`, headers Dat
 - `list_servers` -> per server `exchange_count` (connections for HTTP); counts the dropped one.
 - `get_exchanges`: chunks with `direction` (`received`/`sent`) and `data`; join `sent` data to see `HTTP/1.1 431 ...`.
 - curl-mcp `transfer`: one attempt per call, no retry. Drop -> tool error, `failure.exitCode` 56. `timeoutSeconds` -> failure exitCode 28, tool error. `headers` must be a `JsonArray` of `JsonObject {name, value}` (a `Dictionary<string,string>[]` or anonymous type fails: no JSON type info in the SDK's serializer). Two `transfer` calls at once on one McpClient run side by side.
-- curl-mcp `curl(args)` runs real curl options: `--retry 1 --retry-all-errors -w %{num_retries}` works; answer `{exitCode, standardOutput{content}, standardError{content}}`.
+- curl-mcp `curl(args)` runs real curl options: `--retry 1 --retry-all-errors -w %{num_retries}` works; answer `{exitCode, standardOutput{content}, standardError{content}}`. A nonzero exitCode (22 from `-f`) is a tool error. stderr carries the retry notices.
+- `transfer` of a 503: statusCode 503, failure null, not a tool error. Timeout failure `kind` is `CurlExit`. Refused connection: failure exitCode 7, tool error.
+- A `curl` tool call and a `start_server` on the other McpClient run at once (`CallToolAsync(...).AsTask()`, then start the server): shows `--retry-connrefused` waiting for a server.
+- `start_server` refusals carry `exit_code`/`exit_code_name` in structured content: 45 BindFailed (`surl: (45) Could not bind http://127.0.0.1:P/: Address already in use`, port held by a plain TcpListener too), 3 MalformedUrl for port 70000 (`URL rejected: Port number was not a decimal number between 0 and 65535`).
 
 ## Surl.Api (in-process, C#)
 - `SurlFault.DropConnection()`, `.Delay(TimeSpan)`, `.RefuseLogin()`, `.ProtocolError(reply)`, `.OutOfSpace()`; narrow with `with { Stage = FaultStage.Command, Path = "/x", Times = 1 }`. `FaultStage` (namespace `Surl.Protocol.Abstractions`): Accept, Login, Command, StoreWrite.
@@ -42,12 +49,17 @@ Over the head limit: `HTTP/1.1 431 Request Header Fields Too Large`, headers Dat
 - Two `SendAsync` at once on one client run side by side (no PIPEWAIT hold-up).
 - `CurlRequest { Headers = [new("Cookie", "...")] }`. A 431 is a `CurlResponse`, no exception.
 - First transfer of a cold program can take 1 to 2 s more (engine start); time claims need margins of seconds, measured per transfer.
+- A 503 from `SurlFault.ProtocolError("503") with { Scheme = "http" }` is a `CurlResponse` (StatusCode 503, ReasonPhrase `Service Unavailable`); retry in the program. `ConnectTimeout` does not stop a command-stage delay. A `CancellationToken` cancelled mid-transfer throws `OperationCanceledException` (exact type), not `CurlException`. Nothing listening: `CurlException` `CouldntConnect` (7), at once on Windows.
+- `SurlServerStartException` for a taken port (a `TcpListener` holding it): `ExitCode` `BindFailed`, `Message` `(45) Could not bind http://127.0.0.1:P/: Address already in use`; port 70000: `MalformedUrl` (3). Catch with `when (e.ExitCode == SurlExitCode.BindFailed)` and restart on port 0.
 
 ## Gotchas
 - In Python heredocs through the Bash tool, `\\n` in a string came out as a real newline in the file: write YAML with `\n` escapes through the Write/Edit tools.
 - RFC 6585 (which defines 431) is not in `references/bibliography.adoc`.
+- A script that backgrounds surl and `kill`s it almost at once (Git Bash, Windows) can leave surl running: kill only after surl is known to be up. `surl --log-level debug` is exit 2.
+- A YAML `claim:` or `run:` with `: ` in it needs quoting (`'grep -c "x: y" surl.log'`).
 
 ## Recipes
 http-refuse-an-oversized-request-head (+ -in-csharp, -from-an-agent)
 http-recover-from-a-dropped-connection (+ -in-csharp, -from-an-agent)
 http-slow-down-one-path (+ -in-csharp, -from-an-agent)
+http-retry-a-flaky-endpoint, http-time-out-a-hanging-server, http-retry-until-the-server-is-up, surl-recover-when-a-port-is-taken (each + -in-csharp, -from-an-agent)

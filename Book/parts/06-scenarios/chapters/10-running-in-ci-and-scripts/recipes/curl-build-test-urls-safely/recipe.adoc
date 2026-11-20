@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[curl-build-test-urls-safely]]
+=== Building Test URLs Safely
+
+==== Problem
+
+Test data holds user names, passwords and paths with reserved characters; you want an artificial intelligence (AI) agent to build and check each URL before using it.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): for each URL it calls `build_url` with the test data as parts and `UrlEncode`, reads the result back with `parse_url` and `UrlDecode`, and only then fetches with the `curl` tool:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The test data is an account, `ann@example.com` with the password `p@ss:w/rd 100%`, and a file, `/q1 report#final.txt`. Pasted into a URL as they are, the `@` ends the login early, the `:` splits the password, the `/` starts the path, the space is not allowed, the `%` starts an escape and the `#` starts a fragment (<<rfc3986>>). `curl-mcp`{apos}s `build_url` is libcurl's URL API (<<libcurl-api>>): it takes each part by name, `scheme`, `user`, `password`, `host`, `port`, `path`, and with the flag `UrlEncode` percent-encodes what each part may not hold, so `@` becomes `%40` and `#` becomes `%23`. `parse_url` takes a URL apart again, and with `UrlDecode` hands back each part decoded. The agent compares those parts with the test data before it uses the URL; here they are the same, for both schemes.
+
+Without `UrlEncode`, `build_url` puts the parts in as they are and answers a URL with no complaint. It is not one: `parse_url` refuses it with `UrlRefused`, `MalformedInput`. That is what the check is for. An agent that skips the check finds out only when a fetch goes wrong, and then cannot tell a bad URL from a bad server.
+
+The server is `surl-mcp`{apos}s `start_server` with Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP) listeners on free ports. `arguments` add the account with `--user`, split at its first colon, so the password may hold more, and `files` holds the file at its path. The `curl` tool is the `curl` command line run in-process: `-s` keeps it quiet and `-w "%{response_code}"` prints the last status, `200` for HTTP and FTP's `226 Transfer complete`. `curl` decodes the login from the URL and sends it, as Basic over HTTP (<<rfc7617>>) and as `USER` and `PASS` over FTP (<<rfc959>>), and `get_events` with `kinds` `login_judged` shows that `surl` judged `ann@example.com` on each scheme and accepted it.
+
+Both send the password in clear, so the server needs `--allow-plaintext-auth`, a loosening for tests. Without it `surl` refuses each login unchecked, `403 Forbidden` for HTTP and `530` for FTP, which `curl` exits 67 on, and judges none, because anyone who can watch the network reads such a password. A real deployment would serve these over Transport Layer Security (TLS) instead.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fetch-a-file-with-an-awkward-name-from-an-agent>> for a path with reserved characters on its own.
+* <<curl-check-what-a-build-supports>> for asking `curl-mcp` what it can fetch before a run.
+* <<curl-readme>>, <<libcurl-api>>, <<surl-readme>>, <<rfc3986>>, <<rfc7617>>, <<rfc959>>.

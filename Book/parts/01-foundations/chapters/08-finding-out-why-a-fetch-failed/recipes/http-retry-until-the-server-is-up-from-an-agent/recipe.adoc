@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-until-the-server-is-up-from-an-agent]]
+=== Retrying Until Servers Start from an Agent
+
+==== Problem
+
+Your artificial intelligence (AI) agent's first fetch is refused because no server is listening yet. You want it to recognise the refusal, start the server itself with a Model Context Protocol (MCP) tool call and fetch again, giving up after a bounded number of tries.
+
+==== Solution
+
+Write the agent's side as a C# program on the MCP software development kit (SDK): it calls `transfer`, reads `curl`{apos}s exit code `7` in the failure, starts a server on that port with `start_server`, and calls `transfer` again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. The argument after `--` picks the scenario. The URL the agent is to fetch names a port that is free and where nothing listens yet: the program asks the system for one with a `TcpListener` on port 0 and releases it, as a test fixture handing out a port would.
+
+`transfer` makes one request and answers in text, as JavaScript Object Notation (JSON). With nothing listening, the call is a tool error and its `failure` carries `exitCode` `7`, `curl`{apos}s code for a connection that could not be made. That code is what tells the agent to start a server rather than give up: any other failure ends the program. `start_server` with `listen_urls` naming that very port and `files` holding the file starts a Hypertext Transfer Protocol (HTTP) server; its `bound_urls` names the same port, and the next `transfer` gets the file, `200`.
+
+The tries are bounded. With no server started, the program calls `transfer` three times, a second apart, sees `7` each time, and gives up, exiting `7`. A real agent picks the bound; what matters is that it has one.
+
+An agent can also leave the retrying to `curl`. `curl-mcp`{apos}s `curl` tool runs a `curl` command line in-process and answers its `exitCode` and `standardOutput` as JSON text. `--retry 5` alone would not retry a refused connection (<<curl-manual>>); `--retry-connrefused` makes it worth a retry, and `--retry-delay 1` waits a second between tries. The program starts that call, starts the server two seconds into it on a second MCP client, and the `curl` call ends with the file, exit `0`, and `-w "%{num_retries}\n"` printing how many retries it took, at least one. `-s` keeps `curl` quiet.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-until-the-server-is-up>> for the same wait on the console.
+* <<http-retry-until-the-server-is-up-in-csharp>> for the same wait in a C# program.
+* <<surl-recover-when-a-port-is-taken-from-an-agent>> for a `start_server` refused because the port is in use.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>.

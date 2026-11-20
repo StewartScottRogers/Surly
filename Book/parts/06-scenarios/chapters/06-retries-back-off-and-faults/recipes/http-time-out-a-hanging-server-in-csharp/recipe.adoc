@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-time-out-a-hanging-server-in-csharp]]
+=== Timing Out a Hanging Server in C#
+
+==== Problem
+
+Your .NET client is meant to give up on a server that accepts a request and then says nothing. In a test, you want an in-process Hypertext Transfer Protocol (HTTP) server that stalls longer than the client's time limit, so the test proves the client reports a timeout instead of hanging.
+
+==== Solution
+
+Start a `SurlServer` with a `SurlFault` that holds the first request for `/hello.txt` five seconds, and fetch it with a `CurlClient` whose `Timeout` is two seconds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlFault.Delay(TimeSpan.FromSeconds(5))` makes a rule that holds an exchange five seconds and then lets it carry on, as `surl --fault delay;ms=5000` does. A rule is a record: `with` narrows it. `Stage`, a `FaultStage`, set to `Command` makes it wait until a request has arrived, so the connection is accepted at once and the client is left waiting for an answer, which is what a hanging server looks like from outside. `Path` limits the rule to `/hello.txt`, and `Times = 1` spends it after one hold. Rules in `SurlServerOptions.Faults` are there from the start.
+
+`CurlClientOptions.Timeout` is the longest a whole transfer may take, as `curl -m` sets it, for every request the client sends. `CurlClient.SendAsync`, given a `CurlRequest` for the file, does not return a `CurlResponse` once the two seconds are up: it throws a `CurlException` whose `Code` is `28`, `OperationTimedOut`, the code `curl` exits with, before the five-second hold is over. The program prints it and exits `28`. Leave `Timeout` unset and there is no limit: the client waits out the hold and gets `200 OK` after five seconds.
+
+`ConnectTimeout` is not a substitute. It limits only the time to connect, as `curl --connect-timeout` does, and the server accepts the connection at once, so the client gets `200 OK` after the hold. A `CancellationToken` passed to `SendAsync` and cancelled after two seconds does end the call, but with `OperationCanceledException`, .NET{apos}s own cancellation, not a `CurlException`; a test that catches only `CurlException` would miss it. The program exits `28` for that too, its own choice.
+
+A timeout is worth a retry, as `curl --retry` counts it. With one retry allowed, the program asks again after the timeout; the rule is spent, and the second attempt gets `200 OK` well within five seconds.
+
+The server keeps its own count. `RecordExchanges = true` makes it keep a record of every exchange and every event, and `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.FaultApplied` finds each hold: one in every scenario, whether the client waited for the answer or gave up.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-time-out-a-hanging-server>> for the same test on the console, with `curl -m`.
+* <<http-time-out-a-hanging-server-from-an-agent>> for the same test from an agent.
+* <<http-slow-down-one-path-in-csharp>> for a slow path fetched beside a fast one.
+* <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs hang.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-time-out-a-hanging-server-from-an-agent
+title: Timing Out a Hanging Server from an Agent
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, transfer, curl, get_events, list_faults]
+exit-codes: [0, 28]
+references: [surl-readme, curl-readme, curl-manual]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The server holds the request five seconds; transfer with timeoutSeconds 2 gives up before the hold is over with a tool error carrying curl's exit code 28, and the server kept one fault_applied event, a delay on /hello.txt.
+    program: hang.cs
+    args: [timeout]
+    expect:
+      exit: 1
+      stdout: "transfer: curl exit 28, CurlExit\ntool error: yes, within 5 s\nget_events: delay on /hello.txt\nlist_faults: f1 remaining 0\n"
+
+  - id: no-limit
+    claim: Without timeoutSeconds, transfer waits out the hold and answers 200 after five seconds, not a tool error.
+    program: hang.cs
+    args: [none]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "transfer: 200, hello from surl\ntool error: no, after 5 s\nget_events: delay on /hello.txt\nlist_faults: f1 remaining 0\n"
+
+  - id: retry-after-timeout
+    claim: The curl tool with -m 2 --retry 1 times out once, counts the timeout as transient, waits one second and gets the file on its retry, exit 0, all within five seconds; the rule held only the first request.
+    program: hang.cs
+    args: [retry]
+    expect:
+      exit: 0
+      stdout-matches: '^curl: exit 0\n  hello from surl\n  200 1\n  curl: \(28\) Operation timed out after \d+ milliseconds with 0 bytes received\n  Warning: Problem : timeout\. Retrying in 1 second\. 1 retry left\.\ntool error: no, within 5 s\nget_events: delay on /hello\.txt\nlist_faults: f1 remaining 0\n$'

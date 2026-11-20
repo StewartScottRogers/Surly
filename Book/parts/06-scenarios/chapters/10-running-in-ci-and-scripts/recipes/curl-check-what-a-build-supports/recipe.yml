@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs run-what-it-can.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: curl-check-what-a-build-supports
+title: Checking What a Build Supports
+protocols: [http, dict, tftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [version, start_server, transfer, list_servers]
+exit-codes: [0, 1]
+references: [curl-readme, surl-readme, rfc9110, rfc2229, rfc1350]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent reads curl's protocols and features from the version tool, runs the HTTP, IPv6, DICT and TFTP tests against surl-mcp servers, each passing, and skips the stream test because curl has no rtmp.
+    program: run-what-it-can.cs
+    args: [all]
+    expect:
+      exit: 0
+      stdout-matches: '^curl \d+\.\d+\.\d+: \d+ protocols, \d+ features\npass page: status 200\npass page over IPv6: status 200\npass definition: status 0\npass block: status 0\nskip stream: curl has no rtmp\n'
+
+  - id: server-per-test-run
+    claim: surl-mcp's list_servers shows one server for each test that ran, each with one exchange, and none for the skipped test.
+    program: run-what-it-can.cs
+    args: [all]
+    expect:
+      exit: 0
+      stdout-matches: '\nserver http://127\.0\.0\.1:0: 1 exchange\(s\)\nserver http://\[::1\]:0: 1 exchange\(s\)\nserver dict://127\.0\.0\.1:0: 1 exchange\(s\)\nserver tftp://127\.0\.0\.1:0: 1 exchange\(s\)\n$'
+
+  - id: feature-missing
+    claim: A test that needs a feature the version tool does not list is skipped, naming the feature, and no server is started for it.
+    program: run-what-it-can.cs
+    args: [needs=NoSuchFeature]
+    expect:
+      exit: 0
+      stdout-matches: '\nskip page over IPv6: curl has no NoSuchFeature\n.*\nserver http://127\.0\.0\.1:0: 1 exchange\(s\)\nserver dict://'
+
+  - id: skip-is-not-fail
+    claim: A test that runs and fails is a failure, unlike a skip; here the page is answered 404, the program exits 1, and the other tests still run.
+    program: run-what-it-can.cs
+    args: [missing-file]
+    expect:
+      exit: 1
+      stdout-matches: '\nFAIL page: status 404\npass page over IPv6: status 200\npass definition: status 0\npass block: status 0\nskip stream: curl has no rtmp\n'

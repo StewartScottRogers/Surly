@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-find-failed-logins-in-the-log
+title: Finding Failed Logins in the Log
+protocols: [http]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --user]
+curl-options: [--digest, -u, -s, -o, -w]
+exit-codes: [0]
+references: [surl-readme, rfc7616, rfc7617, rfc9110]
+
+fixtures:
+  site/report.csv: "id,total\n1,40\n"
+
+# One account; -v logs every exchange event, --log-file puts the log in surl.log.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --user app:s3cret http://127.0.0.1:{{port}}/
+    ready: port
+
+# The first five cases are the clients' attempts, in order; the solution then reads the log they left.
+cases:
+  - id: right-password
+    claim: A Digest login as app with the right password fetches the report, 200.
+    run: curl -s --digest -u app:s3cret -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/report.csv
+    expect:
+      exit: 0
+      stdout: "200"
+
+  - id: stale-password
+    claim: A Digest login as app with an old password is answered 401 Unauthorized.
+    run: curl -s --digest -u app:old-s3cret -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/report.csv
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: misspelt-account
+    claim: A Digest login as an account that does not exist, ap, is answered 401 too.
+    run: curl -s --digest -u ap:s3cret -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/report.csv
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: basic-in-clear
+    claim: A Basic login over http:// is answered 403 Forbidden, the right password included.
+    run: curl -s -u app:s3cret -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/report.csv
+    expect:
+      exit: 0
+      stdout: "403"
+
+  - id: no-login
+    claim: A request with no login is answered 401.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/report.csv
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: solution
+    role: solution
+    claim: The log has one line per judged login, naming the method and the account and whether it was accepted, and one line for the Basic login refused unchecked; the request with no login has neither.
+    run: grep -E "Login (accepted|refused)|forbade" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* Login accepted: Digest app\n#\d+ \* Login refused: Digest app\n#\d+ \* Login refused: Digest ap\n#\d+ \* GET /report\.csv: the authentication policy forbade the request; answered 403 and closed\.\n$'
+
+  - id: one-exchange-each
+    claim: Each judged login is followed in its exchange by the request it decided, so a refused one ends in 401, a login is needed.
+    run: 'grep -A1 "Login refused: Digest ap$" surl.log'
+    expect:
+      exit: 0
+      stdout-matches: '^#(\d+) \* Login refused: Digest ap\n#\1 \* GET /report\.csv: 401, a login is needed\n$'
+
+  - id: basic-credentials-logged
+    claim: The verbose log also holds every request line received, so the refused Basic login's Authorization header is in it, base64 of app:s3cret.
+    run: 'grep -c "< Authorization: Basic YXBwOnMzY3JldA==" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"

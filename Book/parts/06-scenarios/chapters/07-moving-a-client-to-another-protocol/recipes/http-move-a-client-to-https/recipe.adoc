@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-a-client-to-https]]
+=== Moving a Client from HTTP to HTTPS
+
+==== Problem
+
+You are moving a client from plain Hypertext Transfer Protocol (HTTP) to HTTPS (HTTP over Transport Layer Security, TLS), and you want a server with both listeners during the move, then with the plain one turned off, and a test that proves no call still goes over plain HTTP.
+
+==== Solution
+
+Make a certificate, serve the same folder over plain HTTP and HTTPS from one `surl`, and run the moved client with `--proto =https` so a plain URL cannot slip through:
+
+include::.generated/solution.adoc[]
+
+The record check in the Discussion runs a short script over the server's trace, `requests.sh`:
+
+include::requests.sh[]
+
+Stop `surl` with kbd:[Ctrl+C]. The script needs a POSIX shell (Git Bash on Windows).
+
+==== Discussion
+
+The move has three steps, and the cases follow them: both listeners up while clients move, the client proven to use only HTTPS, then the plain listener gone.
+
+*Both listeners.* One `surl` takes any number of listen URLs; `http://127.0.0.1:8080/` and `https://127.0.0.1:8081/` serve the same `--directory during`, so a client moved to HTTPS and one not yet moved get the same file. HTTPS needs a certificate: `--cert server.pem` and `--key server.key` give the one `openssl` made for `127.0.0.1`, and the client trusts it with `--cacert server.pem`, since nothing else vouches for it. Without `--cert` (or `--self-signed`, for a throwaway one), `surl` refuses to start an `https` listener at all, exit 58.
+
+*The client proven.* `--proto =https` is the test's guard: `curl` may use HTTPS and nothing else. A plain `http://` URL left somewhere in the client's configuration then fails at once with exit 1, `Protocol "http" is disabled`, before anything is sent, even though the plain listener is still there to answer. `-s` silences the progress meter and `-S` keeps that message. The server's side of the proof is its record: `--trace-ascii during.log` writes every exchange, the scheme of the listener that accepted it and each request it answered. `requests.sh` lists the requests from that file with their scheme, and it shows two: the Solution's over `https` and the not-yet-moved client's over `http`. The call `--proto` refused is not there. In a real suite the same list, filtered for `http`, is the check that fails the build while any call is still plain.
+
+*The plain listener gone.* The second server in `recipe.yml` stands for the same server after the move: `https://127.0.0.1:8082/` only, with its own folder and trace. The moved client is served as before, and the trace lists only `https` requests. A client still on a plain URL, here pointed at `8083` where nothing listens any more, cannot connect: exit 7. That is the failure a straggler meets on the day the plain listener is turned off, and the reason to run the `--proto =https` check before that day rather than after it.
+
+TLS (<<rfc8446>>) is what `https` adds to the same HTTP exchange (<<rfc9110>>); the files, paths and statuses do not change, which is why the move is a change of scheme and port in the client and a listen URL in the server.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-a-client-to-https-in-csharp>> for the same move in a C# test.
+* <<http-move-a-client-to-https-from-an-agent>> for the same move driven by an agent.
+* <<rfc9110>>, <<rfc8446>>, <<surl-readme>>, <<curl-manual>>.

@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-verify-a-download-checksum-from-an-agent]]
+=== Verifying a Download's Checksum from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent that downloads an installer to keep it only when its SHA-256 digest is the published one, and you want to test that with Model Context Protocol (MCP) tool calls: kept on a match, refused when the served file has changed.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it serves the file with `start_server`, fetches it with `transfer`, hashes the body it got back, and writes the file only on a match:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent's own client. The argument after `--` picks the scenario.
+
+`start_server` serves `tool-1.0.bin` from memory through `files`. `transfer` fetches it and answers, as JavaScript Object Notation (JSON) text, the `statusCode` and a `body` with its `content`, `isBase64` (true when the bytes are not valid UTF-8 and come back base64), and `isTruncated`. The digest is taken over bytes, so the agent turns `content` back into them, decoding base64 when `isBase64` says so, and hashes them with SHA-256. Before that it checks `isTruncated`: a body cut short by the tool would hash to something else, and the agent should say so rather than report a changed file.
+
+Neither the Hypertext Transfer Protocol (HTTP) nor `transfer` knows what the file should contain (<<rfc9110>>). `put_file` changes the served file in the running server, as a mirror serving something new would, and the next `transfer` gets the new bytes without an error status; only the digest refuses them. The agent writes `tool-1.0.bin` only after a match, so the refused download leaves the good copy written earlier as it was.
+
+A path the server does not have is `statusCode` 404. To `transfer` that is an answer, not a tool error, so the agent looks at the status itself and refuses anything from 400 up before hashing. The program's exit codes, 0 kept, 1 refused by digest and 22 refused by status, match the console twin's script.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-verify-a-download-checksum>> for the same check on the console.
+* <<http-verify-a-download-checksum-in-csharp>> for the same check from a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

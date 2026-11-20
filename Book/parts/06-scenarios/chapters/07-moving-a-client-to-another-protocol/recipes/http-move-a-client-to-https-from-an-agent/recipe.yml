@@ -1,0 +1,93 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs move-to-https.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the step.
+schema: 2
+key: http-move-a-client-to-https-from-an-agent
+title: Moving a Client from HTTP to HTTPS from an Agent
+protocols: [http, https]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, stop_server, get_exchanges, curl, transfer]
+exit-codes: [0, 1, 7, 58, 60]
+references: [rfc9110, rfc8446, surl-readme, curl-readme]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, in the folder both hosts are confined to.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: During the move one server listens on http and https; the moved client, the curl tool with --proto =https and --cacert server.pem, is served over https with exitCode 0.
+    program: move-to-https.cs
+    args: [moved]
+    expect:
+      exit: 0
+      stdout: "moved client, https: exitCode 0, hello from surl\n"
+
+  - id: plain-still-served
+    claim: During the move a client not yet moved, played by transfer, still gets the file over plain http, statusCode 200.
+    program: move-to-https.cs
+    args: [unmoved]
+    expect:
+      exit: 0
+      stdout: "unmoved client, http: statusCode 200\n"
+
+  - id: guard-refuses-plain
+    claim: A plain http URL in the moved client is exitCode 1, Protocol "http" is disabled, even though the plain listener would answer.
+    program: move-to-https.cs
+    args: [guard]
+    expect:
+      exit: 0
+      stdout: "moved client, http: exitCode 1, curl: (1) Protocol \"http\" is disabled\n"
+
+  - id: untrusted-refused
+    claim: The same https fetch without --cacert is exitCode 60, because nothing vouches for the test certificate.
+    program: move-to-https.cs
+    args: [untrusted]
+    expect:
+      exit: 0
+      stdout-matches: '^client without the CA certificate, https: exitCode 60, curl: \(60\) '
+
+  - id: during-record
+    claim: After the moved client's https call, the unmoved client's http call and the refused plain call, get_exchanges holds one https and one http exchange, and filtered by scheme http only the unmoved client's; the refused call never reached the server.
+    program: move-to-https.cs
+    args: [record]
+    expect:
+      exit: 0
+      stdout: "moved client, https: exitCode 0, hello from surl\nunmoved client, http: statusCode 200\nmoved client, http: exitCode 1, curl: (1) Protocol \"http\" is disabled\nexchanges: https http\nexchanges over http: http\n"
+
+  - id: after-https
+    claim: After the move stop_server answers Ok, start_server takes the same https address alone, and the moved client is served as before.
+    program: move-to-https.cs
+    args: [after]
+    expect:
+      exit: 0
+      stdout: "stopped: Ok\nbound_urls: https\nmoved client, https: exitCode 0, hello from surl\n"
+
+  - id: after-plain-gone
+    claim: After the move a client still on the plain URL cannot connect; transfer's failure is CurlExit with exit 7.
+    program: move-to-https.cs
+    args: [after-plain]
+    expect:
+      exit: 0
+      stdout: "stopped: Ok\nbound_urls: https\nunmoved client, http: CurlExit exit 7\n"
+
+  - id: after-record
+    claim: After the move every exchange get_exchanges returns came in over https, and filtered by scheme http it returns none.
+    program: move-to-https.cs
+    args: [after-record]
+    expect:
+      exit: 0
+      stdout: "stopped: Ok\nbound_urls: https\nmoved client, https: exitCode 0, hello from surl\nunmoved client, http: CurlExit exit 7\nexchanges: https\nexchanges over http: none\n"
+
+  - id: https-needs-a-certificate
+    claim: start_server with an https listen URL and no --cert (or --self-signed) is a tool error carrying surl's exit code 58, CertificateProblem.
+    program: move-to-https.cs
+    args: [no-certificate]
+    expect:
+      exit: 0
+      stdout: "exit_code: 58 (CertificateProblem)\ntool error: yes\n"

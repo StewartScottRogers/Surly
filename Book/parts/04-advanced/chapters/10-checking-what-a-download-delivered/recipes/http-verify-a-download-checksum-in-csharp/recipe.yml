@@ -1,0 +1,48 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-verify-a-download-checksum-in-csharp
+title: Verifying a Download's Checksum in C#
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFiles, CurlClient, CurlRequest, CurlResponse, IncrementalHash]
+exit-codes: [0, 1, 22]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The download whose SHA-256 is the published one is written to tool-1.0.bin.part, hashed as it arrives, renamed to tool-1.0.bin, and the program exits 0.
+    program: fetch-verified.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "kept tool-1.0.bin: SHA-256 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c\n"
+
+  - id: wrong-digest-refused
+    claim: The same download checked against a different published digest is refused with both digests named, and the program exits 1.
+    program: fetch-verified.cs
+    args: [wrong-digest]
+    expect:
+      exit: 1
+      stdout: "refused other.bin: SHA-256 is 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c, not 3a781f0b1f6c0a682e41bd887f6307082508282ab9c96d8a6bf1dc62f0a237c2\n"
+
+  - id: changed-file-refused
+    claim: After Files.PutAsync changes the served file, the same download still comes back without an error status but its digest differs, so it is refused, its .part file removed, and the good copy kept earlier is untouched.
+    program: fetch-verified.cs
+    args: [changed]
+    expect:
+      exit: 1
+      stdout: "kept tool-1.0.bin: SHA-256 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c\nrefused tool-1.0.bin: SHA-256 is 3a781f0b1f6c0a682e41bd887f6307082508282ab9c96d8a6bf1dc62f0a237c2, not 0e2fb8e221331b806feda5547ebd3fa59614053f86f9f0d92b8e840976e0e80c\non disk: tool-1.0.bin installer for tool 1.0; .part gone\n"
+
+  - id: missing-file
+    claim: A file the server does not have is a 404 CurlResponse, which throws nothing; the program refuses it before hashing, writes no file, and exits 22 as curl -f would.
+    program: fetch-verified.cs
+    args: [missing]
+    expect:
+      exit: 22
+      stdout: "refused tool-2.0.bin: 404 Not Found\non disk: tool-2.0.bin missing\n"

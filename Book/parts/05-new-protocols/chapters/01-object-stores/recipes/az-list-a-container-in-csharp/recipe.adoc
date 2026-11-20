@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[az-list-a-container-in-csharp]]
+=== Listing a Blob Container in C#
+
+==== Problem
+
+Your app lists the blobs in a container before it downloads them, and your test, in C#, needs a container that refuses the listing until it is allowed. You want it from your own .NET code, not a shell.
+
+==== Solution
+
+Start three Surl.Api servers on the same blobs, one that allows listings, one that does not and one that also allows anonymous callers, and list the container with Curl.Api:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Azure Blob Storage lists a container with List Blobs, a `GET` on the container with a prefix and a delimiter that answers the blob names under the prefix, folding any that continue past the delimiter into one prefix of their own (<<azure-blob-api>>). In Curl.Api an `az://` URL in the emulator{apos}s path style, `az://<host>:<port>/<account>/<container>/`, whose path ends in a slash is that listing, and the response body is the names, one to a line. The program builds the URL from `BoundUrl`, which is `az://127.0.0.1:<port>/`, and a path: `devstoreaccount1/photos/2026/` is the blobs under `2026/`, and `devstoreaccount1/photos/` is one level, the folders as prefixes that end in a slash. The recipe <<az-list-a-container>> does the same with the two programs on a console.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties, and `SurlServer.StartAsync` starts what it describes. `ListenUrls` holds `az://127.0.0.1:0`, where port `0` takes a free port. `CertificateFile` and `KeyFile` are `--cert` and `--key`: the `az` listener is Transport Layer Security from the first byte (<<rfc8446>>), so it needs a certificate, which the `openssl` line makes. `Files` is the content in memory, with no `--directory`, where `photos/2026/jan.jpg` is the blob `2026/jan.jpg` in the container `photos`. `Accounts` holds two `SurlAccount` values, the pairs `--user devstoreaccount1:c2VjcmV0` and `--user :t0ken-abc` make: the account and its base64 key, and an empty name whose password `surl` reads as a Bearer token (<<rfc6750>>). `ListDirectories` is `--list-directories`, which turns listings on, and `AllowAnonymous` is `--allow-anonymous` (<<surl-readme>>).
+
+`CurlClient.Create()` makes the client and `SendAsync` sends one `CurlRequest`. Its `Authentication`, a `CurlAuthenticationOptions`, holds the credentials: `XOAuth2Bearer` is `--oauth2-bearer`, and `UserName` with `Password` is `-u`, which signs the request with the account key as Shared Key. Its `Tls`, a `CurlTlsOptions` whose `Origin` is a `CurlTlsPeerOptions`, holds the certificate as `CertificateAuthorityBlob`, which is `--cacert`, so the client trusts a certificate no authority signed. The `CurlResponse` has the `StatusCode` and a `Body` stream.
+
+A refusal is not a response. Where `curl` exits `22`, `SendAsync` throws `CurlException`, whose `Code` is `HttpReturnedError`, the number `22`, and whose `Message` names the Azure error; the program prints the first line of it. A container that is not in the store is `404 ContainerNotFound`, and a listing with no credentials is `401 NoAuthenticationInformation`, although the server allows listings. On the server without `ListDirectories` a listing is `403 AuthorizationPermissionMismatch` even with the token, and a get of one blob by its name is served, status `200`: the option decides whether a client may enumerate what is stored, not whether it may read it. A prefix with nothing under it is not an error; the body is empty. On the server with `AllowAnonymous` and `ListDirectories` a listing with no credentials is served, so a test needs no token, and so does anyone who can reach the listener; it is for tests only, and `surl` warns on every start while it is on.
+
+The program prints one line for each, and the claims below read what it printed. The servers run in the program{apos}s own process and stop when it disposes them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<az-list-a-container>> for the same task on the console.
+* <<az-list-a-container-from-an-agent>> for the same task with an agent.
+* <<az-put-and-get-a-blob>> for putting and getting a blob.
+* <<surl-readme>>, <<curl-readme>>, <<azure-blob-api>>, <<rfc6750>>, <<rfc8446>>.

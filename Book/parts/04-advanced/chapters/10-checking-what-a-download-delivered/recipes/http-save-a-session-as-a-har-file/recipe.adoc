@@ -1,0 +1,45 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-save-a-session-as-a-har-file]]
+=== Saving a Session as HAR
+
+==== Problem
+
+A colleague wants to open your test's Hypertext Transfer Protocol (HTTP) requests in a browser's network panel, so you want them saved as a HAR (HTTP Archive) file with headers, bodies and timings.
+
+==== Solution
+
+Neither `curl` nor `surl` writes HAR, so a short script runs `curl` once per URL and builds the file from what `curl` reports:
+
+include::.generated/solution.adoc[]
+
+The script, `save-har.sh`:
+
+include::save-har.sh[]
+
+Stop `surl` with kbd:[Ctrl+C]. The script needs a POSIX shell (Git Bash on Windows).
+
+==== Discussion
+
+A HAR file is JavaScript Object Notation (JSON): a `log` with a `version`, a `creator` and one entry per request, each holding the request, the response and how long each part took. `curl` already reports every piece of that; the script only puts the pieces where HAR wants them, one `curl` per URL:
+
+* `-v` writes the request as `curl` sent it to standard error, each header line marked `> `; the script keeps those lines, so the request headers are the real ones, `Host`, `User-Agent` and `Accept` here, in the order sent.
+* `-D head.tmp` saves the response's status line and headers as `surl` sent them, which give the response's `status`, `statusText` and `headers`.
+* `-o body.tmp` saves the body, which goes into `content.text` base64-encoded, so any bytes survive the trip into JSON; `-s` keeps the progress meter out of the way.
+* `-w` prints the method, HTTP version, status, size, `Content-Type` and `curl`{apos}s own clocks. HAR wants milliseconds; `curl` gives seconds, so `send` is the time until the request could go (`time_pretransfer`), `wait` the time from then to the first byte of the answer, `receive` the rest, and `time` the whole.
+
+The `pairs` function turns `Name: value` lines into HAR{apos}s `{"name": ..., "value": ...}` objects and escapes backslashes and quotes on the way, which is all JSON needs from a header. The case checks the result with Python{apos}s `json` module: version 1.2, two entries. That is the check the file is well formed; this recipe does not load it into a browser.
+
+`--directory site` makes `surl` serve the folder the requests go to, `hello.txt` in it and `missing.txt` not. A `404` is saved like any other answer, status `404`, `Not Found` and an empty body, because to `curl` it is an answer and `curl` exits 0. A request that gets no answer at all is different: there is nothing to save, so the script stops with `curl`{apos}s exit code, 7 for a port where nothing listens, and removes the part file it was writing, leaving no half-written HAR behind.
+
+What the script leaves out: request bodies (it sends only GET), cookies, and the header sizes, which HAR allows as `-1` for unknown. The timings are the client's, from `curl`; `surl`{apos}s view of the same exchanges is its trace (see <<http-check-headers-reach-the-server>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-verify-a-download-checksum>> for checking what a download delivered.
+* <<http-check-headers-reach-the-server>> for the server's side of the same requests.
+* <<rfc9110>>, <<curl-manual>>, <<surl-readme>>.

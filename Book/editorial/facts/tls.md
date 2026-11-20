@@ -24,6 +24,9 @@ Any TLS scheme (`https`, `mqtts`, `ftps`, `wss`, ...) needs a certificate; `read
 - `curl` with no version option works against a `--tlsv1.3` server (it offers 1.3), on Windows and Linux.
 - macOS: surl serves TLS 1.2 at most (SslStream; Surl ADR-0010); any TLS 1.3 handshake is exit 35. See `platforms.md`.
 - `-w '%{ssl_version}'` is not a variable in this curl.
+- `--proto =https` with an `http://` URL: exit 1, `curl: (1) Protocol "http" is disabled`, nothing sent. Curl.Api `CurlNetworkOptions.Protocols = "https"`: `CurlException` `UnsupportedProtocol`. curl-mcp: `curl` tool only (`transfer` has no protocols field).
+- One surl serves `http://` and `https://` listen URLs side by side with one `--cert`/`--key`; `--trace-ascii` names each exchange's scheme (`opened: https from`).
+- Plain HTTP to an https port: Windows curl exit 56 (`Recv failure: Connection was reset`); not probed on Linux/macOS. https to a plain port: exit 35.
 
 ## MCP
 - `surl-mcp start_server`: no TLS fields; pass options in `arguments` (`["--cert","server.pem","--key","server.key","--tlsv1.3"]`); a refusal is a tool error with structured `exit_code` (58) and `exit_code_name` (`CertificateProblem`), text is surl's line. Certificate files must be under `SURL_MCP_ROOT`.
@@ -42,4 +45,6 @@ Any TLS scheme (`https`, `mqtts`, `ftps`, `wss`, ...) needs a certificate; `read
 - The bibliography has no PKCS #12 (RFC 7292) or TLS 1.0/1.1 deprecation (RFC 8996) entry.
 
 ## Recipes
-https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), https-serve-a-pfx-certificate (and twins), mqtts-log-in-over-tls (and twins).
+https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a-client-to-https (and twins), https-serve-a-pfx-certificate (and twins), mqtts-log-in-over-tls (and twins).
+
+- Curl.Api: `VerifyHost = false` skips only the name check. A self-signed peer still fails 60; use `VerifyPeer = false` as well (`curl -k` is both) or trust the certificate with `CertificateAuthorityBlob` (Curl session, 2026-11-20).

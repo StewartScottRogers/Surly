@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-resume-an-interrupted-download-in-csharp
+title: Resuming an Interrupted Download in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110]
+
+# dl/records.txt is what an interrupted download left: the first 125 bytes of a 300-byte file.
+fixtures:
+  dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Range request from the length of the partial file is answered 206 Partial Content with Content-Range bytes 125-299/300, the 175 bytes are appended, and the file is identical to the one the server holds.
+    program: resume.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "partial: 125 bytes\n206 Partial Content bytes 125-299/300\nappended 175 bytes\nfile: 300 bytes, identical to the original: yes\n"
+
+  - id: already-complete
+    claim: A file that is already whole gets 416 Range Not Satisfiable with Content-Range bytes */300, the length of the file, so there is nothing to do and the file is unchanged.
+    program: resume.cs
+    args: []
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecord 12\nrecord 13\nrecord 14\nrecord 15\nrecord 16\nrecord 17\nrecord 18\nrecord 19\nrecord 20\nrecord 21\nrecord 22\nrecord 23\nrecord 24\nrecord 25\nrecord 26\nrecord 27\nrecord 28\nrecord 29\n"
+    expect:
+      exit: 0
+      stdout: "partial: 300 bytes\n416 Range Not Satisfiable bytes */300\nalready complete\nfile: 300 bytes, identical to the original: yes\n"
+
+  - id: nothing-to-resume
+    claim: With no partial file the program sends no Range, the answer is the whole file with 200 OK, and the program writes it.
+    program: resume.cs
+    args: [resume, dl/new.txt]
+    expect:
+      exit: 0
+      stdout: "partial: 0 bytes\n200 OK\nrewrote 300 bytes\nfile: 300 bytes, identical to the original: yes\n"
+
+  - id: wrong-prefix
+    claim: A partial file whose first bytes are not the original's is resumed all the same, since the server only counts bytes; the joined file has the right length and the final comparison finds it is not identical.
+    program: resume.cs
+    args: []
+    fixtures:
+      dl/records.txt: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    expect:
+      exit: 1
+      stdout: "partial: 125 bytes\n206 Partial Content bytes 125-299/300\nappended 175 bytes\nfile: 300 bytes, identical to the original: no\n"
+
+  - id: if-range-unchanged
+    claim: With If-Range set to the file's Last-Modified date, read from a HEAD request, an unchanged file is still answered 206 and the join is identical.
+    program: resume.cs
+    args: [if-range]
+    fixtures:
+      dl/records.txt: "record 00\nrecord 01\nrecord 02\nrecord 03\nrecord 04\nrecord 05\nrecord 06\nrecord 07\nrecord 08\nrecord 09\nrecord 10\nrecord 11\nrecor"
+    expect:
+      exit: 0
+      stdout: "partial: 125 bytes\n206 Partial Content bytes 125-299/300\nappended 175 bytes\nfile: 300 bytes, identical to the original: yes\n"
+
+  - id: if-range-changed
+    claim: With an If-Range date that is not the file's Last-Modified, the server ignores the Range and sends the whole file with 200, so a stale partial file, even one with the wrong beginning, is replaced and the result is identical.
+    program: resume.cs
+    args: [if-range-old]
+    fixtures:
+      dl/records.txt: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    expect:
+      exit: 0
+      stdout: "partial: 125 bytes\n200 OK\nrewrote 300 bytes\nfile: 300 bytes, identical to the original: yes\n"

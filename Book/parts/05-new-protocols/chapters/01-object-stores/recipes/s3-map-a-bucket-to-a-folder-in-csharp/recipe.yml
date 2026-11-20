@@ -1,0 +1,103 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: s3-map-a-bucket-to-a-folder-in-csharp
+title: Mapping a Bucket in C#
+protocols: [s3, https]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerFiles, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlNetworkOptions, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api, rfc8446, rfc7617]
+
+fixtures:
+  spare/gallery/sunset.txt: "sunset\n"
+
+# A certificate for 127.0.0.1 and for every bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With Buckets holding pics=/gallery, Curl.Api's get of s3://pics/sunset.txt reads the file gallery/sunset.txt of the server's store, status 200.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^pics get: 200 \[sunset\]\n'
+
+  - id: listing
+    claim: Listing s3://pics/ lists the folder, one level, the sub-folder as a prefix.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npics list: 200 \[2026/, sunset\.txt\]\n'
+
+  - id: folder-keeps-its-name
+    claim: The folder is still a bucket under its own name, and the bucket gallery reads the same file as the bucket pics.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ngallery get: 200 \[sunset\]\n'
+
+  - id: unmapped-folder
+    claim: A folder that Buckets does not name is a bucket under its own name.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nother get: 200 \[other\]\n'
+
+  - id: no-such-bucket
+    claim: A bucket that is neither mapped nor a folder throws CurlException with code 22, HttpReturnedError, and a message that names 404 NoSuchBucket.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno bucket: CurlException 22 HttpReturnedError: S3 returned error 404: NoSuchBucket'
+
+  - id: https-sees-the-folder
+    claim: On the https listener of the same server the file is at the folder's own path, gallery/sunset.txt, status 200.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttps gallery: 200 \[sunset\]\n'
+
+  - id: https-has-no-bucket-names
+    claim: On the https listener, pics/sunset.txt is not found, status 404, since bucket names belong to the object-storage servers; nothing is thrown.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttps pics: 404 \[\]\n'
+
+  - id: folder-file-is-an-object
+    claim: A file the test puts into the folder with SurlServerFiles.PutAsync is an object of the bucket, got as s3://pics/up.txt.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nfolder put, bucket get: 200 \[uploaded\]\n'
+
+  - id: put-is-not-sent
+    claim: Curl.Api sends only a GET to an s3:// URL; a PUT with a body throws CurlException with code 4, NotBuiltIn, before anything is sent.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nput: CurlException 4 NotBuiltIn: s3:// does not support -X PUT; it sends only GET, or PUT with -T\n'
+
+  - id: missing-folder
+    claim: A bucket mapped to a folder that is not on disk stops the start, SurlServer.StartAsync throws SurlServerStartException with exit code 37, and its first line names the folder and the bucket.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmissing folder: SurlServerStartException 37: \(37\) Could not open directory /nowhere for bucket pics\n'

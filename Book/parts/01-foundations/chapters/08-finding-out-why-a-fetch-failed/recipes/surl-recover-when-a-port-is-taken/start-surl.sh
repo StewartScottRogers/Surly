@@ -1,0 +1,28 @@
+#!/bin/sh
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Starts surl on the port asked for. If surl exits 45 because the port is taken, starts it
+# again on port 0 and reads the port it chose from its Listening on line. Then fetches
+# hello.txt and stops surl. Any other refusal is passed on. Usage: sh start-surl.sh <port>
+start() {   # start surl on port $1; returns 0 once it listens, or surl's exit code
+  surl --directory site "http://127.0.0.1:$1/" > listening.txt 2> surl.log &
+  pid=$!
+  tries=0
+  until grep -q '^Listening on ' listening.txt; do
+    if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; return $?; fi
+    tries=$((tries + 1))
+    if [ "$tries" -ge 50 ]; then kill "$pid"; return 1; fi
+    sleep 0.1
+  done
+}
+start "$1"; code=$?
+if [ "$code" -eq 45 ]; then
+  echo "exit 45: $(cat surl.log)"
+  start 0; code=$?
+fi
+if [ "$code" -ne 0 ]; then cat surl.log >&2; exit "$code"; fi
+url=$(sed -n 's|^Listening on ||p' listening.txt | head -n 1)
+echo "listening on $url"
+curl -s "${url}hello.txt"
+status=$?
+kill "$pid"
+exit $status

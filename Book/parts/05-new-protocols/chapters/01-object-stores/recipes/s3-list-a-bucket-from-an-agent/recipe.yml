@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: s3-list-a-bucket-from-an-agent
+title: Listing a Bucket from an Agent
+protocols: [s3]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, list_files]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, aws-s3-api, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for every bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed. Both hosts are confined to this folder.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts an S3 server with --list-directories and one account through surl-mcp, and curl-mcp's curl tool, given s3://photos/2026/, answers exit code 0 and the two keys under the prefix in standard output, in order.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^prefix: exit 0 \[2026/feb\.jpg, 2026/jan\.jpg\]\n'
+
+  - id: top-level
+    claim: The URL s3://photos/ lists one level, the folders as prefixes ending in a slash and the objects at the top.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ntop: exit 0 \[2025/, 2026/, readme\.txt\]\n'
+
+  - id: empty-prefix
+    claim: A prefix with nothing under it lists nothing, and that is not an error, exit 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nempty: exit 0 \[\]\n'
+
+  - id: no-such-bucket
+    claim: A bucket that is not in the store is answered 404 NoSuchBucket in standard error, exit 22, and nothing in standard output.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno bucket: exit 22 \[\] S3 returned error 404: NoSuchBucket'
+
+  - id: unsigned-listing
+    claim: A listing with no -u is refused 403 AccessDenied, exit 22, though the server allows listings.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunsigned: exit 22 \[\] S3 returned error 403: AccessDenied'
+
+  - id: listing-off
+    claim: On a server without --list-directories, a signed listing is refused 403 AccessDenied, exit 22.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisting off: exit 22 \[\] S3 returned error 403: AccessDenied'
+
+  - id: listing-off-reads
+    claim: On a server without --list-directories, a signed get of an object by its key is still served, exit 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisting off, get: exit 0 \[read me\]\n'
+
+  - id: anonymous-listing
+    claim: On a server with --allow-anonymous and --list-directories, an unsigned listing is served.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nanonymous: exit 0 \[2026/feb\.jpg, 2026/jan\.jpg\]\n'
+
+  - id: list-files
+    claim: surl-mcp's list_files, which asks no permission of any client, lists the same folder photos/2026 of the server's store as the two keys.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlist_files: \[feb\.jpg, jan\.jpg\]\n'
