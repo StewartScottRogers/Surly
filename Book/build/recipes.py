@@ -18,7 +18,7 @@ BOOK_PORT = "8080"                      # the port the book shows; verify alloca
 PORT_NAMES = ["port"] + [f"port{i}" for i in range(2, 10)]
 PLACEHOLDER = re.compile(r"\{\{([a-z0-9-]+)\}\}")
 REQUIRED = ["schema", "key", "title", "protocols", "tier", "cases"]
-TIERS = ["foundations", "working-servers", "secure-servers", "advanced", "new-protocols"]
+TIERS = ["foundations", "working-servers", "secure-servers", "advanced", "new-protocols", "scenarios"]
 SCHEMAS = [1, 2]
 SURFACES = ["console", "csharp", "mcp"]
 CASE_KINDS = ["run", "program", "mcp"]
@@ -35,7 +35,7 @@ def recipes(only=None):
     for part in sorted((BOOK / "parts").iterdir()):
         if not (part / "part.adoc").exists():
             continue
-        for chapter in sorted((part / "chapters").iterdir()):
+        for chapter in sorted((part / "chapters").iterdir()) if (part / "chapters").is_dir() else []:
             if not (chapter / "chapter.adoc").exists():
                 continue
             for recipe in sorted((chapter / "recipes").iterdir()):

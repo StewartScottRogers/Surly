@@ -20,3 +20,4 @@ One line per decision by the author, newest last. This is the record of human au
 | 2026-11-19 | Part 5, New Protocols (20 recipes) | Accepted | Merged and published (dcf78c4) |
 | 2026-11-19 | Website: one look, folded book, search; cover without the embedded recipe, plainer copy | Accepted | Merged and published (811f3c5, a6da41d, 544cf82) |
 | 2026-11-19 | Licence wording | Accepted | "All rights reserved" dropped from book.yml: the text is CC BY-ND 4.0 and the code Apache 2.0 (ADR-0003); the cover and mark keep their own rights (Book/README.md) |
+| 2026-11-19 | The 1,000-recipe plan (plan-1000.md, ADR-0009) | Accepted | 990 recipes, 330 a surface; 890 planned in 15 batches; Part 6 Scenarios; triplets kept together in their task's chapter (ADR-0008 item 2 amended) |

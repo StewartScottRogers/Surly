@@ -13,6 +13,8 @@ Architecture decision records for the Surly monorepo. One file per decision, num
 - [ADR-0007](ADR-0007-the-cover-the-mark-and-the-landing-page.md) - An original Gila monster mark, a cover of our own design, and a landing page on GitHub Pages that is the book's home; pitch in `Book/dist/`.
 - [ADR-0008](ADR-0008-recipes-from-code-and-agents.md) - Recipe schema 2: C# file-based-app cases (`Surl.Api`, `Curl.Api`, `Libcurl`) and MCP tool-call cases (`surl-mcp`, `curl-mcp`), in their own chapters inside the difficulty tiers.
 
+- [ADR-0009](ADR-0009-a-thousand-recipes.md) - About 1,000 recipes, a third each on the console, C# and agents; triplets where they fit; Part 6 Scenarios; the plan approved first; batches of about 60.
+
 ## Open
 
 The book's method is settled (ADR-0004, ADR-0005, ADR-0008, `Book/AI.md`), and the chapter list is accepted (`Book/editorial/chapter-list.md`). Still to decide:

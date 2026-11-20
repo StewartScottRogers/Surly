@@ -36,7 +36,7 @@ def save(rows):
 def tier_of(part):
     """01-foundations -> foundations: a part folder names its tier."""
     name = re.sub(r"^\d+-", "", part)
-    return name if name in TIERS else "new-protocols"
+    return name if name in TIERS else "scenarios" if "scenario" in name else "new-protocols"
 
 
 def init():
