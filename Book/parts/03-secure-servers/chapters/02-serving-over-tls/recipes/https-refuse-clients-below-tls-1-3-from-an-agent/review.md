@@ -5,5 +5,6 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Truth (4): every claim in the Discussion is a case; certificates come from setup:, never fixtures.
 2. Fitness (1): the Solution answers the Problem as stated; loosening options are shown refused where named.
-3. Fitness (3): curl-mcp's transfer has no TLS-version or cacert field, so the agent drives the curl tool instead; stated in the Discussion.
+3. Fitness (3): curl-mcp's transfer has minTlsVersion and caFile but no maximum TLS version, so the agent drives the curl tool for both clients; stated in the Discussion.
 - Platform (2026-11-19, CI run 44662810792): solution and default-range-takes-1-2 are [windows, linux]; new [macos] case shows the TLS 1.3 client exit 35 against the default range. Prose states it.
+Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: curl-mcp transfer gained minTlsVersion and caFile (BL-5596) but has no maximum version, so it cannot be the TLS 1.2 client; the agent keeps the curl tool for both clients, and finding 3 and the Discussion now say why. 3 of 3 pass.

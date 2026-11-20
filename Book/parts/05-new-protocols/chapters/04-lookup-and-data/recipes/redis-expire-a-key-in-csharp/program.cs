@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Sets a Redis key with an expiry through Surl.Api, reads it with Surl.Api and Curl.Api while it lives and after it has gone.
 // Run: dotnet run program.cs [-- case]
-//   (no argument)    a key that lives six seconds, read before and after
+//   (no argument)    a key that lives a minute, read; then one second, read after it has gone
 //   no-expiry        a key with no expiry
 //   bounds           expiries Surl.Api refuses
 //   no-plaintext     log in without AllowPlaintextAuthentication
@@ -43,7 +43,8 @@ if (which == "bounds")
     return 0;
 }
 
-await server.Keys.SetAsync("session", "abc", which == "no-expiry" ? null : TimeSpan.FromSeconds(6));
+// A minute is far longer than the reads take, even on a slow machine.
+await server.Keys.SetAsync("session", "abc", which == "no-expiry" ? null : TimeSpan.FromMinutes(1));
 if (which == "no-plaintext")
 {
     return await Curl("GET");
@@ -56,7 +57,9 @@ if (which == "no-expiry")
     return 0;
 }
 
-await Task.Delay(7000);
+// Set it again with an expiry of one second, then wait two: a slow machine only waits longer.
+await server.Keys.SetAsync("session", "abc", TimeSpan.FromSeconds(1));
+await Task.Delay(2000);
 await Read("after");
 await Curl("GET");
 return 0;

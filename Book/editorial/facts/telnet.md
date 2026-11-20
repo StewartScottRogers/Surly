@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # telnet facts
-Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 2026-11-20, windows.
+Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 2026-11-20, windows; Curl.Api re-probed on Surl 9ad60d80c / Curl 7d167fa10a.
 
 ## Listen URLs and readiness
 `telnet://127.0.0.1:{{port}}/`, TCP, default port 23, `ready: port`.
@@ -20,8 +20,8 @@ Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 202
 - `start_server(arguments: ["--max-line","10"])` works.
 
 ## Curl.Api
-- A telnet URL opens the session and the body streams the banner, but no line can be sent: `Body` as bytes or `CurlContent.FromStream`, with GET, PUT or POST, is not sent (the server echoes nothing, the body never ends). Console and MCP `curl` send stdin. `CurlRequest.Telnet = new CurlTelnetOptions { TelnetOptions = ["TTYPE=vt100"] }` works and reaches the server's log (`SurlServerOptions.Log` + `LogLevel.Verbose`, `using Surl.Output;`).
-- A line session from C# needs a `TcpClient`; strip IAC (255) plus two bytes before printing.
+- A request with a byte `Body` (PUT or POST; a stream not probed) to a telnet URL sends the body as `curl -T` does (Curl 7d167fa10a, BL-5594): `SendAsync` returns once the session is open and `CurlResponse.Body` streams the banner, the echoes and `bye`, then ends when the server closes. The body holds no option bytes (Curl.Api answers the negotiation). No `quit`: the body never ends; read with a timeout and dispose the response. A 9000-character line: `line too long`, then the end. Before this build the body was ignored and a line session needed a `TcpClient`.
+- `CurlRequest.Telnet = new CurlTelnetOptions { TelnetOptions = ["TTYPE=vt100"] }` works and reaches the server's log (`SurlServerOptions.Log` + `LogLevel.Verbose`, `using Surl.Output;`).
 
 ## Recipes
 telnet-hold-a-line-session (+ twins).

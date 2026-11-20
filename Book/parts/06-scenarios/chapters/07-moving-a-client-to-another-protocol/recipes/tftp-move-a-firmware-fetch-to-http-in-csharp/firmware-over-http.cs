@@ -6,7 +6,7 @@
 //   exact     the same with an image of exactly 1024 bytes, two full blocks
 //   blksize   fetch over TFTP with a block size of 1024
 //   missing   ask both for an image that is not there
-//   write     send a file over HTTP
+//   write     send a file over TFTP and over HTTP
 #:package Surl.Api@1.0.0
 #:package Curl.Api@0.2.0
 
@@ -55,7 +55,17 @@ switch (which)
         return 0;
 
     case "write":
-        // Uploads are off unless surl is started with --allow-uploads, and an HTTP client with no login is told so.
+        // Uploads are off unless surl is started with --allow-uploads. A body to a tftp:// URL is a TFTP write,
+        // which the server refuses; an HTTP client with no login is told so.
+        try
+        {
+            await Fetch(new CurlRequest(HttpMethod.Put, tftp + "up.bin") { Body = new byte[] { 1, 2, 3 } });
+        }
+        catch (CurlException e)
+        {
+            Console.WriteLine($"tftp: {e.Code} ({(int)e.Code})");
+        }
+
         CurlResponse put = await client.SendAsync(new CurlRequest(HttpMethod.Put, http + "up.bin") { Body = new byte[] { 1, 2, 3 } }, CancellationToken.None);
         await put.Body.DisposeAsync();
         Console.WriteLine($"http: {put.StatusCode} {put.ReasonPhrase}");

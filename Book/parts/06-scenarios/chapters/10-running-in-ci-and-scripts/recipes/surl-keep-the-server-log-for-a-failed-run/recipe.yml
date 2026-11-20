@@ -3,7 +3,7 @@
 schema: 2
 key: surl-keep-the-server-log-for-a-failed-run
 title: Keeping the Server Log for Failures
-protocols: [https, ftps]
+protocols: [https, ftps, ldap]
 tier: scenarios
 surl-options: [--trace-ascii, --directory, --cert, --key, --user]
 curl-options: [-s, -S, -f, --cacert, -u, --oauth2-bearer, -o]
@@ -26,27 +26,37 @@ fixtures:
     #!/bin/sh
     # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
     # A CI step: run the tests; if they fail, keep surl's trace in ci-logs/ for the job to
-    # upload, with every byte a client sent left out, and fail with the tests' exit code.
+    # upload, and fail with the tests' exit code. surl has already withheld the passwords and
+    # tokens of HTTPS and FTPS from the trace.
     # Usage: sh ci-step.sh <test command> [<argument>...]
     "$@" && exit 0
     status=$?
     mkdir -p ci-logs
+    cp trace.txt ci-logs/trace.txt
+    exit "$status"
+  drop-received.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Print a trace without the bytes clients sent, for a server whose secrets surl still logs.
     # After a "<= Recv data" line come the bytes a client sent, one offset-led line each, up to
     # the next line that starts with an exchange number. Drop those bytes; keep everything else.
+    # Usage: sh drop-received.sh <trace file>
     awk '/^#[0-9]+ <= Recv data/ { print; skip = 1; next }
          /^#[0-9]+ / { skip = 0 }
-         !skip' trace.txt > ci-logs/trace.txt
-    exit "$status"
+         !skip' "$1"
 
 # A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
 setup:
   - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
 
 # One server for the whole job: a password account and a Bearer token (the empty user name),
-# over HTTPS and FTPS, tracing every exchange to trace.txt.
+# over HTTPS and FTPS, tracing every exchange to trace.txt. A second, LDAP, traces to ldap-trace.txt.
 servers:
   main:
     command: surl --trace-ascii trace.txt --directory site --cert server.pem --key server.key --user app:s3cret --user :tok-7f3a9c https://127.0.0.1:{{port}}/ ftps://127.0.0.1:{{port2}}/
+    ready: port
+  ldap:
+    command: surl --trace-ascii ldap-trace.txt --user app:s3cret ldap://127.0.0.1:{{port3}}/
     ready: port
 
 cases:
@@ -76,18 +86,25 @@ cases:
       stdout-matches: '#\d+ \* Login accepted: Basic app\n#\d+ \* Login accepted: Bearer bearer token\n#\d+ \* Login refused: ftps app\n$'
 
   - id: kept-trace-keeps-replies
-    claim: The kept trace still holds what surl sent, here the 530 reply that refused the login.
+    claim: The kept trace holds what surl sent, here the 530 reply that refused the login.
     run: grep -c "530 Login incorrect" ci-logs/trace.txt
     expect:
       exit: 0
       stdout: "1\n"
 
-  - id: raw-trace-holds-passwords
-    claim: The trace surl wrote holds every byte a client sent, so both FTP PASS commands are in it with their passwords in clear.
-    run: grep -c -e "PASS s3cret" -e "PASS guess" trace.txt
+  - id: ftps-password-withheld
+    claim: The trace holds each FTP PASS command a client sent, with four asterisks where the password was, the right one and the wrong one alike.
+    run: 'grep -c -x "0000: PASS [*][*][*][*]" ci-logs/trace.txt'
     expect:
       exit: 0
       stdout: "2\n"
+
+  - id: https-header-block-withheld
+    claim: Over HTTP/2 the header block that carried the Basic login is dumped with four asterisks in place of its headers, on the line before the one that judged the login.
+    run: 'grep -B1 "Login accepted: Basic app" ci-logs/trace.txt'
+    expect:
+      exit: 0
+      stdout-matches: '^0000: .*\*\*\*\*\r?\n#\d+ \* Login accepted: Basic app\r?\n$'
 
   - id: kept-trace-holds-no-secret
     claim: The kept trace holds neither password nor the token.
@@ -95,3 +112,24 @@ cases:
     expect:
       exit: 1
       stdout: "0\n"
+
+  - id: ldap-password-still-traced
+    claim: An LDAP simple bind's password is not withheld yet; it is in the LDAP server's trace, though surl refused the bind unchecked over ldap://.
+    run: sh -c "curl -s -u cn=app:s3cret ldap://127.0.0.1:{{port3}}/dc=example?cn; grep -c -m1 s3cret ldap-trace.txt"
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: filter-drops-the-password
+    claim: For such a server, drop-received.sh leaves the trace without the bytes clients sent, and so without the password.
+    run: sh drop-received.sh ldap-trace.txt | grep -c s3cret
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: filter-keeps-the-reason
+    claim: The filtered trace still holds surl's line saying why it refused the bind.
+    run: sh drop-received.sh ldap-trace.txt | grep -m1 "bind refused"
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* LDAP bind refused: confidentialityRequired: simple bind needs TLS or --allow-plaintext-auth\r?\n$'

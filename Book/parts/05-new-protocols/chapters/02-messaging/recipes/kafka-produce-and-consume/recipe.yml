@@ -7,7 +7,7 @@ key: kafka-produce-and-consume
 title: Producing and Consuming Kafka Records
 protocols: [kafka, kafkas, mqtt5]
 tier: new-protocols
-surl-options: [--allow-anonymous, --mqtt5-disconnect-after-retained, --topic, --user, --allow-plaintext-auth, --cert, --key]
+surl-options: [--allow-anonymous, --mqtt5-disconnect-after-retained, --topic, --user, --auth, --allow-plaintext-auth, --cert, --key]
 curl-options: [-d, --next, -s, -S, -u, --cacert]
 exit-codes: [0, 3, 8, 56, 60, 67]
 references: [surl-readme, curl-readme, curl-protocols, kafka-protocol, mqtt5, rfc8446]
@@ -18,7 +18,7 @@ setup:
 
 # main is the recipe. bus adds an MQTT 5 listener beside Kafka in one surl, so both
 # share its message bus. accounts has an account and no loosening; plaintext adds
-# --allow-plaintext-auth to it; tls serves the same account over kafkas.
+# --allow-plaintext-auth to it; tls serves the same account over kafkas; plain asks for PLAIN alone.
 servers:
   main:
     command: surl --allow-anonymous kafka://127.0.0.1:{{port}}/
@@ -34,6 +34,9 @@ servers:
     ready: port
   tls:
     command: surl --user alice:s3cret --cert server.pem --key server.key kafkas://127.0.0.1:{{port6}}/
+    ready: port
+  plain:
+    command: surl --user alice:s3cret --auth PLAIN kafka://127.0.0.1:{{port7}}/
     ready: port
 
 cases:
@@ -133,13 +136,28 @@ cases:
       exit: 56
       stdout: ""
 
-  - id: clear-password-refused
-    claim: Over kafka://, with no TLS, surl enables SCRAM-SHA-256 and SCRAM-SHA-512 but not PLAIN, the one mechanism curl logs in with, so curl stops before it sends the password, exit 67.
-    run: curl -sS -u alice:s3cret kafka://127.0.0.1:{{port4}}/orders
+  - id: scram-login
+    claim: Over kafka://, with no TLS and no loosening option, surl enables SCRAM and not PLAIN, and curl -u logs in with SCRAM; the produce and the consume both log in.
+    run: curl -s -u alice:s3cret -d first kafka://127.0.0.1:{{port4}}/orders --next -s -u alice:s3cret kafka://127.0.0.1:{{port4}}/orders
+    expect:
+      exit: 0
+      stdout: "first\n"
+
+  - id: scram-wrong-password
+    claim: Over SCRAM a wrong password is refused, exit 67, and curl names the mechanism it used, SCRAM-SHA-512.
+    run: curl -sS -u alice:wrong kafka://127.0.0.1:{{port4}}/orders
     expect:
       exit: 67
       stdout: ""
-      stderr-contains: "Kafka broker does not enable SASL PLAIN, it enables: SCRAM-SHA-256, SCRAM-SHA-512"
+      stderr-contains: "Kafka SASL SCRAM-SHA-512 authentication failed"
+
+  - id: clear-password-refused
+    claim: Asked with --auth PLAIN to offer only PLAIN over kafka://, surl without --allow-plaintext-auth offers no mechanism at all, and curl stops before it sends the password, exit 67.
+    run: curl -sS -u alice:s3cret kafka://127.0.0.1:{{port7}}/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "it offers no SASL mechanism"
 
   - id: clear-password-allowed
     claim: With --allow-plaintext-auth, surl takes SASL PLAIN in clear and checks the password; the produce and the consume both log in.
@@ -149,7 +167,7 @@ cases:
       stdout: "first\n"
 
   - id: wrong-password-refused
-    claim: With --allow-plaintext-auth, a wrong password is checked and refused, exit 67.
+    claim: With --allow-plaintext-auth surl offers PLAIN as well, and curl, offered PLAIN, logs in with it; a wrong password is checked and refused, exit 67, and curl names PLAIN.
     run: curl -sS -u alice:wrong kafka://127.0.0.1:{{port5}}/orders
     expect:
       exit: 67

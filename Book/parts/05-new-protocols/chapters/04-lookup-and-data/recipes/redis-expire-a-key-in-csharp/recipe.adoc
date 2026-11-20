@@ -11,7 +11,7 @@ Your cache sets keys with a time to live and must treat an expired key as missin
 
 ==== Solution
 
-Start a `SurlServer` with a Redis listener and one account, set a key with an expiry through `server.Keys`, read it through `server.Keys` and through a `CurlClient`, wait past the expiry, and read it again:
+Start a `SurlServer` with a Redis listener and one account, set a key with an expiry through `server.Keys`, read it through `server.Keys` and through a `CurlClient`, set it again with an expiry of one second, wait past that, and read it again:
 
 include::.generated/solution.adoc[]
 
@@ -21,7 +21,9 @@ include::.generated/solution.adoc[]
 
 `server.Keys`, a `SurlServerKeys`, holds the Redis store{apos}s members. `Accounts` takes `SurlAccount` values, a user and a password. `Keys.SetAsync` sets a string key as a `SET` would, with no client and no login. Its third argument is the expiry, a `TimeSpan`; leave it out and the key has none. Keys live in memory and go when the server stops. The expiry is from one millisecond to 365 days: zero, or 366 days, is an `ArgumentOutOfRangeException`, and the claims show both refused and one millisecond accepted.
 
-`server.Keys.GetAsync` reads a key back without a client, and answers a `SurlKeyContents`: its `Info` holds the `Type`, `string` here, and `ExpiresAt`, which is `null` for a key with no expiry and a time for one with, and its `Text` is the value. The program prints whether that time is in the future. While the key lives it is. After the expiry the key is gone, and `GetAsync` throws `SurlNotFoundException`, as it does for a key never set. A test that wants a missing key catches that, and does not look for a null.
+`server.Keys.GetAsync` reads a key back without a client, and answers a `SurlKeyContents`: its `Info` holds the `Type`, `string` here, and `ExpiresAt`, which is `null` for a key with no expiry and a time for one with, and its `Text` is the value. The program prints whether that time is in the future. While the key lives it is.
+
+The first expiry is a minute, far longer than the reads take even on a slow machine, so the key is surely alive when they run. To see it go without waiting the minute, the program sets it again with an expiry of one second, which replaces the first, and waits two. A slow machine only waits longer, so by then the key is surely gone: `GetAsync` throws `SurlNotFoundException`, as it does for a key never set. A test that wants a missing key catches that, and does not look for a null.
 
 The same key through the client sees it the same way. A `CurlRequest` is the method and URL, and `SendAsync` answers a `CurlResponse` whose `Body` is a stream. The request is a `GET` of `redis://host:port/GET/session` and the URL path is the Redis command and its arguments, as on the console (<<curl-readme>>). `CurlAuthenticationOptions` carries the login. While the key lives the body is `abc` and a line feed, four characters. After the expiry Redis answers null, which `curl` writes as an empty line: the body is one line feed, one character, and the response is not an error. The two views agree, one by exception and one by an empty line, and a test that reads through both has both to check.
 

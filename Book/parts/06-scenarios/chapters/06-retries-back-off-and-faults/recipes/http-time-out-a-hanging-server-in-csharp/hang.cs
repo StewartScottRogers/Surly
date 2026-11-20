@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
-// Serves a file with Surl.Api, holding the first request for it five seconds, and fetches it with
+// Serves a file with Surl.Api, holding the first request for it ten seconds, and fetches it with
 // Curl.Api under a time limit. Run: dotnet run hang.cs -- [limit] [retries]
 //   limit     timeout (the default): a 2 s limit on the whole transfer, CurlClientOptions.Timeout
 //             connect: a 2 s limit on connecting only, CurlClientOptions.ConnectTimeout
@@ -18,11 +18,12 @@ using Surl.Protocol.Abstractions;
 string limit = args.Length > 0 ? args[0] : "timeout";
 int allowed = args.Length > 1 ? int.Parse(args[1]) : 0;
 
-// The server: one file in memory, a rule that holds the first request for it five seconds once it
-// has arrived, and a record of every event, so the program can count the holds afterwards.
+// The server: two files in memory, a rule that holds the first request for hello.txt ten seconds once
+// it has arrived, and a record of every event, so the program can count the holds afterwards.
 var options = new SurlServerOptions { ListenUrls = { "http://127.0.0.1:0" }, RecordExchanges = true };
 options.Files["hello.txt"] = "hello from surl\n"u8.ToArray();
-options.Faults.Add(SurlFault.Delay(TimeSpan.FromSeconds(5)) with { Stage = FaultStage.Command, Path = "/hello.txt", Times = 1 });
+options.Files["ready.txt"] = "ready\n"u8.ToArray();
+options.Faults.Add(SurlFault.Delay(TimeSpan.FromSeconds(10)) with { Stage = FaultStage.Command, Path = "/hello.txt", Times = 1 });
 await using SurlServer server = await SurlServer.StartAsync(options);
 
 // The client: its limit is a client option, as curl -m and --connect-timeout are, or a token per call.
@@ -33,6 +34,14 @@ var clientOptions = limit switch
     _ => new CurlClientOptions(),
 };
 await using CurlClient client = CurlClient.Create(clientOptions);
+
+// One fetch first, of a file the rule does not hold: the first request in a process starts the curl
+// engine, which can take seconds on a busy machine, and the stopwatch below should time only the transfer.
+CurlResponse warm = await client.SendAsync(new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}ready.txt"), CancellationToken.None);
+await using (Stream ready = warm.Body)
+{
+    await ready.CopyToAsync(Stream.Null);
+}
 
 int retries = 0;
 bool served = false;
@@ -65,7 +74,7 @@ for (int attempt = 1; ; attempt++)
         outcome = failure.GetType().Name;
     }
 
-    Console.WriteLine($"attempt {attempt}: {outcome}, {(clock.Elapsed.TotalSeconds < 5 ? "within" : "after")} 5 s");
+    Console.WriteLine($"attempt {attempt}: {outcome}, {(clock.Elapsed.TotalSeconds < 10 ? "within" : "after")} 10 s");
     if (served || retries == allowed)
     {
         break;

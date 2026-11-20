@@ -7,5 +7,7 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 
 ## Findings
 
-1. Program finding: Curl.Api cannot put to an `s3://` URL (`HttpMethod.Put` with a body is `CurlException` 4 `NotBuiltIn`, `s3:// does not support -X PUT; it sends only GET, or PUT with -T`; Curl.Api has no `-T` spelling). The put claim is replaced by two: a file the test puts into the folder with `server.Files.PutAsync` is an object, and the refused PUT is shown.
+1. The put is a Curl.Api PUT to s3://pics/up.txt, checked in the folder with server.Files.ReadAsync and through the bucket gallery.
 2. `SurlServerFiles.PutAsync` and `ReadAsync` need a leading slash on the path.
+
+Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: Curl.Api now PUTs to s3:// (BL-5594); the refused-PUT case and the SurlServerFiles.PutAsync workaround became a real PUT read back from the folder.

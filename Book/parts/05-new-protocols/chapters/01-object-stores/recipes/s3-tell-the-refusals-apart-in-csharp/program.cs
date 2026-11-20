@@ -10,7 +10,7 @@ using Curl.Api.Errors;
 using Surl.Api;
 
 // Two servers on the same object, each in memory. main has one account and nothing loosened; open
-// also allows anonymous callers. server.pem and server.key are in the folder.
+// also allows anonymous callers and uploads. server.pem and server.key are in the folder.
 Task<SurlServer> Start(bool anonymous)
 {
     var options = new SurlServerOptions
@@ -19,6 +19,7 @@ Task<SurlServer> Start(bool anonymous)
         CertificateFile = "server.pem",
         KeyFile = "server.key",
         AllowAnonymous = anonymous,
+        AllowUploads = anonymous,
     };
     options.Accounts.Add(new SurlAccount("AKIAIOSFODNN7EXAMPLE", "s3cret"));
     options.Files["photos/hello.txt"] = "hello from surl\n"u8.ToArray();
@@ -36,23 +37,27 @@ await Show("signed", main, "s3://photos/hello.txt", Login("AKIAIOSFODNN7EXAMPLE"
 await Show("unsigned", main, "s3://photos/hello.txt", null);
 await Show("unknown key", main, "s3://photos/hello.txt", Login("AKIAOTHEREXAMPLE", "s3cret"));
 await Show("wrong secret", main, "s3://photos/hello.txt", Login("AKIAIOSFODNN7EXAMPLE", "wrong"));
+await Show("signed put", main, "s3://photos/note.txt", Login("AKIAIOSFODNN7EXAMPLE", "s3cret"), "a note\n");
 await Show("signed listing", main, "s3://photos/", Login("AKIAIOSFODNN7EXAMPLE", "s3cret"));
 await Show("missing key", main, "s3://photos/missing.txt", Login("AKIAIOSFODNN7EXAMPLE", "s3cret"));
 await Show("missing bucket", main, "s3://videos/hello.txt", Login("AKIAIOSFODNN7EXAMPLE", "s3cret"));
 await Show("anonymous read", open, "s3://photos/hello.txt", null);
+await Show("anonymous put", open, "s3://photos/note.txt", null, "a note\n");
 await Show("anonymous unknown key", open, "s3://photos/hello.txt", Login("AKIAOTHEREXAMPLE", "s3cret"));
 await Show("anonymous wrong secret", open, "s3://photos/hello.txt", Login("AKIAIOSFODNN7EXAMPLE", "wrong"));
 return 0;
 
-// One request. An answer prints its status and body; a refusal throws CurlException, and the program names
-// it from the status and S3 error code in the message, which is how a client explains why S3 said no.
-async Task Show(string label, SurlServer server, string url, CurlAuthenticationOptions? login)
+// One request, a get, or a put when there is a body. An answer prints its status and body; a refusal throws
+// CurlException, and the program names it from the status and S3 error code in the message, which is how a
+// client explains why S3 said no.
+async Task Show(string label, SurlServer server, string url, CurlAuthenticationOptions? login, string? upload = null)
 {
-    var request = new CurlRequest(HttpMethod.Get, url)
+    var request = new CurlRequest(upload is null ? HttpMethod.Get : HttpMethod.Put, url)
     {
         Network = new CurlNetworkOptions { ConnectTo = [$"::127.0.0.1:{server.BoundUrl.Port}"] },
         Tls = trust,
         Authentication = login ?? new CurlAuthenticationOptions(),
+        Body = upload is null ? null : System.Text.Encoding.UTF8.GetBytes(upload),
     };
     try
     {

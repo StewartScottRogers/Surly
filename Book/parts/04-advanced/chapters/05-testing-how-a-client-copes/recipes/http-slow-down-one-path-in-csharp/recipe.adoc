@@ -11,7 +11,7 @@ Your .NET client must give up on one slow endpoint without hanging the rest. In 
 
 ==== Solution
 
-Start a `SurlServer` with a `SurlFault` that holds every request under `/slow` for five seconds, and fetch a slow path and a fast one at the same time from one `CurlClient` with a two-second limit:
+Start a `SurlServer` with a `SurlFault` that holds every request under `/slow` for ten seconds, and fetch a slow path and a fast one at the same time from one `CurlClient` with a two-second limit:
 
 include::.generated/solution.adoc[]
 
@@ -19,11 +19,11 @@ include::.generated/solution.adoc[]
 
 `SurlFault.Delay` makes a rule that holds a request for the time given before it is answered, as `surl --fault delay` does. A rule is a record, and `with` narrows it: `Stage`, a `FaultStage`, set to `Command` waits until the request has arrived, so there is a path to look at, and `Path = "/slow"` limits the rule to `/slow` and what is under it. The match is by whole segments, so `/slowness.txt` is not held. Without `Times` the rule holds every matching request. The rule goes in `SurlServerOptions.Faults`, so it is there from the start.
 
-`CurlClientOptions.Timeout` is the limit on each whole transfer, as `curl -m` sets it; `CurlClient.Create` takes the options and applies them to every request the client sends. The program sends two `CurlRequest`s at once with `Task.WhenAll`, and each prints a line when it ends, with a stopwatch of its own. `/hello.txt` ends first with a `CurlResponse` of `200`. The slow request reaches the two-second limit while the server still holds it, and `SendAsync` throws a `CurlException` whose `Code` is `28`, `OperationTimedOut`, the code `curl` exits with for a timeout; both lines come within the hold's five seconds. The two transfers run side by side on the client, so the slow one never holds up the fast one.
+`CurlClientOptions.Timeout` is the limit on each whole transfer, as `curl -m` sets it; `CurlClient.Create` takes the options and applies them to every request the client sends. The program first fetches the fast path once, untimed, because the first request in a process starts the curl engine, which can take seconds on a busy machine. It then sends two `CurlRequest`s at once with `Task.WhenAll`, and each prints a line when it ends, with a stopwatch of its own. `/hello.txt` ends first with a `CurlResponse` of `200`. The slow request reaches the two-second limit while the server still holds it, and `SendAsync` throws a `CurlException` whose `Code` is `28`, `OperationTimedOut`, the code `curl` exits with for a timeout; both lines come within the hold's ten seconds. The two transfers run side by side on the client, so the slow one never holds up the fast one.
 
-With `0` as its argument the program sets no limit. The slow path is then answered `200` after the five seconds are up, and the fast path is still answered first. A second argument changes the path fetched beside the slow one: `/slowness.txt` is answered first, as `/hello.txt` is.
+With `0` as its argument the program sets no limit. The slow path is then answered `200` after the ten seconds are up, and the fast path is still answered first. A second argument changes the path fetched beside the slow one: `/slowness.txt` is answered first, as `/hello.txt` is.
 
-The stopwatches report only within or after five seconds, not exact times, so that a slow machine or a cold start does not break the check.
+The stopwatches report only within or after the ten-second hold, not exact times. The hold is five times the limit, and the untimed first fetch keeps the engine{apos}s start out of the clocks, so a slow machine does not break the check.
 
 include::.generated/claims.adoc[]
 

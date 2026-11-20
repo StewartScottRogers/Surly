@@ -2,8 +2,8 @@
 // Starts a Curl.Api client before a Surl.Api server and retries until the server is listening,
 // a bounded number of times. Run: dotnet run wait-for-server.cs -- [tries] [start]
 //   tries   how many attempts the client may make in all (10 if not given)
-//   start   when the server starts: seconds after the client (2 if not given), 0 for before it,
-//           or never
+//   start   when the server starts: seconds after the first refused attempt (2 if not given),
+//           0 for before the client, or never
 #:package Surl.Api@1.0.0
 #:package Curl.Api@0.2.0
 
@@ -24,19 +24,23 @@ int port = ((IPEndPoint)probe.LocalEndpoint).Port;
 probe.Stop();
 string url = $"http://127.0.0.1:{port}/hello.txt";
 
-// The server, started on its own schedule: before the client, some seconds after it, or never.
+// The server, on its own schedule: before the client, some seconds after the client's first
+// attempt is refused, or never. Counting from the refusal, not from the program's start, keeps a
+// slow first request (the curl engine starting on a busy machine) from finding the server up.
 var options = new SurlServerOptions { ListenUrls = { $"http://127.0.0.1:{port}" } };
 options.Files["hello.txt"] = "hello from surl\n"u8.ToArray();
-Task<SurlServer>? starting = start switch
+Task<SurlServer>? starting = start == "0" ? Task.FromResult(await SurlServer.StartAsync(options)) : null;
+void StartLater()
 {
-    "never" => null,
-    "0" => Task.FromResult(await SurlServer.StartAsync(options)),
-    _ => Task.Run(async () =>
+    if (starting is null && start != "never")
     {
-        await Task.Delay(TimeSpan.FromSeconds(int.Parse(start)));
-        return await SurlServer.StartAsync(options);
-    }),
-};
+        starting = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(int.Parse(start)));
+            return await SurlServer.StartAsync(options);
+        });
+    }
+}
 
 // The client: up to `tries` attempts, one second apart, retrying only a refused connection.
 await using CurlClient client = CurlClient.Create();
@@ -56,6 +60,7 @@ for (int attempt = 1; attempt <= tries; attempt++)
         // Nothing listening yet: curl's exit code 7. Any other failure is not this program's to retry.
         Console.WriteLine($"attempt {attempt}: CurlException {(int)refused.Code} ({refused.Code})");
         failed = refused.Code;
+        StartLater();
         if (attempt < tries)
         {
             await Task.Delay(TimeSpan.FromSeconds(1));

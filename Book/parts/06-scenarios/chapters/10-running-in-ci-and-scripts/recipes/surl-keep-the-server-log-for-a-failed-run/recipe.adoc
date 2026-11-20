@@ -11,7 +11,7 @@ When a continuous integration (CI) run fails you want the server's log and trace
 
 ==== Solution
 
-Start `surl` with `--trace-ascii`, run the tests through a step that, when they fail, copies the trace into `ci-logs/` without the bytes the clients sent, and let the job upload `ci-logs/`. The tests and the step are short scripts and need a POSIX shell (Git Bash on Windows):
+Start `surl` with `--trace-ascii`, run the tests through a step that, when they fail, copies the trace into `ci-logs/`, and let the job upload `ci-logs/`. `surl` has already put `+****+` where each password and token was. The tests and the step are short scripts and need a POSIX shell (Git Bash on Windows):
 
 [source,sh]
 ----
@@ -29,9 +29,16 @@ include::.generated/solution.adoc[]
 
 `--trace-ascii trace.txt` writes every byte `surl` sends and receives to `trace.txt`, each block led by a `=> Send data` or `<= Recv data` line, and between the blocks it writes `surl`{apos}s log lines: which login was judged, what was served, why an exchange ended. That one file is the log and the trace together. `--directory site` serves the report, `--cert` and `--key` serve Transport Layer Security (<<rfc8446>>) with the certificate `setup` made, for Hypertext Transfer Protocol Secure (HTTPS) and for File Transfer Protocol (FTP) over TLS (FTPS, <<rfc4217>>). `--user app:s3cret` is the password account and `--user :tok-7f3a9c`, with an empty user name, a Bearer token (<<rfc6750>>).
 
-`tests.sh` stands for the job's tests: three fetches with `curl`, `-u` logging in with the password (Basic over HTTPS, a `USER` and `PASS` over FTPS), `--oauth2-bearer` sending the token as `Authorization: Bearer`, `-f` failing on an error status, `-s` quiet and `-S` printing the error all the same, `--cacert server.pem` trusting exactly that certificate, `-o /dev/null` dropping the body, and `set -e` ending the run at the first failure. `ci-step.sh` runs them. When they pass it exits 0 and keeps nothing; when they fail it keeps the trace and exits with the tests' own code, so the job still fails and the artifact is there for whoever looks next. Here the FTPS password is wrong: the server answers `530`, `curl` exits 67, and so does the step.
+`tests.sh` stands for the job's tests: three fetches with `curl`, `-u` logging in with the password (Basic over HTTPS, a `USER` and `PASS` over FTPS), `--oauth2-bearer` sending the token as `Authorization: Bearer`, `-f` failing on an error status, `-s` quiet and `-S` printing the error all the same, `--cacert server.pem` trusting exactly that certificate, `-o /dev/null` dropping the body, and `set -e` ending the run at the first failure. `ci-step.sh` runs them. When they pass it exits 0 and keeps nothing; when they fail it copies the trace and exits with the tests' own code, so the job still fails and the artifact is there for whoever looks next. Here the FTPS password is wrong: the server answers `530`, `curl` exits 67, and so does the step.
 
-The trace as written is not fit to keep. It holds every byte a client sent, so both `PASS` commands are in it with the passwords in clear, the right one and the wrong one: TLS protects a password on the wire, and the trace is written after TLS has been taken off. The step's `awk` keeps each `<= Recv data` line, which says how many bytes arrived, and drops the bytes after it, up to the next line that starts with an exchange number. What is left holds neither password nor the token, and still holds what is worth reading after a failure: `surl`{apos}s log lines, which name the method and the account of each judged login, never the secret (`Login refused: ftps app`), and every reply `surl` sent, the `530 Login incorrect` included. A trace with the requests left in would also show the client's commands; that trace belongs on the machine that ran the job, not in an artifact anyone with read access can download.
+The trace is fit to keep as written, because `surl` withholds what clients send to log in. Each `PASS` command is dumped as `+PASS ****+`, the right password and the wrong one alike, and over HTTP/2, which `curl` speaks to HTTPS here, the header block that carried `Authorization` is dumped as its frame header and `+****+`; over HTTP/1.1 it would read `+Authorization: Basic ****+`. The `Recv data` line counts the bytes dumped, not the bytes that arrived. Neither password nor the token is left, and what is worth reading after a failure is all there: `surl`{apos}s log lines, which name the method and the account of each judged login (`Login refused: ftps app`), and every reply `surl` sent, the `530 Login incorrect` included. TLS protects a password on the wire only; the trace is written after TLS has been taken off, so this withholding is what keeps it out.
+
+Not every server withholds its secrets yet. An LDAP simple bind still lands in the trace with its password, here on a second `surl` serving `ldap://` (the Lightweight Directory Access Protocol), even though it refused the bind unchecked because it came without TLS. For a job that serves such a protocol, keep the trace without the bytes the clients sent: `drop-received.sh` keeps each `<= Recv data` line, which says how many bytes arrived, and drops the bytes after it, up to the next line that starts with an exchange number. What is left still holds `surl`{apos}s reason, `LDAP bind refused: confidentialityRequired`.
+
+[source,sh]
+----
+include::drop-received.sh[]
+----
 
 include::.generated/claims.adoc[]
 

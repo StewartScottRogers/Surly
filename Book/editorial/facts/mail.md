@@ -91,10 +91,10 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   (exit 8) does not undo earlier ones. Wrong password with n `--next` transfers: n `Login denied` lines.
 
 ## .NET
-- Curl.Api 0.2.0 CAN send SMTP, but only with a stream body: `new CurlRequest(HttpMethod.Put, smtpUrl + "example.com")`
+- Curl.Api sends SMTP: `new CurlRequest(HttpMethod.Put, smtpUrl + "example.com")`
   with `Mail = new CurlMailOptions { MailFrom = .., MailRecipients = [..] }`, `Authentication`, and
-  `Body = CurlContent.FromStream(new MemoryStream(bytes))` -> `StatusCode` 250 (CRAM-MD5, no loosening).
-  A byte[] body is POSTFIELDS, not an upload: GET/PUT with byte[] -> 500 (CurlException 8), Post does VRFY (252).
+  `Body` as bytes or `CurlContent.FromStream(...)` -> `StatusCode` 250 (CRAM-MD5, no loosening). Since Curl 7d167fa10a
+  (BL-5594) a byte body uploads too, with PUT or POST; before, it was POSTFIELDS (PUT sent a literal `PUT`, 500; POST a VRFY).
   `System.Net.Mail.SmtpClient` also works as the app, with
   `AllowPlaintextAuthentication = true` (SmtpClient has no CRAM-MD5; without it: SmtpException
   `MustIssueStartTlsFirst ... 5.7.0 Authentication required`).
@@ -105,9 +105,10 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   delivers to the accepted recipients, then throws (curl abandons the message instead).
 - Curl.Api reads IMAP/POP3 fine: `CurlRequest(HttpMethod.Get, url)` + `CurlAuthenticationOptions`; a
   missing UID throws `CurlException` 78 `Remote file not found`.
-- Curl.Api 0.2.0 CANNOT IMAP APPEND: Put + `CurlContent.FromStream(stream, length)` -> CurlException 25 `Cannot APPEND
-  with unknown input file size` (StreamContent sets POSTFIELDSIZE, not INFILESIZE). Nor STORE/MOVE: `new HttpMethod(
-  "STORE 1 +FLAGS (\Flagged)")` throws FormatException (one token only). Raw TcpClient IMAP with CRAM-MD5 by hand
+- Curl.Api CANNOT IMAP APPEND at Curl 7d167fa10a (BL-5594 left imap out; BL-5610 fixes it later): Put + byte body ->
+  CurlException 21 QuoteError; Put + `CurlContent.FromStream(stream, length)` -> 25 `Cannot APPEND with unknown input file size`.
+  Nor STORE/MOVE: `new HttpMethod("STORE 1 +FLAGS (\Flagged)")` throws FormatException (one token only; BL-5612 adds
+  CustomRequest later). Raw TcpClient IMAP with CRAM-MD5 by hand
   (hex HMACMD5(password, challenge)) works: imap-test-a-shared-team-folder-in-csharp.
 - SmtpClient + `new Attachment(stream, "report.csv", "text/csv")`: part 2, base64, `Content-Type: text/csv;
   name=report.csv`, `Content-Disposition: attachment` with no filename. `Convert.FromBase64String` skips CRLFs.

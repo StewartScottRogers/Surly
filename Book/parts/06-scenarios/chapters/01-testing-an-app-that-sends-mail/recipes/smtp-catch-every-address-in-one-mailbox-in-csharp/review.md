@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. As in the check-the-mail twin, SmtpClient plays the app, as a .NET app under test would (Curl.Api 0.2.0 can send SMTP only with a stream body; see facts/mail.md), with AllowPlaintextAuthentication; the refusal without it is pointed at that twin rather than repeated.
 2. The program exits 1 when the count differs from the addresses mailed; the one-message and no-catch-all cases use that as their failure path.
+Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: Curl.Api now sends SMTP with a byte body as well as a stream (BL-5594), so finding 1's parenthesis is out of date; SmtpClient stays as the app under test. Text unchanged. 4 of 4 pass.

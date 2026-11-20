@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The app is SmtpClient with an Attachment (needs AllowPlaintextAuthentication; case smtpclient-needs-plaintext shows the refusal without it). SmtpClient puts the file name in Content-Type name=, its Content-Disposition is a bare "attachment", so the test checks Content-Type.
 2. SmtpClient's exception text is .NET's wording, checked exactly; it may change with .NET versions.
+Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: no change; SmtpClient is the app (it builds the MIME attachment itself), and no text says Curl.Api cannot send. 4 of 4 pass.

@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # smb facts (smb and smbs)
-Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 2026-11-19, windows.
+Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 2026-11-19, windows; Curl.Api upload re-probed on Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20.
 
 ## Listen URLs and readiness
 `smb://127.0.0.1:{{port}}/`, `smbs://...` (TLS from the first byte), TCP, default port 445, `ready: port`. One surl may take several listen URLs (`smb://` and `http://`) over one `--directory`.
@@ -26,7 +26,7 @@ Read-only shares; NTLMv1 not accepted; smbs without a certificate refused to sta
 ## C#
 - `SurlServerOptions`: `ListenUrls`, `DataDirectory`, `Accounts`, `AuthenticationMethods = ["ntlmv1","digest"]`, `AllowUploads`, `MaxFileSize`, `CertificateFile`, `KeyFile`, `SelfSigned`.
 - Curl.Api 0.2.0 reads `smb://` and `smbs://` with a plain GET (`CurlAuthenticationOptions` user/password; SMB login needs no option) and fails as `CurlException` (`RemoteFileNotFound` 78, `LoginDenied` 67, `PeerFailedVerification` 60).
-- Curl.Api 0.2.0 CANNOT upload over SMB: `HttpMethod.Put` (or Post) with a stream or byte body to `smb://` or `ftp://` is sent as a download (RemoteFileNotFound). Libcurl 0.2.0 with `Upload=1L`, `Readfunction` and `Infilesize`/`InfilesizeLarge` in any order stops: code 55 `SMB upload needs to know the size up front`. The console `curl -T` works. Recipes upload over HTTP PUT on a second listener instead.
+- Curl.Api uploads over SMB (Curl 7d167fa10a, BL-5594, sizes BL-5602): `HttpMethod.Put` (or Post) with a byte or stream body to `smb://.../share/name` stores it as `curl -T` does; StatusCode 0, nothing thrown; a second upload replaces. Uploads off: `CurlException` `RemoteAccessDenied` 9; past `MaxFileSize`: `UploadFailed` 25, nothing stored. Libcurl `Upload=1L` + read callback + `Infilesize(Large)` is fixed too (BL-5602; not re-probed here). Before this build a body was sent as a download and recipes uploaded over HTTP PUT instead.
 - `Process.Start("curl")` on Windows finds System32 curl first, not the PATH one: do not shell out.
 
 ## Gotchas

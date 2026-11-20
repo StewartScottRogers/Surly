@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # logs facts (surl's log, trace, events and recorded exchanges; curl's -w and config files)
-Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), Surl.Api 1.0.0, Curl.Api 0.2.0,
+Checked against: surl 1.0.0 (Surl 9ad60d80c), curl (Curl 7d167fa10a), Surl.Api 1.0.0, Curl.Api 0.2.0,
 surl-mcp 1.0.0, curl-mcp 0.1.0.0, 2026-11-20, windows.
 
 ## surl's log
@@ -18,10 +18,22 @@ surl-mcp 1.0.0, curl-mcp 0.1.0.0, 2026-11-20, windows.
 - A refused login looks the same for a wrong password and an unknown account (`Login refused: Digest ap`).
 - A request with no credentials: only `401, a login is needed`, no login line. A method not offered
   (`--ntlm` by default): the same.
-- SECRETS: the verbose log holds what clients sent. FTP `#N < PASS <password>\r\n` in clear (FTPS too: logged
-  after TLS); HTTP/1.1 `#N < Authorization: Basic <base64>` and `Authorization: Bearer <token>` verbatim.
-  Digest shows only the hash. A token in a URL query is in the event line too (`GET /a.txt?token=...: 401`).
-  Over HTTP/2 the header block is HPACK bytes (not greppable, still recoverable). Nothing redacts.
+- SECRETS (Surl ADR-0182, from Surl 9ad60d80c): -v, --trace, --trace-ascii, --log-file and Surl.Api's `Log`
+  replace exactly the secret with `****`, keeping the command or scheme word: `#N < PASS ****\r\n` (FTP and
+  FTPS, ACCT too), `#N < Authorization: Basic ****` / `Bearer ****` (HTTP/1.x, http and https, Proxy-Authorization
+  too). HTTP/2: each HEADERS/CONTINUATION payload of a block carrying authorization is dumped as `****` after its
+  9-byte frame header (trace line `0000: ..=......****`, just before `Login accepted: Basic app`). Also withheld in
+  this build (by the Surl commits, not all probed): SMTP AUTH, IMAP LOGIN/AUTHENTICATE, POP3 PASS/AUTH, SASL lines
+  after 334/+, SOCKS5 password, RTSP and WebSocket-upgrade Authorization, HTTP proxy. A trace's
+  `Recv data, <n> bytes` counts the bytes DUMPED. No option turns it off.
+- STILL LOGGED IN CLEAR in this build: LDAP simple bind password (`0000: ...cn=app..s3cret`, even when the bind is
+  refused unchecked over ldap://: `LDAP bind refused: confidentialityRequired: simple bind needs TLS or
+  --allow-plaintext-auth`); per ADR-0182 also MQTT, Redis, HTTP/3 and the extended servers (NATS, STOMP, AMQP,
+  Kafka, XMPP, MQTT 5, S3/Azure/GCS/OCI headers) until BL-1424, BL-1432..1435, BL-1458..1465 land (only LDAP
+  probed). Not secrets, so never withheld: Digest/NTLM/Negotiate responses, a token in a URL query (event line
+  `GET /a.txt?token=...: 401`), uploaded bodies, FTP data connections.
+- The event stream keeps raw bytes by design: Surl.Api `Exchanges`/`RecordExchanges`, surl-mcp `get_exchanges`
+  and the control endpoint's events hold PASS and Authorization in clear.
 - With `--trace`/`--trace-ascii` given, the per-exchange log lines go into the TRACE file, not `--log-file`:
   the log file then holds only startup lines (warnings, `* Serving a throwaway certificate`). Observed, not
   documented (reported as a finding).
@@ -29,9 +41,10 @@ surl-mcp 1.0.0, curl-mcp 0.1.0.0, 2026-11-20, windows.
 ## Trace (`--trace-ascii`)
 - Blocks `#N <= Recv data, 16 bytes (0x10)` / `#N => Send data, ...`, then data lines `0000: ...` with
   offsets; the log event lines (`#N * ...`) sit between blocks. Data lines wrap at 64 characters, so a long
-  header (Digest, a long token) spans lines: grep for a secret can miss it. Holds every byte, PASS and
-  Authorization included. To keep a trace without client bytes: awk that prints the `<= Recv data` line and
-  skips lines until the next `^#[0-9]+ ` line (recipe surl-keep-the-server-log-for-a-failed-run).
+  header (Digest, a long token) spans lines: grep for a secret can miss it. Holds every byte, secrets withheld as
+  above. For a server still logged in clear (LDAP): awk that prints the `<= Recv data` line and skips lines until
+  the next `^#[0-9]+ ` line (drop-received.sh in surl-keep-the-server-log-for-a-failed-run). Windows curl (WinLDAP)
+  sends a refused simple bind twice, so count with `grep -c -m1`.
 
 ## Surl.Api
 - `SurlServerOptions.Log` (TextWriter) + `LogLevel` (`using Surl.Output;`, `LogLevel.Verbose`) = `surl -v`.
@@ -43,15 +56,16 @@ surl-mcp 1.0.0, curl-mcp 0.1.0.0, 2026-11-20, windows.
 - Over FTP(S) Curl.Api's `StatusCode` is 0 on success; a refused login throws `CurlException` `LoginDenied`.
 
 ## surl-mcp
-- `start_server` refuses `--log-file`, `--trace`, `--trace-ascii`: tool error, text `--log-file, --trace and
-  --trace-ascii belong to a host; write the log to SurlServerOptions.Log. (Parameter 'options')` (names a .NET
-  property to an MCP caller: reported). Its answer has `log_lines` (startup lines) only.
+- `start_server` refuses `--log-file`, `--trace`, `--trace-ascii`: tool error, text `refused: --log-file is not
+  accepted: surl-mcp writes each server's log to its own standard error; use get_exchanges and get_events to see
+  what a client sent` (from Surl 9ad60d80c; before, it named SurlServerOptions.Log). Its answer has `log_lines`
+  (startup lines) only.
 - `get_events(server_id, kinds:["login_judged"])`: `{events:[{sequence, at, kind, exchange_id, scheme, account,
   mechanism ("Basic", "Digest", "password" for FTP), is_accepted, is_refused_by_fault}], has_more,
   dropped_event_count}`; also `exchange_started` (listen_url, scheme, client) and `exchange_ended`
   (received_byte_count, sent_byte_count). No secrets. A login refused unchecked (plaintext) has no event.
 - `get_exchanges(server_id)`: `exchanges[].chunks[] {direction sent|received, layer wire, encoding text|base64,
-  data}`; FTP `PASS` in a `received` chunk in clear.
+  data}`; FTP `PASS` in a `received` chunk in clear, still (raw by design, ADR-0182 decision 4).
 - `list_servers`: `exchange_count` per server.
 
 ## curl: -w, config files, variables
@@ -91,5 +105,5 @@ surl-keep-the-server-log-for-a-failed-run (+ -in-csharp, -from-an-agent), http-f
 http-print-the-failing-exchange, curl-check-many-urls-from-one-config, curl-write-a-test-report-with-write-out,
 curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-logs-to-test-output.
 
-- Decided by Surl (2026-11-20): with `--log-file f --trace-ascii t`, exchange lines go only to t; the log file gets the dump only when there is no trace file (Surl ADR-0033 s.6). Secrets in -v/--trace/--log-file are being redacted (BL-1417); until then, filter them before keeping a log.
+- Decided by Surl (2026-11-20): with `--log-file f --trace-ascii t`, exchange lines go only to t; the log file gets the dump only when there is no trace file (Surl ADR-0033 s.6). Secrets in -v/--trace/--log-file are withheld from Surl 9ad60d80c for the protocols listed above (ADR-0182); filter only what is still logged.
 - Surl.Api `StopAsync` waits up to about 7 s while a client holds a connection: a 5 s shutdown grace plus a 2 s lingering close (Surl ADR-0099 decision 4). Dispose clients first.

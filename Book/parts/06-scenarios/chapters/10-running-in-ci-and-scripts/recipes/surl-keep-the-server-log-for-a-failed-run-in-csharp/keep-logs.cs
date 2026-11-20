@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // A CI test against an in-process server: three fetches over HTTPS and FTPS. When one fails, the
-// test keeps the server's verbose log in ci-logs/surl.log for the job to upload, with every line
-// a client sent left out, and fails.
+// test keeps the server's verbose log in ci-logs/surl.log for the job to upload, and fails. The
+// log already holds no password or token: the server writes **** in their place.
 // Run: dotnet run keep-logs.cs [-- <ftps password>]   (the right one, s3cret, by default)
 #:package Surl.Api@1.0.0
 #:package Curl.Api@0.2.0
@@ -46,12 +46,10 @@ if (passed)
     return 0;
 }
 
-// The run failed: keep the log, leaving out each line the server received ("#<n> < ...").
+// The run failed: keep the log as the server wrote it.
 await server.StopAsync();
 Directory.CreateDirectory("ci-logs");
-string[] kept = log.ToString().Split('\n').Where(line => !System.Text.RegularExpressions.Regex.IsMatch(line, @"^#\d+ < ")).ToArray();
-File.WriteAllText("ci-logs/surl.log", string.Join('\n', kept));
-File.WriteAllText("full.log", log.ToString());
+File.WriteAllText("ci-logs/surl.log", log.ToString());
 Console.WriteLine("kept ci-logs/surl.log");
 return 1;
 
