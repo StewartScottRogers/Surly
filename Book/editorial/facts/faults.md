@@ -25,6 +25,8 @@ Over the head limit: `HTTP/1.1 431 Request Header Fields Too Large`, headers Dat
 - Refused connection (nothing listening, Windows: immediate, `curl: (7) Failed to connect to 127.0.0.1:<port> after N ms: Could not connect to server`): `--retry 5` alone makes no retry (`0`); `--retry-connrefused` does, notice `Warning: Problem : connection refused. Retrying in 1 second. 5 retries left.`
 - Server-side count on the console: `surl -v --log-file surl.log ...` then `grep -c` in a case (runs under cmd.exe through Git's grep). Lines: `#N < GET /x HTTP/1.1\r\n` (escaped), `GET /x: answered 503 Service Unavailable by fault rule f1.`, `GET held for 5 s by fault rule f1.` (logged for a request whose client gave up too), `surl: warning: --fault: 1 fault rule(s) ...`. `--log-level` takes none, error, info, verbose, trace (not debug).
 
+- SMTP: `error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=1` (details and curl's side in `mail.md`).
+
 ## MCP
 - `start_server(arguments: ["--fault", "..."])` or `["--max-request-head", "1k"]`: options as surl's words.
 - `add_fault(server_id, fault)` -> `{fault_id: "f1"}`; refusal is a tool error with surl's text. `list_faults` -> `{faults: [{fault_id, item, remaining}]}` (remaining null = no limit). `remove_fault(server_id, fault_id)`.
@@ -39,6 +41,8 @@ Over the head limit: `HTTP/1.1 431 Request Header Fields Too Large`, headers Dat
 
 ## Surl.Api (in-process, C#)
 - `SurlFault.DropConnection()`, `.Delay(TimeSpan)`, `.RefuseLogin()`, `.ProtocolError(reply)`, `.OutOfSpace()`; narrow with `with { Stage = FaultStage.Command, Path = "/x", Times = 1 }`. `FaultStage` (namespace `Surl.Protocol.Abstractions`): Accept, Login, Command, StoreWrite.
+- `SurlFault.ProtocolError("451 4.3.0 try later") with { Scheme = "smtp", Command = "RCPT", Times = 1 }` works; `Faults.List()[0]
+  .Remaining` is 0 once spent, null with no `Times`, unchanged if never reached.
 - `SurlServerOptions.Faults.Add(rule)` at start (ids f1, f2...); `server.Faults.Add/Remove/List/Clear` while serving; `List()` gives `SurlFaultRule {Id, Item, Remaining}`.
 - No `SurlServerOptions` property for `--max-request-head`: use `AdditionalArguments.Add("--max-request-head"); ...Add("1k")`.
 - `RecordExchanges = true` then `server.Exchanges.Count` (2 after a drop and a retry; no readiness connection in-process) and `server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.FaultApplied }).Count`.
@@ -62,4 +66,6 @@ Over the head limit: `HTTP/1.1 431 Request Header Fields Too Large`, headers Dat
 http-refuse-an-oversized-request-head (+ -in-csharp, -from-an-agent)
 http-recover-from-a-dropped-connection (+ -in-csharp, -from-an-agent)
 http-slow-down-one-path (+ -in-csharp, -from-an-agent)
+http-lock-out-one-account (+ -in-csharp, -from-an-agent): `refuse-login;account=`, see `http-auth.md`
 http-retry-a-flaky-endpoint, http-time-out-a-hanging-server, http-retry-until-the-server-is-up, surl-recover-when-a-port-is-taken (each + -in-csharp, -from-an-agent)
+smtp-survive-a-temporary-rcpt-failure (+ -in-csharp, -from-an-agent)

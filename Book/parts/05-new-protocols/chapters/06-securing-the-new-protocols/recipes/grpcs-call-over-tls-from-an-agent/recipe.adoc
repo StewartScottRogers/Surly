@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpcs-call-over-tls-from-an-agent]]
+=== Calling gRPC over TLS from an Agent
+
+==== Problem
+
+Your gRPC client always uses Transport Layer Security (TLS), and you want an artificial intelligence (AI) agent to start a `grpcs` server, call it trusting the certificate, and see the failure when it does not trust it.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): `start_server` with the certificate, its key and an account in `arguments`, then `curl-mcp`{apos}s `curl` tool with `--cacert` and `-u`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+gRPC (<<grpc-http2>>) runs over version 2 of the Hypertext Transfer Protocol (HTTP/2, <<rfc9113>>), and `grpcs` is the same inside TLS (<<rfc8446>>). The `openssl req` in setup writes a self-signed certificate for `127.0.0.1` to `server.pem` and its key to `server.key`. `StdioClientTransport` starts `surl-mcp` and `curl-mcp` by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder that holds those two files. The argument after `--` picks the scenario.
+
+`start_server` has no fields for TLS, so `surl`{apos}s own options go in `arguments`: `--cert server.pem` and `--key server.key`, read from `SURL_MCP_ROOT`, and `--user alice:s3cret` for the account. Without a certificate there is no `grpcs`: the call is a tool error whose structured content carries `surl`{apos}s `exit_code` `58`, `CertificateProblem`, and whose text is `surl`{apos}s message naming `--cert` and `--self-signed`.
+
+The call goes through the `curl` tool, which runs `curl` with the `args` list as its command line and answers in text as JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. `-d` gives the request message as JSON, and `curl` prints the reply the same way. `--cacert server.pem`, read from `CURL_MCP_ROOT`, trusts the certificate as its own authority; `-u alice:s3cret` logs in, and over TLS the server checks the password. `-s` hides the progress meter and `-S` keeps the error line.
+
+Without `--cacert`, `curl` cannot verify the certificate: `exitCode` `60`, nothing on standard output, and the call is a tool error, so an agent cannot mistake it for an empty reply. The words after `curl: (60)` are the TLS library{apos}s; the agent should act on `exitCode`.
+
+A wrong password is refused with `grpc-status 16 (UNAUTHENTICATED)`, `exitCode` `22`. The same login to a plain `grpc` server is refused without being checked, `grpc-status 7 (PERMISSION_DENIED)`, because the password would travel in clear; keeping the client on TLS is what lets the login through. Both refusals arrive when `curl` first asks the server for the method{apos}s types by reflection, hence the wording.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpcs-call-over-tls>> for the same call on the console.
+* <<grpcs-call-over-tls-in-csharp>> for it from a C# test with `Surl.Api` and `Curl.Api`.
+* <<grpc-call-with-a-proto-file-from-an-agent>> for gRPC from an agent without TLS.
+* <<surl-readme>>, <<curl-readme>>.

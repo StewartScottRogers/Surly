@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-seed-a-queue-and-browse-what-is-left]]
+=== Seeding a Queue and Browsing the Rest
+
+==== Problem
+
+In a C# test, you want jobs seeded into an Advanced Message Queuing Protocol (AMQP) queue, your worker to take some of them, and the test to check that exactly the right jobs are left, without taking any itself.
+
+==== Solution
+
+Start a `SurlServer` with an AMQP listener and a queue, seed the jobs with `server.Messages.EnqueueAsync`, let the worker take two over AMQP, then browse the queue with `server.Messages.BrowseQueueAsync` and compare what is left with what the test expects:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `amqp://` listen URL on port 0, an AMQP 0-9-1 broker on a free port (<<amqp091>>). `Queues` is `--queue`: each name is a queue the server holds from the start, and `jobs` is the only one here. `Accounts` takes a `SurlAccount` per `--user`, the worker{apos}s login. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`: without Transport Layer Security `amqp://` offers only `CRAM-MD5`, a login that never sends the password, and `Curl.Api`, like `curl`, logs in to AMQP with `PLAIN` only, so without the option the worker{apos}s first request throws a `CurlException` with code 67 that says the server `offers no mechanism this client can use`. Turn it on for a test on the loopback address only; `surl` warns when it is on (<<surl-readme>>).
+
+`server.Messages` is the server{apos}s message bus as a test seeds and reads it. `EnqueueAsync` puts one payload into a queue that already exists, for its next consumer, without a client or a login. A queue the server was not started with is refused: `SurlSeedRefusedException`, whose `Store` is `Bus` and `Refusal` `UnknownQueue`, so a mistyped name fails the seed rather than the test that follows it.
+
+The worker in this program stands in for yours. It takes one job per `CurlRequest`: a `GET` of the bound URL plus `%2F/jobs`, the virtual host `/` and the queue, with the worker{apos}s login as `CurlAuthenticationOptions`, sent by one `CurlClient`. The `CurlResponse` `Body` is the job{apos}s payload. Each such get takes one message and acknowledges it in the same step, so the job is gone from the queue as soon as the worker has it.
+
+`BrowseQueueAsync("jobs", -1, 100, ...)` returns a `SurlQueuePage`: the ready messages in delivery order from the first (`-1` is the position before it), at most 100, each a `SurlQueueMessage` with its `Position`, `Payload` and `Headers`. It takes and acknowledges nothing, so the test can look as often as it likes: a second look finds the same three. `ReadyCount` counts the ready messages and `InFlightCount` those delivered and not yet acknowledged, which are counted but not listed; `HasMore` says when another page follows. Here the page is `job-3`, `job-4` and `job-5`, three ready and none in flight, the exact list the test wants. A worker that takes one too many leaves two, and the test prints what it wanted and exits 1. The exit codes are the program{apos}s choice.
+
+Between tests, `server.ResetAsync()` returns the stores to their state at start: the queue is still there, and it is empty again.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-check-what-a-queue-still-holds>> for the same look from an agent, with jobs still in flight.
+* <<amqp-send-and-receive>> for publishing and getting with `curl` on the console.
+* <<surl-seed-a-mailbox-before-a-test-in-csharp>> for seeding mail the same way.
+* <<surl-readme>>, <<amqp091>>.

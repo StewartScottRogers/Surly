@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpcs-call-over-tls-in-csharp]]
+=== Calling gRPC over TLS in C#
+
+==== Problem
+
+Your gRPC client always uses Transport Layer Security (TLS), and your C# test needs a `grpcs` server it can call with a certificate it trusts, and the failure when it does not trust it, with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+Host a `grpcs` listener with `Surl.Api`, the certificate setup made and one account; call `surl.test.Echo/Echo` with a `Curl.Api` client that trusts the certificate and logs in:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+gRPC (<<grpc-http2>>) runs over version 2 of the Hypertext Transfer Protocol (HTTP/2, <<rfc9113>>), and `grpcs` is the same inside TLS (<<rfc8446>>). The `openssl req` in setup writes a self-signed certificate for `127.0.0.1` to `server.pem` and its key to `server.key`, in the folder the program runs in. `SurlServerOptions` is `surl`{apos}s command line as properties: `CertificateFile` and `KeyFile` are `--cert` and `--key`, `Accounts` holds the `SurlAccount` that `--user alice:s3cret` would make, and port 0 in the listen URL takes a free port. Without a certificate there is no `grpcs`: `SurlServer.StartAsync` throws `SurlServerStartException` with `ExitCode` `CertificateProblem`, the `58` `surl` would exit with.
+
+The client is a `CurlClient` made with `CurlClientOptions`. Its `Tls` is a `CurlTlsOptions`, and `Origin` a `CurlTlsPeerOptions` whose `CertificateAuthorityFile` is `server.pem`: the client trusts the certificate as its own authority, as `curl --cacert` does. The `CurlRequest` carries `CurlAuthenticationOptions` with the user name and password, as `curl -u`, and over TLS the server checks them. `SendAsync` returns a `CurlResponse` whose `Body` is the reply as JavaScript Object Notation (JSON).
+
+Without `CertificateAuthorityFile` the client cannot verify the certificate, and `SendAsync` throws `CurlException` with `Code` `PeerFailedVerification`, `curl`{apos}s exit code `60`. The same happens when the URL names `localhost`: the certificate names only `127.0.0.1`, and trust does not cover a name it lacks. The exception{apos}s `Message` is the TLS library{apos}s wording, so a test should check `Code`.
+
+A wrong password is refused with `grpc-status 16 (UNAUTHENTICATED)`, thrown as `HttpReturnedError` (`22`). The same login to a plain `grpc` listener is refused without being checked, `grpc-status 7 (PERMISSION_DENIED)`, because the password would travel in clear; that is why the client stays on TLS. The message says the server did not answer reflection because `Curl.Api`, like `curl`, first asks the server for the method{apos}s types, and that is the request refused.
+
+`Curl.Api` 0.2.0 has a limit here: it does not send a request message. The program calls `Echo` with an empty request, and the reply `{}` is the empty message echoed back. A `POST` with the JSON body `{"message":"hello"}` gets `{}` as well; the body never reaches the server. That is enough to test the TLS and the login. A test that needs a request message today can make the call with the framework{apos}s `HttpClient` (see <<grpc-test-a-failing-call-in-csharp>>), or with `curl -d` on the console (see <<grpcs-call-over-tls>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpcs-call-over-tls>> for the same call on the console, with a request message.
+* <<grpcs-call-over-tls-from-an-agent>> for an agent making it through `surl-mcp` and `curl-mcp`.
+* <<https-refuse-clients-below-tls-1-3-in-csharp>> for more of `CurlTlsPeerOptions`.
+* <<surl-readme>>, <<curl-readme>>.

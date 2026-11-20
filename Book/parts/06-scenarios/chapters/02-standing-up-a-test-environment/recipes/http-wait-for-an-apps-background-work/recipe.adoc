@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-wait-for-an-apps-background-work]]
+=== Waiting for an App's Background Work
+
+==== Problem
+
+Your app takes an order, returns at once, and in the background uploads a receipt and mails it to the customer. You want your C# test to wait for both to happen, and fail clearly if one never does, instead of sleeping for a guessed number of seconds.
+
+==== Solution
+
+Host Hypertext Transfer Protocol (HTTP) and Simple Mail Transfer Protocol (SMTP) on one in-process `SurlServer` with `RecordExchanges` on, trigger the app, then await two `WaitForEventAsync` calls together, one for the content store and one for the mail store; afterwards read what the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` gives the server two listen URLs on free ports, uploads (`AllowUploads`), the mail domain `example.com` and two mailboxes: `app@example.com`, whose `;protocols=smtp,http` lets the app log in over HTTP as well as SMTP, and `ann@example.com`, the customer. `RecordExchanges` keeps the server{apos}s events; the waits need it. The app, `OrderApp`, is a stand-in for yours: `PlaceOrder` starts a task and returns, and the task waits a second, then sends, through its own `CurlClient`, a `CurlRequest` that `PUT`s the receipt with a Digest login (`CurlAuthenticationOptions`), then mails it with `CurlMailOptions` and a `CurlContent` body, disposing each `CurlResponse`. The test cannot see that task, which is the point: it only knows that the work will happen some time after `PlaceOrder`.
+
+`SurlEventQuery` says which event to wait for, and `StoreKind` names a store. `Store = StoreKind.Content` with `Name = "/receipt-7.txt"` matches a change to that file; `Store = StoreKind.Mail` with `Name = "ann@example.com"` matches mail delivered to any of her mailboxes, since a name matches as a path prefix. `WaitForEventAsync` returns the first matching `SurlEvent`, here a `StoreChangedEvent` whose `Change` is `Written` for the upload and `Delivered` for the mail, as soon as it is published; one already kept is returned at once (<<http-wait-for-an-upload-in-process>> shows a late wait), so starting the two waits after `PlaceOrder` misses nothing. `Task.WhenAll` awaits both. The program measures the whole wait: it ends after the app{apos}s one-second delay and long before the 30-second timeout, so the timeout costs nothing when the app works and only bounds how long a broken app can hold the test. Before starting the clock the program makes one untimed request, since the first `Curl.Api` request in a process can take seconds.
+
+An event says the work happened; the stores say what it produced. `Files.ReadAsync` returns the receipt as `SurlFileContents`, and `Mail.ListMessagesAsync` and `ReadMessageAsync` return ann{apos}s inbox as a `SurlMessagePage` and the message as a `SurlMailMessage`, whose bytes hold the `Subject:` line the app wrote (<<rfc5321>>).
+
+When the app uploads but never mails, the upload event still comes and the mail wait throws `TimeoutException` after its three seconds. `Task.WhenAll` rethrows only the first failure, so the program asks each task how it ended and prints both: the upload{apos}s event, then the mail wait{apos}s message, which names every field of the query and how many events were recorded while it waited, none matching. That message is the test failure a reader wants: it says what was expected and that the server saw other things, not that a sleep was too short.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-wait-for-an-upload-in-process>> for waiting on one upload and what each refused upload looks like.
+* <<smtp-wait-for-an-apps-mail>> for the same wait from an agent.
+* <<surl-host-a-whole-environment-in-process>> for more protocols on the one server.
+* <<surl-readme>>, <<rfc9110>>, <<rfc5321>>.

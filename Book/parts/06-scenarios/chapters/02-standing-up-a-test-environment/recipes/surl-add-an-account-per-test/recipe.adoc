@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-add-an-account-per-test]]
+=== Adding an Account per Test
+
+==== Problem
+
+Your C# tests share one server. You want each test to log in as an account of its own, added when the test starts and removed when it ends, so no test can use another{apos}s login, and you want to know what an account does and does not keep apart.
+
+==== Solution
+
+Call `server.Accounts.Add` at the start of each test and, in a `finally` block, delete the files the test made with `server.Files.DeleteAsync` and remove the account with `server.Accounts.Remove`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server serves Hypertext Transfer Protocol (HTTP) and Internet Message Access Protocol (IMAP) on free ports, with uploads on. `SurlServerOptions.Accounts` gives it one standing account, a `SurlAccount` named `fixture`, at start. That account matters: a server with no account needs no login, so if the test accounts were the only ones, removing the last of them would open the server to anyone (<<surl-readme>>). With `fixture` there, the server needs a login however many test accounts come and go.
+
+`server.Accounts` is a `SurlServerAccounts`, the server{apos}s accounts while it runs. `Add` takes a user name and a password and the account may log in from the next login on, on every scheme the server serves; `Remove` takes it away again, one given at start included. Each test logs in with Digest (<<rfc7616>>) through `CurlAuthenticationOptions` on its `CurlRequest`, so the password never crosses the connection in clear; the `CurlClient` is shared and each `CurlResponse` body is disposed. After the `finally` block, test-1{apos}s login is refused `401 Unauthorized`, and `FindEvents` with a `SurlEventQuery` for `StoreKind.Accounts` returns one `StoreChangedEvent` per change, `AccountAdded` and `AccountRemoved`, in order: a record of the accounts each test had, to compare against the tests that ran.
+
+What an account keeps apart is the login, and nothing else. The served files are one store for every account: while both accounts exist, test-2 reads the file test-1 uploaded, `200 OK`. So each test removes its files in the same `finally`, with `server.Files`, a `SurlServerFiles` that deletes without a client and without a login, and tests that must not see each other{apos}s files run in turn, not at once. Mail is no better served by an added account. Over IMAP (<<rfc9051>>) it logs in and can list its mailboxes, but it has none: reading `INBOX` throws `CurlException` `LoginDenied`, `Select failed`. A mailbox is made at start, from `SurlServerOptions.Mailboxes`; a test that needs mail of its own gets a mailbox given at start, emptied between tests with `ResetAsync`. After `Remove`, the IMAP login itself is refused, `Login denied`.
+
+The `finally` is not decoration. An account a test fails to remove is still there when the next test starts, and adding the same name again throws `ArgumentException`, `User test-1 already has an account.`: the next test fails for a reason that has nothing to do with it. Removing in `finally` keeps the account to the test{apos}s lifetime even when the test throws.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-give-each-task-its-own-account>> for the same pattern from an agent.
+* <<surl-share-one-server-across-a-test-class>> for resetting the files and mail between tests.
+* <<smtp-assert-mail-in-an-xunit-fixture>> for a mailbox per address, emptied before each test.
+* <<surl-readme>>, <<rfc9110>>, <<rfc7616>>, <<rfc9051>>.

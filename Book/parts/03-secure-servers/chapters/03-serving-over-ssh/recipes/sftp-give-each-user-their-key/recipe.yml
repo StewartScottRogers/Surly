@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: sftp-give-each-user-their-key
+title: Giving Each User Their Key
+protocols: [sftp]
+tier: secure-servers
+surl-options: [--hostkey, --authorized-keys, --directory, -v, --log-file]
+curl-options: [-k, -u, --key, --pubkey, -s, -S]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc4252]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The server's host key, one key for each deploy user, and a second key for deploy-a. a_keys is
+# deploy-a's authorized keys file: one public key a line.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f deploy_a
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f deploy_a2
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f deploy_b
+  - cat deploy_a.pub deploy_a2.pub > a_keys
+
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --hostkey host_key --authorized-keys deploy-a:a_keys --authorized-keys deploy-b:deploy_b.pub sftp://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: deploy-a logs in with its own key and fetches the file, exit 0.
+    run: 'curl -s -S -k -u deploy-a: --key deploy_a --pubkey deploy_a.pub sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: second-user
+    claim: deploy-b logs in to the same server with its own key, exit 0.
+    run: 'curl -s -S -k -u deploy-b: --key deploy_b --pubkey deploy_b.pub sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: a-key-as-b
+    claim: deploy-a's key offered as deploy-b is refused, exit 67, login denied.
+    run: 'curl -s -S -k -u deploy-b: --key deploy_a --pubkey deploy_a.pub sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Login denied"
+
+  - id: b-key-as-a
+    claim: deploy-b's key offered as deploy-a is refused the same way, exit 67.
+    run: 'curl -s -S -k -u deploy-a: --key deploy_b --pubkey deploy_b.pub sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Login denied"
+
+  - id: second-key-same-user
+    claim: "A user may have more than one key; the second public key in deploy-a's file logs in as deploy-a, exit 0."
+    run: 'curl -s -S -k -u deploy-a: --key deploy_a2 --pubkey deploy_a2.pub sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: second-key-as-b
+    claim: That second key is deploy-a's alone; offered as deploy-b it is refused, exit 67.
+    run: 'curl -s -S -k -u deploy-b: --key deploy_a2 --pubkey deploy_a2.pub sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 67
+      stdout: ""
+
+  - id: unknown-user
+    claim: A user with no authorized keys file is refused whatever key it offers, exit 67.
+    run: 'curl -s -S -k -u deploy-c: --key deploy_a --pubkey deploy_a.pub sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 67
+      stdout: ""
+
+  - id: log-names-the-user
+    claim: With -v, the log has a Login accepted line naming the method, publickey, and the user for each success, and a Login refused line naming the claimed user for a refusal. After its key is refused, curl falls back to a password, and that is the login the log says was refused.
+    run: grep -E "Login (accepted|refused)" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '#\d+ \* Login accepted: publickey deploy-a\n(.*\n)*#\d+ \* Login accepted: publickey deploy-b\n(.*\n)*#\d+ \* Login refused: (password|keyboard-interactive) deploy-b\n'

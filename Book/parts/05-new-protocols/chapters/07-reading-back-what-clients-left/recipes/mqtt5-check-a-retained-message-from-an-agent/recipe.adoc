@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-check-a-retained-message-from-an-agent]]
+=== Checking a Retained Message
+
+==== Problem
+
+Your device should leave its last state as a retained message on an MQ Telemetry Transport (MQTT) 5 broker, and you want an artificial intelligence (AI) agent to read that message back with its quality of service (QoS), with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts an MQTT 5 broker that keeps what is published under `devices/`, lets the device publish through the `curl` tool, and reads the topic back with `read_retained_message`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here one `mqtt5` listener on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options. `--topic "devices/#;retain"` declares the topics under `devices/` and keeps every message published on them as the topic{apos}s retained message, whatever its retain flag (<<surl-readme>>, <<mqtt5>>). `--allow-anonymous` lets a device connect with no user name, a loosening for a test on one machine. `--mqtt5-disconnect-after-retained` makes a subscription end once the broker has sent the retained messages, so a `curl` subscribe returns; it is there only for that last check, and it makes the broker useless as a broker for any other client.
+
+The device is the `curl` tool. It takes `curl`{apos}s own arguments, and `-s` and `-S` keep the progress meter out and the error message in. `curl -d on mqtt5://host:port/devices/lamp/state` publishes `on` to the topic, with the retain flag clear, which is why the filter is needed (<<curl-readme>>, <<curl-protocols>>). The program has the device publish `on` and then `off`. `curl-mcp` answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses.
+
+`read_retained_message` takes the `server_id` and a `topic`, reads the retained message without dropping it and without publishing anything, and answers the `topic`, the `qos` and the `text` of the payload. The broker keeps one message per topic and the latest publish replaces the one before, so the agent reads `off`, and a second read answers the same: reading does not consume it. A `curl` subscribe made afterwards is sent the same message, `off`, so what the agent reads from the broker and what a later client receives agree. The `qos` is `0`, because `curl` publishes at QoS 0 and so does `publish_message`; a QoS in a `--topic` filter, `;qos=1` here, is a cap on what a subscriber is granted and not a floor, so it does not raise the message{apos}s QoS, and the claim shows `0` with it set.
+
+A topic with nothing kept answers `{"retained": false}`, which is a result and not a tool error, so the agent has to test for it. A topic nothing was published to is one cause. A topic outside the `--topic` filter is another: the device{apos}s publish is accepted, `curl` exits `0`, and the message is not kept. An empty message clears a topic: a device that publishes `-d ""` leaves `retained` false for the agent to read.
+
+The agent can seed a message itself with `publish_message`. It takes the `server_id`, a `topic`, a `payload` as text or `payload_base64` as bytes, and `retain`; with `retain` `true` the message is kept whatever the filter says, since the call sets the flag, which is why the agent{apos}s message on `lab/` is read back and the device{apos}s publish to `lab/` is not. A payload that is not UTF-8 text is answered as `base64` in place of `text`.
+
+Last, a broker without `--allow-anonymous` refuses the device. `curl` exits `67` and writes `MQTT 5 CONNACK reason code 0x87 NotAuthorized`, and the agent reads nothing retained.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-publish-and-subscribe>> for publishing and subscribing over MQTT 5 on the console.
+* <<mqtt-check-retained-state-after-a-run>> for reading the last state of several devices over MQTT 3.1.1.
+* <<mqtt5>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

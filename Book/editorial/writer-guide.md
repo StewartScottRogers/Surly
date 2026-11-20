@@ -41,7 +41,9 @@ Do not read the Surl or Curl READMEs or `--aihelp` end to end; look up one thing
   case and is stated as such; read `facts/platforms.md` first. Only Windows runs locally; CI runs Linux and macOS.
 - A console recipe may run a short `sh` script (a fixture shown with `include::`) when one command will not
   do; its Solution says it needs a POSIX shell (Git Bash on Windows). Prefer single commands.
-- Never stop processes you did not start; never `timeout N` a surl; never write `> NUL` in Git Bash.
+- Timing: claim ranges or orderings that hold on a loaded machine and a slow CI runner. The first Curl.Api request in a
+  process takes about 4 s (one-time set-up, Curl BL-5635): make one untimed warm-up request before any timed case.
+- Never stop processes you did not start: no `taskkill /IM`, `pkill` or `killall` by name, since other writers' servers run beside yours; stop your own by its process ID; never `timeout N` a surl; never write `> NUL` in Git Bash.
 
 ## Done means
 `verify.py -q --no-write` passes, `lint.py` is clean for your keys, each recipe has a short

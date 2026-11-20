@@ -1,0 +1,53 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs review-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-review-an-apps-mail-against-rules
+title: Reviewing an App's Mail Against Rules
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_messages, read_message]
+curl-options: [-s, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1, 55]
+references: [surl-readme, curl-readme, rfc5321, rfc5322]
+
+# The app's mails: two that keep the rules, and one that breaks three of them.
+fixtures:
+  shipped.eml: "From: Example Shop <app@example.com>\r\nTo: dan@example.com\r\nDate: Fri, 20 Nov 2026 09:00:00 +0000\r\nMessage-ID: <order-1042@example.com>\r\nSubject: Order 1042 has shipped\r\n\r\nYour order is on its way.\r\n"
+  invoice.eml: "From: Example Shop <app@example.com>\r\nReply-To: billing@example.com\r\nTo: fay@example.com\r\nDate: Fri, 20 Nov 2026 09:05:00 +0000\r\nMessage-ID: <invoice-77@example.com>\r\nSubject: Your invoice\r\n\r\nInvoice 77 is attached to your account.\r\n"
+  careless.eml: "From: Example Shop <app@example.com>\r\nTo: gus@example.com\r\nCc: eve@elsewhere.org\r\nSubject: Your basket\r\n\r\nYou left something in your basket.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app sends two mails to addresses with no mailbox; both land in the catch-all mailbox, and read back one by one, each has From, Date and Message-ID and no address outside example.com, so the review passes, exit 0.
+    program: review-mail.cs
+    args: [clean]
+    expect:
+      exit: 0
+      stdout: "app sent shipped.eml to dan@example.com: curl exit 0\napp sent invoice.eml to fay@example.com: curl exit 0\nlist_messages: 2 message(s)\nUID 1: ok\nUID 2: ok\n"
+
+  - id: broken-rules
+    claim: A mail with no Date or Message-ID and a Cc outside the domain is delivered all the same, since the envelope recipient is inside; the review names each broken rule for that UID and exits 1.
+    program: review-mail.cs
+    args: [broken]
+    expect:
+      exit: 1
+      stdout: "app sent shipped.eml to dan@example.com: curl exit 0\napp sent careless.eml to gus@example.com: curl exit 0\nlist_messages: 2 message(s)\nUID 1: ok\nUID 2: FAIL no Date, Message-ID; Cc eve@elsewhere.org is outside example.com (fields: Return-Path, Received, From, To, Cc, Subject)\n"
+
+  - id: server-adds-no-date
+    claim: The stored message starts with the Return-Path and Received fields the server adds; it adds no Date or Message-ID, so the review sees what the app wrote.
+    program: review-mail.cs
+    args: [broken]
+    expect:
+      exit: 1
+      stdout-matches: 'UID 2: FAIL no Date, Message-ID; .*\(fields: Return-Path, Received, From, To, Cc, Subject\)\n$'
+
+  - id: envelope-outside
+    claim: A recipient outside the domain in the envelope is refused at RCPT, so the curl tool exits 55, nothing is stored, and with nothing to review the review fails.
+    program: review-mail.cs
+    args: [outside]
+    expect:
+      exit: 1
+      stdout: "app sent shipped.eml to eve@elsewhere.org: curl exit 55\nlist_messages: 0 message(s)\n"

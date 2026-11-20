@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-change-retained-config-mid-test-in-csharp]]
+=== Changing Retained Config Mid-Test in C#
+
+==== Problem
+
+Your device reads its configuration from a retained Message Queuing Telemetry Transport (MQTT) message when it connects. You want a test in C# that seeds that message, replaces it in the middle of the test, and checks the device{apos}s second read, with the broker in the same program.
+
+==== Solution
+
+Start a `SurlServer` as an MQTT broker that keeps what is published under `devices/`, seed the config with `server.Messages`, read it through a `CurlClient` as the device would, seed the change, and read again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `mqtt://127.0.0.1:0`, an MQTT broker on a free port. `Topics` is `--topic`, and `"devices/#;retain"` declares the topics under `devices/` and keeps every message published on them whatever its retain flag; `AllowAnonymous` is `--allow-anonymous`, which lets a device connect with no user name and makes the broker a loosening, for a test on one machine (<<surl-readme>>, <<mqtt311>>).
+
+`server.Messages`, a `SurlServerMessages`, is the broker{apos}s message bus. `PublishAsync` takes the topic, the payload bytes and a flag, `retain`, and publishes as a client{apos}s publish would, with no client and no login: with the flag `true` the message becomes the topic{apos}s retained message, the config a device reads when it connects. The program calls it twice on the same topic. The second call is the change, and it replaces the first: the broker keeps one message per topic, so the device{apos}s second read is `interval=15` alone. `ReadRetainedAsync` reads what the broker holds without dropping it and answers a `SurlRetainedMessage`, with its `Payload` and its `QualityOfService`, which is `0`, or `null` for a topic with nothing kept; the program prints the text and the QoS. The device{apos}s reads are not through `Messages`: they come through `Curl.Api`.
+
+The device is a `CurlClient`. A `CurlRequest` for `HttpMethod.Get` of `mqtt://host:port/devices/lamp/config` subscribes to that topic, and the `CurlResponse` it answers has a `Body` that is what the broker sends: the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters and prints the text (<<curl-readme>>). A subscribe ends when the broker has sent the retained messages for the topic, so the read returns and the device{apos}s read is one call. A topic with nothing kept answers an empty body, and the program prints `nothing`.
+
+Other changes follow from that. Two changes in a row leave the last, and a device that connects afterwards reads one message. The topics are independent: the door{apos}s config changing leaves the lamp{apos}s as it was. An empty message clears the topic: the device then reads nothing and `ReadRetainedAsync` answers `null`.
+
+The seed is not a client{apos}s publish, and the difference matters to a test. A client publishes with the retain flag clear, so what keeps its message is the `--topic` filter: a message sent through `CurlRequest` with `HttpMethod.Post` and a `Body` of `CurlContent` bytes to a topic outside `devices/` is not kept, and a server with no `;retain` at all keeps none from a client. `PublishAsync` with `retain` set is kept in both cases, since the seed sets the flag itself. A test that seeds with `PublishAsync` can therefore pass where the device{apos}s own publishes would fail to be kept, and a test of the device{apos}s publishing should go through the client.
+
+With a `DataDirectory` the retained messages are on disk and survive a restart: the program starts a second server on the same directory and finds the config. Without one they are in memory and go when the server stops. Last, the seed needs no login, but the device does: on a server without `AllowAnonymous` the `CurlClient` is refused and `SendAsync` throws a `CurlException` whose `Code` is `8`, the code `curl` exits with.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-change-retained-config-mid-test>> for the same seed, change and read on the console, with `curl` publishing.
+* <<mqtt-change-retained-config-mid-test-from-an-agent>> for an agent that publishes with `publish_message` and reads with `read_retained_message`.
+* <<mqtt-publish-and-subscribe>> for publishing and subscribing on the console.
+* <<mqtt311>>, <<surl-readme>>, <<curl-readme>>.

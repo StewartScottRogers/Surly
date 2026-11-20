@@ -1,0 +1,47 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+# Timings: the app works 1 s after the order; the waits time out after 30 s (3 s where an event never
+# comes), so no case depends on a close race. One untimed request warms Curl.Api before the clock starts.
+schema: 2
+key: http-wait-for-an-apps-background-work
+title: Waiting for an App's Background Work
+protocols: [http, smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, StoreKind, SurlEvent, StoreChangedEvent, SurlFileContents, SurlMessagePage, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlMailOptions, CurlContent]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9110, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: PlaceOrder returns at once; the test awaits two WaitForEventAsync calls together, and gets the content-store event Written /receipt-7.txt and the mail-store event Delivered ann@example.com/INBOX/;UID=1, both after the app's 1 s delay and well inside the 30 s timeout; the server holds the receipt file and a mail with its subject, and the test exits 0.
+    program: background-work.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "PlaceOrder returned at once: True\nupload event: Written /receipt-7.txt\nmail event: Delivered ann@example.com/INBOX/;UID=1\nboth came after the app's 1 s delay and well inside the timeout: True\nreceipt file: Receipt for order 7: 3 widgets, 42.00\nmail: Subject: Your receipt for order 7\n"
+
+  - id: no-sleep-needed
+    claim: The test sleeps for no fixed time; each wait returns when its event is published, so the whole wait ends between the app's 1 s delay and the 30 s timeout.
+    program: background-work.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\nboth came after the app''s 1 s delay and well inside the timeout: True\n'
+
+  - id: missing-mail-times-out
+    claim: When the app uploads but never mails, the upload event still comes, and the mail wait throws TimeoutException after its 3 s, naming the query (Store Mail, Name ann@example.com) and how many events it saw meanwhile; the test exits 1.
+    program: background-work.cs
+    args: [no-mail]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout-matches: '^PlaceOrder returned at once: True\nupload event: Written /receipt-7\.txt\nmail event: No event matching SurlEventQuery \{.*Store = Mail, Name = ann@example\.com.*\} within 00:00:03; \d+ events were recorded while waiting and none matched\.\n$'

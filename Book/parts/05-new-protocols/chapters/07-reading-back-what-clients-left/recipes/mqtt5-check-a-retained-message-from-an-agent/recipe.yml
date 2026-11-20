@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: mqtt5-check-a-retained-message-from-an-agent
+title: Checking a Retained Message
+protocols: [mqtt5]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, publish_message, read_retained_message, curl]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-protocols, mqtt5, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a device publishes on and then off to devices/lamp/state through curl, read_retained_message answers the last, off, with qos 0; a second read answers the same, and a later curl subscriber is sent off too.
+    program: program.cs
+    args: [device]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish on: exit 0\ncurl publish off: exit 0\ndevices/lamp/state: text off, qos 0\ndevices/lamp/state: text off, qos 0\ncurl subscribe: exit 0, off\n"
+
+  - id: seeded-by-the-agent
+    claim: A message the agent publishes with publish_message and retain true is kept on any topic, while a curl publish to a topic outside the --topic filter is not.
+    program: program.cs
+    args: [seeded]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "lab/lamp/state: text on, qos 0\ncurl publish off: exit 0\nlab/pump/state: nothing retained\n"
+
+  - id: empty-message-clears
+    claim: A device that publishes an empty message clears the topic, and read_retained_message answers retained false.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish on: exit 0\ncurl publish an empty message: exit 0\ndevices/lamp/state: nothing retained\n"
+
+  - id: binary-payload
+    claim: A payload that is not UTF-8 text, sent with payload_base64, is read back as base64 and not as text.
+    program: program.cs
+    args: [binary]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/state: base64 AP8B, qos 0\n"
+
+  - id: nothing-retained
+    claim: A topic nothing was published to, and a topic outside the filter that a device did publish to, both answer retained false, which is a result and not a tool error.
+    program: program.cs
+    args: [nothing]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/state: nothing retained\ncurl publish on: exit 0\nlab/lamp/state: nothing retained\n"
+
+  - id: qos-cap
+    claim: A filter with qos=1 is a cap and not a floor, so the device's QoS 0 message is still read back as qos 0.
+    program: program.cs
+    args: [qos]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish on: exit 0\ncurl publish off: exit 0\ndevices/lamp/state: text off, qos 0\ndevices/lamp/state: text off, qos 0\ncurl subscribe: exit 0, off\n"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous a device is refused with CONNACK reason code 0x87 and curl exit 67, and nothing is retained.
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish on: exit 67 (curl: (67) MQTT 5 CONNACK reason code 0x87 NotAuthorized)\ndevices/lamp/state: nothing retained\n"

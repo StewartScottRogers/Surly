@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # redis facts
-Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-19, windows; Curl.Api timing re-checked on Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20.
+Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-19, windows; Curl.Api timing re-checked on Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20; databases and scenarios probed on those builds the same day.
 
 ## Listen URLs and readiness
 `redis://host:port` (TCP, `ready: port`); `rediss://` with TLS. Keys live in memory, in databases 0 to 15, and go when the server stops.
@@ -52,5 +52,23 @@ Curl.Api: `CurlRequest(HttpMethod.Get, $"{server.BoundUrl}GET/session")` with `A
 the body is the value plus a line feed, null is a lone line feed; a refused login throws `CurlException` code 67.
 Curl.Api and a first request are slow to start (about a second or more): give an expiry at least 6 seconds.
 
+## Databases (probed 2026-11-20, Surl 9ad60d80c / Curl 7d167fa10a)
+- The first path segment, a number, selects the database: `/1/SET/k/v`, `/2/GET/k`; no number or `/0/` is database 0. A key of the same name in
+  two databases holds two values; `DBSIZE`, `DEL`, `KEYS` (`%2A` for `*`) and `FLUSHDB` act on the named one only (`FLUSHDB` answers `OK`).
+- Database 16 (and up): curl exit 8, `curl: (8) Redis server answered SELECT with error: ERR DB index is out of range`. `/-1/...` is read as a command (exit 8, unknown command).
+- MCP `set_key` with `database: 16`: McpProtocolException `Request failed (remote): Invalid params: arguments.database: expected at most 15`.
+  `read_key` and `list_keys` take `database` too (`list_keys` answers `{keys:[{key}], has_more}` for that database only).
+- Surl.Api: `Keys.SetAsync(key, value, expiry, database)` outside 0-15 is `ArgumentOutOfRangeException`; `GetAsync(key, database)` outside is
+  `SurlReadRefusedException`; `ListAsync("*", null, 100, database)` answers a `SurlKeyPage` (`.Keys` are `SurlKeyInfo`, `.Key`). Curl.Api to database 16 throws `CurlException` code 8.
+- No login on `/1/GET/k`: exit 67 `NOAUTH HELLO must be called with the client already authenticated, ...` (long text; match the start). Curl.Api: code 67.
+
+## Redis and HTTP in one surl
+- `surl --user alice:s3cret --allow-plaintext-auth --directory site redis://127.0.0.1:P1 http://127.0.0.1:P2`: the one account covers both; HTTP with no login is 401
+  (Digest challenge); `curl -u alice:s3cret http://...` works. `-w "%{http_code}"` trailing spaces are trimmed in verify's stdout: end each with a line feed in `-w`.
+  One curl run applies `-u` and `-o` to every URL until `--next`.
+- Surl.Api: `options.Files["products.json"] = bytes` plus two `ListenUrls`; `server.BoundUrls` are `Uri` (call `.ToString()`), in listen order. Curl.Api answers a 404 or 401 as a
+  response (`StatusCode`), not an exception. surl-mcp `start_server` takes `files` with a redis and an http listener together; `bound_urls` in the same order.
+- Expiry in a scenario: seed the short key only after a first (warm) request has been made; set 4 s, wait 5 s (recipes redis-seed-a-cache-for-a-test and twins).
+
 ## Recipes
-redis-seed-keys-from-an-agent, redis-expire-a-key (and twins), redis-inspect-keys-an-app-left
+redis-seed-keys-from-an-agent, redis-expire-a-key (and twins), redis-inspect-keys-an-app-left, redis-keep-keys-apart-in-databases (and twins), redis-seed-a-cache-for-a-test (and twins)

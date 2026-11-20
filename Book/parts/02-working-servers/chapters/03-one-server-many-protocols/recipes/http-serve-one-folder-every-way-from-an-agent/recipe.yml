@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks the scenario.
+schema: 2
+key: http-serve-one-folder-every-way-from-an-agent
+title: Serving Six Ways from an Agent
+protocols: [http, ftp, tftp, gopher, dict, ws]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, read_file, transfer]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc9110, rfc959, rfc1350, rfc1436, rfc2229, rfc6455]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: One start_server call with six listen URLs serves one file; transfer fetches it over HTTP, FTP, TFTP, Gopher and WebSocket with the same text read_file returns, and over DICT as a reply holding it, each with the protocol's own statusCode.
+    program: program.cs
+    args: [six]
+    expect:
+      exit: 0
+      stdout: "read_file: 16 bytes\nhttp: statusCode 200, 16 bytes, same as read_file\nftp: statusCode 226, 16 bytes, same as read_file\ntftp: statusCode 0, 16 bytes, same as read_file\ngopher: statusCode 0, 16 bytes, same as read_file\ndict: statusCode 0, 157 bytes, a DICT reply holding it\nws: statusCode 101, 16 bytes, same as read_file\n"
+
+  - id: six-ports
+    claim: start_server answers one Listening on line per listen URL, in the order given, each on its own port, after surl's warning for --allow-anonymous.
+    program: program.cs
+    args: [warning]
+    expect:
+      exit: 0
+      stdout-matches: '^surl: warning: --allow-anonymous: every request and login is accepted without checking credentials\nListening on http://127\.0\.0\.1:\d+/\nListening on ftp://127\.0\.0\.1:\d+/\nListening on tftp://127\.0\.0\.1:\d+/\nListening on gopher://127\.0\.0\.1:\d+/\nListening on dict://127\.0\.0\.1:\d+/\nListening on ws://127\.0\.0\.1:\d+/\n$'
+
+  - id: ftp-needs-a-login
+    claim: Started without --allow-anonymous and with no account, the server refuses transfer's anonymous FTP login with 530, curl exit 67, and the call is a tool error.
+    program: program.cs
+    args: [no-anonymous]
+    expect:
+      exit: 1
+      stdout-matches: '^read_file: 16 bytes\nftp: failure Access denied: 530\ncurl exit code 67 \(LoginDenied\), tool error yes\n$'

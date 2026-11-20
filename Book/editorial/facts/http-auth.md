@@ -58,6 +58,22 @@ curl-mcp `transfer(url, method, headers, ...)` or `curl(args)`. No surl-mcp tool
 - Curl.Api Bearer: `new CurlAuthenticationOptions { XOAuth2Bearer = token, HttpAuthentication = HttpAuthenticationMethods.Bearer }` (`using Curl.Api.Options.Authentication;`). Basic: `HttpAuthentication = HttpAuthenticationMethods.Basic`.
 
 ## Recipes
-http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http-log-in-with-ntlm, http-require-a-login, http-refuse-a-password-in-clear, http-tell-clients-apart-by-account (and its twins), http-exchange-a-password-for-a-token (and its twins).
+http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http-log-in-with-ntlm, http-require-a-login, http-refuse-a-password-in-clear, http-tell-clients-apart-by-account (and its twins), http-exchange-a-password-for-a-token (and its twins), http-sign-requests-with-aws-sigv4 (and its twins), http-lock-out-one-account (and its twins).
 
 - Decided by Surl (2026-11-20): `--auth basic` over plain `http://` answers 403 with no `WWW-Authenticate`, because a 401 must carry a challenge and offering Basic in clear invites the password (Surl ADR-0032 step 5).
+
+## AWS SigV4 over http (http-sign-requests-with-aws-sigv4, 2026-11-20, windows)
+- `--user AKIAEXAMPLE:topsecret --auth aws-sigv4` over plain `http://`: `curl --aws-sigv4 "aws:amz:us-east-1:s3" -u KEY:SECRET` is 200. Wrong secret, unknown key, no signature, Basic `-u` and `--digest` are all 403 with no `WWW-Authenticate` (with `--auth aws-sigv4` alone nothing is offered). Missing file signed: 404. The scope (`eu-west-1`, `ec2`) is not checked: 200.
+- No `--auth`: the same account also accepts the signed request (200); wrong secret or unknown key is 401 with the three Digest challenges (not 403).
+- Log (`-v`): `#N * Login accepted: AWS4-HMAC-SHA256 AKIAEXAMPLE`, `Login refused: AWS4-HMAC-SHA256 <claimed key ID>`; the secret is never in it. Events: `Mechanism` `AWS4-HMAC-SHA256`, `Account` the key ID.
+- Surl.Api: `AuthenticationMethods = new List<string> { "aws-sigv4" }`. Curl.Api: `CurlAuthenticationOptions { UserName, Password, AwsSigV4 = "aws:amz:us-east-1:s3" }`; Basic/Digest via `HttpAuthentication`. A 403 is a `CurlResponse`; `Headers` is a list of `KeyValuePair`.
+- surl-mcp `start_server arguments: ["--user","KEY:SECRET","--auth","aws-sigv4"]`; curl-mcp `curl` tool `-s --aws-sigv4 aws:amz:us-east-1:s3 -u KEY:SECRET -o hello.out -w %{http_code}`; `transfer` (no login) answers statusCode 403 with `headers` a list of `{name,value}`. `-D -` in the `curl` tool puts the headers in `standardOutput`.
+- The bibliography has no SigV4 entry; recipes cite `aws-s3-api`.
+
+## Locking out one account (http-lock-out-one-account, 2026-11-20, windows)
+- `--fault "refuse-login;account=bob"` (needs quotes; loosens, warns): bob's login is refused whatever the password: 401 with a fresh Digest challenge, same as a wrong password; alice and the rest carry on. `times=1` refuses once, then bob logs in (`remaining` 0 stays listed). Without the rule the same login works.
+- Log (`-v`): `#N * Login refused: Digest bob`, `Login accepted: Digest alice`. Events: `LoginJudged` refused for bob; `fault_applied` events `rule_id` f1, `fault_kind` `refuse_login`.
+- Console lift: `--control http://127.0.0.1:{{port3}} --control-token-file token.txt` (token 32 to 1024 visible ASCII on the first line, else exit 2). `GET /v1/faults` with `Authorization: Bearer <token>`: `{"faults":[{"fault_id":"f1","item":"refuse-login;account=bob","remaining":null}]}`; `DELETE /v1/faults/f1`: 204, bob logs in at once; no token: 401. `POST /v1/faults` wants `text/plain` (415 for JSON). The control port is not the ready port; `-X DELETE ... --next ...` chains lift and check in one case. A YAML `run:` with `Authorization: Bearer` needs single quotes.
+- Surl.Api: `options.Faults.Add(SurlFault.RefuseLogin() with { Account = "bob", Times = 1 })`; `server.Faults.List().Single().Id` is `f1`, `Remove(id)` returns true. surl-mcp: `add_fault(server_id, fault: "refuse-login;account=bob")` -> `fault_id` f1, `remove_fault`, `list_faults`.
+
+- Decided by Surl (2026-11-20): `--auth aws-sigv4` accepts any provider, region and service (Surl ADR-0043 decision 2). They are bound into the signature, not configured on the server, so surl answers whatever curl was told to sign for. State it as designed.

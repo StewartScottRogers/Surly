@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-test-a-password-reset-mail-in-csharp]]
+=== Testing a Password Reset Mail in C#
+
+==== Problem
+
+In a C# test, your app mails a password reset link; you want the test to read the mail, pull out the link and fetch it from the same server, proving the link works.
+
+==== Solution
+
+Start a `SurlServer` with Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP) and Hypertext Transfer Protocol (HTTP) listeners, let the app publish its reset page and mail the link, then read the mail{apos}s body over IMAP with a `CurlClient`, find the link and fetch it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `smtp://`, an `imap://` and an `http://` listen URL on port 0, each given a free port, and the three share the server{apos}s stores (<<surl-readme>>). `MailDomains` is `--mail-domain` and `Mailboxes` is `--mailbox`: a domain to serve mail for, and a mailbox with the account that logs in to it by its whole address. `SurlServer.StartAsync` returns once all three are bound; `BoundUrls` lists them in the order given.
+
+The app here is a few lines in the same program. It makes a token of 16 hexadecimal digits and writes its reset page with `server.Files.PutAsync` to `/reset/<token>`, as its own site would publish it; the HTTP listener serves it from that moment. It then sends the mail through the one `CurlClient` the program shares for every request, with a `CurlRequest` whose method is `HttpMethod.Put` and whose URL is the SMTP bound URL plus the name it greets the server with. `CurlMailOptions` is the envelope, `MailFrom` and `MailRecipients`, `curl`{apos}s `--mail-from` and `--mail-rcpt` (<<rfc5321>>); `CurlAuthenticationOptions` is `-u`, the app{apos}s login, which `Curl.Api` makes with `CRAM-MD5`, so no loosening is needed; and `CurlContent.FromStream` is the message as `-T` would upload it. The `CurlResponse` `StatusCode` is the server{apos}s last reply, `250`.
+
+The test is three steps. A `GET` of `INBOX;UID=1;SECTION=TEXT` with Ann{apos}s login reads the body of her first message, without its header (<<rfc9051>>). A regular expression takes the first `http://` address with `/reset/` in it. A `GET` of that address, with no login, as the person resetting their password would make it, returns the page. The test passes on `200 OK` and prints the page, which names Ann. The exit codes are the program{apos}s choice.
+
+Each way of getting it wrong fails in its own place. A link with a token the app never published is answered `404 Not Found` (<<rfc9110>>): `SendAsync` throws nothing for it, so the test reads `StatusCode` and fails. A mail with no link fails before any fetch. That the link needs no login is part of the test: the mailbox accounts log in over SMTP, IMAP and POP3 only, so the HTTP listener has no account and serves every page to anyone. An account that logs in on HTTP, such as one in `Accounts`, would put a login in front of the reset page too (<<http-require-a-login>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-test-a-password-reset-mail>> for the same test on the console.
+* <<smtp-test-a-password-reset-mail-from-an-agent>> for the same test from an agent.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for checking the mail{apos}s header fields.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>, <<rfc9110>>.

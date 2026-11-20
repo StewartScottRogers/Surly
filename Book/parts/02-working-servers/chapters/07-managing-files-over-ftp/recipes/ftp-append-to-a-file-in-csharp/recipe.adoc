@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-append-to-a-file-in-csharp]]
+=== Appending over FTP in C#
+
+==== Problem
+
+Your C# logger appends to a file on a File Transfer Protocol (FTP) server, and you want each append to land after the last and a test to read the whole file back to prove it, with no real server to set up.
+
+==== Solution
+
+Start a `SurlServer` that accepts uploads, send each line as an upload with `Append` set, and read the file from the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+FTP (<<rfc959>>) has two ways to send a file. `STOR` makes the file the bytes sent, replacing any file of that name; `APPE` adds the bytes to the end of the file and creates the file when it is not there. `Curl.Api` chooses between them with one property.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free port; `AllowUploads` is `--allow-uploads`, which lets a client write and, though `surl` prints no warning for it, loosens the server; `AllowAnonymous` is `--allow-anonymous`, which lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; `MaxFileSize` is `--max-filesize`; `RecordExchanges` keeps what each client sent. `Files` seeds the store before the server starts, here three small files. `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrl` names it.
+
+`CurlRequest` with `HttpMethod.Put` is `curl -T`: its `Body` is uploaded to the URL, here the bytes of one line. `CurlFtpOptions` carries the FTP settings of a request, and its `Append` is `curl --append`: the upload is sent as `APPE`. Left at its default `false`, the same request sends `STOR` and replaces the file, which the second case shows. `CurlClient.SendAsync` returns a `CurlResponse`, and the program reads its `Body` to the end and discards it, since an upload answers with nothing to keep. One `CurlClient` reuses its control connection, so the program{apos}s two appends are one exchange.
+
+`SurlServer.Files` is the server{apos}s store as a test sees it, and `ReadAsync` returns a `SurlFileContents` whose `Bytes` are exactly what a client would download. The program prints it after each append, with the line ends written out as `\n`. Two things show there. A file that does not exist is created by the first append, so a log needs no first-run branch. And only the bytes sent are added: when the file does not end in a newline, the new text is joined to its last line, so end each line you append with one. `SurlServer.Exchanges` is a list of `SurlExchangeRecord`, and its `Received` holds what the server received on the control connection; the program keeps the `APPE` and `STOR` lines, which is how a test knows which command an upload used.
+
+A refusal is a `CurlException`, whose `Code` is the number `curl` would exit with. A server with `AllowUploads` off answers `550 Not permitted` and the code is `UploadFailed`, `25`. A server with `MaxFileSize` 15 refuses the file as it would be after the append, not the bytes of the append: 11 bytes already stored and 12 sent make 23, so the code is `RemoteDiskFull`, `70`, and the file keeps its 11 bytes (<<curl-readme>>). Without `AllowAnonymous` the login is refused and the code is `LoginDenied`, `67`. That is the server being surly on purpose, and the program must catch each, since nothing else reports them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-append-to-a-file>> for the same appends on the console with `curl --append`.
+* <<ftp-append-to-a-file-from-an-agent>> for the same appends made by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

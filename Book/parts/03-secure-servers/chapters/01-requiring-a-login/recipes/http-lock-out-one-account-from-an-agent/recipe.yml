@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Each case runs lock-out.cs, a C# program on the official MCP SDK that starts surl-mcp and curl-mcp
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-lock-out-one-account-from-an-agent
+title: Locking Out One Account from an Agent
+protocols: [http]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, add_fault, list_faults, remove_fault, get_events, curl]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7616]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "An agent starts a server with two accounts, adds the rule refuse-login for bob with add_fault, and curl-mcp's curl tool logs in as alice with 200 and as bob, with his right password, with 401; remove_fault lifts the rule without a tool error, and bob's next login is answered 200."
+    program: lock-out.cs
+    args: ["lift"]
+    expect:
+      exit: 0
+      stdout: "alice: 200\nbob: 401\nremoved f1, tool error: no\nbob: 200\n"
+
+  - id: same-as-wrong-password
+    claim: "A locked-out bob with the right password gets the same 401 as bob with a wrong one, so the client cannot tell a lock-out from a wrong password."
+    program: lock-out.cs
+    args: ["wrong"]
+    expect:
+      exit: 0
+      stdout: "bob, right password: 401\nbob, wrong password: 401\n"
+
+  - id: no-rule-no-lock
+    claim: "Without the rule, bob logs in with the same password and is answered 200."
+    program: lock-out.cs
+    args: ["calm"]
+    expect:
+      exit: 0
+      stdout: "bob: 200\n"
+
+  - id: rule-listed
+    claim: "list_faults answers the rule as f1, refuse-login for bob, with remaining null, no limit on how often it applies."
+    program: lock-out.cs
+    args: ["rule"]
+    expect:
+      exit: 0
+      stdout: "f1: refuse-login;account=bob, remaining no limit\n"
+
+  - id: refusal-spent
+    claim: "With times=1 the rule refuses bob once and is spent, so his next login is answered 200 and list_faults reports 0 uses left."
+    program: lock-out.cs
+    args: ["once"]
+    expect:
+      exit: 0
+      stdout: "bob: 401\nbob: 200\nuses left: 0\n"
+
+  - id: events-name-the-account
+    claim: "get_events kept a login_judged event for each login, alice accepted and bob refused, and a fault_applied event naming the rule, f1, whose kind is refuse_login."
+    program: lock-out.cs
+    args: ["events"]
+    expect:
+      exit: 0
+      stdout: "Digest alice: accepted\nDigest bob: refused\nrule f1 applied: refuse_login\n"
+

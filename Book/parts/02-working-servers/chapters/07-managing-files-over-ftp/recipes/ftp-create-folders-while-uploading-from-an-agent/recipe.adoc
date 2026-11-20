@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-create-folders-while-uploading-from-an-agent]]
+=== Creating Folders While Uploading from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to upload a report into a folder path such as `2026/11/12/` on a File Transfer Protocol (FTP) server where the folders may not exist yet, and to check that every folder was made.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP listener that accepts uploads, calls `curl` with `-T` and `--ftp-create-dirs`, and calls `list_files` on each level of the store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution. Before it starts either host the program writes `report.txt` into that folder, where `curl-mcp` can read it.
+
+FTP (<<rfc959>>) uploads into the current folder of the connection, so `curl` changes into each folder of the path with `CWD` first. A missing folder is answered `550 No such directory`, and by default `curl` gives up and exits `9`, remote access denied. `--ftp-create-dirs` makes it send `MKD`, make a directory, for the folder that failed, and go on.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port, and `files` seeds the in-memory store with one file in the folder `2026`, so that folder exists before the upload. `arguments` is `surl`{apos}s other options in its own words: `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only, and `--allow-uploads` permits `MKD` as it permits `STOR`; it loosens the server, though `surl` prints no warning for it. The answer is structured content with `server_id` and `bound_urls`, the real address.
+
+`curl` runs `curl` with `args` as its command line: `-s` keeps the progress meter out of the answer, `-T report.txt` is the upload, and the answer is text, JSON, with `exitCode`. `list_files` lists one folder of the store, one level, as `entries` each with a `name` and a `kind`, `folder` or `file`; the program prints a folder{apos}s name with a slash after it. After the upload `/` holds `2026`, `2026` holds `11` beside the file that was already there, `11` holds `12`, and `12` holds `report.txt`. That is the agent{apos}s evidence that every folder was made, not only the last. Without the option the root still holds only `2026`.
+
+`get_exchanges` answers what each client sent the server, byte for byte, as `chunks` with a `direction` and its `data`; the program keeps the `received` ones that begin `MKD` or `STOR`. Into a new path ending in `13` the server received `MKD 11` and `MKD 13` and no `MKD 2026`, since that folder existed, and a second upload into the same path received no `MKD` at all. The option is therefore safe on every upload of a job that may run twice.
+
+An agent should read each refusal in `exitCode`. A server started without `--allow-uploads` answers `MKD` with `550 Not permitted`, so `curl` exits `9` even with the option and `list_files` shows no folder was made. One started without `--allow-anonymous` refuses the login and `curl` exits `67`, login denied (<<curl-readme>>). That is the server being surly on purpose.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-create-folders-while-uploading>> for the same upload on the console.
+* <<ftp-create-folders-while-uploading-in-csharp>> for the same upload from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

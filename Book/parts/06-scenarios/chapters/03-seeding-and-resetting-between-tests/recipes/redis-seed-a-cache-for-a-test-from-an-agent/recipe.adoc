@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-seed-a-cache-for-a-test-from-an-agent]]
+=== Seeding a Cache for a Test
+
+==== Problem
+
+Your app reads its settings from Redis and its content over Hypertext Transfer Protocol (HTTP), and it keeps a cached copy that expires. You want an artificial intelligence (AI) agent to seed both with known values, one key expiring soon, and cover the cache-miss path, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts one server with a Redis listener, an HTTP one and a file, seeds the keys with `set_key`, reads them with `read_key` and the `curl` tool, waits for the cached copy to expire, and reads again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here a `redis` listener and an `http` one, each on a free port, and answers the `server_id` and, in `bound_urls`, the URLs it bound in the same order. `files` is the origin{apos}s content, in memory: `products.json` is served at `/products.json`. `arguments` passes `surl`{apos}s own options: `--user alice:s3cret` is the one account, and it covers both listeners, so the app logs in the same way to each; an HTTP request with no login is `401`. `--allow-plaintext-auth` lets her password cross connections that have no encryption, which is a loosening for a test on one machine (<<surl-readme>>). The last claim leaves it out, and `curl` exits `67` with `WRONGPASS`.
+
+`set_key` sets a string key as a `SET` would, with no client and no login, and `expire_ms` is its life in milliseconds. The setting `settings:currency` has none; the cached copy `cache:products` has `4000`. `read_key` reads a key back with no client and answers its `text` and `expires_at`, a time while the key has a limit and no field at all for the setting. A key that is gone, expired or never set is a tool error, `No such key.`, and an agent that wants a miss reads that (<<redis-resp>>).
+
+The `curl` tool is the app{apos}s side. It takes `curl`{apos}s own arguments: the URL path is the Redis command, `GET/settings:currency`, `-u alice:s3cret` logs in, and `-s` and `-S` keep the progress meter out and the error message in (<<curl-readme>>, <<curl-protocols>>). `curl-mcp` answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses. The first `curl` call of a session can take seconds to start, so the program makes it first, with the setting, before any expiry is running; a short life must never be spent on the start-up. Only then does it set the copy and read it through both tools at once. It waits five seconds, one past the life of the copy, and reads again. A slow machine only waits longer, so the copy is surely gone: the setting still reads `EUR`, because it had no expiry, and the copy is a tool error in `read_key` and null in `curl`, which writes null as an empty line and exit `0`, so the program prints `null`. That is the cache-miss path, and the program ends by reading the origin file over HTTP, as the app would to refill the cache.
+
+A test that cannot wait can force the miss at once. A `DEL` through the `curl` tool answers `1`, the next `GET` is null, and a second `set_key` puts a copy back. `TTL` tells the keys apart without waiting: the copy has a positive number of seconds and an `expires_at`, the setting has `-1` and none, and a key never seeded has `-2` and is a tool error. The origin has its own misses, seen with the `-i` option, which keeps the status line in the output: a file that is not in the content is `404 Not Found`, and a request with no login is `401 Unauthorized` (<<rfc9110>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-seed-a-cache-for-a-test>> for the same seed and miss on the console, with a script and `curl`.
+* <<redis-seed-a-cache-for-a-test-in-csharp>> for the same seed and miss from a C# test with `Surl.Api` and `Curl.Api`.
+* <<redis-seed-keys-from-an-agent>> for the rest of `set_key`, `read_key` and `list_keys`.
+* <<redis-resp>>, <<curl-protocols>>, <<rfc9110>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

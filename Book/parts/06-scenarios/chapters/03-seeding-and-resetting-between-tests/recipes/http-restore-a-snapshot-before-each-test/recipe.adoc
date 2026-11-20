@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-restore-a-snapshot-before-each-test]]
+=== Restoring a Snapshot Before Each Test
+
+==== Problem
+
+Your tests need a server full of seeded files and mail, and you would rather seed it once than before every test. You want every test to start from exactly that seeded state, so the order the tests run in never matters.
+
+==== Solution
+
+Seed the in-process server once, take a `SurlSnapshot` with `SnapshotAsync`, and call `RestoreAsync` with it before each test:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+One `SurlServerOptions` serves Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP) from one content store and Simple Mail Transfer Protocol (SMTP) into one mail store, with uploads on, an account for the app (a `SurlAccount` named `app`) and a mailbox for ann. The seeding goes straight into the stores, without a client: `Files.PutAsync` writes 100 catalog files, making the `/catalog` folder as it goes, and `Mail.DeliverAsync` puts three earlier orders in ann{apos}s inbox. Then `SnapshotAsync` copies every store, files, mail, messages and accounts, into a `SurlSnapshot` held in memory (<<surl-readme>>). Its `ByteCount` is the size of that copy.
+
+`RestoreAsync` puts the snapshot back, every store at once, before each test. The three tests change the server through a `CurlClient` as the app would, one `CurlRequest` each with `CurlAuthenticationOptions`, and read its `CurlResponse`. One `PUT`s a new price over item 7 with a Digest login (<<rfc9110>>), one mails ann a fourth order with `CurlMailOptions` and a `CurlContent` body (<<rfc5321>>), and one reads item 7 over FTP (<<rfc959>>), which serves the same files HTTP does. Each then checks the whole picture through the server: all 100 items still there, listed a `SurlFolderPage` at a time, item 7 as this test expects, and ann{apos}s inbox at three mails or four. They pass in either order. Leave the restore out and the price the first test wrote is the one the next two find, whether they read the store or fetch over FTP: two failures that depend only on which test ran first.
+
+`ResetAsync` is not a substitute here. It returns the server to its state at start, before the seeding, so the catalog is gone, every test fails, and the FTP read is refused with `CurlException` `RemoteAccessDenied` because there is no `/catalog` folder to change into. Reset suits tests that start from an empty server; restore suits tests that start from seeded data. A snapshot belongs to the server that took it, and each restore gives every mailbox a new UIDVALIDITY, the number that tells a mail client its cached message identifiers no longer hold (<<surl-readme>>).
+
+The FTP read logs in with a password, and plain `ftp://` sends it as it is. `AllowPlaintextAuthentication`, `surl`{apos}s `--allow-plaintext-auth`, lets the server accept that; it is a loosening and warns at start. Without it the FTP login is refused with `530` and `CurlException` `LoginDenied`, while the HTTP upload, which uses Digest, and the SMTP mail still pass. Keep the loosening to a test server on loopback.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-reset-and-snapshot-in-process>> for each of `ResetAsync`, `SnapshotAsync` and `RestoreAsync` on its own, and their refusals.
+* <<surl-share-one-server-across-a-test-class>> for a reset to the start state before each test.
+* <<http-snapshot-before-a-risky-step>> for the same idea from the console.
+* <<surl-readme>>, <<rfc9110>>, <<rfc959>>, <<rfc5321>>.

@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks the scenario.
+schema: 2
+key: grpcs-call-over-tls-from-an-agent
+title: Calling gRPC over TLS from an Agent
+protocols: [grpcs]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl]
+exit-codes: [0, 22, 58, 60]
+references: [surl-readme, curl-readme, grpc-http2, rfc9113, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts a grpcs server with --cert, --key and an account through start_server's arguments, and the curl tool with --cacert server.pem and -u calls surl.test.Echo/Echo, exitCode 0, the reply as JSON, not a tool error.
+    program: program.cs
+    args: [trusted]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\n{\n  \"message\": \"hello\"\n}\ntool error: no\n"
+
+  - id: untrusted
+    claim: Without --cacert the curl tool cannot verify the certificate, exitCode 60, nothing on standard output, and the call is a tool error.
+    program: program.cs
+    args: [untrusted]
+    expect:
+      exit: 1
+      stdout-matches: '^exitCode: 60\ncurl: \(60\) [^\n]*\ntool error: yes\n$'
+
+  - id: wrong-password
+    claim: Over a trusted connection a wrong password is refused with grpc-status 16 UNAUTHENTICATED, exitCode 22, a tool error.
+    program: program.cs
+    args: [wrong-password]
+    expect:
+      exit: 1
+      stdout: "exitCode: 22\ncurl: (22) The server did not answer gRPC server reflection (grpc-status 16 (UNAUTHENTICATED): unauthenticated); give the method's .proto file with --grpc-proto\ntool error: yes\n"
+
+  - id: in-clear
+    claim: The same login to a plain grpc server is refused unchecked with grpc-status 7 PERMISSION_DENIED, exitCode 22.
+    program: program.cs
+    args: [in-clear]
+    expect:
+      exit: 1
+      stdout: "exitCode: 22\ncurl: (22) The server did not answer gRPC server reflection (grpc-status 7 (PERMISSION_DENIED): permission denied); give the method's .proto file with --grpc-proto\ntool error: yes\n"
+
+  - id: no-certificate
+    claim: start_server refuses a grpcs listen URL with no certificate as a tool error carrying surl's exit_code 58, CertificateProblem, and surl's message.
+    program: program.cs
+    args: [no-certificate]
+    expect:
+      exit: 1
+      stdout: "exit_code: 58 (CertificateProblem)\nsurl: (58) grpcs://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"

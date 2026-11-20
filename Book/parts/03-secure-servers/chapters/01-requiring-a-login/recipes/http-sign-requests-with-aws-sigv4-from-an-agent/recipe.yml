@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Each case runs sign.cs, a C# program on the official MCP SDK that starts surl-mcp and curl-mcp
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-sign-requests-with-aws-sigv4-from-an-agent
+title: Signing with AWS SigV4 from an Agent
+protocols: [http]
+tier: secure-servers          # foundations | working-servers | secure-servers | advanced | new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, transfer, get_events]   # every tool the programs call; each explained in the Discussion
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures: {}               # path: content, written into the folder both hosts are confined to
+
+cases:
+  - id: solution
+    role: solution
+    claim: "An agent starts a server that takes SigV4 alone, and curl-mcp's curl tool, signing with --aws-sigv4 and the access key ID and secret key, fetches the file."
+    program: sign.cs
+    args: ["fetch"]
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: wrong-secret
+    claim: "A request signed with the wrong secret key is answered 403."
+    program: sign.cs
+    args: ["wrong"]
+    expect:
+      exit: 0
+      stdout: "403\n"
+
+  - id: unknown-key
+    claim: "A request signed under an access key ID the server does not hold is answered 403, whatever secret signed it."
+    program: sign.cs
+    args: ["unknown"]
+    expect:
+      exit: 0
+      stdout: "403\n"
+
+  - id: unsigned
+    claim: "transfer, which sends no signature, is answered 403 as a response, not a tool error, and the headers hold no WWW-Authenticate challenge."
+    program: sign.cs
+    args: ["unsigned"]
+    expect:
+      exit: 0
+      stdout: "403; challenges: 0\n"
+
+  - id: password-refused
+    claim: "With --auth aws-sigv4 alone, the right secret sent as a Basic password or as a Digest login is answered 403 too."
+    program: sign.cs
+    args: ["password"]
+    expect:
+      exit: 0
+      stdout: "Basic: 403\nDigest: 403\n"
+
+  - id: any-scope
+    claim: "The region and service the client signs for are its own choice; a signature for eu-west-1 and ec2 is answered 200 too."
+    program: sign.cs
+    args: ["scope"]
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: missing-file
+    claim: "A signed request for a file that is not there is answered 404, not 403, because the signature was accepted."
+    program: sign.cs
+    args: ["missing"]
+    expect:
+      exit: 0
+      stdout: "404\n"
+
+  - id: events-name-the-key
+    claim: "get_events with kinds login_judged names the algorithm and the access key ID of each login: the right secret accepted, the wrong one refused."
+    program: sign.cs
+    args: ["events"]
+    expect:
+      exit: 0
+      stdout: "AWS4-HMAC-SHA256 AKIAEXAMPLE: accepted\nAWS4-HMAC-SHA256 AKIAEXAMPLE: refused\n"
+
+  - id: default-takes-sigv4
+    claim: "Without --auth, the same account also accepts the signed request, answered 200."
+    program: sign.cs
+    args: ["default"]
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: default-wrong-secret
+    claim: "Without --auth, a wrong secret key is answered 401 with a Digest challenge instead of 403, because the server offers other logins."
+    program: sign.cs
+    args: ["default-wrong"]
+    expect:
+      exit: 0
+      stdout: "HTTP/1.1 401 Unauthorized; Digest challenge: True\n"
+

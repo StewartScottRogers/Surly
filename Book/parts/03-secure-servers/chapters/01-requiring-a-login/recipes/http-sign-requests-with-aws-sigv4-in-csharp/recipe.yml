@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-sign-requests-with-aws-sigv4-in-csharp
+title: Signing with AWS SigV4 in C#
+protocols: [http]
+tier: secure-servers          # foundations | working-servers | secure-servers | advanced (Libcurl only here) | new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, LoginJudgedEvent, SurlEventQuery, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]              # every public type the programs use, e.g. [SurlServer, SurlServerOptions, CurlClient, CurlRequest]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures: {}               # path: content, written before anything runs
+
+# servers: is optional. Leave it out when the program hosts its server through Surl.Api;
+# add it, as in the console template, when the program is a client of a surl process.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "surl accepts a request signed with the access key ID and secret key, answered 200 OK with the file."
+    program: sign.cs
+    args: ["fetch"]
+    expect:
+      exit: 0
+      stdout: "200 OK\nhello from surl\n"
+
+  - id: wrong-secret
+    claim: "A request signed with the wrong secret key is answered 403 Forbidden."
+    program: sign.cs
+    args: ["wrong"]
+    expect:
+      exit: 0
+      stdout: "403 Forbidden\n"
+
+  - id: unknown-key
+    claim: "A request signed under an access key ID the server does not hold is answered 403 Forbidden, whatever secret signed it."
+    program: sign.cs
+    args: ["unknown"]
+    expect:
+      exit: 0
+      stdout: "403 Forbidden\n"
+
+  - id: unsigned
+    claim: "A request with no signature is answered 403 Forbidden and carries no WWW-Authenticate challenge."
+    program: sign.cs
+    args: ["unsigned"]
+    expect:
+      exit: 0
+      stdout: "403 Forbidden; challenges: 0\n"
+
+  - id: password-refused
+    claim: "With AuthenticationMethods set to aws-sigv4 alone, the right secret sent as a Basic password or as a Digest login is answered 403 too."
+    program: sign.cs
+    args: ["password"]
+    expect:
+      exit: 0
+      stdout: "Basic: 403 Forbidden\nDigest: 403 Forbidden\n"
+
+  - id: any-scope
+    claim: "The region and service the client signs for are its own choice; a signature for eu-west-1 and ec2 is answered 200 too."
+    program: sign.cs
+    args: ["scope"]
+    expect:
+      exit: 0
+      stdout: "200 OK\n"
+
+  - id: missing-file
+    claim: "A signed request for a file that is not there is answered 404, not 403, because the signature was accepted."
+    program: sign.cs
+    args: ["missing"]
+    expect:
+      exit: 0
+      stdout: "404 Not Found\n"
+
+  - id: events-name-the-key
+    claim: "The recorded login_judged events name the algorithm and the access key ID of each login: the right secret accepted, the wrong one refused."
+    program: sign.cs
+    args: ["events"]
+    expect:
+      exit: 0
+      stdout: "AWS4-HMAC-SHA256 AKIAEXAMPLE: accepted\nAWS4-HMAC-SHA256 AKIAEXAMPLE: refused\n"
+
+  - id: default-takes-sigv4
+    claim: "Without AuthenticationMethods, the same account also accepts the signed request, answered 200."
+    program: sign.cs
+    args: ["default"]
+    expect:
+      exit: 0
+      stdout: "200 OK\n"
+
+  - id: default-wrong-secret
+    claim: "Without AuthenticationMethods, a wrong secret key is answered 401 with a Digest challenge instead of 403, because the server offers other logins."
+    program: sign.cs
+    args: ["default-wrong"]
+    expect:
+      exit: 0
+      stdout: "401 Unauthorized; Digest challenge: True\n"
+

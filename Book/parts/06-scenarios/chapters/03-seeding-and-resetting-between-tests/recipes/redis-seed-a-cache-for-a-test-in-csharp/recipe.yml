@@ -1,0 +1,60 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: redis-seed-a-cache-for-a-test-in-csharp
+title: Seeding a Cache for a Test
+protocols: [redis, http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerKeys, SurlKeyContents, SurlNotFoundException, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, redis-resp, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A setting seeded with Keys.SetAsync and no expiry, a cached copy seeded with a four-second TimeSpan and a file in the server's content all read back as seeded through Curl.Api; five seconds later the setting is still there, the copy is null in Curl.Api and gone in Keys.GetAsync, and the origin file still answers over HTTP.
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "settings:currency: EUR\ncache:products: cached-copy, expires in the future\nsettings:currency: EUR\ncache:products: null, expires no such key\norigin: {\"items\":[\"tea\",\"coffee\"]}\n"
+
+  - id: time-to-live
+    claim: The seeded copy has an expiry in the future and a positive time to live, the setting seeded with no expiry has none and the time to live -1, and a key never seeded is no such key with -2.
+    program: program.cs
+    args: [ttl]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "settings:currency: expires never, TTL -1\ncache:prices: expires in the future, TTL positive\nnever-seeded: expires no such key, TTL -2\n"
+
+  - id: miss-now
+    claim: A test that cannot wait forces the miss at once, and DEL through Curl.Api answers 1, the next GET is null, and a second Keys.SetAsync puts a copy back for the app to find.
+    program: program.cs
+    args: [miss-now]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "DEL: 1\nGET: null\nGET after the refill: refilled\n"
+
+  - id: origin-statuses
+    claim: The same account reads the origin over HTTP with status 200, a file that is not in the content is 404, and a request with no login is 401.
+    program: program.cs
+    args: [origin]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "products.json with a login: 200\nmissing.json with a login: 404\nproducts.json with no login: 401\n"
+
+  - id: plaintext-refused
+    claim: Without AllowPlaintextAuthentication the account's login over redis:// is refused, and Curl.Api throws a CurlException with code 67 and WRONGPASS in its message.
+    program: program.cs
+    args: [no-plaintext]
+    timeout: 90
+    expect:
+      exit: 67
+      stdout-matches: '^curl error 67: Redis server answered HELLO with error: WRONGPASS '

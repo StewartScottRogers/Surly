@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-serve-one-folder-every-way-in-csharp]]
+=== Serving One Folder Every Way in C#
+
+==== Problem
+
+Your C# test needs the same file over several protocols, from the Hypertext Transfer Protocol (HTTP) to WebSocket, and you want one in-process server with six listen URLs and a client that fetches the file from each.
+
+==== Solution
+
+Start one `SurlServer` with six listen URLs on port 0 and one file in memory, then fetch the file from each bound URL with one `CurlClient` and compare what came back with what was served:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` takes the listen URLs `surl` takes on its command line, and here there are six: HTTP (<<rfc9110>>), the File Transfer Protocol (FTP, <<rfc959>>), the Trivial File Transfer Protocol (TFTP, <<rfc1350>>), Gopher (<<rfc1436>>), the Dictionary Server Protocol (DICT, <<rfc2229>>) and WebSocket (<<rfc6455>>). Each has port 0, so each gets its own free port, and `BoundUrls` lists the real URLs in the same order as `ListenUrls`. `Files` is the one store all six read.
+
+The URL for each differs only where the protocol does. Gopher puts an item type before the path, `0` for a file. DICT looks up words, and every file at the top of the store is a headword, so `d:hello.txt` asks for the definition of `hello.txt`. The program joins the bound URL and the path as strings: given to `Uri` as a relative path, `d:hello.txt` reads as a Windows drive.
+
+`CurlClient.SendAsync` with a `CurlRequest` for `GET` fetches over the first five schemes, and the `CurlResponse` `Body` is the bytes. WebSocket is a conversation, not a request: `ConnectWebSocketAsync` returns a `CurlWebSocket`, and the file is the first `CurlWebSocketMessage` from `ReceiveAsync`, its `Data` the bytes. HTTP, FTP, TFTP, Gopher and WebSocket hand back the served 16 bytes exactly. DICT hands back a reply: the file sits in it as a definition, its line ended in carriage return and line feed, between the protocol{apos}s status lines, so the program checks that it is there rather than that it is equal.
+
+The six listeners share the store rather than each holding a copy. After the start, `server.Files`, a `SurlServerFiles`, replaces `hello.txt` with `PutAsync`, and all six then serve the new 23 bytes.
+
+`AllowAnonymous` is `--allow-anonymous`, and it is there for FTP alone. A `CurlClient` with no login logs in to FTP as `anonymous`, and `surl` refuses that login unless told otherwise, since with no account there is nothing to check. Without it the FTP fetch throws `CurlException` with `Code` `LoginDenied`, `curl`{apos}s exit code 67, and the other five still serve the file. It is the one loosening here; a test with accounts would log in to FTP instead.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-one-folder-every-way>> for the same server and fetches on the console.
+* <<http-serve-one-folder-every-way-from-an-agent>> for an agent starting the six and comparing the bytes.
+* <<http-serve-and-fetch-in-process>> for `Surl.Api` and `Curl.Api` with one listener.
+* <<surl-readme>>, <<curl-readme>>.

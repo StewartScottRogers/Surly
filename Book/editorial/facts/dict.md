@@ -24,3 +24,5 @@ The greeting's message ID counts up per connection (`<1@surl>`, `<2@surl>`): mat
 
 ## Recipes
 dict-look-up-a-word, dict-look-up-a-word-from-an-agent, dict-match-words-by-prefix (and twins)
+
+- One surl can serve DICT beside HTTP, FTP, TFTP, Gopher and WebSocket from one --directory; a file at the top is a headword (`d:hello.txt`); the definition goes out with CR LF line ends. See http.md "One folder, six schemes" (http-serve-one-folder-every-way, 2026-11-20).

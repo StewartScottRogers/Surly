@@ -112,6 +112,7 @@ http-check-headers-reach-the-server (+ twins), http-download-a-byte-range (+ twi
 http-seed-a-site-from-fixture-files (+ twins), http-verify-a-download-checksum (+ twins), http-save-a-session-as-a-har-file, http-move-a-client-to-https (+ twins), http-snapshot-before-a-risky-step, surl-catch-a-seed-the-server-refuses, surl-reset-by-copying-a-clean-directory
 http-fetch-a-file-with-an-awkward-name (+ twins), http-listen-on-ipv6-loopback (+ twins), http-resume-an-interrupted-download (+ twins)
 http-limit-download-speed, http-time-each-phase-of-a-download, http-choose-the-http-version-in-csharp, http-run-two-servers-in-one-program, http-set-client-defaults-once, http-stream-a-large-download-to-disk, http-build-a-url-from-parts-from-an-agent, http-choose-the-http-version-from-an-agent, http-compare-the-transfer-and-curl-tools-from-an-agent, http-parse-a-url-before-fetching-from-an-agent
+http-create-and-replace-a-file (+ twins), http-serve-one-folder-every-way (+ twins)
 
 ## Telling failures apart (http-tell-a-dead-server-from-a-missing-file)
 - `curl -s -w "%{http_code} %{exitcode} %{errormsg}\n" -o {{null}} URL`: nothing listening `000 7 Failed to connect to 127.0.0.1:<port> after <n> ms: Could not connect to server`; unresolvable `http://no-such-host.invalid/` `000 6 Could not resolve host: no-such-host.invalid`; missing file with `-f` `404 22 The requested URL returned error: 404`; without `-f` `404 0` and empty errormsg. TCP, so exit 7 is the same on every platform.
@@ -120,3 +121,18 @@ http-limit-download-speed, http-time-each-phase-of-a-download, http-choose-the-h
 - Curl.Api: `CurlException.Code` prints `CouldntConnect` (7) and `CouldntResolveHost` (6); a 404 is a response.
 
 - Decided by Surl (not bugs, 2026-11-20): `-s` writes nothing, not even `Listening on` (Surl ADR-0033 s.3), so a script reading a :0 port omits `-s`. A directory answers 404, with no index page (ADR-0008). Conditional requests (If-Modified-Since, ETags) are being added (BL-1446..1449): do not claim their absence.
+
+## Create, replace, conflict (http-create-and-replace-a-file, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20)
+- `--allow-uploads --user alice:s3cret`, curl `--digest -u ... -T f URL`: new path 201 (no Location, `Content-Length: 0`), same path 204 (no Content-Length) and the file is replaced whole; parent folder missing 409 `Connection: close`, nothing created (GET then 404); PUT to a folder path (`/drafts`) 409. DELETE 405, MKCOL 501. Several `-T f URL` pairs on one command line make several uploads; `-w "%{http_code} %{url.path}\n"` prints one line each.
+- Surl.Api `server.Files.ReadAsync("/x")` throws `SurlNotFoundException` for a missing file and for a folder (never null). Curl.Api PUT with Digest: `CurlAuthenticationOptions { UserName, Password, HttpAuthentication = HttpAuthenticationMethods.Digest }`.
+- surl-mcp `read_file` of a missing path: tool error text `No file at /archive/report.txt.` curl-mcp `curl` tool `-T -` with `stdin` text uploads too.
+
+## One folder, six schemes (http-serve-one-folder-every-way)
+- `surl --allow-anonymous --directory site http://H:P/ ftp://H:P2/ tftp://H:P/ gopher://H:P3/ dict://H:P4/ ws://H:P5/`: one curl command with all six URLs works (`0/hello.txt` for gopher, `d:hello.txt` for dict). FTP needs `--allow-anonymous` (no account: 530, exit 67); the other five need nothing. `size_download` 16 for http/ftp/tftp/gopher, ws 20 (frames), dict ~158. DICT reply greeting ID under verify is `<10@surl>` (5 ready probes + 4 fetches), deterministic.
+- curl-mcp `transfer` `statusCode` by scheme: http 200, ftp 226, tftp 0, gopher 0, dict 0, ws 101; all `failure` null. FTP without `--allow-anonymous`: failure text `Access denied: 530` + newline + `curl exit code 67 (LoginDenied)`, tool error.
+- Surl.Api six `ListenUrls` on port 0: `BoundUrls` in the same order; in-process DICT reply 157 bytes (`<5@surl>`). `new Uri(baseUri, "d:hello.txt")` throws `UriFormatException` (DOS path) on Windows: join strings.
+
+## Accounts and per-test state in process (surl-add-an-account-per-test, 2026-11-20)
+- `server.Accounts.Add(user, pw)` / `Remove(user)`; a second `Add` of a name throws `ArgumentException` `User test-1 already has an account. (Parameter 'account')`. `FindEvents(new SurlEventQuery { Store = StoreKind.Accounts })` gives `StoreChangedEvent` `AccountAdded`/`AccountRemoved` with `Name` the user.
+- An added account over IMAP: login and list OK, `INBOX?ALL` throws `CurlException` LoginDenied `Select failed`; after Remove `Login denied`. SMTP RCPT to it (or any unknown in-domain address) is 250 and discarded; `Mail.DeliverAsync` to it throws `SurlSeedRefusedException` NoSuchAccount.
+- A `Mailboxes` entry logs in over HTTP only with `;protocols=smtp,http`. Curl.Api FTP with `new HttpMethod("DELE")` sends a RETR (file kept); FTP via Curl.Api needs `AllowPlaintextAuthentication` (else LoginDenied `Access denied: 530`). After `ResetAsync` removed `/catalog`, `Files.ListAsync("/catalog")` throws with `No folder at /catalog.`; FTP GET in it: `RemoteAccessDenied`.

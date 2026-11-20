@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: redis-keep-keys-apart-in-databases
+title: Keeping Keys Apart in Databases
+protocols: [redis]
+tier: new-protocols
+surl-options: [--user, --allow-plaintext-auth]
+curl-options: [-s, -S, -u]
+exit-codes: [0, 8, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp]
+
+fixtures: {}
+
+# main is the recipe: one account, whose password may cross the plain listener. strict has the account only.
+servers:
+  main:
+    command: surl --user alice:s3cret --allow-plaintext-auth redis://127.0.0.1:{{port}}
+    ready: port
+  strict:
+    command: surl --user alice:s3cret redis://127.0.0.1:{{port2}}
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The same key, greeting, set in database 1 and in database 2 holds a different value in each; GET reads each back with its database number in the URL, and every command answers OK or the value, exit 0.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/1/SET/greeting/from-app-one redis://127.0.0.1:{{port}}/2/SET/greeting/from-app-two redis://127.0.0.1:{{port}}/1/GET/greeting redis://127.0.0.1:{{port}}/2/GET/greeting
+    expect:
+      exit: 0
+      stdout: "OK\nOK\nfrom-app-one\nfrom-app-two\n"
+
+  - id: default-database
+    claim: A URL with no number uses database 0, which holds neither value, so GET of the same key is null, written as an empty line, and exit 0; a number of 0 says the same thing.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/GET/greeting redis://127.0.0.1:{{port}}/0/GET/greeting
+    expect:
+      exit: 0
+      stdout: "\n\n"
+
+  - id: count-per-database
+    claim: DBSIZE counts the keys of one database only, so two keys in database 3 and one in database 4 are 2 and 1, and database 5 holds none.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/3/SET/a/1 redis://127.0.0.1:{{port}}/3/SET/b/2 redis://127.0.0.1:{{port}}/4/SET/a/3 redis://127.0.0.1:{{port}}/3/DBSIZE redis://127.0.0.1:{{port}}/4/DBSIZE redis://127.0.0.1:{{port}}/5/DBSIZE
+    expect:
+      exit: 0
+      stdout: "OK\nOK\nOK\n2\n1\n0\n"
+
+  - id: delete-in-one
+    claim: DEL in one database answers 1 and removes the key there only; the same key in the other database keeps its value.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/6/SET/token/six redis://127.0.0.1:{{port}}/7/SET/token/seven redis://127.0.0.1:{{port}}/6/DEL/token redis://127.0.0.1:{{port}}/6/GET/token redis://127.0.0.1:{{port}}/7/GET/token
+    expect:
+      exit: 0
+      stdout: "OK\nOK\n1\n\nseven\n"
+
+  - id: flush-one
+    claim: FLUSHDB empties the database named in the URL and no other, so afterwards database 1 has no keys and database 2 still has its one.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/1/FLUSHDB redis://127.0.0.1:{{port}}/1/DBSIZE redis://127.0.0.1:{{port}}/2/DBSIZE
+    expect:
+      exit: 0
+      stdout: "OK\n0\n1\n"
+
+  - id: out-of-range
+    claim: Only databases 0 to 15 exist; 16 is refused by the server and curl exits 8, naming ERR DB index is out of range.
+    run: curl -s -S -u alice:s3cret redis://127.0.0.1:{{port}}/16/GET/greeting
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "DB index is out of range"
+
+  - id: no-login-refused
+    claim: A client with no login is refused at its first command, whatever database it names; curl exits 67 with NOAUTH.
+    run: curl -s -S redis://127.0.0.1:{{port}}/1/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "NOAUTH"
+
+  - id: plaintext-refused
+    claim: Without --allow-plaintext-auth the account's login over redis:// is refused, the right password included, and curl exits 67 with WRONGPASS.
+    run: curl -s -S -u alice:s3cret redis://127.0.0.1:{{port2}}/1/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"

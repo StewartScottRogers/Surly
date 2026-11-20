@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # mqtt facts
-Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 2026-11-19, windows.
+Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 2026-11-19, windows; seeding and mqtt5 retained sections probed on Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20.
 
 ## Listen URLs and readiness
 `mqtt` 1883, `mqtts` 8883 (needs a certificate); TCP, `ready: port`. MQTT 3.1.1 broker; in one surl
@@ -45,10 +45,27 @@ surl-mcp: `publish_message(server_id, topic, queue, payload, payload_base64, ret
 - In YAML, quote a claim containing ` #`, or the rest is a comment.
 
 ## Recipes
-mqtt-publish-and-subscribe, mqtt-grant-a-topic.
+mqtt-publish-and-subscribe, mqtt-grant-a-topic, mqtt-change-retained-config-mid-test (and twins), mqtt5-check-a-retained-message-from-an-agent.
 
 ## Retained state (mqtt-check-retained-state-after-a-run)
 - surl-mcp `read_retained_message(server_id, topic)` answers `{topic, qos, text}`; a topic with nothing kept is `{"retained": false}`, not a tool error. No call lists topics.
 - A publish outside every `--topic ...;retain` filter is accepted (curl exit 0) and not kept. The last publish on a topic replaces the retained one.
 - curl-mcp `curl(args: ["-s","-d","on", "mqtt://127.0.0.1:port/devices/lamp/state"])` publishes (answer `exitCode 0`, empty output); without `--allow-anonymous` exitCode 8.
 - `start_server` answer `log_lines` carries the `--allow-anonymous` warning.
+
+## QoS 0 publish vs reading the store (surl-build-an-environment-from-a-spec, Surl 9ad60d80c, 2026-11-20)
+- curl-mcp `curl -s -u app:apppass -d ready mqtt://H:P/env/status` (QoS 0, unacknowledged) returns before the broker keeps the message: `read_retained_message` straight after answered `{"retained":false}` 6 times in 6. Call `wait_for_event(kinds:["store_changed"], store:"bus", name:"env/status")` first; the event is `{store:"bus", change:"written", name:"env/status", byte_count:5}`. With `--user` the publish needs `--allow-plaintext-auth`.
+
+## Seeding and changing retained messages (probed 2026-11-20, Surl 9ad60d80c / Curl 7d167fa10a)
+- A seed is not a client's publish: `Surl.Api` `Messages.PublishAsync(topic, bytes, true)` and surl-mcp `publish_message(retain: true)` set RETAIN themselves, so the message is kept
+  on a topic outside every `--topic ...;retain` filter and with no `--topic` at all; a curl publish (RETAIN 0) there is accepted (exit 0) and not kept. Reading back: `Messages.ReadRetainedAsync`
+  (`null` if none; `.Payload`, `.QualityOfService` 0) and `read_retained_message`. An empty payload, seeded or from `curl -d ""`, clears the topic (`retained: false`).
+  surl-mcp `read_retained_message` with a non-text payload answers `base64` in place of `text` (`payload_base64: "AP8B"`).
+- `--directory state` needs `state/` to exist (else exit 37 `Could not open directory state`: make it with a fixture); retained messages then survive a restart (console `restart:` case needs `schema: 2`;
+  agent: `stop_server` then a second `start_server`; C#: a second `SurlServer` on the same `DataDirectory`).
+- Curl.Api as the device: `CurlRequest(HttpMethod.Get, "mqtt://host:port/topic")` answers a body of the topic's two-byte length, the topic and the message (empty if none), and returns once the retained messages are sent;
+  `HttpMethod.Post` with `Body = CurlContent.FromBytes(...)` publishes (RETAIN 0). A broker without `AllowAnonymous`: `CurlException` code 8.
+- curl-mcp on mqtt://: `curl -s mqtt://.../topic` answer `standardOutput.content` starts with the length bytes (`U+0000 U+0013` for a 19-character topic), exit 0.
+  Without `--allow-anonymous`: exitCode 8, stderr `curl: (8) Expected 0000 but got 0005`.
+- mqtt5: curl publish refused with no login is exit 67 `MQTT 5 CONNACK reason code 0x87 NotAuthorized`. A curl-mcp subscribe on `mqtt5://` needs `--mqtt5-disconnect-after-retained` on the broker, else it hangs.
+  `--topic "devices/#;retain;qos=1"` is a cap (ADR-0102): a QoS 0 publish is still read back with `qos` 0. No tool or option in these builds publishes a retained message at QoS 1 or 2.

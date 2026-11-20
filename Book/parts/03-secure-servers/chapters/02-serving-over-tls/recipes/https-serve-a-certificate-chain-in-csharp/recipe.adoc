@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-serve-a-certificate-chain-in-csharp]]
+=== Serving a Certificate Chain in C#
+
+==== Problem
+
+Your production certificate is signed by an intermediate authority, and clients trust only the root. You want a test server that sends the whole chain, so a client trusting the root verifies it and one missing the intermediate is caught, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+Start a `SurlServer` with `CertificateFile` set to the chain, the leaf first and the intermediate after it, and `KeyFile` to the leaf's key; fetch with a `CurlClient` that trusts the root alone. The `setup` lines in `recipe.yml` make the root, the intermediate and the leaf with `openssl`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `CertificateFile` and `KeyFile` are `--cert` and `--key`, read from the program's working directory. `chain.pem` holds the leaf and then the intermediate, and `leaf.key` is the leaf's key. The server presents both, so a client that holds only the root can walk from the leaf to it (<<rfc5280>>). `Files` holds the file in memory, and port 0 takes a free port.
+
+`CurlClientOptions.Tls` holds a `CurlTlsOptions`, whose `Origin` is a `CurlTlsPeerOptions`: `CertificateAuthorityBlob` is the root's bytes, the only certificate the client trusts, as `--cacert root.pem` is on the console. `CurlClient.Create(options)` makes the client and a `CurlRequest` is the method and the URL, here the `BoundUrl` of the server. The fetch returns a `CurlResponse` of `200` with the file, and the program prints the status code.
+
+The same client against a server that sends the leaf alone, `leaf2.pem`, cannot build a path to the root: `SendAsync` throws a `CurlException` whose `Code` is `PeerFailedVerification`, 60. With no `CertificateAuthorityBlob`, a client that trusts neither the root nor the intermediate fails the same way against the full chain. The two servers use two different intermediates on purpose: Windows keeps the intermediates it has seen, so a leaf-only server whose intermediate was sent once in a chain would pass on that machine.
+
+`SslOptions = SslOptions.NoRevoke` is `--ssl-no-revoke`. Windows{apos} Schannel library insists on a revocation check once there is a chain, and test certificates carry no revocation address, so without the option the chain fails with 60 too.
+
+A chain file that also ends with the root, `full.pem`, is served and verified the same way. The server pairs the key with the first certificate, so a file that starts with the intermediate, or a key that is not the leaf's, stops `StartAsync`: it throws a `SurlServerStartException` whose `ExitCode` is `SurlExitCode.CertificateProblem`, 58, and whose `Message` begins with the server certificate could not be loaded, as the console prints it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-a-certificate-chain>> for the same check on the console.
+* <<https-serve-a-certificate-chain-from-an-agent>> for the same check from an agent.
+* <<https-serve-a-pfx-certificate-in-csharp>> for a certificate and key that arrive in one file.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5280>>.

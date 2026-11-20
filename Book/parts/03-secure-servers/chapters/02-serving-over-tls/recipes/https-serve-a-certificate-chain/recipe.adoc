@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-serve-a-certificate-chain]]
+=== Serving a Certificate Chain
+
+==== Problem
+
+Your production certificate is signed by an intermediate authority, and clients trust only the root. You want a test server that sends the whole chain, so a client trusting the root verifies it and one missing the intermediate is caught.
+
+==== Solution
+
+Put the leaf certificate first and the intermediate after it in one Privacy-Enhanced Mail (PEM) file, give `surl` that file with `--cert` and the leaf's private key with `--key`, and have the client trust the root alone. The `setup` lines make a root, an intermediate it signs, and a leaf the intermediate signs for `127.0.0.1`, and `cat` joins the last two:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A certificate from a real authority is rarely signed by a root. The root signs an intermediate, the intermediate signs the leaf, and the server presents the leaf and the intermediate so a client that holds only the root can walk from the leaf up to something it trusts (<<rfc5280>>). `--cert chain.pem` is that file, the leaf first and then the intermediate, and `--key leaf.key` is the private key of the leaf, the first certificate in the file. `--directory site` serves the files. On the `curl` side, `--cacert root.pem` names the one certificate to trust, the root, and `-s` hides the progress meter. The client verifies the leaf through the intermediate that the server sent, and the fetch exits `0`.
+
+The same client against a server that sends the leaf alone, `leaf2.pem` here, exits `60`: it cannot build a path from the leaf to the root, because the intermediate that links them is missing. That is the failure a test wants to see before production does. The two servers use two different intermediates on purpose. Windows keeps the intermediates it has seen, so a leaf-only server whose intermediate was sent once in a chain would pass on that machine. The wording of the `60` differs by platform and by Transport Layer Security (TLS) library, so match the exit code. With no `--cacert`, a client that trusts neither the root nor the intermediate exits `60` even against the full chain.
+
+`--ssl-no-revoke` is on every `curl` here for Windows: its Schannel library insists on a revocation check once there is a chain, and test certificates carry no revocation address, so it reports that the status is unknown and exits `60`. The option tells `curl` not to check, so the same lines run on Windows.
+
+A chain file that also ends with the root, as `full.pem` does, is served and verified the same way. Order matters at the head: `surl` pairs the key with the first certificate, so a file that starts with the intermediate is refused at start with exit `58`, the code for a certificate that cannot be used, and so is a key that is not the leaf's. Both print `Could not load the server certificate`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-a-certificate-chain-in-csharp>> for the same check from a C# test.
+* <<https-serve-a-certificate-chain-from-an-agent>> for the same check from an agent.
+* <<https-serve-a-pfx-certificate>> for a certificate and key that arrive in one file.
+* <<https-serve-with-a-self-signed-certificate>> for a certificate that signs itself.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5280>>.

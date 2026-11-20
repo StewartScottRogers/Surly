@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-seed-a-cache-for-a-test]]
+=== Seeding a Cache for a Test
+
+==== Problem
+
+Your app reads its settings from Redis and its content over Hypertext Transfer Protocol (HTTP), and it keeps a cached copy that expires. You want both stores seeded with known values, one key expiring soon, so a test covers the cache-miss path: the copy is there, then it is gone and the app falls back to the origin.
+
+==== Solution
+
+Start one `surl` that serves a Redis store and a directory over HTTP, with one account for both; seed the Redis keys with `curl` and a `SET`, give the cached copy a short life with `PX`, and let the script read, wait, and read again. The script needs a POSIX shell, Git Bash on Windows, because it waits:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` command line takes more than one listen URL. `redis://127.0.0.1:8081` is the settings and cache store, and `http://127.0.0.1:8082` serves the files under `--directory site` (<<surl-readme>>). `--user alice:s3cret` is the one account, and it covers both listeners, so the app logs in the same way to each; an HTTP request with no login is `401 Unauthorized` and a missing file `404 Not Found` (<<rfc9110>>). Both listeners are plain, which is why `--allow-plaintext-auth` is there: the password crosses an unencrypted connection, the option makes `surl` warn on start, and it is for a test on one machine. The last claim shows the Redis refusal without it, `WRONGPASS` and `curl` exit `67`.
+
+The seed is the `SET` commands. `curl` takes the command from the URL path, so `redis://host:port/SET/settings:currency/EUR` is `SET settings:currency EUR`, and `PX 3000` after the value gives the key three seconds to live (<<redis-resp>>, <<curl-protocols>>). `-u alice:s3cret` is the login, `-s` silences the progress meter, `-S` puts an error message back when `-s` has silenced it, and `-o` and `-w` send an HTTP body to nowhere and write the status instead. The origin content is a fixture, `site/products.json`, which `surl` serves as it is. The Solution seeds the setting and the copy in one `curl` run, with the reads after them, because a run is fast; a separate `curl` start costs about a second, and a read in a second process might come after a short expiry.
+
+The script is the test. The first run reads both keys back as seeded, the setting `EUR` and the copy `cached-copy`. It then waits four seconds, one more than the life of the copy, and reads again: the setting is still there, since it was set with no expiry, and the copy is null. A missing or expired key is not an error. `curl` writes null as an empty line and exits `0`, so the script prints it in brackets to show it is empty. That empty read is the cache-miss path, and the script then reads the origin over HTTP, the file `products.json`, as the app would to refill the cache.
+
+A test that cannot wait three seconds can force the same miss at once. `DEL` answers `1` for a key it removed, and the next `GET` is null; a second `SET` puts a copy back for the app to find. `TTL` tells the keys apart without waiting: the copy has a positive number of seconds, the setting has `-1`, no expiry, and a key never seeded has `-2`. A file that is not in the directory is `404`, which a test can use for the origin{apos}s own miss.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-seed-a-cache-for-a-test-in-csharp>> for the same seed and the same miss from a C# test with `Surl.Api` and `Curl.Api`.
+* <<redis-seed-a-cache-for-a-test-from-an-agent>> for an agent that seeds with `set_key` and `start_server`.
+* <<redis-expire-a-key>> for expiry on its own.
+* <<redis-resp>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

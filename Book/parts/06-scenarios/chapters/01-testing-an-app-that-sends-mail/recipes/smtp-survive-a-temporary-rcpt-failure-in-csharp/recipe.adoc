@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-survive-a-temporary-rcpt-failure-in-csharp]]
+=== Surviving a Temporary RCPT Failure in C#
+
+==== Problem
+
+In a C# test, you want a Simple Mail Transfer Protocol (SMTP) server that answers the first recipient `451`, try again later, and then accepts, to prove your app{apos}s sender retries a temporary failure and delivers exactly one copy.
+
+==== Solution
+
+Start a `SurlServer` with a fault rule that answers the first `RCPT` with `451`, let the app{apos}s sender, here .NET{apos}s `SmtpClient` in a retry loop, send to the bound port, and count what the server applied and stored:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `smtp://` listen URL on port 0, so it gets a free port; `MailDomains` and `Mailboxes` are `--mail-domain` and `--mailbox`, a domain to serve mail for and a mailbox with the account that logs in to it by its whole address. `Faults` is `--fault`. `SurlFault.ProtocolError("451 4.3.0 try later")` makes a rule that answers a command with that reply instead of carrying it out, and `with { Scheme = "smtp", Command = "RCPT", Times = 1 }` narrows it to the SMTP recipient command, once. The reply must fit the scheme: an SMTP code from 400 to 599 and text (<<surl-readme>>). `RecordExchanges` keeps the server{apos}s events so the test can ask for them.
+
+The app is played by `SmtpClient`, which needs `AllowPlaintextAuthentication`, `--allow-plaintext-auth`: without Transport Layer Security `surl` offers only `CRAM-MD5`, which `SmtpClient` cannot use, so it sends `MAIL FROM` with no login and is refused `530`, `MustIssueStartTlsFirst`, before any `RCPT`. Turn the option on for a test on the loopback address only; `surl` warns when it is on.
+
+A code that starts with `4` is a temporary failure, to be tried again later, and one that starts with `5` permanent (<<rfc5321>>). `SmtpClient` throws both, but not the same way: the `451` for the only recipient comes as a plain `SmtpException` whose `StatusCode` is `LocalErrorInProcessing`, while a `550` comes as an `SmtpFailedRecipientException`, `MailboxUnavailable`. So the sender catches `SmtpException` and reads the number behind `StatusCode`. Below 500 it waits a second and tries again, up to three tries; from 500 up it stops. Those choices, and the exit codes, are the program{apos}s.
+
+The checks come from the server, not the sender. `server.Faults.List()` returns each rule as a `SurlFaultRule`: its `Id`, `f1` for the first, and `Remaining`, how many more times it applies, `0` once spent and null for a rule with no limit. `server.FindEvents` with a `SurlEventQuery` whose `Kind` is `FaultApplied` returns one event for each time a rule acted, here one. `server.Mail.ListMailboxesAsync` returns a `SurlMailboxInfo` per mailbox of an owner, and Ann{apos}s `INBOX` has a `MessageCount` of `1`: the refused try stored nothing, the retry stored one. A sender that gave up after the first refusal leaves Ann with nothing, and the test fails on that count. A permanent `550` is not retried, as it should not be: the rule acted once, though it has no limit.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-survive-a-temporary-rcpt-failure>> for the same test on the console.
+* <<smtp-survive-a-temporary-rcpt-failure-from-an-agent>> for the same test from an agent.
+* <<http-retry-a-flaky-endpoint-in-csharp>> for a fault rule over HTTP from C#.
+* <<surl-readme>>, <<rfc5321>>.

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-check-what-a-queue-still-holds]]
+=== Checking What a Queue Still Holds
+
+==== Problem
+
+After a worker ran, you want an artificial intelligence (AI) agent to look into the job queue and report which jobs are still waiting and how many the worker holds unfinished, without taking any itself.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts an Advanced Message Queuing Protocol (AMQP) broker with `surl-mcp`{apos}s `start_server`, plays the app and the worker through `curl-mcp`{apos}s `curl` tool, then calls `browse_queue` and `get_events` and reports what it finds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+`start_server` takes an `amqp://` listen URL, an AMQP 0-9-1 broker (<<amqp091>>), and a `stomp://` one on the same message bus, both on port 0, and answers a `server_id` and the `bound_urls`. In `arguments`, `--queue jobs` gives the bus the queue from the start and `--user worker:s3cret` an account. `--allow-plaintext-auth` loosens one default: without Transport Layer Security `amqp://` offers only `CRAM-MD5`, and `curl` logs in to AMQP with `PLAIN` only, so without it the app{apos}s first publish exits `67` with `AMQP server offers no mechanism this client can use` (<<surl-readme>>).
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON), with `exitCode` and the `standardOutput` and `standardError` `content`. The program prepends `-s`; `-S` still reports an error. `-u` is the login. To the URL `amqp://.../%2F/jobs`, the virtual host `/` and the queue, `-d job-1` publishes one job, and the same URL with no `-d` takes one message and prints it (<<curl-readme>>). So the app queues five jobs and the worker takes two.
+
+`browse_queue`, given the `server_id` and the `queue`, lists the ready messages in delivery order with each one{apos}s `text`, and counts them as `ready_count`. It takes nothing and acknowledges nothing. `in_flight_count` counts the messages a consumer has been given and not yet acknowledged; they are not listed. After the worker took two, the report is three ready, `job-3` to `job-5`, and none in flight. `get_events` with `store` `bus` and `kinds` `store_changed` gives the bus{apos}s own record, an event per change: five `enqueued`, two `delivered` and two `acknowledged`. A get from `curl` acknowledges the message in the same step, so the worker never holds a job.
+
+A worker that holds jobs needs a client that acknowledges later, which `curl` does not offer over AMQP. The `in-flight` scenario plays one over the broker{apos}s STOMP listener, which serves the same queue as `/queue/jobs` (<<stomp12>>). `worker.stomp` is the conversation: `CONNECT` with the login, `SUBSCRIBE` with `ack:client-individual` so every message waits for its own `ACK`, and `ACK` frames for the first two. The `curl` tool sends it with `-T` to a `telnet://` URL at the STOMP port and holds the connection open for `-m 3` seconds, after which `curl` gives up with exit `28`. The agent starts that call and goes on. It calls `wait_for_event`, which returns the first event after `after_sequence` that matches, or `timed_out` after `timeout_ms`, until it has seen two `acknowledged` changes, so it never sleeps and guesses. The report then reads none ready and three in flight: a subscriber is given every ready message, and the worker has finished two of five. When the connection ends, the broker puts the three it never acknowledged back, and the next report lists `job-3` to `job-5` as ready again: unfinished work is not lost, but it will be done again by the next worker.
+
+`browse_queue` on a queue the server does not have, `job`, is a tool error: `No queue job.`
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-seed-a-queue-and-browse-what-is-left>> for the same check from a C# test.
+* <<amqp-send-and-receive>> for publishing and getting with `curl` on the console.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>, <<stomp12>>.

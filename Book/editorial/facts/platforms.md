@@ -37,6 +37,7 @@ Linux case shows the password was not checked.
   insists on 1.3 (`--tlsv1.3`, `SslVersion.Tls13`) gets exit 35, and `surl --tlsv1.3` starts but fails
   every handshake (exit 35). Mark cases that need a TLS 1.3 handshake `platforms: [windows, linux]`
   and add a `[macos]` case showing the 35.
+- Certificate chains (2026-11-20, Windows probed; Linux and macOS expected, CI checks): Schannel needs `--ssl-no-revoke` to accept a root, intermediate and leaf chain whose certificates carry no revocation address (else exit 60 `schannel: the revocation status is unknown`), and it keeps intermediates it has seen, so a leaf-only server of an intermediate that another server sent verifies on that machine. `https-serve-a-certificate-chain` uses `--ssl-no-revoke` everywhere and a second intermediate for the leaf-only case; the `60` wording is the library's, so cases match the exit code. The `58` message after the prefix `Could not load the server certificate: ` is .NET's, so cases match the prefix.
 - HTTP/3 and WebTransport use the port's own QUIC TLS 1.3 on both sides and pass on macOS.
 
 ## UDP and QUIC to a port where nothing listens
@@ -64,4 +65,4 @@ Linux case shows the password was not checked.
 ## Recipes
 ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope, ldaps-search-over-tls
 (and twins), https-refuse-clients-below-tls-1-3 (and twins), coap-get-a-resource, webtransport-open-a-stream,
-surl-start-and-stop-in-a-shell-script, surl-run-a-test-server-in-ci.
+surl-start-and-stop-in-a-shell-script, surl-run-a-test-server-in-ci, https-serve-a-certificate-chain (and twins).

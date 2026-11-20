@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-change-retained-config-mid-test-from-an-agent]]
+=== Changing Retained Config Mid-Test from an Agent
+
+==== Problem
+
+Your device reads its configuration from a retained Message Queuing Telemetry Transport (MQTT) message when it connects. You want an artificial intelligence (AI) agent to seed that message, replace it in the middle of the test, and check the device{apos}s second read, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a broker that keeps what is published under `devices/`, seeds the config with `publish_message`, reads it as the device would with the `curl` tool, seeds the change, and reads again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` starts an MQTT broker, <<mqtt311>>, as `surl mqtt://127.0.0.1:0` would, on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--topic "devices/#;retain"` declares the topics under `devices/` and keeps every message published on them, whatever its retain flag, and `--allow-anonymous` lets a device connect with no user name, a loosening for a test on one machine (<<surl-readme>>).
+
+`publish_message` takes the `server_id`, a `topic`, a `payload` as text and `retain`, and publishes as a client{apos}s publish would, with no client and no login. With `retain` `true` the message becomes the topic{apos}s retained message, the config a device reads when it connects. The program calls it twice on the same topic. The second call is the change, and it replaces the first: the broker keeps one message per topic, so the device{apos}s second read is `interval=15` alone. `read_retained_message` takes the `server_id` and a `topic`, reads the retained message without dropping it, and answers the `topic`, the `qos`, which is `0`, and the `text`; a topic with nothing kept answers `{"retained": false}` and is not a tool error, so the agent has to test for it.
+
+The `curl` tool is the device. It takes `curl`{apos}s own arguments, and `-s` and `-S` keep the progress meter out and the error message in. `curl mqtt://host:port/devices/lamp/config` subscribes to the topic, and the answer{apos}s `standardOutput.content` is what the broker sends: the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters and prints the text (<<curl-readme>>, <<curl-protocols>>). A subscribe ends when the broker has sent the retained messages for the topic, so the read is one call with exit code `0`, and a topic with nothing kept gives empty output, which the program prints as `nothing`. `curl-mcp` answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses.
+
+Other changes follow from that. Two changes in a row leave the last, and a device that connects afterwards reads one message. The topics are independent: the door{apos}s config changing leaves the lamp{apos}s as it was. An empty `payload` clears the topic: the device then reads nothing and `read_retained_message` answers `retained` false.
+
+The seed is not a client{apos}s publish, and the difference matters to a test. The `-d` option gives `curl` a message to publish, with the retain flag clear, so what keeps it is the `--topic` filter: a `curl` publish to a topic outside `devices/` is accepted, with exit `0`, and not kept, and a broker with no `;retain` at all keeps none from a client. `publish_message` with `retain` `true` is kept in both cases, since the call sets the flag itself. A test that seeds with `publish_message` can therefore pass where the device{apos}s own publishes would fail to be kept, and a test of the device{apos}s publishing should go through the `curl` tool.
+
+With `--directory state` the retained messages are on disk and survive a restart: the program calls `stop_server`, starts a second broker on the same directory, and `read_retained_message` finds the config. Without the option they are in memory and go when the broker stops. Last, the seed needs no login, but the device does: on a broker without `--allow-anonymous` the `curl` tool answers exit code `8` and `Expected 0000 but got 0005` on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-change-retained-config-mid-test>> for the same seed, change and read on the console, with `curl` publishing.
+* <<mqtt-change-retained-config-mid-test-in-csharp>> for the same seed, change and read from a C# test with `Surl.Api` and `Curl.Api`.
+* <<mqtt-check-retained-state-after-a-run>> for reading every device{apos}s last state after a run.
+* <<mqtt311>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

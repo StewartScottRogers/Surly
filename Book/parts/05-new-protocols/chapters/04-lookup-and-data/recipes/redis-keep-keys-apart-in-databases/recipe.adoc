@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-keep-keys-apart-in-databases]]
+=== Keeping Keys Apart in Databases
+
+==== Problem
+
+Two apps share one Redis but use different numbered databases. You want the same key name holding different values in two databases, so a test can show that one app never sees the other{apos}s data.
+
+==== Solution
+
+Start `surl` with a Redis listen URL and one account, and put the database number first in the URL path of each `curl` command:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A Redis server holds sixteen separate keyspaces, numbered 0 to 15, and a client works in one at a time (<<redis-resp>>). `surl` on a `redis://` listen URL is one such server; its keys live in memory and go when it stops (<<surl-readme>>). `curl` takes the command from the URL path: `redis://host:port/GET/greeting` is `GET greeting`. A number as the first path segment selects the database before the command runs, so `/1/SET/greeting/from-app-one` sets `greeting` in database 1 and `/2/GET/greeting` reads it from database 2 (<<curl-readme>>, <<curl-protocols>>). The Solution runs four commands in one `curl` command line, and each prints a line: `OK` for each `SET`, then the two values, one from each database.
+
+A URL with no number uses database 0, which is where a client that never selects one works. It holds neither value, so the same `GET` answers null, which `curl` writes as an empty line with exit `0`; a missing key is not an error. Writing the number `0` is the same as leaving it out.
+
+Everything a command does is scoped to the database in its URL. `DBSIZE` counts one database{apos}s keys, so two keys in database 3 and one of the same name in database 4 count as 2 and 1, and database 5 counts 0. `DEL` answers `1` for a key it removed and leaves the same name in the other database alone. `FLUSHDB` empties one database and no other, which is the way to reset one app{apos}s data between tests while the other{apos}s stays.
+
+The numbers stop at 15. Database 16 is refused by the server, and `curl` exits `8` and writes `ERR DB index is out of range` on standard error, which `-S` keeps visible when `-s` silences the rest.
+
+Every Redis connection needs a login. `--user alice:s3cret` is the account and `curl -u alice:s3cret` supplies it; without `-u` the server refuses the first command and `curl` exits `67` with `NOAUTH`, whichever database the URL names. A `redis://` connection has no encryption, so `surl` refuses the password too, unchecked, unless `--allow-plaintext-auth` is given: the second server, `strict`, answers `WRONGPASS` and exit `67` for the right password. That option loosens the server for a test on one machine and makes `surl` warn on start; the secure way is `rediss://`, with a certificate.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-keep-keys-apart-in-databases-in-csharp>> for the same two databases from a C# test.
+* <<redis-keep-keys-apart-in-databases-from-an-agent>> for an agent that seeds each database with `set_key` and reads it back.
+* <<redis-expire-a-key>> for a key that goes after a time.
+* <<redis-resp>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

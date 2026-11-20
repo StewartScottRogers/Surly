@@ -1,0 +1,105 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smtp-test-a-password-reset-mail
+title: Testing a Password Reset Mail
+protocols: [smtp, imap, http]
+tier: scenarios
+surl-options: [--directory, --mail-domain, --mailbox, -v, --log-file]
+curl-options: [-s, -S, -f, -u, --crlf, --mail-from, --mail-rcpt, -T, -o, -w]
+exit-codes: [0, 1, 22]
+references: [surl-readme, curl-manual, rfc5321, rfc9051, rfc9110]
+
+# reset-app.sh stands in for the app: it publishes a reset page under a fresh token and mails a
+# link to it. check-reset-link.sh is the test. no-link.eml is a reset mail that lost its link.
+fixtures:
+  site/index.txt: "Example app\n"
+  no-link.eml: "From: app@example.com\nTo: carol@example.com\nSubject: Reset your password\n\nOpen this link to choose a new password:\n\n"
+  reset-app.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Stands in for the app: makes a reset token, publishes the reset page under site/reset/, and
+    # mails the recipient a link to it. A fourth argument puts another token in the link, as a bug would.
+    # Usage: sh reset-app.sh <smtp port> <http port> <recipient> [<token for the link>]
+    token=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+    mkdir -p site/reset
+    printf 'Choose a new password for %s.\n' "$3" > "site/reset/$token"
+    printf 'From: app@example.com\nTo: %s\nSubject: Reset your password\n\nOpen this link to choose a new password:\nhttp://127.0.0.1:%s/reset/%s\n' \
+      "$3" "$2" "${4:-$token}" |
+      curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt "$3" \
+        -T - "smtp://127.0.0.1:$1/example.com"
+  check-reset-link.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Reads the reset mail (the INBOX's first message) over IMAP, finds the link in it and fetches it.
+    # Usage: sh check-reset-link.sh <user:password> <imap port>
+    body=$(curl -sS -u "$1" "imap://127.0.0.1:$2/INBOX;UID=1;SECTION=TEXT") || exit $?
+    link=$(printf '%s\n' "$body" | tr -d '\r' | sed -n 's|^.*\(http://[^ ]*/reset/[^ ]*\).*$|\1|p' | head -n 1)
+    if [ -z "$link" ]; then
+      echo "FAIL: no reset link in the mail"
+      exit 1
+    fi
+    echo "link: $link"
+    curl -sS -f "$link"
+
+# One surl: SMTP for the app to send to, IMAP for the test to read from, HTTP for the link, with
+# the app's pages in site/. app is the account the app sends as; ann, bob and carol get its mail.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox carol@example.com:carolpass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/ http://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app mails ann a reset link; the test reads the mail over IMAP, finds the link, and fetching it from the same server returns the reset page, exit 0.
+    run: sh reset-app.sh {{port}} {{port3}} ann@example.com && sh check-reset-link.sh ann@example.com:annpass {{port2}}
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: '^link: http://127\.0\.0\.1:\d+/reset/[0-9a-f]{16}\nChoose a new password for ann@example\.com\.\n$'
+
+  - id: server-served-it
+    claim: The server's log records the one GET of a reset page and that it was answered 200.
+    run: 'grep -c "GET /reset/[0-9a-f]*: 200, " surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: wrong-token
+    claim: When the app puts a token in the link that it never published, the link is answered 404 and the test fails with curl's exit 22.
+    run: sh reset-app.sh {{port}} {{port3}} bob@example.com 0000000000000000 && sh check-reset-link.sh bob@example.com:bobpass {{port2}}
+    timeout: 30
+    expect:
+      exit: 22
+      stdout-matches: '^link: http://127\.0\.0\.1:\d+/reset/0000000000000000\n$'
+      stderr-contains: "curl: (22) The requested URL returned error: 404"
+
+  - id: server-refused-it
+    claim: The log records that GET as a 404, nothing at that path.
+    run: 'grep -c "GET /reset/0000000000000000: 404, nothing exists at " surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: no-link
+    claim: A reset mail with no link in it fails the test before any fetch, exit 1.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt carol@example.com -T no-link.eml smtp://127.0.0.1:{{port}}/example.com && sh check-reset-link.sh carol@example.com:carolpass {{port2}}
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "FAIL: no reset link in the mail\n"
+
+  - id: no-login-for-the-link
+    claim: The mailbox accounts log in on SMTP, IMAP and POP3 only, so the HTTP listener has no account and serves the link with no login, as a reset link must be.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port3}}/index.txt
+    expect:
+      exit: 0
+      stdout: "200"
+
+  - id: mailbox-logins
+    claim: The server's log says on start which protocols each mailbox account logs in on; HTTP is not among them.
+    run: 'grep -c "Mailbox ann@example.com: logins on smtp, imap, pop3$" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"

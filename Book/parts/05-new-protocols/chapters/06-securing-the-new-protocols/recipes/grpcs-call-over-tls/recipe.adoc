@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpcs-call-over-tls]]
+=== Calling gRPC over TLS
+
+==== Problem
+
+Your gRPC client always uses Transport Layer Security (TLS), and you want a test server it can call over `grpcs` with a certificate it trusts, and to see the call fail when it does not trust the certificate.
+
+==== Solution
+
+Make a certificate, start `surl` on a `grpcs` listen URL with it and an account, and call the built-in `Echo` method with `curl`, trusting the certificate with `--cacert`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+gRPC (<<grpc-http2>>) runs over version 2 of the Hypertext Transfer Protocol (HTTP/2, <<rfc9113>>), and `grpcs` is the same protocol inside TLS (<<rfc8446>>). `surl` serves a built-in service on it, `surl.test.Echo`, whose `Echo` method answers with the `message` it was sent. `curl` turns the JavaScript Object Notation (JSON) given with `-d` into the request message, using types it asks the server for by reflection, and prints the reply as JSON. `-s` hides the progress meter and `-S` still shows errors.
+
+The `openssl req` in setup makes a self-signed certificate for `127.0.0.1`, written to `server.pem` with its key in `server.key`. `--cert server.pem` with `--key server.key` is what `surl` presents. A TLS listener with neither refuses to start, exit `58`, and names the two ways to give one: `--cert`, or `--self-signed` for a throwaway certificate. There is no `grpcs` without one.
+
+`--cacert server.pem` is the client{apos}s side: it trusts that certificate as its own authority. Without it `curl` cannot verify the server and the call fails, exit `60` with nothing on standard output. Trust is not the whole check: the certificate also has to name the host in the URL, so the same call to `localhost` is `60` too. The wording after `curl: (60)` is the TLS library{apos}s, so a script should test the exit code, not the text.
+
+`--user alice:s3cret` gives the server an account, and once there is one every call has to log in. `-u alice:s3cret` sends the password with the call, and over `grpcs` the server checks it. A wrong password, or no login at all, is refused with `grpc-status 16 (UNAUTHENTICATED)`, which `curl` reports as exit `22`. The refusal comes when `curl` first asks for the method{apos}s types by reflection, so the message says the server did not answer reflection.
+
+This is the reason to keep the client on TLS. The same login to the same kind of server over plain `grpc` is refused unchecked with `grpc-status 7 (PERMISSION_DENIED)`, because the password would cross the network in clear; only `--allow-plaintext-auth` would make `surl` accept it (see <<grpc-call-a-method>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpcs-call-over-tls-in-csharp>> for the same call from a C# test.
+* <<grpcs-call-over-tls-from-an-agent>> for an agent making it through `surl-mcp` and `curl-mcp`.
+* <<grpc-call-a-method>> for the gRPC call itself, with and without a `.proto` file.
+* <<surl-readme>>, <<curl-readme>>.

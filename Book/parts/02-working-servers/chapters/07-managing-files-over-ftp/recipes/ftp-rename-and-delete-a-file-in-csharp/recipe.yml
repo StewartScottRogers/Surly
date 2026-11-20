@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-rename-and-delete-a-file-in-csharp
+title: Renaming and Deleting over FTP in C#
+protocols: [ftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFiles, SurlFolderPage, SurlFileContents, CurlClient, CurlRequest, CurlResponse, CurlFtpOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Quote commands RNFR and RNTO rename draft.txt to final.txt, the folder listing the same request fetched already shows the new name, and the server's store holds it.
+    program: rename-and-delete.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^listing: final\.txt keep\.txt scratch\.txt taken\.txt\n.*store: final\.txt keep\.txt scratch\.txt taken\.txt\n$'
+
+  - id: replies
+    claim: The replies are in the response's Headers, RNFR answered 350 Ready for RNTO and RNTO answered 250.
+    program: rename-and-delete.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: 'replies: 350 Ready for RNTO, 250 '
+
+  - id: delete
+    claim: A DELE in Quote runs before the transfer, so the listing already leaves the file out; a DELE in PostQuote runs after it, so the listing still shows the file and the store, read afterwards, does not.
+    program: rename-and-delete.cs
+    args: [delete]
+    expect:
+      exit: 0
+      stdout: "listing: draft.txt keep.txt taken.txt\nlisting: draft.txt keep.txt taken.txt\nstore: keep.txt taken.txt\n"
+
+  - id: rename-over-a-file
+    claim: A rename onto a name that is taken replaces that file, so taken.txt holds what keep.txt held and keep.txt is gone.
+    program: rename-and-delete.cs
+    args: [taken]
+    expect:
+      exit: 0
+      stdout-matches: 'taken\.txt: keep me\\n\n.*store: draft\.txt scratch\.txt taken\.txt\n$'
+
+  - id: missing-file
+    claim: A rename of a file that is not there, a delete of one, and an RNTO with no RNFR before it each throw a CurlException with code QuoteError, 21, the code curl exits with.
+    program: rename-and-delete.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "RNFR nothere.txt: CurlException 21 QuoteError\nDELE nothere.txt: CurlException 21 QuoteError\nRNTO z.txt: CurlException 21 QuoteError\n"
+
+  - id: uploads-off
+    claim: A server with AllowUploads left off refuses RNFR, SendAsync throws a CurlException with code QuoteError, 21, and every file keeps its name.
+    program: rename-and-delete.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "uploads-off: CurlException 21 QuoteError\nstore: draft.txt keep.txt scratch.txt taken.txt\n"
+
+  - id: no-login
+    claim: Without AllowAnonymous the server refuses the anonymous login before any command, and SendAsync throws a CurlException with code LoginDenied, 67.
+    program: rename-and-delete.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "no-login: CurlException 67 LoginDenied\nstore: draft.txt keep.txt scratch.txt taken.txt\n"

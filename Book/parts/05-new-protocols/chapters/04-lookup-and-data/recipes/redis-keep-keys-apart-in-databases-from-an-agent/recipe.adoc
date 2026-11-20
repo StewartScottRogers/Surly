@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-keep-keys-apart-in-databases-from-an-agent]]
+=== Separating Redis Databases from an Agent
+
+==== Problem
+
+Two apps share one Redis but use different numbered databases. You want an artificial intelligence (AI) agent to put the same key name, with a different value, in two databases and read each back, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a Redis server, sets `greeting` in database 1 and in database 2 with `set_key`, and reads each database with `read_key` and the `curl` tool:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here one `redis` listener on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--user alice:s3cret` is the account a client logs in with, and `--allow-plaintext-auth` lets that password cross a `redis://` connection, which has no encryption. That loosening is for a test on one machine (<<surl-readme>>).
+
+A Redis server holds sixteen keyspaces, numbered 0 to 15 (<<redis-resp>>). `set_key` sets a string key as a `SET` would, with no client and no login, and its `database` argument says which keyspace gets it: the same `greeting` goes into database 1 and into database 2 with two values, and each answer says how many bytes it stored. `read_key` takes the same `database` and answers the value of that database only. Database 0, the default and the one a client that never selects reads, holds neither, and `read_key` is a tool error, `No such key.`, the same as for a key never set; an agent that wants to know a key is missing reads that, and does not look for an empty value.
+
+The `curl` tool plays the client. It takes `curl`{apos}s own arguments, and the URL path is the Redis command: a number first selects the database, so `1/GET/greeting` reads database 1 and `2/GET/greeting` database 2 (<<curl-readme>>, <<curl-protocols>>). `-u alice:s3cret` logs in, and `-s` and `-S` keep the progress meter out and the error message in. `curl-mcp` answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses. The two views agree for each database. For database 0 the client{apos}s `GET` answers null, which `curl` writes as an empty line and exit `0`, so the program prints `null`: one view is a tool error and the other an empty line.
+
+Everything a command does is scoped to its database. `DEL` through the `curl` tool in database 1 answers `1` and removes the key there only, so `read_key` then finds nothing in database 1 and still the value in database 2. `list_keys` takes `database` too and answers the keys of that one, `greeting` and `other` for database 1, and `DBSIZE` counts them, 2; database 2 lists one and counts 1, and database 0 lists none.
+
+The numbers stop at 15. `set_key` bounds `database` in its schema, so 16 never reaches `surl`: the host answers an invalid-params error that names the bound. A client is not bounded, and the server answers its selection of database 16 with `ERR DB index is out of range`, which `curl` reports on standard error with exit `8`.
+
+A client with no login is refused at its first command: with no `-u`, `curl` exits `67` and the message says `NOAUTH`, whichever database the URL names.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-keep-keys-apart-in-databases>> for the same two databases on the console, with a number in the URL.
+* <<redis-keep-keys-apart-in-databases-in-csharp>> for the same two databases from a C# program with `Surl.Api` and `Curl.Api`.
+* <<redis-seed-keys-from-an-agent>> for the rest of `set_key`, `read_key` and `list_keys`.
+* <<redis-resp>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

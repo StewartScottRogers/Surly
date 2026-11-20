@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs build-from-spec.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument names the spec file to build from.
+schema: 2
+key: surl-build-an-environment-from-a-spec
+title: Building an Environment from a Spec
+protocols: [http, smtp, mqtt]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, stop_server, list_servers, list_messages, wait_for_event, read_retained_message, transfer, curl]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T, -d]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, mcp-spec, rfc5321, mqtt311]
+
+fixtures:
+  environment.json: |
+    {
+      "servers": {
+        "web": {
+          "listen_urls": ["http://127.0.0.1:0"],
+          "files": { "health.txt": "ok\n" }
+        },
+        "mail": {
+          "listen_urls": ["smtp://127.0.0.1:0"],
+          "arguments": ["--mail-domain", "example.com", "--mailbox", "app@example.com:apppass", "--mailbox", "ann@example.com:annpass"]
+        },
+        "events": {
+          "listen_urls": ["mqtt://127.0.0.1:0"],
+          "arguments": ["--user", "app:apppass", "--allow-plaintext-auth", "--topic", "env/#;retain"]
+        }
+      }
+    }
+  typo.json: |
+    {
+      "servers": {
+        "web": { "listen_urls": ["http://127.0.0.1:0"], "files": { "health.txt": "ok\n" } },
+        "mail": { "listen_urls": ["smtp://127.0.0.1:0"], "arguments": ["--mail-domain", "example.com"] },
+        "events": { "listen_urls": ["mqtt://127.0.0.1:0"], "arguments": ["--topics", "env/#;retain"] }
+      }
+    }
+  exposed.json: |
+    {
+      "servers": {
+        "web": { "listen_urls": ["http://0.0.0.0:0"] }
+      }
+    }
+  hello.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Hello\r\n\r\nThe environment is up.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent reads environment.json, starts its three servers with start_server, passing each entry's fields as the tool's arguments, and reports each name with the URL it bound; a smoke check then fetches web's health.txt (200 ok), finds the mail it sent ann in her INBOX, and reads the event it published as env/status's retained message.
+    program: build-from-spec.cs
+    args: [environment.json]
+    expect:
+      exit: 0
+      stdout-matches: '^web: http://127\.0\.0\.1:[1-9]\d*/\nmail: smtp://127\.0\.0\.1:[1-9]\d*/\nevents: mqtt://127\.0\.0\.1:[1-9]\d*/\nweb health\.txt: 200 ok\nmail to ann: 1 in INBOX\nevents env/status: \{"topic":"env/status","qos":0,"text":"ready"\}\n$'
+
+  - id: all-or-nothing
+    claim: When one entry will not start, here an unknown option --topics, start_server is a tool error carrying surl's own message; the agent stops the servers it had already started from the spec and list_servers shows none left.
+    program: build-from-spec.cs
+    args: [typo.json]
+    expect:
+      exit: 1
+      stdout: "events: surl: option --topics: is unknown\nsurl: try 'surl --help' or 'surl --manual' for more information\nstopped web\nstopped mail\nleft running: 0\n"
+
+  - id: loopback-only
+    claim: A spec cannot expose a server to the network; a listen URL on 0.0.0.0 is refused by surl-mcp before anything binds, and with nothing started there is nothing to stop.
+    program: build-from-spec.cs
+    args: [exposed.json]
+    expect:
+      exit: 1
+      stdout: "web: refused: the listen host 0.0.0.0 is not loopback; only whoever starts surl-mcp can allow it, with --allow-non-loopback\nleft running: 0\n"
