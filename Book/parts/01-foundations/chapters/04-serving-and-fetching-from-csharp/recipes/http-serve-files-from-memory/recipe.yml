@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-serve-files-from-memory
+title: Serving Files from Memory
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 2]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Files given in options.Files, text and binary, one two folders down, are each served at their key with 200 and exactly the bytes given.
+    program: serve-memory.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "/hello.txt: 200 text/plain, 16 bytes, same bytes\n/docs/guide/intro.txt: 200 text/plain, 24 bytes, same bytes\n/images/logo.png: 200 image/png, 12 bytes, same bytes\n"
+
+  - id: type-from-the-name
+    claim: The Content-Type comes from the key's extension, text/plain for .txt and image/png for .png; nothing in Files sets it.
+    program: serve-memory.cs
+    args: [hello.txt, images/logo.png]
+    expect:
+      exit: 0
+      stdout: "/hello.txt: 200 text/plain, 16 bytes, same bytes\n/images/logo.png: 200 image/png, 12 bytes, same bytes\n"
+
+  - id: folders-are-not-served
+    claim: A folder the keys imply, such as docs/guide/, is not itself served; it and a path not in Files are both 404 Not Found.
+    program: serve-memory.cs
+    args: [docs/guide/, missing.txt]
+    expect:
+      exit: 0
+      stdout: "/docs/guide/: 404 Not Found\n/missing.txt: 404 Not Found\n"
+
+  - id: dot-names-not-served
+    claim: A key whose last segment begins with a dot is accepted but never served, 404 Not Found, as a dot file in a served folder is not.
+    program: serve-memory.cs
+    args: [--key, docs/.draft]
+    expect:
+      exit: 0
+      stdout: "/docs/.draft: 404 Not Found\n"
+
+  - id: rooted-key-refused
+    claim: A key that starts with / is refused with an ArgumentException from StartAsync; keys are relative paths.
+    program: serve-memory.cs
+    args: [--key, /hello.txt]
+    expect:
+      exit: 2
+      stdout: "ArgumentException: Files holds '/hello.txt', which is not a '/' separated relative path with bytes. (Parameter 'options')\n"
+
+  - id: dot-dot-refused
+    claim: A key with a .. segment is refused the same way, so no key reaches outside the served root.
+    program: serve-memory.cs
+    args: [--key, ../up.txt]
+    expect:
+      exit: 2
+      stdout: "ArgumentException: Files holds '../up.txt', which is not a '/' separated relative path with bytes. (Parameter 'options')\n"
+
+  - id: backslash-refused
+    claim: A key separated with a backslash is refused; the separator is / on every platform.
+    program: serve-memory.cs
+    args: [--key, 'docs\guide.txt']
+    expect:
+      exit: 2
+      stdout: "ArgumentException: Files holds 'docs\\guide.txt', which is not a '/' separated relative path with bytes. (Parameter 'options')\n"
+
+  - id: file-and-folder-refused
+    claim: A key that names a folder another key is inside, docs/guide beside docs/guide/intro.txt, is refused.
+    program: serve-memory.cs
+    args: [--key, docs/guide]
+    expect:
+      exit: 2
+      stdout: "ArgumentException: Files holds 'docs/guide' and a file inside it. (Parameter 'options')\n"

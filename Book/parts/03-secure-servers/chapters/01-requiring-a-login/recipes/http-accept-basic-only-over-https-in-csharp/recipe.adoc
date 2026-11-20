@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-accept-basic-only-over-https-in-csharp]]
+=== Accepting Basic over HTTPS in C#
+
+==== Problem
+
+Your client only speaks HTTP Basic, and must never send its password in clear. You want a server that offers Basic alone, accepts it over Hypertext Transfer Protocol Secure (HTTPS), and refuses it unchecked over plain Hypertext Transfer Protocol (HTTP), from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts the server with two listeners and tries the same account on both:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServer` is the running server and `SurlServerOptions` says what to start. `ListenUrls` holds an `https://` and an `http://` address, each on port `0`, so the system picks free ports; `BoundUrls` lists them in the order given. `SelfSigned` makes the throwaway certificate HTTPS needs, and `AuthenticationMethods = ["basic"]` is the option `--auth basic` on the command line: Basic is the only method accepted and offered (<<rfc7617>>). `SurlAccount("alice", "s3cret")` is the account. Like `--auth`, the property loosens the defaults, and `surl` warns about it on every start (<<surl-readme>>).
+
+`CurlClient` is the client. It does not turn verification off. `SelfSignedCertificatePem` is the public half of the certificate the server made, and giving it to the client as `CertificateAuthorityBlob` in `CurlTlsPeerOptions`, inside `CurlTlsOptions`, makes the client trust that certificate and no other, with `VerifyPeer` and `VerifyHost` left on. Over Transport Layer Security (TLS) (<<rfc8446>>) the server checks the login: the right password gets `200` and the file, a wrong one gets `401 Unauthorized`, and so does a request with no login, whose answer offers `Basic realm="surl"` and nothing else. The `401` is an ordinary `CurlResponse`; `SendAsync` throws only when the transfer itself fails.
+
+Over `http://`, the program gets `403 Forbidden` for the right password, for a wrong one and for no login at all. The server does not look at a password it received in clear, so the wrong one is no more refused than the right one, and the request with no login is not invited to try, which is why that `403` carries no `WWW-Authenticate` header. The listener decides: one server, one account, and the password is accepted on the first address and refused on the second. For a test whose client cannot use TLS, `AllowPlaintextAuthentication` checks Basic over `http://` too; see <<http-refuse-a-password-in-clear>>.
+
+`Authentication` on a `CurlRequest` takes the user name and password as `CurlAuthenticationOptions`; with no method named, the client sends Basic, which is the point of the test. `Show` prints each `WWW-Authenticate` header the answer carries between brackets, so an answer that offers nothing prints `[]`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-accept-basic-only-over-https>> for the same server on the command line.
+* <<http-accept-basic-only-over-https-from-an-agent>> for the same, driven by an agent.
+* <<https-serve-self-signed-in-process>> for a login over TLS with a certificate the program makes.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc8446>>, <<rfc9110>>.

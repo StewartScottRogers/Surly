@@ -1,0 +1,41 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs empty-mailboxes.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: pop3-empty-mailboxes-after-a-run
+title: Emptying Mailboxes After a Run
+protocols: [pop3, imap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, seed_mail, list_mailboxes, curl, reset_server]
+curl-options: [-s, -S, -u, -X, --next]
+exit-codes: [0, 1, 67]
+references: [surl-readme, curl-readme, rfc1939, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: list_mailboxes shows two messages left for ann and one for bob; one curl per mailbox sends DELE for each message number over POP3, exit 0; afterwards both counts are 0 and an IMAP SEARCH ALL of ann's INBOX finds nothing.
+    program: empty-mailboxes.cs
+    args: [empty]
+    expect:
+      exit: 0
+      stdout: "left: ann@example.com message_count 2\nleft: bob@example.com message_count 1\nDELE 1 to 2 for ann@example.com: curl exit 0\nDELE 1 to 1 for bob@example.com: curl exit 0\nafter: ann@example.com message_count 0\nafter: bob@example.com message_count 0\nIMAP SEARCH ALL for ann: * SEARCH\n"
+
+  - id: wrong-password
+    claim: With the wrong password for ann the deletion is refused, curl exits 67 Login denied, once for each DELE transfer, her two messages stay, and the program exits 1.
+    program: empty-mailboxes.cs
+    args: [wrong-password]
+    expect:
+      exit: 1
+      stdout: "left: ann@example.com message_count 2\nleft: bob@example.com message_count 1\nDELE 1 to 2 for ann@example.com: curl exit 67, curl: (67) Login denied\ncurl: (67) Login denied\nDELE 1 to 1 for bob@example.com: curl exit 0\nafter: ann@example.com message_count 2\nafter: bob@example.com message_count 0\nIMAP SEARCH ALL for ann: * SEARCH 1 2\n"
+
+  - id: reset-server
+    claim: reset_server returns the server to its state at start, so every mailbox is empty with no POP3 at all.
+    program: empty-mailboxes.cs
+    args: [reset]
+    expect:
+      exit: 0
+      stdout: "left: ann@example.com message_count 2\nleft: bob@example.com message_count 1\nreset_server: tool error no\nafter: ann@example.com message_count 0\nafter: bob@example.com message_count 0\nIMAP SEARCH ALL for ann: * SEARCH\n"

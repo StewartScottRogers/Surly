@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-serve-a-pfx-certificate-in-csharp]]
+=== Serving a PFX Certificate in C#
+
+==== Problem
+
+Your certificate comes as a password-protected PFX file from Windows, not as Privacy-Enhanced Mail (PEM) files. You want a test in your own .NET code to serve it, to see the server refuse to start with the wrong passphrase, and to read why.
+
+==== Solution
+
+The program starts `SurlServer` in process on the PFX, with the passphrase it is given, and fetches `hello.txt` with a `CurlClient` that trusts the same certificate. The first `openssl` line makes a test certificate and the second packs it into a PFX, which stands in for the file Windows exported:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A PFX file, also called a PKCS #12 or P12 file, is one file that holds a certificate and its private key under a passphrase. `SurlServerOptions` is `surl`{apos}s command line as an object: `ListenUrls` holds the listen URL, with port `0` for a free one that `server.BoundUrl` then reports, `CertificateFile` is `--cert`, and `KeyPassphrase` is `--pass`. There is no property for the file format, so the program passes `--cert-type P12` through `AdditionalArguments`, which takes any other `surl` option in `surl`{apos}s own words (<<surl-readme>>). There is no key file: the key is inside the PFX. `SurlServer.StartAsync` starts the server and `await using` stops it when the program ends.
+
+The client is a `CurlClient` made from `CurlClientOptions`. Its `Tls` property is a `CurlTlsOptions`, and the settings for the server being fetched from sit in its `Origin`, a `CurlTlsPeerOptions`. `CertificateAuthorityFile` is `curl --cacert`: it names `server.pem`, the same certificate without its key, as the one to trust, because it signed itself (<<curl-readme>>, <<rfc5280>>). `CurlClient.SendAsync` takes a `CurlRequest` and returns a `CurlResponse`, whose `Body` is a stream.
+
+With a wrong passphrase there is no server and no request: `SurlServer.StartAsync` throws `SurlServerStartException`, and its message is the line `surl` would print, `(58) Could not load the server certificate: 'server.pfx' is not a P12 certificate Surl can read.` The program returns `58`, the exit code `surl` gives for a certificate that cannot be used. The message does not say whether the passphrase or the file is at fault, so when the passphrase is right and the message still comes, check the file. Nothing here loosens a default.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-a-pfx-certificate>> for the same task on the console.
+* <<https-serve-a-pfx-certificate-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5280>>.

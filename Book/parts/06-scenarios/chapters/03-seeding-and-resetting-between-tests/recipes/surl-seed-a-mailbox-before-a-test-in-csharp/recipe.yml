@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-seed-a-mailbox-before-a-test-in-csharp
+title: Seeding a Mailbox Before a Test
+protocols: [smtp, imap, pop3]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlSeedRefusedException, SurlMailboxInfo, SurlMessageSummary, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9051, rfc1939]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Mail.DeliverAsync puts ten unseen messages in ann's INBOX before any client connects; the client reads UID 3 over IMAP and deletes message 1 over POP3; afterwards the store holds nine, UID 3 the only one seen.
+    program: seed-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "seeded: 10 messages, 10 unseen\nthe client read: Subject: Order 03\nthe client sent DELE 1\nbefore the client closed: 10 messages\nafter: 9 messages, 8 unseen\nseen: UID 3\nleft: UID 2 3 4 5 6 7 8 9 10\n"
+
+  - id: seeds-arrive-unseen
+    claim: A seeded message arrives with no flags, so all ten count as unseen until a client reads one.
+    program: seed-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^seeded: 10 messages, 10 unseen\n'
+
+  - id: delete-on-quit
+    claim: POP3's DELE takes effect when the session ends with QUIT; Curl.Api keeps the connection open for reuse, so the deletion lands only when the CurlClient is disposed.
+    program: seed-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nthe client sent DELE 1\nbefore the client closed: 10 messages\nafter: 9 messages, '
+
+  - id: seed-for-no-mailbox
+    claim: Seeding mail for an address that has no mailbox throws SurlSeedRefusedException with Store Mail and Refusal NoSuchAccount, so a seed with a typo in the address fails the test at once.
+    program: seed-mailbox.cs
+    args: [bob@example.com]
+    expect:
+      exit: 1
+      stdout: "seed refused: Mail NoSuchAccount\n"

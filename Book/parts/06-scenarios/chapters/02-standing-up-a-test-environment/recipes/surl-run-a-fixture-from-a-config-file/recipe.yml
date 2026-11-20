@@ -1,0 +1,126 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# The listen URLs are in test-env.conf, on port 0, so the recipe has no servers: block and no
+# {{port}}: check-env.sh starts surl itself, reads the ports from its Listening on lines and stops it.
+schema: 1
+key: surl-run-a-fixture-from-a-config-file
+title: Running a Fixture from a Config File
+protocols: [http, ftp, smtp]
+tier: scenarios
+surl-options: [-K, --directory, --user, --allow-plaintext-auth, --allow-uploads, --mail-domain, --mailbox, --no-allow-plaintext-auth, --no-allow-uploads]
+curl-options: [-f, -s, -S, -u, -T, --mail-from, --mail-rcpt]
+exit-codes: [0, 2, 22, 25, 37]
+references: [surl-readme, curl-readme]
+
+fixtures:
+  site/hello.txt: "hello from the test environment\n"
+  test-env.conf: |
+    # The test environment, checked in beside the tests: surl -K test-env.conf
+    # The passwords are for throwaway test accounts only.
+
+    directory = site
+    user = "tester:secret"              # logs in over HTTP and FTP
+    mail-domain = example.com
+    mailbox = "app@example.com:secret"  # the app's mailbox, over SMTP
+
+    # The tests log in over plain http:// and ftp://, and upload over FTP.
+    allow-plaintext-auth
+    allow-uploads
+
+    url = http://127.0.0.1:0/
+    url = ftp://127.0.0.1:0/
+    url = smtp://127.0.0.1:0/
+  check-env.sh: |
+    #!/bin/sh
+    # Starts the servers test-env.conf describes, waits for them, and tries each one once.
+    # Any arguments are more surl options, read after the file, so they override it.
+    set -e
+    out=$(mktemp)
+    surl -K test-env.conf "$@" > "$out" &
+    pid=$!
+    trap 'kill $pid 2>/dev/null || true; rm -f "$out"' EXIT
+
+    # One Listening on line per listen URL once all have bound; if surl exits first, stop with its code.
+    until [ "$(grep -c '^Listening on ' "$out")" -eq 3 ]; do
+      kill -0 $pid 2>/dev/null || { wait $pid; exit $?; }
+      sleep 0.1
+    done
+    listening() { sed -n "s|^Listening on \($1://.*\)\$|\1|p" "$out"; }
+
+    curl -fsS -u tester:secret "$(listening http)hello.txt"
+    echo "uploaded over FTP" | curl -sS -u tester:secret -T - "$(listening ftp)upload.txt"
+    curl -fsS -u tester:secret "$(listening http)upload.txt"
+    printf 'Subject: Ready\r\n\r\nThe environment is up.\r\n' |
+      curl -sS -u app@example.com:secret --mail-from app@example.com --mail-rcpt app@example.com \
+        -T - "$(listening smtp)example.com"
+    echo "mail accepted"
+
+cases:
+  - id: solution
+    role: solution
+    claim: surl -K test-env.conf starts the HTTP, FTP and SMTP servers the file describes, with its accounts, directory and loosenings; a file uploaded over FTP is read back over HTTP from the one directory, and the mail is accepted.
+    run: sh check-env.sh
+    expect:
+      exit: 0
+      stdout: "hello from the test environment\nuploaded over FTP\nmail accepted\n"
+
+  - id: file-loosening-warns
+    claim: A loosening option read from the file warns on every start, exactly as on the command line.
+    run: sh check-env.sh
+    expect:
+      exit: 0
+      stderr-contains: "surl: warning: --allow-plaintext-auth: passwords and tokens are accepted over unencrypted connections"
+
+  - id: no-plaintext-auth
+    claim: An option after -K overrides the file; with --no-allow-plaintext-auth, the HTTP login over plain http:// is refused 403 Forbidden, and curl -f exits 22.
+    run: sh check-env.sh --no-allow-plaintext-auth
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "403"
+
+  - id: no-uploads
+    claim: With --no-allow-uploads after the file, the FTP upload is refused 550 and curl exits 25.
+    run: sh check-env.sh --no-allow-uploads
+    expect:
+      exit: 25
+      stdout: "hello from the test environment\n"
+      stderr-contains: "Failed FTP upload: 550"
+
+  - id: typo-refused
+    claim: An unknown option in the file is refused before anything listens, naming the file and line, and surl exits 2.
+    fixtures:
+      broken.conf: "directory = site\nmail-domian = example.com\nurl = http://127.0.0.1:0/\n"
+    run: surl -K broken.conf
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "surl: broken.conf:2: option --mail-domian: is unknown"
+
+  - id: space-needs-quotes
+    claim: Unlike curl, surl refuses text after a value; a value holding a space must be quoted.
+    fixtures:
+      spaced.conf: "directory = test site\nurl = http://127.0.0.1:0/\n"
+    run: surl -K spaced.conf
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "surl: spaced.conf:1: text follows the value of --directory; quote a value that holds a space"
+
+  - id: missing-file
+    claim: A config file that cannot be read stops surl with exit code 37.
+    run: surl -K missing.conf
+    expect:
+      exit: 37
+      stdout: ""
+      stderr-contains: "surl: (37) Could not read config file missing.conf"
+
+  - id: no-comment-after-a-flag
+    claim: A comment may follow a value, but not a flag, which takes none; surl reads the comment after a flag as text after its value and exits 2, so such a comment goes on its own line.
+    fixtures:
+      flag.conf: "mail-domain = example.com  # a comment after a value is fine\nallow-uploads  # this one is not\nurl = http://127.0.0.1:0/\n"
+    run: surl -K flag.conf
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "surl: flag.conf:2: text follows the value of --allow-uploads; quote a value that holds a space"

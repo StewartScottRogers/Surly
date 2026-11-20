@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: ldaps-search-over-tls-in-csharp
+title: Searching over LDAPS in C#
+protocols: [ldaps, ldap]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerDirectory, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc4511, rfc4516, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Surl.Api server with an ldaps listener, one account and nothing loosened accepts Curl.Api's simple bind as alice with the right password and answers a subtree search for (cn=bob) with bob's entry and his mail.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^ldaps, right password: DN: cn=bob,dc=example,dc=com, mail: bob@example\.com\n'
+
+  - id: wrong-password
+    claim: Over ldaps, a wrong password is checked and refused, and SendAsync throws CurlException with code 38, LdapCannotBind, whose message says Invalid Credentials.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nldaps, wrong password: CurlException 38 LdapCannotBind: [^\n]*Invalid Credentials\n'
+
+  - id: plain-refuses
+    claim: On the ldap listener of the same server, the right password and a wrong one are refused alike, with CurlException code 38, and the message says Confidentiality Required, so the password was not checked.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nldap, right password: CurlException 38 LdapCannotBind: [^\n]*Confidentiality Required\nldap, wrong password: CurlException 38 LdapCannotBind: [^\n]*Confidentiality Required\n'
+
+  - id: verified-by-default
+    claim: On Windows, with the client's default TLS options, the throwaway certificate is not trusted, and SendAsync throws CurlException with code 60, PeerFailedVerification.
+    platforms: [windows]
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nldaps, certificate checked: CurlException 60 PeerFailedVerification: [^\n]*\n'
+
+  - id: ca-blob-ignored
+    claim: On Windows, giving the client the server's own certificate as CertificateAuthorityBlob does not make the check pass, since WinLDAP uses the Windows certificate store, and SendAsync still throws code 60.
+    platforms: [windows]
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nldaps, certificate trusted: CurlException 60 PeerFailedVerification: [^\n]*\n$'

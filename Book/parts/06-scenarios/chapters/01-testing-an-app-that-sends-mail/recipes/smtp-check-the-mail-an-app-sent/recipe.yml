@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smtp-check-the-mail-an-app-sent
+title: Checking the Mail an App Sent
+protocols: [smtp, imap]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, --next, -w]
+exit-codes: [0, 78]
+references: [surl-readme, curl-readme, rfc5321, rfc5322, rfc9051]
+
+# signup.eml is the mail the app should send. The other two are the app getting it wrong.
+fixtures:
+  signup.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Welcome to Example\n\nThanks for signing up.\n"
+  bad-subject.eml: "From: app@example.com\nTo: bob@example.com\nSubject: Welcome to Exmaple\n\nThanks for signing up.\n"
+  bad-from.eml: "From: noreply@example.org\nTo: bob@example.com\nSubject: Welcome to Example\n\nThanks for signing up.\n"
+
+# One surl: SMTP for the app to send to, IMAP for the test to read from, one mail store.
+# app is the account the app logs in as; ann and bob are the people it mails.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The cases run in order against the same server: the solution's mail is ann's UID 1.
+cases:
+  - id: solution
+    role: solution
+    claim: The app's mail is sent over SMTP as app, then read back over IMAP as ann; the From, To and Subject fields of her UID 1 are the ones the app wrote, exit 0.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T signup.eml smtp://127.0.0.1:{{port}}/example.com --next -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(FROM%20TO%20SUBJECT)"'
+    expect:
+      exit: 0
+      stdout: "From: app@example.com\nTo: ann@example.com\nSubject: Welcome to Example\n\n"
+
+  - id: search-all-three
+    claim: An IMAP SEARCH for the From, To and Subject the test expects answers the UID of the one message that has all three.
+    run: 'curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20app@example.com%20TO%20ann@example.com%20SUBJECT%20%22Welcome%20to%20Example%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n"
+
+  - id: search-is-contains
+    claim: SEARCH matches a field that contains the string, so SUBJECT Welcome finds the same message; the fetch, not the search, pins the exact subject.
+    run: 'curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20Welcome"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n"
+
+  - id: envelope-sender-recorded
+    claim: The server records the envelope sender, the address after MAIL FROM, as the Return-Path field at the top of the stored message.
+    run: 'curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(RETURN-PATH)"'
+    expect:
+      exit: 0
+      stdout: "Return-Path: <app@example.com>\n\n"
+
+  - id: wrong-recipient
+    claim: Mail the app sends to a mistyped address in the domain, an@example.com, is accepted 250 and discarded, so ann's INBOX has no UID 2 and the fetch exits 78.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt an@example.com -T signup.eml -w "%{response_code}" smtp://127.0.0.1:{{port}}/example.com --next -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=2"'
+    expect:
+      exit: 78
+      stdout: "250"
+
+  - id: wrong-subject
+    claim: Mail with a misspelt subject is delivered, but the SEARCH for the expected From, To and Subject in bob's INBOX answers no UID.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt bob@example.com -T bad-subject.eml smtp://127.0.0.1:{{port}}/example.com --next -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20app@example.com%20TO%20bob@example.com%20SUBJECT%20%22Welcome%20to%20Example%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: wrong-sender
+    claim: Mail whose From field names another sender is delivered too, and the same SEARCH still answers no UID.
+    run: 'curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt bob@example.com -T bad-from.eml smtp://127.0.0.1:{{port}}/example.com --next -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20app@example.com%20TO%20bob@example.com%20SUBJECT%20%22Welcome%20to%20Example%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: wrong-sender-shows
+    claim: Fetched, bob's UID 2 shows the From field the app wrote, noreply@example.org.
+    run: 'curl -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=2;SECTION=HEADER.FIELDS%20(FROM)"'
+    expect:
+      exit: 0
+      stdout: "From: noreply@example.org\n\n"

@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-run-a-fixture-from-a-config-file-in-csharp
+title: Running a Fixture from a Config File
+protocols: [http, ftp, smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlMailboxInfo, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlMailOptions, CurlContent, CurlException]
+exit-codes: [0, 1, 2, 37, 67]
+references: [surl-readme, curl-readme]
+
+fixtures:
+  site/hello.txt: "hello from the test environment\n"
+  test-env.conf: |
+    # The test environment, checked in beside the tests. The listen URLs are in the code.
+    # The passwords are for throwaway test accounts only.
+
+    directory = site
+    user = "tester:secret"              # logs in over HTTP and FTP
+    mail-domain = example.com
+    mailbox = "app@example.com:secret"  # the app's mailbox, over SMTP
+
+    # The tests log in over plain http:// and ftp://.
+    allow-plaintext-auth
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: ConfigFiles reads test-env.conf as surl -K would; with the listen URLs from the code, HTTP and FTP serve the file's directory to its account, SMTP takes mail for its mailbox, and the server's mail store shows the message.
+    program: test-env-from-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "HTTP: hello from the test environment\nFTP: hello from the test environment\nSMTP: 250\nstored: 1 more message in INBOX\n"
+
+  - id: additional-arguments-override
+    claim: AdditionalArguments are read after the config files, so --no-allow-plaintext-auth there overrides the file; the HTTP login over plain http:// is then answered 403 Forbidden, an ordinary response.
+    program: test-env-from-file.cs
+    args: [no-plaintext]
+    expect:
+      exit: 67
+      stdout-matches: '^HTTP: 403 Forbidden\n'
+
+  - id: ftp-login-refused
+    claim: With the same override, the FTP login over plain ftp:// is refused, and SendAsync throws CurlException with Code 67.
+    program: test-env-from-file.cs
+    args: [no-plaintext]
+    expect:
+      exit: 67
+      stdout-matches: '\ncurl error 67: '
+
+  - id: typo-refused
+    claim: An unknown option in the file makes StartAsync throw SurlServerStartException with surl's exit code 2, FailedInit, and surl's line naming the file and line.
+    fixtures:
+      broken.conf: "directory = site\nmail-domian = example.com\n"
+    program: test-env-from-file.cs
+    args: [broken.conf]
+    expect:
+      exit: 2
+      stdout: "refused: FailedInit (2)\nbroken.conf:2: option --mail-domian: is unknown\n"
+
+  - id: missing-file
+    claim: A config file that cannot be read is refused with surl's exit code 37.
+    program: test-env-from-file.cs
+    args: [missing.conf]
+    expect:
+      exit: 37
+      stdout: "refused: CouldNotReadFile (37)\n(37) Could not read config file missing.conf\n"
+
+  - id: listen-urls-needed
+    claim: Unlike surl -K, Surl.Api needs at least one listen URL in ListenUrls; a config file that names its own url lines does not count, and StartAsync throws ArgumentException.
+    fixtures:
+      with-urls.conf: "directory = site\nurl = http://127.0.0.1:0/\n"
+    program: test-env-from-file.cs
+    args: [urls-in-file]
+    expect:
+      exit: 1
+      stdout: "misused: ListenUrls names no listen URL. (Parameter 'options')\n"

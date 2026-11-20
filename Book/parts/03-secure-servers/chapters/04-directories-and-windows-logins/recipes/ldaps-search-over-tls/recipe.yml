@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ldaps-search-over-tls
+title: Searching a Directory over LDAPS
+protocols: [ldaps, ldap]
+tier: secure-servers
+surface: console
+surl-options: [--directory, --cert, --key, --user]
+curl-options: [-u, -k, --cacert, -s, -S]
+exit-codes: [0, 38, 58, 60]
+references: [surl-readme, rfc4511, rfc4516, rfc8446]
+
+# The directory surl serves: one LDAP Data Interchange Format (LDIF) file, read at start.
+fixtures:
+  site/.surl/ldap/directory.ldif: |
+    dn: dc=example,dc=com
+    objectClass: domain
+    dc: example
+
+    dn: cn=alice,dc=example,dc=com
+    objectClass: person
+    cn: alice
+    sn: Liddell
+    mail: alice@example.com
+
+    dn: cn=bob,dc=example,dc=com
+    objectClass: person
+    cn: bob
+    sn: Builder
+    mail: bob@example.com
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# One surl, two listeners on the same directory and account: ldaps:// first, ldap:// second.
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key --user alice:s3cret ldaps://127.0.0.1:{{port}}/ ldap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over ldaps://, alice's simple bind is accepted with nothing loosened, and a subtree search for (cn=bob) asking for mail prints bob's entry, exit 0. -k skips the check of the server's own certificate.
+    run: 'curl -k -u alice:s3cret "ldaps://127.0.0.1:{{port}}/dc=example,dc=com?mail?sub?(cn=bob)"'
+    expect:
+      exit: 0
+      stdout-matches: '\ADN: cn=bob,dc=example,dc=com\n\tmail: bob@example.com\n\n\n?\Z'
+
+  - id: plain-refuses
+    claim: The same account and password over ldap:// on the same server are refused confidentialityRequired without being checked, and curl exits 38.
+    run: 'curl -s -S -u alice:s3cret "ldap://127.0.0.1:{{port2}}/dc=example,dc=com?mail?sub?(cn=bob)"'
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Confidentiality Required"
+
+  - id: wrong-password
+    claim: Over ldaps://, a wrong password is checked and refused invalidCredentials, and curl exits 38.
+    run: 'curl -k -s -S -u alice:guess "ldaps://127.0.0.1:{{port}}/dc=example,dc=com?mail?sub?(cn=bob)"'
+    expect:
+      exit: 38
+      stdout: ""
+      stderr-contains: "Invalid Credentials"
+
+  - id: untrusted
+    claim: On Windows, without -k, curl does not trust a certificate that is signed by its own key, and exits 60.
+    platforms: [windows]
+    run: 'curl -s -S -u alice:s3cret "ldaps://127.0.0.1:{{port}}/dc=example,dc=com?mail?sub?(cn=bob)"'
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: cacert-windows
+    claim: On Windows, --cacert does not make curl trust it, since WinLDAP checks the Windows certificate store, and the search still fails with 60.
+    platforms: [windows]
+    run: 'curl -s -S --cacert server.pem -u alice:s3cret "ldaps://127.0.0.1:{{port}}/dc=example,dc=com?mail?sub?(cn=bob)"'
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: needs-a-certificate
+    claim: An ldaps:// listen URL with no --cert is refused at start, and surl exits 58.
+    run: surl ldaps://127.0.0.1:{{port3}}/
+    expect:
+      exit: 58
+      stdout: ""

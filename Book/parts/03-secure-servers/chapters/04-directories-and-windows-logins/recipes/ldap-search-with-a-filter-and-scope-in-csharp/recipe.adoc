@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-search-with-a-filter-and-scope-in-csharp]]
+=== Filtering a Directory Search in C#
+
+==== Problem
+
+Your app looks people up by attribute in one branch of the directory. You want a Lightweight Directory Access Protocol (LDAP) search that narrows by base, scope, filter and attributes, and an empty result told apart from a missing base, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts a server, seeds its directory from text, and runs nine searches, then a tenth against a server that refuses them:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for an `ldap://` listener on port `0`, so the system picks a free port, and `AllowAnonymous`, the option `--allow-anonymous`, which lets a search run with no password. It loosens the defaults, for a directory that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). The directory starts empty. `SurlServerDirectory`, reached as `server.Directory`, adds entries with `AddEntriesAsync` from LDAP Data Interchange Format (LDIF) text, all or none, to the running `SurlServer`: two branches under `dc=example,dc=com`, `ou=people` and `ou=groups`, each entry named by its distinguished name (DN). Nothing is written to disk.
+
+The client is a `CurlClient`, and a search is a `CurlRequest`, a GET of an `ldap://` URL (<<rfc4516>>): the base DN, the attributes to return, the scope and the filter, separated by `?`. The answer is a `CurlResponse` whose body is the entries. `Authentication`, a `CurlAuthenticationOptions`, with `UserPassword` set to `":"` is an empty name and password, which `curl` sends as the anonymous bind. The base is where the search starts, and the scope says how far it goes: `base` is the base entry alone, `one` the entries directly under it, `sub` the base and everything below. Because the filter `(cn=staff)` finds the group two levels down only with `sub`, the same filter with `one` returns nothing, and that is an empty answer, not an error. `(&(objectClass=person)(mail=*example.com))` joins two tests with and, and `(!(cn=bob))` negates one.
+
+The program prints each entry on one line, its DN and attributes separated by commas, rather than the text as it came: the layout of the LDAP library under `Curl.Api` differs between platforms, and this keeps the output the same. A base that is not in the directory is answered `noSuchObject` (<<rfc4511>>), and `SendAsync` throws `CurlException` with code `39`, `LdapSearchFailed`, which is how a missing base differs from an empty result. The last server leaves `AllowAnonymous` off and refuses the anonymous bind, and `SendAsync` throws code `38`, `LdapCannotBind`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-search-with-a-filter-and-scope>> for the same searches on the command line.
+* <<ldap-search-with-a-filter-and-scope-from-an-agent>> for the same, driven by an agent.
+* <<ldaps-search-over-tls-in-csharp>> for a password bind over TLS.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>.

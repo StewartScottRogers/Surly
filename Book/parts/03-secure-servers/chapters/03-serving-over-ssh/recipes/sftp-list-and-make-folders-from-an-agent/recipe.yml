@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: sftp-list-and-make-folders-from-an-agent
+title: Making SFTP Folders from an Agent
+protocols: [sftp]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl, list_files]
+curl-options: [-s, -S, -k, -u, -l, -Q]
+exit-codes: [0, 21, 78]
+references: [surl-readme, curl-readme, rfc4251]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts an SFTP server with listings and uploads allowed; curl-mcp's curl tool lists it, makes reports with a quote command before the listing, and the next listing shows the folder, each with curl exit 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^list: \[hello\.txt\] exit 0\nmkdir /reports: \[hello\.txt reports\] exit 0\nlist again: \[hello\.txt reports\] exit 0\n'
+
+  - id: twice
+    claim: Making a folder that exists fails, and curl exits 21, quote command error.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmkdir /reports: \[\] exit 21 curl: \(21\) mkdir "/reports" failed: [^\n]*\n'
+
+  - id: after-the-listing
+    claim: A quote command that starts with a dash runs after the transfer, so its listing does not show the folder it made, and the next one does.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n-mkdir /archive: \[hello\.txt reports\] exit 0\nlist last: \[archive hello\.txt reports\] exit 0\n'
+
+  - id: folders-off
+    claim: Without --allow-uploads, mkdir is refused with permission denied, and curl exits 21.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisting-only mkdir: \[\] exit 21 curl: \(21\) mkdir "/reports" failed: Permission denied\n'
+
+  - id: listings-off
+    claim: Without --list-directories, a listing is answered as if the folder were not there, and curl exits 78.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nclosed list: \[\] exit 78 curl: \(78\) Could not open directory for reading: No such file or directory\n'
+
+  - id: server-holds-the-folders
+    claim: surl-mcp's list_files reads the server's own store back, and the folders the client made, archive and reports, are listed there as folders beside the file.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlist_files: \{"entries":\[\{"name":"archive","kind":"folder"\},\{"name":"hello\.txt","kind":"file","byte_count":16\},\{"name":"reports","kind":"folder"\}\],"has_more":false\}\n$'

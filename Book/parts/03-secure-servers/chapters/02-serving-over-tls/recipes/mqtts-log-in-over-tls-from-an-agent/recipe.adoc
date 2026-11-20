@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtts-log-in-over-tls-from-an-agent]]
+=== Logging In over MQTTS from an Agent
+
+==== Problem
+
+Your device sends a Message Queuing Telemetry Transport (MQTT) user name and password, which `surl` refuses over plain MQTT. You want an artificial intelligence (AI) agent to see the same login accepted over MQTT over Transport Layer Security (MQTTS) with no loosening option, and a wrong password told apart from a refused one, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an MQTTS broker with one account, publishes a reading with `curl-mcp`{apos}s `curl` tool, and asks the broker what it kept with `read_retained_message`. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, which is where `server.pem` and `server.key` are. The arguments after `--` pick the scenario: the scheme and the password.
+
+`start_server` starts a broker that behaves as `surl` with the same options. `listen_urls` is `mqtts://127.0.0.1:0`, port 0 for a free one, and `bound_urls` in the structured answer holds the real address next to a `server_id` for later calls. The rest goes in `arguments`, which takes any other `surl` option in `surl`{apos}s own words, one list item each: `--user alice:s3cret` is the account, `--cert` and `--key` are the certificate and its private key, and `--topic "home/#;retain"` keeps what is published under `home` (<<surl-readme>>). No loosening option is among them.
+
+`curl-mcp`{apos}s `transfer` tool has no field for a login or a certificate to trust, so the agent uses the `curl` tool, which takes `curl`{apos}s arguments as a list with no shell and no quoting: `-u` is the login, `--cacert server.pem` the certificate to trust, `-d 21.5` the message, and `-sS` hides the progress meter but keeps the error text (<<curl-readme>>). The answer is text holding JSON; the program reads `exitCode` and `standardError.content`. `read_retained_message` takes the `server_id` and a `topic` and answers the message the broker kept, or `{"retained":false}`.
+
+MQTT answers a login in its CONNACK packet with a return code: 0 accepted, 4 bad user name or password, 5 not authorized (<<mqtt311>>). The right password over `mqtts` is accepted: `curl` exits `0` and the broker holds `21.5`. A wrong password is code 4, shown by `curl` as `Expected 0000 but got 0004`, exit `8`. A connection with no user name is code 5, `got 0005`, the answer for a client that did not try to log in, and exit `8` as well; the exit code alone does not tell them apart, the message does. After each refusal the broker keeps nothing.
+
+Over plain `mqtt` the account is not usable: the same program with `mqtt` and the right password is refused with `got 0005`, as if no login had been sent, because `surl` will not take a password that crosses the network readable. `--allow-plaintext-auth` would take it and loosens security; MQTTS needs neither it nor `--allow-anonymous`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtts-log-in-over-tls>> for the same task on the console.
+* <<mqtts-log-in-over-tls-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

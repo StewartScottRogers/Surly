@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs check-signup.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-check-the-mail-an-app-sent-from-an-agent
+title: Checking the Mail an App Sent
+protocols: [smtp, imap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_mailboxes, get_exchanges]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1, 78]
+references: [surl-readme, curl-readme, rfc5321, rfc9051]
+
+fixtures:
+  signup.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Welcome to Example\r\n\r\nThanks for signing up.\r\n"
+  bad-subject.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Welcome to Exmaple\r\n\r\nThanks for signing up.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool sends signup.eml over SMTP as the app, then fetches From, To and Subject of ann's UID 1 over IMAP; they are exactly the three the test expects, and the program exits 0.
+    program: check-signup.cs
+    args: [right]
+    expect:
+      exit: 0
+      stdout: "app sent to ann@example.com: curl exit 0\nfetch: curl exit 0, \"From: app@example.com\\r\\nTo: ann@example.com\\r\\nSubject: Welcome to Example\\r\\n\\r\\n\"\nPASS\n"
+
+  - id: wrong-subject
+    claim: A misspelt subject is delivered like any mail; the fetched fields differ from the expected ones and the program exits 1.
+    program: check-signup.cs
+    args: [wrong-subject]
+    expect:
+      exit: 1
+      stdout: "app sent to ann@example.com: curl exit 0\nfetch: curl exit 0, \"From: app@example.com\\r\\nTo: ann@example.com\\r\\nSubject: Welcome to Exmaple\\r\\n\\r\\n\"\nFAIL\n"
+
+  - id: wrong-recipient
+    claim: Mail to a mistyped address in the domain is accepted with exit 0 and discarded; the fetch exits 78, list_mailboxes counts no message for ann, and get_exchanges shows the server answered RCPT TO an@example.com with 250.
+    program: check-signup.cs
+    args: [wrong-recipient]
+    expect:
+      exit: 1
+      stdout-matches: '^app sent to an@example\.com: curl exit 0\nfetch: curl exit 78, ""\nFAIL\nlist_mailboxes: INBOX, 0 messages\nget_exchanges: > RCPT TO:<an@example\.com> / < 250 [^\n]+\n$'

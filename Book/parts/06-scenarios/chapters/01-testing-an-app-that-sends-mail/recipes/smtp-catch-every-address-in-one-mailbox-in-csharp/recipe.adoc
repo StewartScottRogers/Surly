@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-every-address-in-one-mailbox-in-csharp]]
+=== Catching Every Address in One Mailbox
+
+==== Problem
+
+In a C# test, your app mails many generated addresses over Simple Mail Transfer Protocol (SMTP), and you want a catch-all to land them all in one mailbox that the test reads and counts over Post Office Protocol version 3 (POP3).
+
+==== Solution
+
+Start a `SurlServer` with SMTP and POP3 listeners, a mail domain, a mailbox for the catch-all and `MailCatchAlls` pointing the domain at it; let the app mail its generated addresses with `SmtpClient`, then list the catch-all over POP3 with a `CurlClient` and count the lines:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `smtp://` and a `pop3://` listen URL on port 0, each bound to a free port, over one mail store (<<surl-readme>>). `MailDomains` is `--mail-domain`; `Mailboxes` is `--mailbox`, an address and password per entry, here one for the app and one for the catch-all; `MailCatchAlls` is `--mail-catch-all`, `example.com=catchall@example.com`, which delivers mail for any address of `example.com` that has no mailbox to `catchall@example.com`. `SurlServer.StartAsync` returns once both listeners are bound, and `BoundUrls` gives their real ports.
+
+The app is played by `SmtpClient`, .NET{apos}s own SMTP client, logged in as `app@example.com`. `AllowPlaintextAuthentication` (`--allow-plaintext-auth`) is on because without Transport Layer Security `surl` offers only `CRAM-MD5`, which `SmtpClient` cannot use; <<smtp-check-the-mail-an-app-sent-in-csharp>> shows the refusal without it. It is a loosening for a test on the loopback address, and `surl` warns when it is on (<<surl-readme>>).
+
+The test is a `CurlClient` and one `CurlRequest` for the POP3 bound URL with no message number, which lists the maildrop, one line per message with its number and size (<<rfc1939>>). `CurlAuthenticationOptions` carries the catch-all{apos}s login, the spelling of `curl -u`. The `CurlResponse` `Body` is the list, and the number of lines is the count. The program also reads the count with no client: `server.Mail.ListMailboxesAsync` returns the account{apos}s mailboxes as `SurlMailboxInfo`, and `MessageCount` of the one `INBOX` agrees. It exits 0 when the count equals the number of addresses mailed and 1 otherwise, its own choice.
+
+The count is of messages, not addresses. One message with all three addresses in `To` is stored in the catch-all once, so the count is 1; a test that expects one per address needs an app that sends one per address. Without `MailCatchAlls`, mail to an unknown address inside the domain is accepted and discarded: `SmtpClient` reports nothing and the count is 0, because by default the server does not tell a sender which addresses exist (<<surl-readme>>). An address outside every mail domain is refused at `RCPT TO` with `550 5.7.1 Relaying denied` (<<rfc5321>>), and `SmtpClient` throws `SmtpFailedRecipientException`, whose `FailedRecipient` names it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-every-address-in-one-mailbox>> for the same test on the console.
+* <<smtp-catch-every-address-in-one-mailbox-from-an-agent>> for the same test run by an agent.
+* <<surl-readme>>, <<rfc5321>>, <<rfc1939>>.

@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smtp-fail-a-test-on-a-wrong-recipient
+title: Failing a Test on a Wrong Recipient
+protocols: [smtp, pop3]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox, --user, --allow-anonymous]
+curl-options: [-s, -S, -v, -w, --crlf, -u, --mail-from, --mail-rcpt, -T, --next, --mail-rcpt-allowfails, --fail-early]
+exit-codes: [0, 55]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  welcome.eml: "From: app@example.com\nSubject: Welcome\n\nThanks for signing up.\n"
+
+# main is the recipe. open (no --mail-domain) and anon (--allow-anonymous) are there only so
+# the claims can show what each would let through.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass smtp://127.0.0.1:{{port}}/ pop3://127.0.0.1:{{port2}}/
+    ready: port
+  open:
+    command: surl --user app:apppass smtp://127.0.0.1:{{port3}}/
+    ready: port
+  anon:
+    command: surl --allow-anonymous --mail-domain example.com smtp://127.0.0.1:{{port4}}/
+    ready: port
+
+# The cases run in order against the same servers.
+cases:
+  - id: solution
+    role: solution
+    claim: The app, logged in, sends to carol@elsewhere.org, outside example.com; the server refuses the recipient and curl exits 55 with RCPT failed 550.
+    run: curl -s -S --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt carol@elsewhere.org -T welcome.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: reply-text
+    claim: The server's reply to that RCPT TO is 550 5.7.1 Relaying denied.
+    run: curl -s -v --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt carol@elsewhere.org -T welcome.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "< 550 5.7.1 Relaying denied"
+
+  - id: own-domain-accepted
+    claim: The same send to ann@example.com is accepted 250 and curl exits 0.
+    run: curl -s -S --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T welcome.eml -w "%{response_code}" smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 0
+      stdout: "250"
+
+  - id: one-stray-refuses-all
+    claim: A message to ann and carol together fails with exit 55, because one refused recipient makes curl give up the whole message.
+    run: curl -s -S --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt carol@elsewhere.org -T welcome.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: ann-got-nothing
+    claim: After that, ann's POP3 maildrop still holds only the one message accepted earlier.
+    run: curl -u ann@example.com:annpass pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\n$'
+
+  - id: allowfails-hides-it
+    claim: With --mail-rcpt-allowfails curl sends to ann anyway and exits 0, so a test using it does not fail on the stray address; ann now holds two messages.
+    run: curl -s -S --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt carol@elsewhere.org --mail-rcpt-allowfails -T welcome.eml smtp://127.0.0.1:{{port}}/example.com --next -u ann@example.com:annpass pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\n2 \d+\n$'
+
+  - id: next-hides-it
+    claim: In one curl with --next, a refused send followed by an accepted one exits 0, because curl's exit code is the last transfer's.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt carol@elsewhere.org -T welcome.eml smtp://127.0.0.1:{{port}}/example.com --next -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T welcome.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 0
+
+  - id: fail-early
+    claim: With --fail-early the same command stops at the refused send and exits 55.
+    run: curl --fail-early -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt carol@elsewhere.org -T welcome.eml smtp://127.0.0.1:{{port}}/example.com --next -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T welcome.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+
+  - id: no-domain-accepts-anything
+    claim: Without --mail-domain the domain is ignored, so the same stray address is accepted 250 and the test passes when it should fail.
+    run: curl -s -S --crlf -u app:apppass --mail-from app@example.com --mail-rcpt carol@elsewhere.org -T welcome.eml -w "%{response_code}" smtp://127.0.0.1:{{port3}}/example.com
+    expect:
+      exit: 0
+      stdout: "250"
+
+  - id: anonymous-ignores-domain
+    claim: Under --allow-anonymous the mail domains are not applied, so the stray address is accepted 250 there too.
+    run: curl -s -S --crlf --mail-from app@example.com --mail-rcpt carol@elsewhere.org -T welcome.eml -w "%{response_code}" smtp://127.0.0.1:{{port4}}/example.com
+    expect:
+      exit: 0
+      stdout: "250"

@@ -1,0 +1,59 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-hand-bound-ports-to-the-app]]
+=== Handing Bound Ports to the App
+
+==== Problem
+
+You start every listener on port 0 so parallel test runs never clash, and you want to read the ports `surl` bound and hand them to the app under test.
+
+==== Solution
+
+Start `surl` in the background with its standard output in a file, wait for one `Listening on` line per listen URL, and export the URLs on those lines for the app. `run-tests.sh` does that for a Hypertext Transfer Protocol (HTTP) listener and a Simple Mail Transfer Protocol (SMTP) listener:
+
+[source,shell]
+----
+include::run-tests.sh[]
+----
+
+`app.sh` stands in for the app under test. It knows nothing about ports; it reads `APP_HTTP_URL` and `APP_SMTP_URL`:
+
+[source,shell]
+----
+include::app.sh[]
+----
+
+Run the script:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A listen URL with port 0 asks the operating system for a free port, so two runs on one machine never ask for the same one. The price is that nobody knows the port in advance, so `surl` says which it got: once every listener has bound, it writes `Listening on <scheme>://<host>:<port>/` to standard output, one line per listen URL, in command-line order. That line is the contract. The script counts the lines until there are as many as listen URLs, then cuts each URL out with `sed` by its scheme, so the order of the listen URLs does not matter to it. The URLs end in `/`, which is why `app.sh` appends `greeting.txt` and `example.com` with no slash of its own.
+
+Waiting for the lines is the only safe way to know the servers are ready. Polling a port is not possible when the port is unknown, and sleeping for a second is a race on a slow build machine. While it waits, the script also checks that `surl` is still running: a `surl` that refuses to start writes no `Listening on` line at all, so without that check the loop would wait for ever.
+
+The options on `surl`{apos}s command line are the test environment. `--directory site` serves the files under `site`, so `greeting.txt` is at the HTTP URL. `--mail-domain example.com` and `--mailbox app@example.com:secret` give SMTP one mailbox and the account that logs in to it. SMTP takes mail only after a login, which `curl` gives it with `-u app@example.com:secret`; no loosening option is needed for that. `-v` writes every exchange to standard error, which the script keeps in a second file: the log is how the test checks what the server recorded, and its `Message stored` line says the mail arrived, how big it was and for how many recipients.
+
+In `app.sh`, `-f` makes `curl` fail on an HTTP error status instead of printing the error page, and `-s` with `-S` keeps `curl` quiet unless something goes wrong. `--mail-from` and `--mail-rcpt` are the envelope's sender and recipient; `-T -` uploads the message from standard input. The smtp URL's path, `example.com`, is the domain `curl` names when it greets the server (<<curl-readme>>).
+
+Port 0 removes port clashes; it does not remove every clash. `run-twice.sh` starts two runs at the same moment. Given two directories, both pass, each with its own ports. Given the same directory, one fails: `surl` locks the directory it serves, so a second `surl` on it exits `124` and says the directory `is in use by another surl process`. The script passes that code on, having handed nothing to the app. A run that must stand beside another needs a directory of its own.
+
+[source,shell]
+----
+include::run-twice.sh[]
+----
+
+The `trap` stops `surl` when the script exits, whether the tests passed or not; a server left running after a test is the subject of <<surl-clean-up-leftover-servers>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-hand-bound-ports-to-the-app-in-csharp>> for the same task in a .NET test, where the server object names its ports.
+* <<surl-hand-bound-ports-to-the-app-from-an-agent>> for the same task from an artificial intelligence (AI) agent.
+* <<surl-run-a-fixture-from-a-config-file>> for keeping these options in a file in the repository.
+* <<http-listen-on-several-urls>> for several listen URLs in one `surl`.
+* <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtts-log-in-over-tls-in-csharp]]
+=== Logging In over MQTTS in C#
+
+==== Problem
+
+Your device sends a Message Queuing Telemetry Transport (MQTT) user name and password, which `surl` refuses over plain MQTT. You want a test in your own .NET code to see the same login accepted over MQTT over Transport Layer Security (MQTTS) with no loosening option, and a wrong password told apart from a refused one.
+
+==== Solution
+
+The program starts `SurlServer` in process as an MQTTS broker with one account, publishes a reading with a `CurlClient` that logs in and trusts the certificate, and asks the server what it kept. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `ListenUrls` holds the listen URL, `mqtts://127.0.0.1:0` here, port `0` for a free one that `server.BoundUrl` reports. `CertificateFile` and `KeyFile` are `--cert` and `--key`. `Accounts` takes `SurlAccount` objects, one per `--user`: here `alice` with the password `s3cret`. `Topics` holds `--topic` items, and `home/#;retain` keeps what is published under `home`. `SurlServer.StartAsync` starts the server and `await using` stops it when the program ends. The program reads the retained message back with `server.Messages.ReadRetainedAsync`, which returns a `SurlRetainedMessage` with `Topic` and `Payload`: the reading is there only if the login let the publish through.
+
+The client is a `CurlClient`. The login is `CurlAuthenticationOptions` on the `CurlRequest`: `UserName` and `Password` are `curl -u`. `CurlClientOptions.Tls` is a `CurlTlsOptions`, and the settings for the server being reached sit in its `Origin`, a `CurlTlsPeerOptions`; `CertificateAuthorityFile` is `curl --cacert`, naming the certificate to trust. `CurlContent.FromBytes` is the message, `21.5`. A `POST` to an `mqtts://` URL publishes to the topic in its path (<<curl-readme>>).
+
+A refused login does not return a response: `SendAsync` throws `CurlException`. For every refusal here its `Code` is `WeirdServerReply`, number 8, the code `curl` exits with, so the code alone does not say which refusal it was. The message does. MQTT answers a login in its CONNACK packet with a return code: 0 accepted, 4 bad user name or password, 5 not authorized (<<mqtt311>>). A wrong password is `Expected 0000 but got 0004`; a connection with no user name is `got 0005`, the answer for a client that did not try to log in. The program returns `8` for each.
+
+Over plain `mqtt` the account is not usable. The same program with `mqtt` and the right password is refused with `got 0005`, as if no login had been sent, because `surl` will not take a password that crosses the network readable. `SurlServerOptions.AllowPlaintextAuthentication` is `--allow-plaintext-auth`, which would take it and loosens security (<<surl-readme>>); MQTTS needs neither. The words after `Expected 0000 but got` are `curl`{apos}s, not `surl`{apos}s.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtts-log-in-over-tls>> for the same task on the console.
+* <<mqtts-log-in-over-tls-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

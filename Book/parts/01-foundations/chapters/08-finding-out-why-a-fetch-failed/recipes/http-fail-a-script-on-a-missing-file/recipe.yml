@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-fail-a-script-on-a-missing-file
+title: Failing a Script on a 404
+protocols: [http]
+tier: foundations
+surl-options: [--directory, --fault]
+curl-options: [-f, --fail-with-body, -s, -S, -o, -w]
+exit-codes: [0, 22]
+references: [curl-manual, surl-readme, rfc9110]
+
+fixtures:
+  site/report.txt: "the report\n"
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  busy:
+    command: surl --fault "error;scheme=http;path=/report.txt;reply=503" http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With -f, a 404 Not Found makes curl exit 22, -w still prints the status, and -S puts curl's message on standard error.
+    run: curl -f -sS -o report.txt -w "%{http_code}\n" http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 22
+      stdout: "404\n"
+      stderr-contains: "curl: (22) The requested URL returned error: 404"
+
+  - id: present
+    claim: The same command for a file that is there exits 0, prints 200 and saves the file.
+    run: curl -f -sS -o report.txt -w "%{http_code}\n" http://127.0.0.1:{{port}}/report.txt
+    expect:
+      exit: 0
+      stdout: "200\n"
+      files:
+        report.txt: "the report\n"
+
+  - id: script-branch
+    claim: In a script, curl's nonzero exit takes the || branch, so the script can stop there.
+    run: curl -f -s -o copy.txt http://127.0.0.1:{{port}}/missing.txt || echo download failed
+    expect:
+      exit: 0
+      stdout: "download failed\n"
+
+  - id: without-fail
+    claim: Without -f the 404 is a successful transfer, curl exits 0, and -o leaves an empty file where the download should be.
+    run: curl -s -o empty.txt -w "%{http_code}\n" http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 0
+      stdout: "404\n"
+      files:
+        empty.txt: ""
+
+  - id: fail-with-body
+    claim: --fail-with-body exits 22 the same way; it keeps an error body, but surl's 404 has none, 0 bytes.
+    run: curl -s --fail-with-body -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 22
+      stdout: "404 0\n"
+
+  - id: any-error-status
+    claim: -f fails on any status of 400 or more, so a 503 Service Unavailable is exit 22 too.
+    run: curl -f -s -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 22
+      stdout: "503\n"

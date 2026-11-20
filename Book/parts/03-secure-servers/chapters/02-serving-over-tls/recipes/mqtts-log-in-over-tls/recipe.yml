@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: mqtts-log-in-over-tls
+title: Logging In to MQTT over TLS
+protocols: [mqtts, mqtt]
+tier: secure-servers
+surl-options: [--cert, --key, --user, --topic, --allow-plaintext-auth]
+curl-options: [--cacert, -u, -d, --next, -s, -S]
+exit-codes: [0, 8, 60]
+references: [surl-readme, curl-readme, mqtt311, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main: MQTTS with one account and no loosening option. plain: the same account over mqtt://.
+# plaintext: the same again with --allow-plaintext-auth.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret --topic "home/#;retain" mqtts://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --user alice:s3cret mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth mqtt://127.0.0.1:{{port3}}/
+    ready: port
+
+# curl writes each message it receives as two bytes of topic length (big-endian), the topic, then
+# the payload; "home/temp" is 9 bytes, 0x00 0x09.
+cases:
+  - id: solution
+    role: solution
+    claim: Over MQTTS curl logs in as alice with -u, trusting the certificate with --cacert, publishes 21.5 and then subscribes to the topic and receives it, with no loosening option on surl.
+    run: curl -s --cacert server.pem -u alice:s3cret -d 21.5 mqtts://127.0.0.1:{{port}}/home/temp --next -s --cacert server.pem -u alice:s3cret mqtts://127.0.0.1:{{port}}/home/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x09home/temp21\.5\Z'
+
+  - id: wrong-password
+    claim: A wrong password is answered with CONNACK return code 4, bad user name or password, and curl exits 8 reporting that it got 0004.
+    run: curl -sS --cacert server.pem -u alice:wrong -d 1 mqtts://127.0.0.1:{{port}}/home/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Expected 0000 but got 0004"
+
+  - id: unknown-user
+    claim: A user name surl has no account for gets the same code 4 as a wrong password.
+    run: curl -sS --cacert server.pem -u bob:s3cret -d 1 mqtts://127.0.0.1:{{port}}/home/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Expected 0000 but got 0004"
+
+  - id: no-login
+    claim: A connection with no user name is answered with code 5, not authorized, a different answer from a wrong password, and curl exits 8 reporting 0005.
+    run: curl -sS --cacert server.pem -d 1 mqtts://127.0.0.1:{{port}}/home/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Expected 0000 but got 0005"
+
+  - id: plain-refuses-the-password
+    claim: Over plain mqtt:// the right password is refused with code 5, as if no login had been sent, because surl will not take a password in the clear.
+    run: curl -sS -u alice:s3cret -d 1 mqtt://127.0.0.1:{{port2}}/home/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Expected 0000 but got 0005"
+
+  - id: plaintext-option-loosens
+    claim: With --allow-plaintext-auth the same login over mqtt:// is accepted, exit 0.
+    run: curl -s -u alice:s3cret -d 1 mqtt://127.0.0.1:{{port3}}/home/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: untrusted-certificate
+    claim: Without --cacert curl does not trust the certificate, never sends the login, and exits 60.
+    run: curl -s -u alice:s3cret -d 1 mqtts://127.0.0.1:{{port}}/home/temp
+    expect:
+      exit: 60
+      stdout: ""

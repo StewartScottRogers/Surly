@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-check-the-mail-an-app-sent-in-csharp]]
+=== Checking the Mail an App Sent
+
+==== Problem
+
+In a C# test, your app sends a sign-up mail over Simple Mail Transfer Protocol (SMTP); you want the test to read it back over Internet Message Access Protocol (IMAP) and fail if the subject, sender or recipient is wrong.
+
+==== Solution
+
+Start a `SurlServer` with SMTP and IMAP listeners for your domain, let the app send with .NET{apos}s `SmtpClient` to the bound SMTP port, then fetch the recipient{apos}s `From`, `To` and `Subject` over IMAP with a `CurlClient` and compare each with what the test expects:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `smtp://` and an `imap://` listen URL on port 0, so each gets a free port, and the two servers share one mail store (<<surl-readme>>). `MailDomains` is `--mail-domain`, the domains mail is served for; `Mailboxes` is `--mailbox`, one address and password per entry, each a mailbox and the account that logs in to it by its whole address. `SurlServer.StartAsync` returns once both are bound, and `BoundUrls` lists them in the order given, as `Uri` values with the real ports.
+
+The app is played by `SmtpClient`, the SMTP client in .NET{apos}s own `System.Net.Mail`, given the bound host and port and the app{apos}s login. That needs one loosening: `AllowPlaintextAuthentication`, `--allow-plaintext-auth`. Without Transport Layer Security (TLS) `surl` offers only `CRAM-MD5`, a login that never sends the password, and `SmtpClient` has no mechanism the server offers, so it sends `MAIL FROM` without logging in and the server refuses it with `5.7.0 Authentication required`; `SmtpClient` throws an `SmtpException` that blames a missing secure connection. With the option on, the server also offers the mechanisms that send the password in clear, and `SmtpClient` logs in with one. Turn it on for a test on the loopback address only; `surl` warns when it is on (<<surl-readme>>).
+
+The test is a `CurlClient` and one `CurlRequest`. Its URL is the IMAP bound URL with `INBOX;UID=1;SECTION=HEADER.FIELDS%20(FROM%20TO%20SUBJECT)` appended: the first message by its unique identifier (UID), and only those three fields (<<rfc9051>>). `CurlAuthenticationOptions` is `curl -u`, here Ann{apos}s login. The `CurlResponse` `Body` is the three fields; the program splits them and compares each with the value it wants, printing the field when it matches and `FAIL` with both values when it does not, and exits 1 on any failure. The exit codes are the program{apos}s choice.
+
+The three mistakes fail in different places. A misspelt `Subject` and a `From` outside the domain are both delivered, since a logged-in app may name any sender, so only the field comparison catches them. A mistyped recipient inside the domain, `an@example.com`, is accepted and discarded: the server does not tell a sender which addresses exist (<<surl-readme>>), so `SmtpClient` sees no error at all. The test finds out because Ann has no UID 1, and `SendAsync` throws `CurlException` with `Code` 78, remote file not found. A recipient outside the domain is refused at `RCPT TO` (<<rfc5321>>), which is <<smtp-fail-a-test-on-a-wrong-recipient-in-csharp>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-the-mail-an-app-sent>> for the same test on the console.
+* <<smtp-check-the-mail-an-app-sent-from-an-agent>> for the same test run by an agent.
+* <<imap-seed-and-read-mail-in-process>> for reading the store without a client.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

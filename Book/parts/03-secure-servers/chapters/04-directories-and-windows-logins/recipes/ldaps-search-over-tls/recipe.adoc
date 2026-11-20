@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldaps-search-over-tls]]
+=== Searching a Directory over LDAPS
+
+==== Problem
+
+Your app binds to the directory with a simple bind, which `surl` refuses over plain Lightweight Directory Access Protocol (LDAP). You want the same bind accepted over LDAP over Transport Layer Security (LDAPS) against your own certificate, without loosening anything.
+
+==== Solution
+
+Give `surl` a certificate, an account and an `ldaps://` listener, and bind and search with `curl`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` makes `site` the data directory, and the directory `surl` serves is the LDAP Data Interchange Format (LDIF) file `site/.surl/ldap/directory.ldif` in it, read once at start (<<surl-readme>>). `--user alice:s3cret` adds the account, and `-u alice:s3cret` makes `curl` bind as it. `-s` hides `curl`{apos}s progress meter and `-S` still shows the error, which is where the claims read the server's answer. `--cert server.pem` and `--key server.key` are the certificate the `openssl` line made for `127.0.0.1`, signed by its own key, for the `ldaps://` listener; without `--cert`, `surl` refuses to start the listener and exits `58`.
+
+A simple bind sends the user name and password as they are (<<rfc4511>>), so over plain `ldap://` `surl` refuses it `confidentialityRequired` without looking at the password, and `curl` exits `38`; `--allow-plaintext-auth` would turn that off, and this recipe does not use it. Over `ldaps://` the connection is encrypted by TLS (<<rfc8446>>) before the first LDAP message, so the same bind is safe to check and `surl` checks it: the right password is accepted, and a wrong one is refused `invalidCredentials`, exit `38`. The recipe starts one `surl` with both listeners, `ldaps://` on 8080 and `ldap://` on 8081, on the same directory and account, so the only difference between the accepted bind and the refused one is the address.
+
+The URL is the search (<<rfc4516>>): `ldaps://127.0.0.1:8080/dc=example,dc=com?mail?sub?(cn=bob)` is the base distinguished name, the attributes to return, the scope and the filter, separated by `?`. `curl` prints the entry as a `DN:` line followed by its attributes; the layout belongs to the LDAP library under `curl`, which on Linux and macOS prints one more blank line than the library on Windows, so the claim allows either.
+
+`-k` is the part that needs care. The certificate is signed by its own key, so nothing vouches for it, and `-k` makes `curl` skip the check; it is a loosening on the client, and it is fine for a throwaway certificate on your own machine, since the bind is still encrypted. It does not belong in a script that talks to a directory over a network. On Windows, without `-k`, `curl` refuses the certificate and exits `60`; `--cacert server.pem`, the way other recipes make `curl` trust a certificate of their own, does not help there, because the Windows LDAP library checks the Windows certificate store, not that file.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldaps-search-over-tls-in-csharp>> for the same in a C# test.
+* <<ldaps-search-over-tls-from-an-agent>> for the same, driven by an agent.
+* <<ldap-search-a-directory>> for the same bind over plain LDAP with the loosening option.
+* <<https-serve-with-your-own-certificate>> for the certificate.
+* <<surl-readme>>, <<rfc4511>>, <<rfc4516>>, <<rfc8446>>.

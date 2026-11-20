@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: https-serve-a-pfx-certificate
+title: Serving a PFX Certificate
+protocols: [https]
+tier: secure-servers
+surl-options: [--cert, --cert-type, --pass, --key, --directory]
+curl-options: [--cacert, -s]
+exit-codes: [0, 2, 58]
+references: [surl-readme, curl-readme, rfc5280]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  site2/hello.txt: "hello from surl\n"
+
+# openssl stands in for the Windows export: a PFX is a PKCS #12 file holding the certificate and
+# its private key, protected by a passphrase. server.pem is kept as the certificate curl trusts.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+  - openssl pkcs12 -export -out server.pfx -inkey server.key -in server.pem -passout pass:s3cret
+
+servers:
+  main:
+    command: surl --directory site --cert server.pfx --cert-type P12 --pass s3cret https://127.0.0.1:{{port}}/
+    ready: port
+  lowercase:
+    command: surl --directory site2 --cert server.pfx --cert-type p12 --pass s3cret https://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --cert-type P12 and --pass, surl serves the certificate and key inside server.pfx, and curl, trusting the certificate as a PEM file, fetches hello.txt over HTTPS, exit 0.
+    run: curl -s --cacert server.pem https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: type-in-any-case
+    claim: The type is read in any case, so --cert-type p12 serves the same file the same way.
+    run: curl -s --cacert server.pem https://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: wrong-passphrase
+    claim: A wrong passphrase stops surl at start, exit 58, with a message that the file is not a P12 certificate surl can read.
+    run: surl --cert server.pfx --cert-type P12 --pass wrong https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) Could not load the server certificate: 'server.pfx' is not a P12 certificate Surl can read.\n"
+
+  - id: no-passphrase
+    claim: Leaving --pass out of a passphrase-protected PFX is refused the same way, exit 58.
+    run: surl --cert server.pfx --cert-type P12 https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) Could not load the server certificate: 'server.pfx' is not a P12 certificate Surl can read.\n"
+
+  - id: no-cert-type
+    claim: Without --cert-type P12, surl reads --cert as PEM, finds no PEM certificate in server.pfx, and exits 58.
+    run: surl --cert server.pfx --pass s3cret https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) Could not load the server certificate: 'server.pfx' holds no PEM certificate.\n"
+
+  - id: key-beside-pfx
+    claim: --key beside a P12 --cert is refused as an option badly used, exit 2, because the key is already in the file.
+    run: surl --cert server.pfx --cert-type P12 --key server.key --pass s3cret https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --key: is badly used here\n'
+
+  - id: missing-file
+    claim: A --cert file that is not there is exit 58, naming the file.
+    run: surl --cert missing.pfx --cert-type P12 --pass s3cret https://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout: "surl: (58) Could not load the server certificate: Cannot read the --cert file 'missing.pfx'.\n"

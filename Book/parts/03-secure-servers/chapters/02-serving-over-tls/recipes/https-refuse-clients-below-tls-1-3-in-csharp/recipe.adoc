@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-refuse-clients-below-tls-1-3-in-csharp]]
+=== Requiring TLS 1.3 in C#
+
+==== Problem
+
+You want a test in your own .NET code to prove that your client still works when a server accepts Transport Layer Security (TLS) 1.3 only, and to see what an older client gets, without starting a separate `surl` process.
+
+==== Solution
+
+The program starts `SurlServer` in process with a certificate, asks it for TLS 1.3 only, and fetches `hello.txt` with two `CurlClient` objects, one capped at TLS 1.2 and one that wants TLS 1.3. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `ListenUrls` holds the listen URL; port `0` takes a free one, which `server.BoundUrl` then reports. `CertificateFile` and `KeyFile` are `--cert` and `--key`. There is no property for the TLS version range, so the program passes `--tlsv1.3` through `AdditionalArguments`, which takes any other `surl` option in `surl`{apos}s own words. `SurlServer.StartAsync` starts the server and `await using` stops it when the program ends.
+
+The clients are `CurlClient` objects made from `CurlClientOptions`. Its `Tls` property is a `CurlTlsOptions`, and the settings for the server being fetched from sit in its `Origin`, a `CurlTlsPeerOptions`. `CertificateAuthorityFile` is `curl --cacert`: it names the certificate to trust, so a refusal below is about the version and not about trust. `SslVersion` is the lowest version the client allows, here `SslVersion.Tls13` for `curl --tlsv1.3`, and `SslVersionMaximum` is the highest, here `SslVersionMaximum.Tls12` for `curl --tls-max 1.2`; `SslVersion.Default` and `SslVersionMaximum.None` leave a bound where libcurl puts it (<<curl-readme>>).
+
+`CurlClient.SendAsync` takes a `CurlRequest` and returns a `CurlResponse`, whose `Body` is a stream. When the handshake fails there is no response: `SendAsync` throws `CurlException`, and its `Code` is the libcurl result. For the client capped at TLS 1.2 that is `SslConnectError`, number 35, the same code the `curl` command exits with. The TLS 1.3 client that follows is answered with status `200`, which shows that one refused handshake does not stop the server (<<rfc8446>>).
+
+Started without the TLS option, as in the `1.2` case, the server serves the client capped at TLS 1.2 as well, because `surl` accepts TLS 1.2 and 1.3 by default (<<surl-readme>>). Asking for a range with nothing in it, `--tlsv1.3` together with `--tls-max 1.2`, makes `StartAsync` throw `SurlServerStartException` with the message `surl` would print, and the program returns `2`, the exit code `surl` gives. The text of a failed handshake depends on the TLS library; the `CurlCode` does not.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-refuse-clients-below-tls-1-3>> for the same task on the console.
+* <<https-refuse-clients-below-tls-1-3-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc8446>>.

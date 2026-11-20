@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-fail-a-test-on-a-wrong-recipient]]
+=== Failing a Test on a Wrong Recipient
+
+==== Problem
+
+Your app must only mail addresses in your own domain, and you want a test mail server for that domain that refuses every other recipient over Simple Mail Transfer Protocol (SMTP), so a stray address fails the test.
+
+==== Solution
+
+Run `surl` with `--mail-domain` for your domain and a mailbox for the app to log in with, and point the app at it; a recipient anywhere else is refused, and the send fails:
+
+include::.generated/solution.adoc[]
+
+Here `curl` plays the app sending to a stray address; a test that runs the app sees its send fail the same way.
+
+==== Discussion
+
+`--mail-domain example.com` makes `surl` serve mail for that domain and no other. `--mailbox app@example.com:apppass` adds a mailbox and the account the app logs in with, named by its whole address, and `--mailbox ann@example.com:annpass` one for a person the app may mail. The `pop3://` listener shares the mail store, so the test can look at what Ann received (<<surl-readme>>). On the `curl` side, `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope sender and recipient (`MAIL FROM` and `RCPT TO`, <<rfc5321>>), `-T welcome.eml` the message, and `--crlf` turns its line feeds into the carriage return and line feed a message is made of. `-s` hides the progress meter and `-S` keeps the error line.
+
+A recipient outside every `--mail-domain`, `carol@elsewhere.org`, is refused at `RCPT TO` with `550 5.7.1 Relaying denied`, which `-v` shows on standard error, even though the app has logged in. `curl` exits `55` and says `RCPT failed: 550`. That is the server being surly on purpose: a mail server that forwards mail for anyone to anywhere is an open relay, so `surl` delivers only to its own domains. Inside the domain the same send is accepted `250` (`-w "%{response_code}"` prints the last reply code), and `curl` exits `0`.
+
+One stray address spoils the whole message. Sent to Ann and Carol together, it fails with `55`, and Ann{apos}s maildrop, listed over Post Office Protocol version 3 (POP3), shows that nothing was delivered to her either. Two `curl` options can hide the failure, and a test should use neither. `--mail-rcpt-allowfails` tells `curl` to send to the recipients that were accepted and exit `0`, so the stray address goes unnoticed. And in one `curl` with `--next`, the exit code is the last transfer{apos}s: a refused send followed by an accepted one exits `0`. `--fail-early` stops at the first failure and exits with its code, `55` (<<curl-readme>>).
+
+The refusal needs the domain. Without `--mail-domain`, the domain of an address is ignored, so a server with only `--user app:apppass` accepts `carol@elsewhere.org` with `250` and the test passes when it should fail. `--allow-anonymous` is no better for this test: under it the mail domains are not applied and every recipient goes to one anonymous mailbox set, so the stray address is accepted there too (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-fail-a-test-on-a-wrong-recipient-in-csharp>> for the same test in C#.
+* <<smtp-fail-a-test-on-a-wrong-recipient-from-an-agent>> for the same test run by an agent.
+* <<smtp-serve-a-mail-domain>> for mail domains and mailboxes on their own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

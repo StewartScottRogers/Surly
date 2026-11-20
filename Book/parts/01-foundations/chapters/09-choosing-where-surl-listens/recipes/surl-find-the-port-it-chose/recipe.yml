@@ -1,0 +1,64 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# No servers: block. The script starts its own surl on port 0, so verify has no port to give it.
+schema: 1
+key: surl-find-the-port-it-chose
+title: Finding the Port surl Chose
+protocols: [http]
+tier: foundations
+surl-options: [--directory, -s]
+curl-options: [-s]
+exit-codes: [0, 1, 45]
+references: [surl-readme]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  find-port.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Starts surl on a free port, waits for its Listening on line, reads the port from it,
+    # fetches hello.txt with curl, and stops surl. Arguments, if given, replace surl's.
+    [ $# -gt 0 ] || set -- --directory site http://127.0.0.1:0/
+    surl "$@" > listening.txt 2> surl.log &
+    pid=$!
+    tries=0
+    until grep -q '^Listening on ' listening.txt; do
+      if ! kill -0 "$pid" 2>/dev/null; then   # surl gave up: show why and pass on its code
+        wait "$pid"; code=$?; cat surl.log >&2; exit $code
+      fi
+      tries=$((tries + 1))
+      if [ "$tries" -ge 50 ]; then echo "no Listening on line from surl" >&2; kill "$pid"; exit 1; fi
+      sleep 0.1
+    done
+    url=$(sed -n 's|^Listening on ||p' listening.txt | head -n 1)
+    port=${url##*:}; port=${port%/}
+    echo "port $port"
+    curl -s "${url}hello.txt"
+    status=$?
+    kill "$pid"
+    exit $status
+
+cases:
+  - id: solution
+    role: solution
+    claim: surl started on port 0 writes a Listening on line naming the port it bound, never 0; the script reads the port from it and curl fetches the file from that URL, exit 0.
+    run: sh find-port.sh
+    expect:
+      exit: 0
+      stdout-matches: '^port [1-9]\d*\nhello from surl\n$'
+
+  - id: bind-failure-has-no-line
+    claim: A listen URL that cannot bind, here an address this machine does not have, writes no Listening on line; surl exits 45 and the script passes that code on rather than waiting.
+    run: sh find-port.sh http://192.0.2.1:0/
+    expect:
+      exit: 45
+      stdout: ""
+      stderr-contains: "surl: (45) Could not bind http://192.0.2.1:0/"
+
+  - id: silent-has-no-line
+    claim: surl -s writes no Listening on line, so a script that waits for the line must not pass -s; this one gives up and exits 1.
+    run: sh find-port.sh -s --directory site http://127.0.0.1:0/
+    expect:
+      exit: 1
+      stdout: ""
+      stderr-contains: "no Listening on line from surl"

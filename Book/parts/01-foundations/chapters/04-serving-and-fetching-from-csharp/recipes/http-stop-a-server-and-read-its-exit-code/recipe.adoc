@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-stop-a-server-and-read-its-exit-code]]
+=== Stopping a Server and Reading Its Code
+
+==== Problem
+
+Your C# test starts a server in-process, and at the end you want to stop it explicitly, read the `SurlExitCode` that `StopAsync` returns, and fail the run if serving went wrong.
+
+==== Solution
+
+Call `StopAsync` yourself rather than leaving the stop to `await using`, and turn anything but `Ok` into a failing exit code:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServer.StopAsync` stops serving and returns the `SurlExitCode` a `surl` process with the same options would have exited with after kbd:[Ctrl+C]. `SurlExitCode` is the enumeration of `surl`{apos}s exit codes, in the `Surl.Protocol.Abstractions` namespace: `Ok`, `0`, when the server served without failing, and `InternalError` when serving failed. The program returns `0` for `Ok` and the code itself otherwise, so a test runner or a script that runs it sees the same number `surl` would have given. No case here makes serving fail, so only `Ok` is shown. `await using` stops the server too, but throws the code away; that is the reason to call `StopAsync` yourself.
+
+Once `StopAsync` returns, nothing is listening. The next request fails before any answer, and `CurlClient.SendAsync` throws `CurlException` with `Code` `7`, `CouldntConnect`, the code `curl` exits with when it cannot connect. Stopping again returns the same code and does nothing more, so a fixture that stops in a test and again in its clean-up is safe.
+
+`StopAsync` gives open connections the same grace period `surl` gives after kbd:[Ctrl+C]. A `CurlClient` keeps its connection alive between requests, so a client still alive when the server stops makes `StopAsync` wait more than three seconds before it returns. The program creates each client with `CurlClient.Create()` and disposes it when its `CurlRequest` has its `CurlResponse`, so nothing is left open and the stop takes well under three seconds. In a test suite, dispose the clients first and stop the server last.
+
+A server whose `SurlServerOptions` set `DataDirectory`, `surl --directory`, holds a lock on the folder while it runs. `StopAsync` releases it, so a new server can serve the same folder as soon as the old one has stopped.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-and-fetch-in-process>> for the server and fetch this recipe stops.
+* <<http-serve-a-folder-from-disk-in-process>> for the lock a second server on the same folder runs into.
+* <<http-catch-a-refused-start>> for the codes a start that fails throws instead.
+* <<surl-readme>>, <<curl-readme>>.

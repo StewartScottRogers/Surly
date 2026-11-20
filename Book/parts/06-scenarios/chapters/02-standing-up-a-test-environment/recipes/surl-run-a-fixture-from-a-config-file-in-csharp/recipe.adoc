@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-fixture-from-a-config-file-in-csharp]]
+=== Running a Fixture from a Config File
+
+==== Problem
+
+You want your .NET tests to start their servers from one options file checked into the repository, so every developer, every test project and the continuous integration (CI) job get exactly the same environment.
+
+==== Solution
+
+Keep the options in `test-env.conf`, in `surl`{apos}s config-file syntax, and name it in `SurlServerOptions.ConfigFiles`; give the listen URLs, on port 0, in `ListenUrls`:
+
+[source,text]
+----
+include::test-env.conf[]
+----
+
+The program starts a Hypertext Transfer Protocol (HTTP), a File Transfer Protocol (FTP) and a Simple Mail Transfer Protocol (SMTP) server from it, tries each once, and checks the mailbox:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties, and its `ConfigFiles` is `surl -K`: each file is read as `surl` reads one, one option per line, its name without the dashes, then `=` and its value, quoted when it holds a space. The same file serves a developer who runs `surl -K test-env.conf` at a prompt and the tests that start the server in process, which is what keeps them the same. `directory` serves `site` over HTTP and FTP; `user` adds the `tester` account they log in as; `mail-domain` and `mailbox` make the app's mailbox for SMTP; `allow-plaintext-auth` lets the tests log in over plain `http://` and `ftp://`, a loosening that warns on every start (<<surl-run-a-fixture-from-a-config-file>>).
+
+The listen URLs are in the code, and have to be. `SurlServer.StartAsync` needs at least one in `ListenUrls`, and a file's `url = ...` lines do not count: with `ListenUrls` empty it throws `ArgumentException`, where `surl -K` would start from the file alone. Keeping the URLs in code costs little, since every one asks for port 0 and `BoundUrls` names the ports bound, in the order of `ListenUrls`.
+
+The tests are `Curl.Api` requests. `CurlClient.Create()` makes the client and `SendAsync` sends a `CurlRequest` and returns a `CurlResponse`. `CurlAuthenticationOptions` with `UserName` and `Password` are `curl -u`. HTTP and FTP both find `hello.txt`, because they serve the one directory. The mail is a `CurlRequest` to the SMTP URL with `CurlMailOptions` for the envelope, `--mail-from` and `--mail-rcpt` in `curl`{apos}s words, and the message from `CurlContent.FromStream`; its `StatusCode` is the server's reply, `250`. Then the program asks the server what it recorded: `Mail.ListMailboxesAsync` answers a `SurlMailboxInfo` per mailbox, and the `INBOX` holds one message more than before. The directory keeps mail from run to run (<<surl-readme>>), which is why the program counts the difference rather than the total.
+
+`AdditionalArguments` are read after the config files, so they override them, as options after `-K` do on the command line: one test can change one thing and leave the shared file alone. With `--no-allow-plaintext-auth` there, the server is back to its default. The HTTP login over plain `http://` is answered `403 Forbidden`, which to `SendAsync` is a response like any other, and the FTP login is refused, which is a failure: `SendAsync` throws `CurlException` with `Code` 67, the code `curl` exits with.
+
+A file `surl` would refuse, `StartAsync` refuses the same way, before anything listens. It throws `SurlServerStartException`, whose `ExitCode` is `surl`{apos}s exit code and whose `Lines` are `surl`{apos}s messages: `FailedInit` (2) with `broken.conf:2: option --mail-domian: is unknown` for a misspelt option, `CouldNotReadFile` (37) for a file that is not there. A test that catches it can print the line and stop; one that does not fails with it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-fixture-from-a-config-file>> for the same file on the console, listen URLs and all, and the rules of its syntax.
+* <<surl-run-a-fixture-from-a-config-file-from-an-agent>> for the same environment from an artificial intelligence (AI) agent.
+* <<surl-hand-bound-ports-to-the-app-in-csharp>> for handing the bound ports to the app.
+* <<surl-readme>>, <<curl-readme>>.

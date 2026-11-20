@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# seed: puts the ten messages in ann's INBOX once, after surl is listening and before the first
+# case. The cases then run in order against that one store, so their order is part of the story.
+schema: 2
+key: surl-seed-a-mailbox-before-a-test
+title: Seeding a Mailbox Before a Test
+protocols: [smtp, imap, pop3]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-s, -S, -u, --mail-from, --mail-rcpt, -T, -X]
+exit-codes: [0, 55, 67]
+references: [surl-readme, curl-readme, rfc9051, rfc1939]
+
+# Ten messages, one file each, with the CR LF line ends mail uses.
+fixtures:
+  order01.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 01\r\n\r\nOrder 01 is ready.\r\n"
+  order02.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 02\r\n\r\nOrder 02 is ready.\r\n"
+  order03.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 03\r\n\r\nOrder 03 is ready.\r\n"
+  order04.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 04\r\n\r\nOrder 04 is ready.\r\n"
+  order05.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 05\r\n\r\nOrder 05 is ready.\r\n"
+  order06.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 06\r\n\r\nOrder 06 is ready.\r\n"
+  order07.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 07\r\n\r\nOrder 07 is ready.\r\n"
+  order08.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 08\r\n\r\nOrder 08 is ready.\r\n"
+  order09.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 09\r\n\r\nOrder 09 is ready.\r\n"
+  order10.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 10\r\n\r\nOrder 10 is ready.\r\n"
+
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:secret smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/ pop3://127.0.0.1:{{port3}}/
+    ready: port
+
+seed:
+  - curl -sS -u ann@example.com:secret --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[01-10].eml" smtp://127.0.0.1:{{port}}/example.com
+
+cases:
+  - id: solution
+    role: solution
+    claim: The ten seeded messages are waiting in ann's INBOX before the client connects, and none of them has been seen.
+    run: curl -sS -u ann@example.com:secret -X "SEARCH UNSEEN" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout-matches: '^\* SEARCH 1 2 3 4 5 6 7 8 9 10\r?\n$'
+
+  - id: pop3-sees-the-same-ten
+    claim: POP3 serves the same store, so it lists the same ten messages, numbered 1 to 10 with their sizes.
+    run: curl -sS -u ann@example.com:secret pop3://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\r?\n2 \d+\r?\n3 \d+\r?\n4 \d+\r?\n5 \d+\r?\n6 \d+\r?\n7 \d+\r?\n8 \d+\r?\n9 \d+\r?\n10 \d+\r?\n$'
+
+  - id: client-reads-one
+    claim: The client under test reads message UID 3 over IMAP; it arrives as seeded, behind the Return-Path and Received fields surl added on delivery.
+    run: curl -sS -u ann@example.com:secret "imap://127.0.0.1:{{port2}}/INBOX;UID=3"
+    expect:
+      exit: 0
+      stdout-matches: '^Return-Path: <shop@example\.com>\r?\nReceived: from example\.com [^\n]*\nFrom: shop@example\.com\r?\nTo: ann@example\.com\r?\nSubject: Order 03\r?\n\r?\nOrder 03 is ready\.\r?\n$'
+
+  - id: seen-afterwards
+    claim: Afterwards the test checks the flags; the message the client read is the only one marked seen.
+    run: curl -sS -u ann@example.com:secret -X "SEARCH SEEN" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout-matches: '^\* SEARCH 3\r?\n$'
+
+  - id: others-still-unseen
+    claim: The other nine are still unseen.
+    run: curl -sS -u ann@example.com:secret -X "SEARCH UNSEEN" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout-matches: '^\* SEARCH 1 2 4 5 6 7 8 9 10\r?\n$'
+
+  - id: client-deletes-one
+    claim: A client that deletes over POP3 sends DELE; curl ends the session with QUIT, which is when the deletion takes effect, and prints nothing.
+    run: curl -sS -u ann@example.com:secret -X "DELE 1" pop3://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: deleted-everywhere
+    claim: The deletion is in the one store, so IMAP no longer finds UID 1; UIDs 2 to 10 remain.
+    run: curl -sS -u ann@example.com:secret -X "UID SEARCH ALL" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout-matches: '^\* SEARCH 2 3 4 5 6 7 8 9 10\r?\n$'
+
+  - id: numbers-close-up
+    claim: Plain message numbers close up after the deletion, so the nine left are numbered 1 to 9; only UIDs identify a message across sessions.
+    run: curl -sS -u ann@example.com:secret -X "SEARCH ALL" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout-matches: '^\* SEARCH 1 2 3 4 5 6 7 8 9\r?\n$'
+
+  - id: seeding-needs-a-login
+    claim: surl takes mail only from an account, so a seed without -u is refused at MAIL with 530 and curl exits 55; nothing is added to the mailbox.
+    run: curl -sS --mail-from shop@example.com --mail-rcpt ann@example.com -T order01.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "MAIL failed: 530"
+
+  - id: wrong-password
+    claim: A client with the wrong password is refused its login and curl exits 67, so a test that checks the mailbox with bad credentials fails rather than finding it empty.
+    run: curl -sS -u ann@example.com:wrong -X "SEARCH ALL" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 67
+      stdout: ""

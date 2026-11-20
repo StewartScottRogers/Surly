@@ -1,0 +1,52 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ldaps-search-over-tls-from-an-agent
+title: Searching over LDAPS from an Agent
+protocols: [ldaps, ldap]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, add_ldap_entries, curl]
+curl-options: [-s, -S, -k, -u]
+exit-codes: [0, 38, 60]
+references: [surl-readme, curl-readme, rfc4511, rfc4516, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts one surl-mcp server with an ldaps and an ldap listener, one account and nothing loosened, add_ldap_entries seeds two entries, and curl-mcp's curl tool binds over ldaps as alice with -u alice:s3cret and finds bob's mail, exit 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^add_ldap_entries: \{"entry_count":2\}\nldaps, right password: \[DN: cn=bob,dc=example,dc=com, mail: bob@example\.com\] exit 0\n'
+
+  - id: wrong-password
+    claim: Over ldaps, a wrong password is checked and refused, curl exits 38, and the error names Invalid Credentials.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nldaps, wrong password: \[\] exit 38 Invalid Credentials\n'
+
+  - id: plain-refuses
+    claim: On the ldap listener of the same server, the right password and a wrong one are refused alike, curl exits 38, and the error names Confidentiality Required, so the password was not checked.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nldap, right password: \[\] exit 38 Confidentiality Required\nldap, wrong password: \[\] exit 38 Confidentiality Required\n'
+
+  - id: untrusted
+    claim: On Windows, without -k, curl does not trust a certificate that is signed by its own key, and exits 60.
+    platforms: [windows]
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nldaps, certificate checked: \[\] exit 60\n$'

@@ -15,7 +15,7 @@ server for a refusal case runs with no `--directory` (an empty directory; the ro
   accepts `curl --negotiate` (GSS-SPNEGO carrying NTLM, or Kerberos with `--keytab` and host `localhost`).
   The two words are not interchangeable. `--auth digest-md5` for DIGEST-MD5. Root DSE
   `supportedSASLMechanisms` lists what `--auth` accepts.
-- `--allow-anonymous`: searches without a bind (otherwise `insufficientAccessRights`).
+- `--allow-anonymous` (loosens, warns): searches without a bind; curl needs `-u :` (empty name and password), which then works on Windows. Without it `-u :` is `inappropriateAuthentication`, exit 38.
 
 ## Secure by default
 - Simple bind over `ldap://`: `confidentialityRequired`, unchecked; curl exit 38.
@@ -44,5 +44,15 @@ curl-mcp: `curl(args)` as the command line.
   Curl port exits 67 `Login denied`: mark those cases `platforms: [windows]`.
 - `curl --ntlm` against `--auth negotiate` is refused `Authentication Method Not Supported`, exit 38, everywhere.
 
+## LDAPS
+- `ldaps://` needs `--cert`/`--key` (or `--self-signed`); without, surl exits 58. A simple bind is checked over `ldaps://` with nothing loosened; the same account on `ldap://` of the same surl is `Confidentiality Required`. One surl can hold both listeners on one directory.
+- Windows: curl's ldaps check uses the Windows certificate store, so `--cacert server.pem` does NOT make a self-signed certificate pass (exit 60, schannel SEC_E_UNTRUSTED_ROOT); `-k` does. Same in Curl.Api: `CertificateAuthorityBlob` fails with 60 PeerFailedVerification; `VerifyPeer = false` plus `VerifyHost = false` works. Linux and macOS behaviour (OpenLDAP) not run: those cases are `platforms: [windows]`.
+
+## Surl.Api / Curl.Api / MCP
+- Seeding: Surl.Api `await server.Directory.AddEntriesAsync(ldif)` (LDIF text, all or none); surl-mcp `add_ldap_entries(server_id, ldif)` answers `{"entry_count":N}`.
+- Client: a GET of `ldap://127.0.0.1:port/<base>?<attrs>?<scope>?<filter>` with `Authentication = new CurlAuthenticationOptions { UserPassword = ":" }` is the anonymous bind (no member says anonymous). Body = curl's text. Failures throw `CurlException`: missing base 39 `LdapSearchFailed`, bind refused 38 `LdapCannotBind` (message holds `Confidentiality Required` / `Invalid Credentials` / `Inappropriate Authentication`, wording otherwise the platform's, `LDAP local: bind via ldap_win_bind ...` on Windows).
+- `server.BoundUrls` entries are `Uri`; `.ToString()` before concatenating a search.
+- curl-mcp `transfer` has no LDAP or login options: use the `curl` tool (`args`), answer JSON with `standardOutput.content`, `standardError.content`, `exitCode`.
+
 ## Recipes
-ldap-search-a-directory, ldap-bind-with-ntlm.
+ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope (and its twins), ldaps-search-over-tls (and its twins).
