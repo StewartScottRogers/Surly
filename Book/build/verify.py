@@ -163,6 +163,29 @@ def build_program(path, root, bins):
 # the original standard-library client.
 
 
+def run_bounded(cmd, shell, root, timeout, env):
+    """Run a case's command; None if it outlives its timeout. On a timeout the whole process tree
+    is killed: killing only the shell leaves its curl holding the output pipe, and the read then
+    waits for ever (Windows), which stalled whole verify runs."""
+    p = subprocess.Popen(cmd, shell=shell, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, start_new_session=not WINDOWS,
+                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if WINDOWS else 0)
+    try:
+        out, err = p.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, p.returncode, out, err)
+    except subprocess.TimeoutExpired:
+        if WINDOWS:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+        else:
+            import signal
+            os.killpg(p.pid, signal.SIGKILL)
+        try:
+            p.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        return None
+
+
 def run_case(case, recipe, root, values, bins, built, program_env=None):
     write_fixtures(root, case.get("fixtures"))
     if "program" in case:
@@ -176,11 +199,9 @@ def run_case(case, recipe, root, values, bins, built, program_env=None):
     else:
         cmd = resolve(substitute(case["run"], values), bins)
         shell, timeout = True, case.get("timeout", 30)
-    try:
-        r = subprocess.run(cmd, shell=shell, cwd=root, capture_output=True, text=True, timeout=timeout,
-                           env=program_env if "program" in case else None)
-    except subprocess.TimeoutExpired:
-        return False, "timed out"
+    r = run_bounded(cmd, shell, root, timeout, program_env if "program" in case else None)
+    if r is None:
+        return False, f"timed out after {timeout} s"
     exp = case["expect"]
     problems = []
     if r.returncode != exp.get("exit", 0):
@@ -270,6 +291,10 @@ def verify_recipe(recipe, spec, bins):
                         failures.append(f"case {case['id']}: restarting {name}: {why or 'it exited'}")
                         break
                 else:
+                    # platforms: a claim true on some platforms only (WinLDAP, SSPI) is skipped elsewhere.
+                    if case.get("platforms") and PLATFORM not in case["platforms"]:
+                        results[case["id"]] = "skipped"
+                        continue
                     ok, why = run_case(case, recipe, root, values, bins, built, program_env)
                     results[case["id"]] = "pass" if ok else "fail"
                     if not ok:
@@ -295,6 +320,18 @@ def recipe_versions(recipe, spec, tool_versions):
     return found
 
 
+WRITE = [True]
+
+
+def show(lines, failed, quiet):
+    """Print a recipe's result; quiet prints only a broken one, each failure cut short."""
+    if quiet and not failed:
+        return
+    if quiet:
+        lines = [l if len(l) <= 300 else l[:297] + "..." for l in "\n".join(lines).split("\n")]
+    print("\n".join(lines), flush=True)
+
+
 def check_one(recipe, spec, bins, tool_versions, today):
     """Verify one recipe and write its verified.yml; returns the lines to print and whether it failed."""
     lines = []
@@ -313,30 +350,39 @@ def check_one(recipe, spec, bins, tool_versions, today):
               "platforms": platforms, "cases": results}
     if failures:
         record["failures"] = failures
-    (recipe / "verified.yml").write_text(
-        "# Written by build/verify.py. Do not edit; re-run verify.py instead.\n"
-        + yaml.safe_dump(record, sort_keys=False), encoding="utf-8")
+    if WRITE[0]:
+        (recipe / "verified.yml").write_text(
+            "# Written by build/verify.py. Do not edit; re-run verify.py instead.\n"
+            + yaml.safe_dump(record, sort_keys=False), encoding="utf-8")
     lines.append(f"{spec['key']}: {status}" + ("" if not failures else "\n  " + "\n  ".join(failures)))
     return lines, bool(failures)
 
 
 def main():
-    args = sys.argv[1:]
-    jobs = int(os.environ.get("SURLY_JOBS", "1"))
-    if args[:1] in (["-j"], ["--jobs"]):
-        jobs, args = int(args[1]), args[2:]
-    wanted = set(args)
+    import argparse
+    parser = argparse.ArgumentParser(description="Run every case of the named recipes (all when none is named).")
+    parser.add_argument("keys", nargs="*", help="recipe keys")
+    parser.add_argument("-j", "--jobs", type=int, default=int(os.environ.get("SURLY_JOBS", "1")),
+                        help="recipes to run side by side")
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="print only broken recipes (each failure cut to 300 characters) and a one-line total")
+    parser.add_argument("--no-write", action="store_true",
+                        help="write no verified.yml (a check against a local, unreleased build)")
+    opts = parser.parse_args()
+    jobs, wanted = opts.jobs, set(opts.keys)
+    WRITE[0] = not opts.no_write
     selected = [(recipe, spec) for _, _, recipe, spec in recipes(wanted or None)]
     bins = {t: binary(t) for t in sorted(set().union(*(tools(spec) for _, spec in selected)))}
     BINS.update(bins)
     tool_versions = {k: version(v) for k, v in bins.items() if k not in MCP_HOSTS.values()}
     today = datetime.date.today().isoformat()
-    any_failed = False
+    any_failed, counts = False, {False: 0, True: 0}
     if jobs <= 1:
         for recipe, spec in selected:
             lines, failed = check_one(recipe, spec, bins, tool_versions, today)
             any_failed |= failed
-            print("\n".join(lines), flush=True)
+            counts[failed] += 1
+            show(lines, failed, opts.quiet)
     else:
         # Recipes are independent (own temporary folder, own free ports, own servers), so
         # they can run side by side; results print in book order as each one finishes.
@@ -346,7 +392,10 @@ def main():
             for future in futures:
                 lines, failed = future.result()
                 any_failed |= failed
-                print("\n".join(lines), flush=True)
+                counts[failed] += 1
+                show(lines, failed, opts.quiet)
+    if opts.quiet:
+        print(f"{counts[False]} of {counts[False] + counts[True]} verified", flush=True)
     sys.exit(1 if any_failed else 0)
 
 

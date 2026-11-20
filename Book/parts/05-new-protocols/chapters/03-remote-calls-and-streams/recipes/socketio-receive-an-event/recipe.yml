@@ -11,7 +11,8 @@ exit-codes: [0, 2, 22, 28]
 references: [surl-readme, curl-readme, curl-protocols, socketio-protocol, rfc6455]
 
 # main is the recipe. plain is the default: no account and no --allow-anonymous.
-# account has an account whose password may cross plain socketio.
+# account has an account whose password may cross plain socketio; clear has the same
+# account without --allow-plaintext-auth.
 # Every run that connects ends by -m, so no case waits on the server to close.
 servers:
   main:
@@ -22,6 +23,9 @@ servers:
     ready: port
   account:
     command: surl --user alice:secret --allow-plaintext-auth socketio://127.0.0.1:{{port3}}/
+    ready: port
+  clear:
+    command: surl --user alice:secret socketio://127.0.0.1:{{port4}}/
     ready: port
 
 cases:
@@ -83,9 +87,26 @@ cases:
       stdout: ""
       stderr-contains: "Socket.IO server refused namespace /: {\"message\":\"Not authorized\"}"
 
-  - id: no-login-from-curl
-    claim: curl does not send -u's user name and password when it joins, so even the right account, on a server with that account and --allow-plaintext-auth, is refused with Not authorized, exit 22.
-    run: curl -s -S -m 10 -u alice:secret -d "[\"greeting\",\"hello from surl\"]" socketio://127.0.0.1:{{port3}}/
+  - id: login
+    claim: curl sends -u's user name and password in its namespace request, so on a server with that account and --allow-plaintext-auth it joins and gets its event back, until -m 3 ends the run, exit 28.
+    run: curl -s -m 3 -u alice:secret -d "[\"greeting\",\"hello alice\"]" socketio://127.0.0.1:{{port3}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "[\"greeting\",\"hello alice\"]\n"
+
+  - id: wrong-password
+    claim: A wrong password is refused with Not authorized, exit 22, and no event is written.
+    run: curl -s -S -m 10 -u alice:guess -d "[\"greeting\",\"hello\"]" socketio://127.0.0.1:{{port3}}/
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Socket.IO server refused namespace /: {\"message\":\"Not authorized\"}"
+
+  - id: login-needs-plaintext-auth
+    claim: Without --allow-plaintext-auth, the same account's right password over plain socketio is refused with Not authorized, exit 22.
+    run: curl -s -S -m 10 -u alice:secret -d "[\"greeting\",\"hello\"]" socketio://127.0.0.1:{{port4}}/
     timeout: 30
     expect:
       exit: 22

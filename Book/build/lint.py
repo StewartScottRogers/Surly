@@ -3,7 +3,7 @@
 """Structural checks on every recipe: the things an AI author must get right
 and a machine can check without judgement. Semantic review is REVIEW.md.
 
-Usage:  python3 build/lint.py
+Usage:  python3 build/lint.py [key ...]   (all recipes when no key is given)
 Exit:   0 clean; 1 with every finding printed as path: finding.
 """
 import re, sys
@@ -68,7 +68,10 @@ def main():
     keys = {spec["key"] for _, _, _, spec in recipes()}
     bib = bibliography_keys()
     pins = pinned_packages()
+    only = set(sys.argv[1:])      # lint only these recipes (all are still loaded, for cross-references)
     for _, _, recipe, spec in recipes():
+        if only and spec["key"] not in only:
+            continue
         adoc = recipe / "recipe.adoc"
         if not adoc.exists():
             findings.append(f"{recipe.relative_to(BOOK).as_posix()}: recipe.yml has no recipe.adoc beside it")

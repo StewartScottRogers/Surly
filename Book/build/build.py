@@ -137,13 +137,16 @@ def write_recipe_files(recipe, spec):
     for c in spec["cases"]:
         if c is sol:
             continue
-        mark = {"pass": "✔", "fail": "✘"}.get((v.get("cases") or {}).get(c["id"]), "·")
+        mark = {"pass": "✔", "fail": "✘", "skipped": "–"}.get((v.get("cases") or {}).get(c["id"]), "·")
         result = f"exit {c['expect'].get('exit', 0)}"
         if any(expected_lines(c)):
             result += ", prints " + mono(" ".join(expected_lines(c)))
         elif c["expect"].get("stdout") == "":
             result += ", prints nothing"
         command = mono(case_command(c, values))
+        if c.get("platforms"):
+            names = {"windows": "Windows", "linux": "Linux", "macos": "macOS"}
+            command = command + " (" + " and ".join(names[p] for p in c["platforms"]) + " only)"
         if c.get("restart"):
             command = "after restarting " + ", ".join(f"`{n}`" for n in c["restart"]) + ": " + command
         rows.append(f"| {mark} | {c['claim']} | {command} | {result}")

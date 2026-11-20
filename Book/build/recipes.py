@@ -92,6 +92,10 @@ def load_spec(recipe_dir):
         if lines and spec["schema"] < 2:
             sys.exit(f"{where}: {field} needs schema: 2")
     for c in spec["cases"]:
+        if "platforms" in c:
+            bad = [p for p in c["platforms"] if p not in ("windows", "linux", "macos")] if isinstance(c["platforms"], list) else [c["platforms"]]
+            if bad or not c["platforms"]:
+                sys.exit(f"{where}: case {c['id']}: platforms is a list of windows, linux, macos; not {bad}")
         if "restart" in c:
             names = c["restart"] if isinstance(c["restart"], list) else [c["restart"]]
             unknown = [n for n in names if n not in (spec.get("servers") or {})]

@@ -12,6 +12,7 @@ references: [surl-readme, mqtt311]
 
 # main loosens the clear-password refusal for the test; strict is the default, for comparison.
 # unkept is main without --topic, so it keeps nothing curl publishes.
+# anywhere keeps only topics matching a filter with # in the middle.
 servers:
   main:
     command: surl --allow-plaintext-auth --user ann:secret --user bob:hunter2 --user carol:pw --topic "shop/#;retain" --topic-access "shop/#=ann:pubsub,bob:sub" mqtt://127.0.0.1:{{port}}/
@@ -21,6 +22,9 @@ servers:
     ready: port
   unkept:
     command: surl --allow-plaintext-auth --user ann:secret --user bob:hunter2 --topic-access "shop/#=ann:pubsub,bob:sub" mqtt://127.0.0.1:{{port3}}/
+    ready: port
+  anywhere:
+    command: surl --allow-plaintext-auth --user ann:secret --topic "shop/#/orders;retain" mqtt://127.0.0.1:{{port4}}/
     ready: port
 
 cases:
@@ -81,6 +85,21 @@ cases:
     expect:
       exit: 2
       stdout: "surl: (2) option --topic-access: member dave names no account or group\n"
+
+  - id: hash-at-any-level
+    claim: 'In a --topic filter # may stand at any level, so "shop/#/orders;retain" keeps a publish to shop/eu/north/orders, two levels in, and not one to shop/eu/returns.'
+    run: curl -s -u ann:secret -d paid mqtt://127.0.0.1:{{port4}}/shop/eu/north/orders --next -s -u ann:secret -d sent mqtt://127.0.0.1:{{port4}}/shop/eu/returns --next -s -u ann:secret mqtt://127.0.0.1:{{port4}}/shop/eu/north/orders --next -s -u ann:secret mqtt://127.0.0.1:{{port4}}/shop/eu/returns
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x14shop/eu/north/orderspaid\Z'
+
+  - id: hash-must-fill-a-level
+    claim: 'A # that does not fill a whole level, as in shop/a#, is not a valid topic filter, and surl exits 2 at start.'
+    run: surl --user ann:secret --topic "shop/a#" mqtt://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: (2) option --topic: topic shop/a# is not a valid topic filter\n"
 
   - id: topic-flag-checked
     claim: --topic declares a topic filter with flags, and a flag it does not know, such as retained for retain, is refused at start with exit 2.

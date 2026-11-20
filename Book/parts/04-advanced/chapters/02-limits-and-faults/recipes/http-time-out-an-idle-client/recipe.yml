@@ -15,11 +15,13 @@ fixtures:
   plain/hello.txt: "hello from surl\n"
   capped/hello.txt: "hello from surl\n"
   stalled/hello.txt: "hello from surl\n"
+  held/hello.txt: "hello from surl\n"
 
 # The limits are short and the pauses between fetches long, so no claim is a race.
 # main: an idle timeout of one second. plain: the defaults.
 # capped: a maximum exchange time of three seconds.
 # stalled: a maximum exchange time of one second, and every request held for three.
+# held: an idle timeout of one second, and every request held for three.
 # One surl holds a folder at a time.
 servers:
   main:
@@ -33,6 +35,9 @@ servers:
     ready: port
   stalled:
     command: surl --directory stalled --max-time 1 --fault "delay;stage=command;ms=3000" http://127.0.0.1:{{port4}}/
+    ready: port
+  held:
+    command: surl --directory held --idle-timeout 1 --fault "delay;stage=command;ms=3000" http://127.0.0.1:{{port5}}/
     ready: port
 
 cases:
@@ -69,9 +74,17 @@ cases:
       exit: 52
       stdout: ""
 
+  - id: idle-during-delay
+    claim: The idle clock stops while surl itself holds a request, so with --idle-timeout 1 a request held three seconds by a delay fault is still answered 200.
+    run: curl -s -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port5}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "200\n"
+
   - id: defaults
     claim: The defaults are an idle timeout of 120 seconds and a maximum exchange time of 3600, and 0 means no limit.
     run: surl --aihelp limits
     expect:
       exit: 0
-      stdout-matches: 'Each limit is 0 for no limit:.*an exchange idle this long is closed; default 120\.\r?\n- `-m, --max-time <seconds>`: the longest one exchange may take; default 3600\.'
+      stdout-matches: 'Each limit is 0 for no limit:.*an exchange idle this long is closed, counting only silence the peer causes: while a `delay` fault holds the server the idle clock is stopped, so the wait never closes the connection; default 120\.\r?\n- `-m, --max-time <seconds>`: the longest one exchange may take; default 3600\.'

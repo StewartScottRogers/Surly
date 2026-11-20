@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # Review: amqp-send-and-receive
 Verdict: accept with fixes
-Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 71807f05f), Curl port 8.22.0 (Curl commit 82913be53d): 17 of 17 cases pass on windows.
+Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl commit 763754785), Curl port (Curl commit b9ca725077): 18 of 18 cases pass on windows.
 ## Findings
 1. Fitness (3), needs the author: the Solution runs over `amqps://` with an account and a certificate, heavier than the other brokers' `--allow-anonymous` Solutions. It has to: `curl`'s AMQP 0-9-1 client logs in only with PLAIN (guest/guest without `-u`), and `surl` offers PLAIN only inside TLS or under `--allow-plaintext-auth`; `--allow-anonymous` alone offers ANONYMOUS, which `curl` does not use (case `anonymous-is-not-enough`, exit 67). The secure path needs no loosening at all, so it is the Solution. The lighter alternative would be `--allow-anonymous --allow-plaintext-auth` (two loosenings); not cased, not claimed.
 2. Truth (7): refusals and loosening are cases: no `-u` (403, exit 67), wrong password over TLS (403), untrusted certificate (60), `amqp://` with no PLAIN on offer (67), `--allow-plaintext-auth` (accepted; wrong password 403).
@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 4. Truth (5): queue semantics are cased: empty queue exit 0 and no output, a receive takes the message off, oldest first; virtual host other than `/` is 530, exit 8; a path without a virtual host is exit 3.
 5. Cited, not cased: `curl` declares the queue passively first and creates a missing one, and logs in as RabbitMQ's default account without `-u` (<<curl-protocols>>, from the Curl port's AMQP conformance notes).
 6. Fixed while writing: the claims' `--next` transfers repeat `--cacert` and `-u`; the Discussion says why.
+7. Updated 2026-11-19 for Surl 763754785 and Curl b9ca725077: `amqp://` now offers CRAM-MD5 by default, which curl does not use (exit 67 names it), and `--allow-anonymous` now offers PLAIN and AMQPLAIN, so `anonymous-is-not-enough` became `anonymous-lets-in` (no `-u`) and `anonymous-any-password`; the Discussion says so. Finding 1's lighter alternative is now one loosening (`--allow-anonymous`); the Solution stays on `amqps://` with nothing loosened.
