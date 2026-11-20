@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
-// An agent serves a PFX certificate with surl-mcp and fetches over HTTPS with curl-mcp's curl tool.
+// An agent serves a PFX certificate with surl-mcp and fetches over HTTPS with curl-mcp's transfer tool.
 // Run: dotnet run serve-pfx.cs -- <passphrase>
 //   s3cret   the passphrase the PFX was made with
 //   wrong    a passphrase it was not made with
@@ -42,13 +42,14 @@ if (started.IsError == true)
 
 string url = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
 
-// curl-mcp's curl tool takes curl's arguments, one list item each. --cacert trusts server.pem,
-// the same certificate as a PEM file.
-CallToolResult result = await curl.CallToolAsync("curl", new Dictionary<string, object?>
+// curl-mcp's transfer tool: caFile trusts server.pem, the same certificate as a PEM file,
+// as curl --cacert does.
+CallToolResult result = await curl.CallToolAsync("transfer", new Dictionary<string, object?>
 {
-    ["args"] = new[] { "-s", "--cacert", "server.pem", url + "hello.txt" },
+    ["url"] = url + "hello.txt",
+    ["caFile"] = "server.pem",
 });
 JsonElement answer = JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text).RootElement;
-Console.WriteLine($"exitCode: {answer.GetProperty("exitCode").GetRawText()}");
-Console.Write(answer.GetProperty("standardOutput").GetProperty("content").GetString());
+Console.WriteLine($"statusCode: {answer.GetProperty("statusCode").GetRawText()}");
+Console.Write(answer.GetProperty("body").GetProperty("content").GetString());
 return 0;

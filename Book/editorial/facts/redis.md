@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # redis facts
-Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-19, windows.
+Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-19, windows; Curl.Api timing re-checked on Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20.
 
 ## Listen URLs and readiness
 `redis://host:port` (TCP, `ready: port`); `rediss://` with TLS. Keys live in memory, in databases 0 to 15, and go when the server stops.
@@ -22,6 +22,9 @@ The URL path is the command and its arguments: `redis://host:port/GET/greeting`;
 - Several URLs in one `curl` run (`curl -s -u a:p URL1 URL2 ...`) run in order and fast: use one run for a
   set-then-read that must beat a short expiry. A separate curl start costs about a second on this machine, so
   never read a key in a second process a second or two after setting it (use EX 6 or more, or one run).
+- Curl.Api: the first request in a cold `dotnet run` process took 4 s on an idle machine (0.4 s warm), and longer under
+  load: a 6 s expiry read as null before it was due (Curl 7d167fa10a verify run). Read a live key under a long expiry
+  (a minute), and to see it go set it again with a short one and wait past it; `Keys.SetAsync` again replaces the expiry.
 - With `--user` and no `--allow-plaintext-auth`, `-u alice:s3cret` is exit 67 `WRONGPASS`.
 
 ## MCP

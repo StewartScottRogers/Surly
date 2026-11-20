@@ -5,13 +5,12 @@
 [ $# -gt 0 ] || set -- --directory site http://127.0.0.1:0/
 surl "$@" > listening.txt 2> surl.log &
 pid=$!
-tries=0
+deadline=$(( $(date +%s) + 5 ))   # wait at most about 5 seconds, however slow the machine
 until grep -q '^Listening on ' listening.txt; do
   if ! kill -0 "$pid" 2>/dev/null; then   # surl gave up: show why and pass on its code
     wait "$pid"; code=$?; cat surl.log >&2; exit $code
   fi
-  tries=$((tries + 1))
-  if [ "$tries" -ge 50 ]; then echo "no Listening on line from surl" >&2; kill "$pid"; exit 1; fi
+  if [ "$(date +%s)" -ge "$deadline" ]; then echo "no Listening on line from surl" >&2; kill "$pid"; exit 1; fi
   sleep 0.1
 done
 url=$(sed -n 's|^Listening on ||p' listening.txt | head -n 1)

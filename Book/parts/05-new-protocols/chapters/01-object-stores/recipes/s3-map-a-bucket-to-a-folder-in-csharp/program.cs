@@ -4,6 +4,7 @@
 #:package Surl.Api@1.0.0
 #:package Curl.Api@0.2.0
 
+using System.Text;
 using Curl.Api;
 using Curl.Api.Errors;
 using Surl.Api;
@@ -39,12 +40,11 @@ await Show("no bucket", HttpMethod.Get, "s3://videos/sunset.txt");
 await Show("https gallery", HttpMethod.Get, $"{httpsUrl}gallery/sunset.txt");
 await Show("https pics", HttpMethod.Get, $"{httpsUrl}pics/sunset.txt");
 
-// A file put into the folder, by the test's own hand and not by a client, is an object of the bucket.
-await server.Files.PutAsync("/gallery/up.txt", "uploaded\n"u8.ToArray());
-await Show("folder put, bucket get", HttpMethod.Get, "s3://pics/up.txt");
-
-// Curl.Api sends only a GET to an s3:// URL: a PUT is refused before anything is sent.
-await Show("put", HttpMethod.Put, "s3://pics/other.txt", CurlContent.FromStream(new MemoryStream("x\n"u8.ToArray()), 2));
+// A put into the bucket pics writes the file into the folder gallery, read back from the store.
+await Show("pics put", HttpMethod.Put, "s3://pics/up.txt", CurlContent.FromStream(new MemoryStream("uploaded\n"u8.ToArray()), 9));
+SurlFileContents landed = await server.Files.ReadAsync("/gallery/up.txt");
+Console.WriteLine($"folder holds: [{Encoding.UTF8.GetString(landed.Bytes.Span).TrimEnd()}]");
+await Show("gallery get", HttpMethod.Get, "s3://gallery/up.txt");
 
 // A bucket mapped onto a folder that is not on disk stops the start. DataDirectory is --directory.
 var broken = new SurlServerOptions { ListenUrls = { "s3://127.0.0.1:0" }, DataDirectory = "spare", CertificateFile = "server.pem", KeyFile = "server.key" };

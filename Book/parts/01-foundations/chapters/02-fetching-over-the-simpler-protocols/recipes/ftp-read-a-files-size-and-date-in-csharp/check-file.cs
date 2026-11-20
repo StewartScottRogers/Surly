@@ -11,7 +11,6 @@
 
 using System.Globalization;
 using System.Text;
-using System.Text.RegularExpressions;
 using Curl.Api;
 using Curl.Api.Errors;
 using Surl.Api;
@@ -35,24 +34,21 @@ try
         RecordExchanges = true,
     };
     await using SurlServer server = await SurlServer.StartAsync(options);
-    await using CurlClient client = CurlClient.Create();
+    // FetchFileTime is curl -R: every request asks for the remote file's time.
+    await using CurlClient client = CurlClient.Create(new CurlClientOptions { FetchFileTime = true });
 
-    // The size and time of one remote file: a HEAD request, with MDTM sent as a quote command before it.
+    // The size and time of one remote file: a HEAD request, which sends MDTM and SIZE.
     async Task<(long Size, DateTimeOffset Modified)> Ask(string name)
     {
-        var request = new CurlRequest(HttpMethod.Head, $"{server.BoundUrl}{name}")
-        {
-            Ftp = new CurlFtpOptions { Quote = [$"MDTM {name}"] },
-        };
+        var request = new CurlRequest(HttpMethod.Head, $"{server.BoundUrl}{name}");
         CurlResponse response = await client.SendAsync(request, CancellationToken.None);
         await using Stream body = response.Body;
         await body.CopyToAsync(Stream.Null);
 
-        // SIZE arrives as Content-Length; the reply to MDTM, 213 and 14 digits, is among the headers.
-        long size = long.Parse(response.Headers.Single(h => h.Key == "Content-Length").Value, CultureInfo.InvariantCulture);
-        string reply = response.Headers.Select(h => h.Key).Single(key => Regex.IsMatch(key, @"^213 \d{14}$"));
-        DateTimeOffset modified = DateTimeOffset.ParseExact(
-            reply[4..], "yyyyMMddHHmmss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        // SIZE arrives as Content-Length and MDTM as Last-Modified, as curl -I prints them.
+        string Header(string key) => response.Headers.Single(h => h.Key == key).Value;
+        long size = long.Parse(Header("Content-Length"), CultureInfo.InvariantCulture);
+        DateTimeOffset modified = DateTimeOffset.ParseExact(Header("Last-Modified"), "r", CultureInfo.InvariantCulture);
         return (size, modified);
     }
 

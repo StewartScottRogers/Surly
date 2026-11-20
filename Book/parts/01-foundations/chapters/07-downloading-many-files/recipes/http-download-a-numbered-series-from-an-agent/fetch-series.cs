@@ -5,6 +5,7 @@
 //   series      report-[1-12].csv into reports/, naming each missing one (the default)
 //   fail-early  the same with --fail-early, which stops at the first missing one
 //   hash        -o "reports/report-#1.csv" in place of -O and --output-dir
+//   outside     -o "../report-#1.csv", a name that leaves the folder
 //   transfer    the globbed URL given to transfer instead
 #:package ModelContextProtocol.Core@2.2.0
 
@@ -51,9 +52,12 @@ if (which == "transfer")
 else
 {
     // curl -sf --create-dirs --output-dir reports -O -w "%{onerror}missing %{url.path}\n" URL
-    var curlArgs = which == "hash"
-        ? new List<string> { "-sf", "--create-dirs", "-o", "reports/report-#1.csv", series }
-        : new List<string> { "-sf", "--create-dirs", "--output-dir", "reports", "-O", "-w", "%{onerror}missing %{url.path}\n", series };
+    var curlArgs = which switch
+    {
+        "hash" => new List<string> { "-sf", "--create-dirs", "-o", "reports/report-#1.csv", "-w", "%{onerror}missing %{url.path}\n", series },
+        "outside" => new List<string> { "-sf", "-o", "../report-#1.csv", series },
+        _ => new List<string> { "-sf", "--create-dirs", "--output-dir", "reports", "-O", "-w", "%{onerror}missing %{url.path}\n", series },
+    };
     if (which == "fail-early") curlArgs.Insert(0, "--fail-early");
     result = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = curlArgs });
     answer = JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text).RootElement;

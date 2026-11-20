@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # tls facts
-Checked against: surl 1.0.0 (Surl 763754785), curl 8.22.0 (Curl b9ca725077), 2026-11-19, windows.
+Checked against: surl 1.0.0 (Surl 9ad60d80c), curl 8.22.0 (Curl 7d167fa10a), 2026-11-20, windows (P12 messages re-probed; the rest carried from Surl 763754785 / Curl b9ca725077).
 Covers the TLS options common to every secure scheme; protocol sheets cover the rest.
 
 ## Listen URLs and readiness
@@ -15,7 +15,7 @@ Any TLS scheme (`https`, `mqtts`, `ftps`, `wss`, ...) needs a certificate; `read
 
 ## Secure by default
 - No `--cert` and no `--self-signed`: `surl: (58) <url> needs a certificate: give --cert <file>, or --self-signed for a throwaway one`, exit 58.
-- P12 with a wrong or missing `--pass`: exit 58, `Could not load the server certificate: 'server.pfx' is not a P12 certificate Surl can read.` (does not name the passphrase). PFX without `--cert-type P12`: exit 58, `'server.pfx' holds no PEM certificate.` Missing file: exit 58, `Cannot read the --cert file '<file>'.` Some wrong-type combinations (a PEM given `--cert-type P12`, a PFX given `--cert-type DER`) also say `Cannot read the --cert file`.
+- P12, all exit 58, `Could not load the server certificate: ` then: wrong `--pass` `'server.pfx' is a P12 file the --pass given does not open.`; no `--pass` `'server.pfx' is a P12 file that needs --pass.`; a file that is not P12 (a PEM, a truncated PFX) `'<file>' is not a P12 certificate Surl can read.`; a PFX given `--cert-type DER` `'server.pfx' is not a Der certificate Surl can read.` (Surl 9ad60d80c, BL-1445). PFX without `--cert-type P12`: exit 58, `'server.pfx' holds no PEM certificate.` Missing file: exit 58, `Cannot read the --cert file '<file>'.`
 - A handshake that fails on version is a log line (`TLS handshake failed: ...`), the server keeps serving.
 
 ## Client: curl
@@ -30,7 +30,7 @@ Any TLS scheme (`https`, `mqtts`, `ftps`, `wss`, ...) needs a certificate; `read
 
 ## MCP
 - `surl-mcp start_server`: no TLS fields; pass options in `arguments` (`["--cert","server.pem","--key","server.key","--tlsv1.3"]`); a refusal is a tool error with structured `exit_code` (58) and `exit_code_name` (`CertificateProblem`), text is surl's line. Certificate files must be under `SURL_MCP_ROOT`.
-- `curl-mcp transfer` has only `insecure`: no `--cacert`, no TLS version. Use the `curl` tool (`args` list) for `--cacert`, `--tls-max`, `--tlsv1.3`, `-u`.
+- `curl-mcp transfer` has `insecure`, `caFile` (`--cacert`; must lie under `CURL_MCP_ROOT`, else PathRefused) and `minTlsVersion` (`1.0`..`1.3`, as `--tlsv1.x`) since Curl adadcb5959; answer `statusCode`, `body.content`. No `--tls-max`: use the `curl` tool (`args` list) for that and `-u`.
 - `curl` tool answer: `exitCode`, `standardOutput.content`, `standardError.content` (null when empty).
 
 ## C#

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
-// Serves one directory over SMB and HTTP with Surl.Api, uploads to it over HTTP PUT with Curl.Api,
-// and reads the file back over SMB. Curl.Api 0.2.0 cannot upload over SMB itself.
+// Serves one directory over SMB and HTTP with Surl.Api, uploads to it over SMB with Curl.Api,
+// and reads the file back over HTTP and SMB.
 // Run: dotnet run program.cs -- allow    (also: closed, small)
 #:package Surl.Api@1.0.0
 #:package Curl.Api@0.2.0
@@ -37,18 +37,25 @@ await using CurlClient client = CurlClient.Create();
 var smbLogin = new CurlAuthenticationOptions { UserName = "alice", Password = "s3cret" };
 var httpLogin = new CurlAuthenticationOptions { UserName = "alice", Password = "s3cret", HttpAuthentication = HttpAuthenticationMethods.Digest };
 
-await Send("upload", http, HttpMethod.Put, "quarterly numbers\n", httpLogin);
+Console.WriteLine($"upload: {await Send(smb, HttpMethod.Put, "quarterly numbers\n", smbLogin)}");
 Console.WriteLine($"on disk: {(File.Exists(report) ? File.ReadAllText(report).Trim() : "no file")}");
-Console.WriteLine($"read over SMB: {await Send(null, smb, HttpMethod.Get, null, smbLogin)}");
 if (mode == "allow")
 {
-    await Send("upload again", http, HttpMethod.Put, "revised numbers\n", httpLogin);
-    Console.WriteLine($"read over SMB: {await Send(null, smb, HttpMethod.Get, null, smbLogin)}");
+    Console.WriteLine($"read over HTTP: {await Send(http, HttpMethod.Get, null, httpLogin)}");
 }
+
+Console.WriteLine($"read over SMB: {await Send(smb, HttpMethod.Get, null, smbLogin)}");
+if (mode == "allow")
+{
+    Console.WriteLine($"upload again: {await Send(smb, HttpMethod.Put, "revised numbers\n", smbLogin)}");
+    Console.WriteLine($"read over SMB: {await Send(smb, HttpMethod.Get, null, smbLogin)}");
+}
+
 return 0;
 
-// One request. A label prints the status; either way the body, or the CurlException's code, comes back.
-async Task<string> Send(string? label, string url, HttpMethod method, string? body, CurlAuthenticationOptions login)
+// One request: a body makes it an upload. The answer is the body read back, "stored" for an upload
+// that threw nothing (SMB has no status), or the CurlException's code.
+async Task<string> Send(string url, HttpMethod method, string? body, CurlAuthenticationOptions login)
 {
     var request = new CurlRequest(method, url) { Authentication = login };
     if (body is not null) request = request with { Body = System.Text.Encoding.UTF8.GetBytes(body) };
@@ -57,8 +64,7 @@ async Task<string> Send(string? label, string url, HttpMethod method, string? bo
         CurlResponse response = await client.SendAsync(request, CancellationToken.None);
         await using Stream stream = response.Body;
         string text = (await new StreamReader(stream).ReadToEndAsync()).Trim();
-        if (label is not null) Console.WriteLine($"{label}: {(int)response.StatusCode}");
-        return text;
+        return body is null ? text : "stored";
     }
     catch (CurlException failure)
     {

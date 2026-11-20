@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The port is agreed in advance with a TcpListener probe on port 0, released before either side uses it.
 2. The program retries only CurlCode.CouldntConnect (a when filter).
+Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: under load the first attempt got 200, because the first Curl.Api request's cold start (4 s even on an idle machine) outlasted the server's two-second head start; not a Curl regression. The server's two seconds now count from the first refused attempt.

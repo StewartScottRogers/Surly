@@ -38,7 +38,9 @@ if (mode == "late")
 
 // The test: wait for the store change that names /report.csv.
 var query = new SurlEventQuery { Store = StoreKind.Content, Name = "/report.csv" };
-TimeSpan timeout = TimeSpan.FromSeconds(mode is "anonymous" or "basic" ? 1 : 5);
+// A wait returns as soon as the event comes, so the timeout only bounds a failure: long enough
+// for a loaded machine where one is expected, one second where none can come.
+TimeSpan timeout = TimeSpan.FromSeconds(mode is "anonymous" or "basic" ? 1 : 30);
 try
 {
     var change = (StoreChangedEvent)await server.WaitForEventAsync(query, timeout);

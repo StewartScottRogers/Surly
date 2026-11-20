@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Fixed: the first draft printed under 1 s / 1 to 4 s from one shared clock and failed once on a cold first run (the engine start added about 2 s); each fetch now has its own stopwatch and reports only within or after the 5 s hold.
 2. Two SendAsync calls on one CurlClient ran side by side; no PIPEWAIT hold-up as with curl -Z.
+Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: under load the timed lines read "after 5 s" because the stopwatch held the first Curl.Api request's cold start (4 s even on an idle machine), not a Curl regression; the program now makes one untimed fetch first and the hold is ten seconds, five times the two-second limit.
