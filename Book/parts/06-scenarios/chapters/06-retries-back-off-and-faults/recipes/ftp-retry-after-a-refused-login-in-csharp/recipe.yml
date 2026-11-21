@@ -1,0 +1,129 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+# Each case runs one scenario and prints only the lines of one label (the second argument).
+schema: 2
+key: ftp-retry-after-a-refused-login-in-csharp
+title: Retrying After a Refused Login in C#
+protocols: [ftp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFault, SurlFaultRule, SurlEventQuery, SurlEventKind, LoginJudgedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException, CurlCode]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-manual, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The rule refuses the first login and Curl.Api throws LoginDenied (67); the program waits one second and its second attempt logs in and gets the file.
+    program: retry-login.cs
+    args: ["retry", "attempt"]
+    expect:
+      exit: 0
+      stdout: "attempt 1: LoginDenied (67), waiting 1 s\nattempt 2: hello from surl\n"
+
+  - id: one-retry
+    claim: The client counts one retry.
+    program: retry-login.cs
+    args: ["retry", "retries"]
+    expect:
+      exit: 0
+      stdout: "retries: 1\n"
+
+  - id: server-judged-two
+    claim: The server judged two logins, the first refused by the rule and the second accepted.
+    program: retry-login.cs
+    args: ["retry", "logins"]
+    expect:
+      exit: 0
+      stdout: "logins: refused by the rule, accepted\n"
+
+  - id: rule-spent
+    claim: The rule, f1, has no uses left after its one refusal.
+    program: retry-login.cs
+    args: ["retry", "rule"]
+    expect:
+      exit: 0
+      stdout: "rule f1: 0 left\n"
+
+  - id: server-sent-530
+    claim: The server's verbose log holds one 530 Login incorrect sent.
+    program: retry-login.cs
+    args: ["retry", "530 sent"]
+    expect:
+      exit: 0
+      stdout: "530 sent: 1\n"
+
+  - id: password-withheld
+    claim: The log shows both logins' passwords as PASS ****.
+    program: retry-login.cs
+    args: ["retry", "PASS ****"]
+    expect:
+      exit: 0
+      stdout: "PASS ****: 2\n"
+
+  - id: permanent
+    claim: A client that counts a refused login as final stops at the first LoginDenied and gives up with 67.
+    program: retry-login.cs
+    args: ["permanent", "attempt"]
+    expect:
+      exit: 67
+      stdout: "attempt 1: LoginDenied (67)\n"
+
+  - id: rule-is-spent
+    claim: The rule is spent by that refusal, so a later fetch logs in.
+    program: retry-login.cs
+    args: ["permanent", "next fetch"]
+    expect:
+      exit: 67
+      stdout: "next fetch: hello from surl\n"
+
+  - id: wrong-password-stays-refused
+    claim: A wrong password is refused every time, so two retries do not help and the program exits 67.
+    program: retry-login.cs
+    args: ["wrong", "attempt"]
+    expect:
+      exit: 67
+      stdout: "attempt 1: LoginDenied (67), waiting 1 s\nattempt 2: LoginDenied (67), waiting 1 s\nattempt 3: LoginDenied (67)\n"
+
+  - id: wrong-password-not-the-rule
+    claim: The server checks the password before the rule, so none of the three refusals is the rule's.
+    program: retry-login.cs
+    args: ["wrong", "logins"]
+    expect:
+      exit: 67
+      stdout: "logins: refused, refused, refused\n"
+
+  - id: wrong-password-keeps-rule
+    claim: The rule still has its one use after three logins with a wrong password.
+    program: retry-login.cs
+    args: ["wrong", "rule"]
+    expect:
+      exit: 67
+      stdout: "rule f1: 1 left\n"
+
+  - id: longer-wait
+    claim: With a rule that refuses two logins and a two-second wait, the third attempt logs in after two retries.
+    program: retry-login.cs
+    args: ["slow", "attempt"]
+    expect:
+      exit: 0
+      stdout: "attempt 1: LoginDenied (67), waiting 2 s\nattempt 2: LoginDenied (67), waiting 2 s\nattempt 3: hello from surl\n"
+
+  - id: plaintext-refused
+    claim: Without AllowPlaintextAuthentication the server refuses a password sent in clear over ftp://, with no rule, and the retry meets the same refusal.
+    program: retry-login.cs
+    args: ["strict", "attempt"]
+    expect:
+      exit: 67
+      stdout: "attempt 1: LoginDenied (67), waiting 1 s\nattempt 2: LoginDenied (67)\n"
+
+  - id: plaintext-not-judged
+    claim: A password refused for being sent in clear is refused unread, so no login was judged at all.
+    program: retry-login.cs
+    args: ["strict", "logins"]
+    expect:
+      exit: 67
+      stdout: "logins: \n"

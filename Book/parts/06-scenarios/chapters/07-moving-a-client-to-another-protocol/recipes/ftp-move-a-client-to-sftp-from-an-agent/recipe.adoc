@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-move-a-client-to-sftp-from-an-agent]]
+=== Moving a Client from FTP to SFTP
+
+==== Problem
+
+As an agent: you are replacing File Transfer Protocol (FTP) with the Secure Shell (SSH) File Transfer Protocol (SFTP). You want one server serving both from the same files, so that the old client{apos}s download and the new client{apos}s compare byte for byte, and a way to see that the old one can be turned off.
+
+==== Solution
+
+Start one server through `surl-mcp` with an FTP and an SFTP listener, fetch the report over each through `curl-mcp`, compare the copies, and ask the server which logins it judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` of `surl-mcp` takes `listen_urls`, here an `ftp://` and an `sftp://` URL, each on port 0 for a free one; both are Transmission Control Protocol (TCP), so each gets a port of its own, and `bound_urls` lists them in the order given. `files`, a map from name to text, is the store shared by both listeners, so `report.bin` is the same file at the same path under both; here it is 3,000 characters of numbered rows. `arguments` is `surl`{apos}s own words: `--user alice:s3cret` the account, `--hostkey host_key` the host key the SFTP listener needs, made in the setup with `ssh-keygen`, and `--list-directories` so a client may list a folder. FTP sends the password in clear, which `surl` refuses unless told it is acceptable: `--allow-plaintext-auth` lets the old client log in and warns on start.
+
+The `curl` tool of `curl-mcp` runs real `curl` options: `args` is the list of words, and the answer holds `exitCode`, `standardOutput` and `standardError`, each with its `content`. `-s` keeps the progress meter away. The FTP fetch is a plain `-u alice:s3cret`. The SFTP fetch adds `-k`, which skips the check of the server{apos}s host key; a key you made yourself is the one place for it. Both copies are read from `standardOutput` and compared with each other and with the text the server was given (<<rfc959>>). `-l` on a folder URL lists the names one a line, in order: the same two over both protocols.
+
+Where FTP has nothing to check, SFTP can be pinned to the server{apos}s host key. `--hostpubsha256` takes the fingerprint, the SHA-256 of the key{apos}s blob in base64 without padding, which the program works out from `host_key.pub`; with it the report arrives identical. A fingerprint that is not the server{apos}s is refused, exit code `60`.
+
+`get_events` of `surl-mcp`, given the `server_id`, the kind `login_judged` and a `scheme`, answers the logins the server judged through that scheme, each with its `account`, `mechanism` and `is_accepted`. One accepted login for `alice` on `ftp` and one on `sftp` are the two clients. Counting the first is how to see which clients still use the old protocol, and it is the evidence to collect before turning it off.
+
+What changes for the agent around the fetch is mostly nothing. A missing file is exit code `78` and a wrong password `67` over both protocols, so a check that tests for them survives the move; the text of `curl`{apos}s message differs.
+
+Turning the old protocol off is the failure path. A server started without `--allow-plaintext-auth` refuses the old client{apos}s password, even the right one, and the tool answers exit code `67`. The SFTP listener of the same server serves the same report, identical to the server{apos}s text.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-move-a-client-to-sftp>> and <<ftp-move-a-client-to-sftp-in-csharp>> for the same move on the console and in C#.
+* <<tftp-move-a-firmware-fetch-to-http-from-an-agent>> for another move between protocols.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

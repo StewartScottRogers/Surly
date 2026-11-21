@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-tunnel-through-a-proxy]]
+=== Tunnelling HTTPS through a Proxy
+
+==== Problem
+
+Your client reaches Hypertext Transfer Protocol Secure (HTTPS) sites through a proxy, which means a `CONNECT` tunnel. You want a test proxy that opens one to a Transport Layer Security (TLS) origin on your own machine, and the `CONNECT` seen in the proxy's log.
+
+==== Solution
+
+Start a TLS origin on port 8080 and a proxy on 8081 that logs everything to `proxy.log`, then fetch the origin's `https://` URL through the proxy:
+
+include::.generated/solution.adoc[]
+
+Stop both servers with kbd:[Ctrl+C].
+
+==== Discussion
+
+The origin serves `--directory site` over `https://` with the certificate `openssl` wrote, `--cert server.pem` and its key `--key server.key`. The second `surl` serves no files: `--proxy` makes each of its listen URLs a proxy, one over `http://` on 8081 and one over `https://` on 8082. `-v` logs every event and every line on the wire, and `--log-file proxy.log` sends that log to a file the checks can read.
+
+`-x` names the proxy `curl` sends through. For an `https://` URL `curl` never asks the proxy to fetch the page. It sends `CONNECT 127.0.0.1:8080 HTTP/1.1`, naming only the origin's host and port; the proxy connects there, answers `200 Connection established`, and from then on relays bytes both ways without reading them (<<rfc9110>>). `curl` then runs its TLS handshake with the origin through that tunnel (<<rfc8446>>). `-w "%{http_connect}"` prints the proxy's answer to the `CONNECT`, and `curl -v` shows the `CONNECT` it sent before anything else. (In the checks, `-s` silences the progress meter, `-S` keeps the error line and `-o` sends the body away.)
+
+The proxy's log shows the same exchange from its side: the `CONNECT` it received, line for line with `\r\n` written out, then `Tunnelling to 127.0.0.1:<port>; answered 200.` and the tunnel's bytes, all of them TLS records. The `GET /hello.txt` the client sent is nowhere in it, because it crossed the proxy encrypted; `grep -c` counts 0 and exits 1. That is the difference a test sees between a client that tunnels and one that sends its request to the proxy in the clear.
+
+The certificate check is end to end. `--cacert server.pem` makes `curl` trust the origin's certificate; without it `curl` exits 60, although the tunnel opened, because the proxy plays no part in TLS between client and origin. An `https://` proxy adds a second TLS session around the first: `curl` checks the proxy's certificate with `--proxy-cacert` and the origin's with `--cacert`, and the `CONNECT` itself is encrypted on the way to the proxy.
+
+A proxy can refuse the tunnel. The third `surl` in `recipe.yml` has a `--fault` rule that answers every `CONNECT` with `503`; it opens no tunnel, and `curl` exits 7 with `CONNECT tunnel failed, response 503`. The same exit and message, with `403`, is what a client gets from the proxy's default refusal of an origin outside loopback (<<http-run-a-test-proxy>>).
+
+A `-v` log of a proxy listener withholds nothing in this build: a `Proxy-Authorization` header would be there in full, so keep the file out of shared build output once the proxy needs a login (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-tunnel-through-a-proxy-in-csharp>> for the same tunnel from a C# test.
+* <<https-tunnel-through-a-proxy-from-an-agent>> for the same tunnel driven by an agent.
+* <<http-run-a-test-proxy>> for requests the proxy forwards instead of tunnelling.
+* <<rfc9110>>, <<rfc8446>>, <<surl-readme>>, <<curl-manual>>.

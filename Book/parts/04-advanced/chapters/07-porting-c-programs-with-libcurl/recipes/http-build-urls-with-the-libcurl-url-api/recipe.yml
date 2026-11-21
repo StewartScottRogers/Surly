@@ -1,0 +1,113 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-build-urls-with-the-libcurl-url-api
+title: Building URLs with Libcurl's URL API
+protocols: [http]
+tier: advanced
+surface: csharp
+surl-options: [--directory]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlUrlHandle, CurlUrlPart, CurlUrlFlags, CurlUrlCode, CurlEasy, CurlOption, WriteCallback, CurlCode, CurlInfo, CurlErrorText]
+exit-codes: [0, 1]
+references: [surl-readme, libcurl-api, rfc3986, rfc9110]
+
+fixtures:
+  site/reports/my file.txt: "the November report\n"
+
+# The program is only the client: the server is a surl process serving one folder.
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Built part by part, a path with a space set with CURLU_URLENCODE becomes %20, and each query set with CURLU_APPENDQUERY | CURLU_URLENCODE is joined with & and keeps its first = while a space becomes +; CURLOPT_CURLU fetches that URL and surl serves the file whose name has the space, response code 200.
+    program: urls.cs
+    args: [build, "127.0.0.1", "{{port}}", "/reports/my file.txt", "region=north east", "lang=en"]
+    expect:
+      exit: 0
+      stdout-matches: '^http://127\.0\.0\.1:\d+/reports/my%20file\.txt\?region=north\+east&lang=en\nthe November report\nresponse code 200\n$'
+
+  - id: parse-normalises
+    claim: Parsing lowercases the scheme, keeps an explicit port 80, and removes the dot segments from the path, as RFC 3986 says; /a/../b/./c is /b/c.
+    program: urls.cs
+    args: [parse, "HTTP://127.0.0.1:80/a/../b/./c?x=1"]
+    expect:
+      exit: 0
+      stdout: "Scheme: http\nHost: 127.0.0.1\nPort: 80\nPath: /b/c\nQuery: x=1\nPort with CURLU_DEFAULT_PORT: 80\n"
+
+  - id: absent-parts
+    claim: A part the URL does not have is an error code, not an empty string; no port is CURLUE_NO_PORT, 15, unless CURLU_DEFAULT_PORT asks for the scheme's, 80, and no query is CURLUE_NO_QUERY, 16.
+    program: urls.cs
+    args: [parse, "http://127.0.0.1/x"]
+    expect:
+      exit: 0
+      stdout: "Scheme: http\nHost: 127.0.0.1\nPort: (15) No port number present\nPath: /x\nQuery: (16) No query present\nPort with CURLU_DEFAULT_PORT: 80\n"
+
+  - id: bad-port
+    claim: A port past 65535 is refused by curl_url_set with CURLUE_BAD_PORT_NUMBER, 4, and curl_url_strerror's text.
+    program: urls.cs
+    args: [parse, "http://127.0.0.1:99999/"]
+    expect:
+      exit: 1
+      stdout: ""
+      stderr-contains: "curl_url_set: (4) Port number was not a decimal number between 0 and 65535"
+
+  - id: port-not-a-number
+    claim: Setting CURLUPART_PORT to eighty is the same CURLUE_BAD_PORT_NUMBER, 4.
+    program: urls.cs
+    args: [build, "127.0.0.1", eighty, /x]
+    expect:
+      exit: 1
+      stderr-contains: "curl_url_set: (4) Port number"
+
+  - id: unsupported-scheme
+    claim: A scheme libcurl has no protocol for is CURLUE_UNSUPPORTED_SCHEME, 5.
+    program: urls.cs
+    args: [parse, "htp://127.0.0.1/"]
+    expect:
+      exit: 1
+      stderr-contains: "curl_url_set: (5) Unsupported URL scheme"
+
+  - id: no-scheme
+    claim: A URL with no scheme is CURLUE_BAD_SCHEME, 27, unless the caller asks libcurl to guess one.
+    program: urls.cs
+    args: [parse, "127.0.0.1/x"]
+    expect:
+      exit: 1
+      stderr-contains: "curl_url_set: (27) Bad scheme"
+
+  - id: raw-space
+    claim: A raw space in a whole URL is CURLUE_MALFORMED_INPUT, 3; only a part set with CURLU_URLENCODE is encoded for the caller.
+    program: urls.cs
+    args: [parse, "http://127.0.0.1/my file.txt"]
+    expect:
+      exit: 1
+      stderr-contains: "curl_url_set: (3) Malformed input to a URL function"
+
+  - id: join-relative
+    claim: Setting CURLUPART_URL on a handle that already holds a URL resolves the new one against it; ../2025/dec.csv climbs one folder.
+    program: urls.cs
+    args: [join, "http://127.0.0.1:8080/reports/2026/nov.csv", "../2025/dec.csv"]
+    expect:
+      exit: 0
+      stdout: "http://127.0.0.1:8080/reports/2025/dec.csv\n"
+
+  - id: join-query-only
+    claim: A relative reference that is only a query keeps the base's path and replaces its query.
+    program: urls.cs
+    args: [join, "http://127.0.0.1:8080/reports/2026/nov.csv", "?page=2"]
+    expect:
+      exit: 0
+      stdout: "http://127.0.0.1:8080/reports/2026/nov.csv?page=2\n"
+
+  - id: join-network-path
+    claim: A reference starting with // keeps only the base's scheme; host, port and path all come from the reference.
+    program: urls.cs
+    args: [join, "http://127.0.0.1:8080/reports/2026/nov.csv", "//example.com/x"]
+    expect:
+      exit: 0
+      stdout: "http://example.com/x\n"

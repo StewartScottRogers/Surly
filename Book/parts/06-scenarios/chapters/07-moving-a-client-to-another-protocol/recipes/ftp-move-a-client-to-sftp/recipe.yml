@@ -1,0 +1,126 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-move-a-client-to-sftp
+title: Moving a Client from FTP to SFTP
+protocols: [ftp, sftp]
+tier: scenarios
+surl-options: [--hostkey, --user, --allow-plaintext-auth, --allow-uploads, --list-directories, --directory, -v, --log-file]
+curl-options: [-u, -k, -o, -l, -w, -T, --hostpubsha256, --next, -s, -S]
+exit-codes: [0, 2, 60, 67, 78]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures:
+  site/notes.txt: "release notes\n"
+  pin.sh: |
+    #!/bin/sh
+    # pin.sh PORT OUT: fetches /report.bin over SFTP from the server on PORT into OUT, trusting only the
+    # host key whose fingerprint is in host_key.pub, so a different key is refused (exit 60).
+    pin=$(ssh-keygen -l -f host_key.pub | cut -d' ' -f2 | sed 's/^SHA256://')
+    curl -sS --hostpubsha256 "$pin" -u alice:s3cret -o "$2" "sftp://127.0.0.1:$1/report.bin"
+
+# A host key for the SSH side, and a report of 3,000 random bytes, so a copy that differs by one byte
+# cannot pass for the real one.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - head -c 3000 /dev/urandom > site/report.bin
+
+# main: one surl, one folder, two listeners (FTP and SFTP are both TCP, so each has a port of its own).
+# The old client's password crosses the wire in clear, so FTP needs --allow-plaintext-auth.
+# cutover: the same two listeners with the plaintext option left out, and a store in memory that holds
+# what the seed uploads over SFTP.
+servers:
+  main:
+    command: surl --hostkey host_key --user alice:s3cret --allow-plaintext-auth --list-directories --directory site -v --log-file surl.log ftp://127.0.0.1:{{port}}/ sftp://127.0.0.1:{{port2}}/
+    ready: port
+  cutover:
+    command: surl --hostkey host_key --user alice:s3cret --allow-uploads ftp://127.0.0.1:{{port3}}/ sftp://127.0.0.1:{{port4}}/
+    ready: port
+
+seed:
+  - curl -sS -k -u alice:s3cret -T site/report.bin sftp://127.0.0.1:{{port4}}/report.bin
+
+cases:
+  - id: solution
+    role: solution
+    claim: The report fetched over FTP and the report fetched over SFTP from the same folder are byte for byte the same file.
+    run: curl -sS -u alice:s3cret -o over-ftp.bin ftp://127.0.0.1:{{port}}/report.bin --next -sS -k -u alice:s3cret -o over-sftp.bin sftp://127.0.0.1:{{port2}}/report.bin && cmp over-ftp.bin over-sftp.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: old-login-recorded
+    claim: The server's log records the FTP login as accepted for alice, once, the old client's.
+    run: 'grep -c "Login accepted: ftp alice" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: new-login-recorded
+    claim: The log records the SFTP login as a password login for alice, once, the new client's, so the record tells the two apart.
+    run: 'grep -c "Login accepted: password alice" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: same-size
+    claim: Both transfers report the 3000 bytes the file holds.
+    run: curl -sS -u alice:s3cret -w "%{size_download}\n" -o {{null}} ftp://127.0.0.1:{{port}}/report.bin --next -sS -k -u alice:s3cret -w "%{size_download}\n" -o {{null}} sftp://127.0.0.1:{{port2}}/report.bin
+    expect:
+      exit: 0
+      stdout: "3000\n3000\n"
+
+  - id: ftp-listing
+    claim: curl -l lists the folder's names, one a line, over FTP.
+    run: curl -sS -l -u alice:s3cret ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "notes.txt\nreport.bin\n"
+
+  - id: sftp-listing
+    claim: The same command over SFTP lists the same names in the same order.
+    run: curl -sS -l -k -u alice:s3cret sftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "notes.txt\nreport.bin\n"
+
+  - id: missing-file
+    claim: A missing file is exit 78 over both protocols, so the script that tests for it need not change.
+    run: curl -sS -u alice:s3cret -w "%{exitcode}\n" -o {{null}} ftp://127.0.0.1:{{port}}/nope.bin --next -sS -k -u alice:s3cret -w "%{exitcode}\n" -o {{null}} sftp://127.0.0.1:{{port2}}/nope.bin
+    expect:
+      exit: 78
+      stdout: "78\n78\n"
+
+  - id: wrong-password
+    claim: A wrong password is exit 67 over both protocols.
+    run: curl -sS -u alice:wrong -w "%{exitcode}\n" -o {{null}} ftp://127.0.0.1:{{port}}/report.bin --next -sS -k -u alice:wrong -w "%{exitcode}\n" -o {{null}} sftp://127.0.0.1:{{port2}}/report.bin
+    expect:
+      exit: 67
+      stdout: "67\n67\n"
+
+  - id: host-key-pinned
+    claim: Where FTP has nothing to check, SFTP can be pinned to the server's host key, and with the right fingerprint the report arrives identical.
+    run: sh pin.sh {{port2}} pinned.bin && cmp pinned.bin site/report.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: wrong-host-key
+    claim: A fingerprint that is not the server's is refused, exit 60.
+    run: curl -sS --hostpubsha256 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA -u alice:s3cret -o {{null}} sftp://127.0.0.1:{{port2}}/report.bin
+    expect:
+      exit: 60
+
+  - id: cutover-refuses-ftp
+    claim: On the server started without --allow-plaintext-auth the old client's password is refused, even the right one, and curl exits 67.
+    run: curl -sS -u alice:s3cret -o {{null}} ftp://127.0.0.1:{{port3}}/report.bin
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"
+
+  - id: cutover-serves-sftp
+    claim: The new client is unaffected on the same server, and the report it fetches is identical to the one on disk.
+    run: curl -sS -k -u alice:s3cret -o cut.bin sftp://127.0.0.1:{{port4}}/report.bin && cmp cut.bin site/report.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"

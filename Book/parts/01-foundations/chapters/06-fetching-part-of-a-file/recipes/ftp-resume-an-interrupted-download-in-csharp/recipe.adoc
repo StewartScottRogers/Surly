@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-an-interrupted-download-in-csharp]]
+=== Resuming an FTP Download in C#
+
+==== Problem
+
+Your C# code fetches large files over File Transfer Protocol (FTP) with `Curl.Api`. You want it to resume a partial download, and to check from the recorded exchange that it sent `REST` with the right offset.
+
+==== Solution
+
+Host the server in the program, write the first 65,536 bytes of the image to disk as a cut-off download leaves them, send `REST` with the length on disk, append what arrives, and compare the file with the server{apos}s:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free one; `Files` holds the 200,000-byte image in memory; `AllowAnonymous` lets `curl`{apos}s anonymous login in, so it is for a test on your own machine only; `RecordExchanges` keeps what the client sent and was answered, in `server.Exchanges`, one `SurlExchangeRecord` for each connection.
+
+`Curl.Api` has no option for `curl -C -`, so the program spells the resume out. The request is a `CurlRequest` `GET` whose `CurlFtpOptions.PreQuote` holds `REST <bytes on disk>`: `PreQuote` is sent just before the transfer command, so the server answers `350 Restarting at 65536` and sends only the rest (<<rfc959>>, <<rfc3659>>). The request is sent on a `CurlClient`, and the `CurlResponse` body is appended to the file. `CurlHttpOptions.IgnoreContentLength`, `--ignore-content-length`, applies to FTP too: it stops the client checking the bytes against the size `SIZE` reported, which is the whole file{apos}s, not the rest{apos}s. Only 134,464 bytes are fetched, and the joined file is identical to the image.
+
+The check is on what the server saw. `Received` of the first exchange holds the commands as ASCII text; the program keeps the `REST` and `RETR` lines and finds `REST 65536` immediately before `RETR update.iso`. `Sent` holds the `350 Restarting at 65536`.
+
+Where there is no partial copy the program sends no `REST`: the whole 200,000 bytes arrive, and the server answered no `350`. A request without the `REST` over a partial copy starts at byte 0 and the program replaces the copy, which is what a client that does not resume does. `PreQuote` can hold any offset: `REST 100000` receives the last 100,000 bytes of the image, whatever is on disk.
+
+The partial copy is trusted, not checked. `REST` carries a length, not a checksum. A partial copy of 65,536 zeros is resumed as readily as the real one: 134,464 bytes arrive, the length is 200,000, and only the comparison with the server{apos}s bytes finds the difference, so the test exits `1`. That comparison is the check.
+
+Leave out `IgnoreContentLength` and the client expects 200,000 bytes after the restart: `SendAsync` throws `CurlException` with `Code` `PartialFile` although every missing byte arrived and the file is whole. A test that trusted the exception would call a good resume a failure. A download that is cut off by a dropped connection, with a retry, is in <<ftp-resume-a-dropped-download-in-csharp>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-an-interrupted-download>> for the resume on the console with `curl -C -`.
+* <<ftp-resume-an-interrupted-download-from-an-agent>> for an agent running it.
+* <<ftp-resume-a-dropped-download-in-csharp>> for a download cut off by the server, with a retry.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

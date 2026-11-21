@@ -1,0 +1,83 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-read-headers-with-curl-easy-header]]
+=== Reading Headers with curl_easy_header
+
+==== Problem
+
+Your C program reads response headers by name with `curl_easy_header` and walks them all with `curl_easy_nextheader`, and you want the port to C# to make the same calls and get the same answers, the error codes included.
+
+==== Solution
+
+Port the program call for call with `Libcurl`{apos}s `CurlEasyHeaders`, and run it against `surl` serving a folder over Hypertext Transfer Protocol (HTTP):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program the port starts from asks for each header named on its command line, then walks every header of the response:
+
+[source,c]
+----
+#include <stdio.h>
+#include <curl/curl.h>
+
+static size_t discard(char *data, size_t size, size_t nmemb, void *userdata)
+{
+  return size * nmemb;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *curl;
+  CURLcode res;
+  CURLHcode hc;
+  struct curl_header *h, *prev = NULL;
+  int i;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  hc = curl_easy_header(curl, "Content-Type", 0, CURLH_HEADER, -1, &h);
+  printf("before perform: %d\n", (int)hc);
+  curl_easy_setopt(curl, CURLOPT_URL, argv[1]);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard);
+  res = curl_easy_perform(curl);
+  if(res != CURLE_OK) {
+    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    return (int)res;
+  }
+  for(i = 2; i < argc; i++) {
+    hc = curl_easy_header(curl, argv[i], 0, CURLH_HEADER, -1, &h);
+    if(hc == CURLHE_OK)
+      printf("%s: %s: %s (amount %zu, index %zu)\n", argv[i], h->name, h->value, h->amount, h->index);
+    else
+      printf("%s: %d\n", argv[i], (int)hc);
+  }
+  printf("Server index 1: %d\n", (int)curl_easy_header(curl, "Server", 1, CURLH_HEADER, -1, &h));
+  printf("Server request 5: %d\n", (int)curl_easy_header(curl, "Server", 0, CURLH_HEADER, 5, &h));
+  while((prev = curl_easy_nextheader(curl, CURLH_HEADER, -1, prev)))
+    printf("walk: %s: %s\n", prev->name, prev->value);
+  curl_easy_cleanup(curl);
+  curl_global_cleanup();
+  return 0;
+}
+----
+
+The port prints each error code{apos}s name beside its number, and prints only the names of `Date` and `Last-Modified` in the walk, whose values change from run to run. The rest is a line for a line. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, `CurlGlobalFlags` holding libcurl{apos}s flag values; the `CurlLibrary` it returns makes the `CurlEasy` handle, and disposing them is the two cleanups. `SetOption` is `curl_easy_setopt` with a `CurlOption`, the body goes to a `WriteCallback` that drops it, `Perform` answers a `CurlCode`, and `CurlErrorText.Easy` is `curl_easy_strerror`.
+
+`CurlEasyHeaders.Header` is `curl_easy_header`, with the easy handle as its first argument as in C: the name, the index among headers of that name, the origin, the request, and an `out` for the header. It answers a `CurlHeaderCode`, libcurl{apos}s `CURLHcode` with the same numbers. The origin is a `CurlHeaderOrigin`, `CURLH_HEADER` being `CurlHeaderOrigin.Header`: ordinary response headers, not trailers, `CONNECT` responses or `1xx` answers. Request -1 is the last request the transfer made, which is the only one here. The `CurlHeader` that comes back is `struct curl_header`: `Name` as the server spelled it, `Value`, `Amount`, how many headers of that name there are, and `Index`, which of them this is. The name asked for is matched without regard to case, as HTTP field names are (<<rfc9110>>).
+
+`surl` serves the files in `site` with `--directory site`. `CurlEasyHeaders.NextHeader` is `curl_easy_nextheader`: given the previous header, or null to start, it answers the next one in the order they arrived, and null at the end. Against `surl` the walk is `Date`, `Server: surl`, `Last-Modified`, `Content-Type`, `Content-Length` for a served file, and `Date`, `Server`, `Content-Length: 0` for a `404 Not Found`. A 404 is still a finished transfer with headers to read; the header API does not care about the status.
+
+The error codes are the port{apos}s main check that it behaves as libcurl. Before any transfer there is nothing to read, `CURLHE_NOHEADERS`, 3. A name the response does not carry is `CURLHE_MISSING`, 2: `surl` sends no `ETag`, and no `Content-Type` on a 404. An index past the last header of a name is `CURLHE_BADINDEX`, 1, and a request number the handle never reached `CURLHE_NOREQUEST`, 4. A connection that fails is `CURLE_COULDNT_CONNECT`, 7, from `Perform`, before any header is read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-show-the-response-headers-in-csharp>> for headers with `Curl.Api`, the interface for new .NET code.
+* <<http-take-timings-with-curl-easy-getinfo>> for reading libcurl{apos}s timers after a transfer.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc9110>>.

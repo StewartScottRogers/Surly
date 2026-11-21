@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-relay-through-a-socks-proxy-in-csharp]]
+=== Relaying through SOCKS5 in C#
+
+==== Problem
+
+Your app is configured with a SOCKS5 proxy that resolves host names for it, and you want a C# test that runs a SOCKS5 server and an origin in process, relays a request through one to the other, and shows a SOCKS4 client turned away with a clear refusal.
+
+==== Solution
+
+Start one `SurlServer` with an origin on `localhost` and a `socks5h://` listen URL, fetch by name through it with a `CurlClient`, and read what the SOCKS server logged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+SOCKS is a proxy protocol below the Hypertext Transfer Protocol (HTTP): the client asks the server to open a connection to a host and port, and from then on the server relays bytes both ways. `SurlServerOptions.ListenUrls` takes a SOCKS listen URL like any other, so one server holds the origin, `http://localhost:0` with its file from `Files`, and the SOCKS5 server, `socks5h://127.0.0.1:0`; `BoundUrls` gives each its port. `Log` with `LogLevel.Verbose` is `surl -v`, and the program prints the SOCKS server's `Connected to` and `Answered` lines after `StopAsync`, when the log is complete.
+
+`CurlProxyOptions.Proxy` takes the proxy URL, and its scheme says who resolves names. With `socks5h://` the client sends the name in the request URL, `localhost` with the port, and the server resolves it: its log says `Connected to localhost:<port>; answered 05 00`, version 5 and success. With `socks5://` the client resolves the name first. `CurlNetworkOptions.Resolve`, the `curl --resolve` of Curl.Api, teaches the client the made-up name `origin.test`, and through `socks5://` the request arrives and the log shows only the address, `127.0.0.1`. Through `socks5h://` the same name goes to the server, which cannot resolve it: it answers `05 04` and logs `HostNotFound`, and `SendAsync` throws `CurlException` with `Code` `Proxy` (97), the code for every SOCKS failure. A test of an app that must resolve names at the proxy, as on a network reached only through it, wants `socks5h://`.
+
+The server is surly about versions. A `socks4://` client is answered `5B`, the SOCKS4 refusal, at once, and the `CurlException` message ends `(91), request rejected or failed.` (91 is `5B` in decimal); the log names it `a SOCKS4 request on a SOCKS5 listener`. The server also connects only to loopback origins: `192.0.2.1` is answered `05 02`, `NotAllowed`.
+
+`-U app:socks-pw` in `AdditionalArguments` names the accounts of every proxy listener, the SOCKS server's included, and SOCKS5 then offers only username and password: a client with no login gets `No authentication method was acceptable.` `CurlAuthenticationOptions.ProxyUserPassword` is that login, but SOCKS5 carries it in clear, so the server rejects even the right one unchecked and logs `RefusedPlaintext`. `AllowPlaintextAuthentication` accepts it; it loosens every login on the server. `Timeout` on `CurlClientOptions` bounds each case, so a refusal that never came would fail fast. Keep a verbose `Log` of a SOCKS server with accounts out of shared test output in this build: treat it as holding the password (<<surl-readme>>).
+
+The program sends one `CurlRequest` and prints the `CurlResponse`{apos}s status and body; between client and origin the request is plain HTTP (<<rfc9110>>), which SOCKS only carried.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-relay-through-a-socks-proxy>> for the same relay on the console.
+* <<socks5-relay-through-a-socks-proxy-from-an-agent>> for the same relay driven by an agent.
+* <<http-run-a-test-proxy-in-csharp>> for an HTTP proxy instead of SOCKS.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

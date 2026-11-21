@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-download-every-file-in-a-folder-in-csharp]]
+=== Downloading a Whole FTP Folder in C#
+
+==== Problem
+
+Your C# sync job mirrors a folder on a File Transfer Protocol (FTP) server: you want `Curl.Api` to list the names, fetch each file, and compare the local copies with what `Surl.Api` served.
+
+==== Solution
+
+Host a server that lists folders, list the folder with a `GET` on its URL, skip the lines that name subfolders, fetch each file and compare it with the bytes the server holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free one; `Files` is the in-memory store, and a name with slashes, `pub/archive/old.txt`, makes the folders; `AllowAnonymous` lets `curl`{apos}s anonymous login in, so it is for a test on your own machine only. `ListDirectories` is `--list-directories`: `surl` refuses to list a folder unless asked.
+
+`Curl.Api` has no names-only switch, no `-l`. The program makes one `CurlClient` and sends each request on it: a `CurlRequest` for each `GET`, whose `CurlResponse` body it reads. A `GET` on a folder URL, one that ends in a slash, answers the long listing as the body, one line for each entry as `ls -l` prints it (<<rfc959>>). The program reads the first character of a line as the type, `d` for a folder and a dash for a file, and the last word as the name, and strips the carriage return that FTP ends lines with. The names come in order, and the dot file, which `surl` does not serve, is not among them. A name with a space would break the last-word rule, so this routine does not handle one.
+
+The folders are skipped: `archive` is printed and not fetched. Each file is a `GET` on its path, read to the end into memory and written under `out/pub`, and then compared, byte by byte, with `server.Files.ReadAsync`, which answers what the server holds. All three are identical, and the local folder holds those three files and nothing else. The same routine on `pub/archive` fetches its one file; descending is a decision the caller makes, not something the listing does.
+
+`SendAsync` throws `CurlException` where `curl` would exit with a number, and `Code` carries the name. A server without `ListDirectories` refuses the listing: `FtpCouldntRetrFile`, `19`. A subfolder asked for as if it were a file is `RemoteFileNotFound`, `78`, the same code as a name that has gone since the listing and as a dot file asked for by name. A sync job must catch it for each file, so that one gone file does not end the run.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-download-every-file-in-a-folder>> for the same job with `curl -l` and a script.
+* <<ftp-download-every-file-in-a-folder-from-an-agent>> for an agent doing it.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-relay-through-a-socks-proxy]]
+=== Relaying through a SOCKS5 Proxy
+
+==== Problem
+
+Your client is configured with a SOCKS5 proxy that resolves host names for it. You want a SOCKS5 server on your own machine relaying to a test origin, and a SOCKS4 client turned away with a clear refusal.
+
+==== Solution
+
+Start one `surl` that is the origin, on `localhost` port 8080, and a SOCKS5 server on 8081 that logs to `socks.log`; then fetch from the origin by name through it:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+SOCKS is a proxy protocol below the Hypertext Transfer Protocol (HTTP): the client asks the server to open a connection to a host and port, and from then on the server relays bytes both ways without reading them. A `socks5h://` listen URL, given like any other, makes that listener a SOCKS5 server; beside it `http://localhost:8080/` stays an ordinary origin serving `--directory site`. `-v` logs every event and `--log-file socks.log` sends the log to a file the checks read with `grep`.
+
+`-x` with a `socks5h://` proxy URL makes `curl` hand the server the name in the URL, `localhost` with the port, and the server resolves it. Its log says so: `Connected to localhost:<port>; answered 05 00`, where `05 00` is SOCKS version 5 and success. With `socks5://` `curl` resolves the name first and sends only an address. The difference shows with a name only the client knows: `--resolve origin.test:<port>:127.0.0.1` teaches `curl` that name, so `socks5://` reaches the origin, while `socks5h://` sends `origin.test` to the server, which cannot resolve it, answers `05 04` and logs `HostNotFound`; `curl` exits 97, its code for every SOCKS failure, with `cannot complete SOCKS5 connection to origin.test. (4)`. Pick `socks5h://` when the proxy, not the client, can see the names, as on a network reached only through it. (The `h` is the client's choice; a `socks5h://` and a `socks5://` listener serve the same SOCKS5.)
+
+The server is surly about versions. A `socks5` or `socks5h` listener answers a SOCKS4 request `00 5B`, the SOCKS4 refusal, at once instead of leaving the client waiting; `curl` given `--socks4` exits 97 with `cannot complete SOCKS4 connection to 0.0.0.0:0. (91), request rejected or failed.` (91 is `5B` in decimal, and the address is the empty one the refusal carries), and the log says `Answered 5B: a SOCKS4 request on a SOCKS5 listener.` Like the HTTP proxy, the server connects only to loopback origins: `192.0.2.1` is answered `05 02`, not allowed, and `curl` exits 97 with `(2)`.
+
+`-U app:socks-pw` gives the server an account, and SOCKS5 then offers only username and password: a client with no login is told `No authentication method was acceptable.` That login sends the password in clear, so by default the server rejects it unchecked, the right password included, and `curl` reports `User was rejected by the SOCKS5 server (1 1).` `--allow-plaintext-auth` accepts it, loosening every login on that server and warning at start; `-s` and `-S` in the checks silence the progress meter and keep the error line, and `--max-time` bounds the cases that wait on a refusal. In this build do not keep a `-v` log of a SOCKS server with accounts where others can read it: treat it as holding the password (<<surl-readme>>).
+
+The relayed request itself is plain HTTP between `curl` and the origin (<<rfc9110>>); SOCKS only carried it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-relay-through-a-socks-proxy-in-csharp>> for the same relay from a C# test.
+* <<socks5-relay-through-a-socks-proxy-from-an-agent>> for the same relay driven by an agent.
+* <<http-run-a-test-proxy>> for an HTTP proxy instead of SOCKS.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

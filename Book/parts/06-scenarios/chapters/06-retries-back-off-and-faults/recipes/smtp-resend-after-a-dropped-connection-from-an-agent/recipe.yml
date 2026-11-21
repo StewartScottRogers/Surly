@@ -1,0 +1,109 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs resend.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-resend-after-a-dropped-connection-from-an-agent
+title: Resending After a Dropped Connection
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, wait_for_event, list_mailboxes, get_events, get_exchanges]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  order.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Order 1042 has shipped\r\n\r\nYour order is on its way.\r\n"
+
+# Every case runs resend.cs; a case's argument picks the scenario, and each claim reads its own lines.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "add_fault drops the first SMTP connection before the greeting; the curl tool's send exits 56 with no reply code, the agent sends again a second later and gets exit 0 with reply 250, and ann has exactly one message."
+    program: resend.cs
+    args: [greeting]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\nsend, try 1: curl exit 56, reply 000\nsend, try 2: curl exit 0, reply 250\nlist_mailboxes: ann@example.com holds 1\n"
+
+  - id: two-connections-on-record
+    claim: "get_exchanges for smtp shows two connections, the dropped one and the retry, and get_events shows the drop rule acted once."
+    program: resend.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: "get_events: 1 fault_applied, drop by f1\n"
+
+  - id: one-stored
+    claim: "get_events shows exactly one store_changed event, one message stored."
+    program: resend.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: "get_events: 1 store_changed\nget_exchanges: 2 smtp connections\n$"
+
+  - id: drop-is-exit-56
+    claim: "On a server that drops its first two connections, a send with no retry exits 56 once, with no reply code."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "^add_fault: f1\nfirst send, try 1: curl exit 56, reply 000\n"
+
+  - id: dropped-stores-nothing
+    claim: "The dropped connection delivered nothing; list_mailboxes shows ann with none after the first send."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "first send, try 1: curl exit 56, reply 000\nlist_mailboxes: ann@example\\.com holds 0\n"
+
+  - id: retry-resends
+    claim: "The second send drops once more (the server's second connection) and the next try, the third connection, exits 0 with reply 250."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "second send, try 1: curl exit 56, reply 000\nsecond send, try 2: curl exit 0, reply 250\n"
+
+  - id: one-copy-after-two-drops
+    claim: "After two dropped connections and one accepted send, ann holds exactly one message."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\n$"
+
+  - id: drop-at-data-resends
+    claim: "A connection dropped at DATA, before the message is accepted, is resent; the retry exits 0 with reply 250."
+    program: resend.cs
+    args: [data]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\nsend, try 1: curl exit 56, reply 250\nsend, try 2: curl exit 0, reply 250\nlist_mailboxes: ann@example.com holds 1\n"
+
+  - id: drop-at-data-one-copy
+    claim: "The message cut off at DATA was never stored, so the resend leaves exactly one copy."
+    program: resend.cs
+    args: [data]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\n$"
+
+  - id: drop-after-accept-is-not-resent
+    claim: "A connection dropped at QUIT comes after the server accepted and stored the message; curl exits 0 with reply 250 and the agent does not resend."
+    program: resend.cs
+    args: [quit]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\nsend, try 1: curl exit 0, reply 250\nlist_mailboxes: ann@example.com holds 1\n"
+
+  - id: drop-after-accept-one-copy
+    claim: "That mail is in ann's INBOX once; a sender that treated the dropped QUIT as a failure and sent again would leave two."
+    program: resend.cs
+    args: [quit]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\n$"

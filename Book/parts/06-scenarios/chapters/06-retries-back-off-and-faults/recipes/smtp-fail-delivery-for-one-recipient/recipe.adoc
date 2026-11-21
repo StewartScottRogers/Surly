@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-fail-delivery-for-one-recipient]]
+=== Failing Delivery for One Recipient
+
+==== Problem
+
+Your app sends one notice to several people over Simple Mail Transfer Protocol (SMTP), and one address is refused. You want a C# test in which exactly that one recipient{apos}s command fails, to prove that the app reports that address and that the others still get the mail.
+
+==== Solution
+
+Start a `SurlServer` with a fault rule on `RCPT` scoped to one address, send the notice with the app{apos}s `SmtpClient`, and check what it reports and what each mailbox holds in the server{apos}s store. The program takes the case to run as its argument; the first case, with no argument, is the failure of one address:
+
+include::fail-one.cs[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `smtp://` listen URL on port `0`, `MailDomains` for `--mail-domain example.com`, a `Mailboxes` entry, `--mailbox`, for the app and for each person, and `AllowPlaintextAuthentication`, which `SmtpClient` needs because it has no login that keeps the password from the wire (<<surl-readme>>). `Faults` holds the fault rules, `--fault`. `SurlFault.ProtocolError("550 5.1.1 mailbox unavailable")` is `error` with that reply, and `with { Scheme = "smtp", Command = "RCPT", Path = "bob@example.com" }` narrows it to the recipient command of SMTP. On an SMTP `RCPT` the `Path` is the recipient{apos}s address, so the rule refuses Bob and no one else. The rule has no `Times`, so it refuses Bob on every send; the same server serves everyone else as usual. The reply is a code and text: `5` is a permanent failure, `550` that the mailbox is unavailable (<<rfc5321>>).
+
+The app builds one `MailMessage` for Ann, Bob and Cy and sends it once. `SmtpClient` offers each recipient to the server in turn, and when some are refused and others accepted it still sends the message to the accepted ones, and then throws. With one refusal it is an `SmtpFailedRecipientException` whose `FailedRecipient` is `<bob@example.com>`, whose `StatusCode` is `MailboxUnavailable` and whose message carries the server{apos}s own text. With several it is an `SmtpFailedRecipientsException`, whose `InnerExceptions` name each address; a test that expects exactly one failure should read the address from the exception, not only count them. The exception is the report: the app learns which address failed, and has to pass it on, to a log or to the user.
+
+The test then reads the store with no client, `server.Mail.ListMessagesAsync(owner, "INBOX")` for each person, a `SurlMessagePage` whose `Messages` is the list: Ann and Cy hold one copy each, Bob none. Mail is delivered asynchronously, so the test waits first. `OnEvent` with a `SurlEventQuery` for `StoreChanged` events in the mail store runs a callback for every delivery, which releases a `SemaphoreSlim`; the test waits on it once for each delivery it expects, for at most ten seconds each, so a lost message fails the test rather than hanging it. The server{apos}s log, written to a `StringWriter` through `Log` at `LogLevel.Verbose`, has one line saying a `RCPT` was answered with the chosen error of a fault rule and nothing was stored for it, and one `Message stored:` line, for two recipients.
+
+The cases around it show what the test must not assume. With rules for Bob and Cy, both are reported and only Ann receives the notice. With Bob as the only recipient nothing is delivered, and the report names him. A temporary refusal is different: with the reply `451 4.3.0 try later` for Bob, `SmtpClient` throws a plain `SmtpException`, not a failed-recipient one, with no address, and the message goes to nobody, not even Ann and Cy. An app that wants the others to receive the notice on a temporary failure has to send again, or to send to each person on their own. A notice to Ann and Cy alone is sent to everyone, and the rule, scoped to Bob{apos}s address, never acts: `FindEvents` for `FaultApplied` finds none.
+
+`Curl.Api` is the other way to send. A `CurlClient` sends one `CurlRequest` with `HttpMethod.Put`, which carries the envelope in `CurlMailOptions`, the login in `CurlAuthenticationOptions` and the message as `CurlContent.FromStream`. It does not send to the accepted recipients on its own: the refusal throws a `CurlException` whose `Code` is `SendError`, `55`, with `RCPT failed: 550`, and nobody holds a message. With `MailRecipientAllowFails = true`, which is `curl`{apos}s `--mail-rcpt-allowfails`, the send carries on after the refusal, returns a `CurlResponse` with `StatusCode` `250`, and Ann and Cy hold the message while Bob does not. In that mode nothing throws, so the app does not learn which address failed, and a test must check the mailboxes.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-fail-a-test-on-a-wrong-recipient>> for a recipient refused because it is outside the domain.
+* <<smtp-send-to-several-recipients-in-csharp>> for one message to several recipients with Curl.Api.
+* <<smtp-survive-a-temporary-rcpt-failure-in-csharp>> for a sender that retries a temporary refusal.
+* <<surl-readme>>, <<rfc5321>>.

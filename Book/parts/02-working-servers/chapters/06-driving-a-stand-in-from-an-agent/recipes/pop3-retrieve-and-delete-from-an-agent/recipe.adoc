@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-retrieve-and-delete-from-an-agent]]
+=== Retrieving and Deleting over POP3
+
+==== Problem
+
+You want an agent to retrieve a seeded message over Post Office Protocol version 3 (POP3), delete it, and confirm with `list_messages` that it is gone, against a stand-in server it started itself.
+
+==== Solution
+
+The agent starts `surl-mcp` with a POP3 and an Internet Message Access Protocol (IMAP) listener over one mail store, seeds two messages, uses the `curl` tool of `curl-mcp` as the POP3 client to retrieve and delete the first, and reads the store with `list_messages`. The program takes the case to run as its argument; the first case, `delete`, is the whole task:
+
+include::retrieve-and-delete.cs[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs, `pop3://127.0.0.1:0` and `imap://127.0.0.1:0` for a free port each, and `arguments`, which are `surl`{apos}s own words: `--mail-domain example.com` and `--mailbox ann@example.com:annpass`. Both listeners run over one mail store, so what POP3 deletes IMAP no longer shows (<<surl-readme>>). `seed_mail` puts a message into Ann{apos}s mailbox as SMTP would, and the delivery is an event: after each seed the program calls `wait_for_event` with `kinds` `store_changed`, the `after_sequence` of the last event it saw and a `timeout_ms` of ten seconds, so a message that does not arrive fails the run instead of hanging it.
+
+There is no tool that deletes a message: the stand-in is deleted from the way a client deletes, over POP3. The `curl` tool runs `curl`{apos}s own arguments (<<curl-manual>>): `-u` is Ann{apos}s login, a POP3 URL with no message number lists the maildrop, one with a number, `pop3://.../1`, retrieves that message with `RETR` (<<rfc1939>>), and `-X "DELE 1"` sends `DELE`. `-s` keeps the progress meter out, and `-v` shows the conversation on standard error. The retrieved text is the message with its carriage return and line feed line ends, and it is the same text `read_message` gives from the store; `read_message` sets no flag. Retrieving deletes nothing: `list_messages` still shows both messages, UIDs 1 and 2, each with its `uid`.
+
+A POP3 deletion is only marked until the session ends. Each `curl` tool call is one `curl` run, and the run{apos}s end sends `QUIT`, which commits the marks: after the call with `-X "DELE 1"`, which exits `0`, the message is gone. A deletion is a store change like a delivery, and the program waits for it the same way: `wait_for_event` answers the event, and `get_events` with `kinds` `store_changed` and the `after_sequence` from before the deletion shows it, `change` `deleted`, `name` `ann@example.com/INBOX/;UID=1`. Then `list_messages` for `INBOX` shows one message, UID 2, the invoice. The other side sees the same store: `list_mailboxes` counts one message, and an IMAP `STATUS` through the `curl` tool, `-X "STATUS INBOX (MESSAGES)"`, answers `MESSAGES 1`.
+
+A POP3 session numbers the messages afresh, and the number is not the UID. Before the deletion the listing is `1` and `2`, and the octet counts it gives are the sizes `list_messages` gives. After it the listing has a single line, number `1`, while the store{apos}s UID for that message is still `2`; an agent that deletes by number must list first and one that checks the store must look at the UID. A session that sends `DELE 1`, a listing and `RSET`, put together with `--next` in one `curl` run, deletes nothing: the deletion is undone before the session ends, `curl` exits `0` and both messages remain. Deleting a message number that is not there is answered `-ERR No such message`, `curl` exits `8`, and the store is unchanged.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-retrieve-and-delete-a-message>> for the same task on the console.
+* <<smtp-seed-mail-from-an-agent>> for seeding mail and waiting for it.
+* <<imap-list-mailboxes-and-counts-from-an-agent>> for the counts `list_mailboxes` gives.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>.

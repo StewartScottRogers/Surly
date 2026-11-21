@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: socks5-relay-through-a-socks-proxy-in-csharp
+title: Relaying through SOCKS5 in C#
+protocols: [socks5h, http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlClientOptions, CurlProxyOptions, CurlNetworkOptions, CurlAuthenticationOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A CurlClient whose proxy is socks5h:// fetches from the origin by its name, localhost, and the server's log shows it connected to that name itself, answered 05 00.
+    program: socks.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout-matches: '^200, hello from surl\n#\d+ \* Connected to localhost:\d+; answered 05 00\.\n$'
+
+  - id: socks5-resolves-locally
+    claim: With socks5:// the client resolves the name itself, here origin.test through CurlNetworkOptions.Resolve, and the server is given only the address, 127.0.0.1.
+    program: socks.cs
+    args: [local]
+    expect:
+      exit: 0
+      stdout-matches: '^200, hello from surl\n#\d+ \* Connected to 127\.0\.0\.1:\d+; answered 05 00\.\n$'
+
+  - id: socks5h-cannot-use-the-clients-name
+    claim: With socks5h:// the name goes to the server, which cannot resolve origin.test and answers 05 04, HostNotFound; SendAsync throws CurlException 97, Proxy.
+    program: socks.cs
+    args: [remote-name]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: cannot complete SOCKS5 connection to origin\.test\. \(4\)\n#\d+ \* Answered 05 04: the origin origin\.test:\d+ could not be used \(HostNotFound\)\.\n$'
+
+  - id: socks4-turned-away
+    claim: A socks4:// client is turned away at once with 5B, the SOCKS4 refusal, and the log names a SOCKS4 request on a SOCKS5 listener.
+    program: socks.cs
+    args: [socks4]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: [^\n]*\(91\), request rejected or failed\.\n#\d+ \* Answered 5B: a SOCKS4 request on a SOCKS5 listener\.\n$'
+
+  - id: outside-loopback-refused
+    claim: An origin outside loopback, 192.0.2.1, is answered 05 02, NotAllowed.
+    program: socks.cs
+    args: [outside]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: cannot complete SOCKS5 connection to 192\.0\.2\.1\. \(2\)\n#\d+ \* Answered 05 02: the origin 192\.0\.2\.1:80 could not be used \(NotAllowed\)\.\n$'
+
+  - id: login-needed
+    claim: With -U in AdditionalArguments the server offers only username and password, so a client with no proxy login gets No authentication method was acceptable.
+    program: socks.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "CurlException 97 Proxy: No authentication method was acceptable.\n"
+
+  - id: password-in-clear-refused
+    claim: The right login in ProxyUserPassword is rejected unchecked, since SOCKS5 sends it in clear; the log says RefusedPlaintext.
+    program: socks.cs
+    args: [in-clear]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: User was rejected by the SOCKS5 server \(1 1\)\.\n#\d+ \* Answered 01 01: the login is RefusedPlaintext\.\n$'
+
+  - id: plaintext-allowed
+    claim: With AllowPlaintextAuthentication the same login is accepted and the request relayed.
+    program: socks.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout-matches: '^200, hello from surl\n'

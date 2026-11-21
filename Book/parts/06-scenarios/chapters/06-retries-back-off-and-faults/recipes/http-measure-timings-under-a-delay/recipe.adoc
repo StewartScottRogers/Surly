@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-measure-timings-under-a-delay]]
+=== Measuring Timings Under a Delay
+
+==== Problem
+
+A test checks that a request meets a latency budget, and when it does not, you want to see where the time went: connecting, sending, or waiting for the server. You want a Hypertext Transfer Protocol (HTTP) server that is slow on one path by a known amount and `curl`{apos}s timing variables to show that amount, so the test can tell a slow server from a slow network or a slow client.
+
+==== Solution
+
+Give `surl` a `--fault` rule that holds every request under `/slow` for 1.5 seconds, make one untimed warm-up request, then time the slow one with `curl -w`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "delay;stage=command;ms=1500;path=/slow"` is one fault rule. `delay` holds a request before the server acts on it, `ms=1500` for 1.5 seconds; `stage=command` holds it once the request has arrived, which is what `path=/slow` needs, since there is no path to match before then. `path=/slow` matches whole segments: `/slow/report.txt` is held, `/slowness.txt` is not. Every other path is answered at once from `site`, the folder `--directory site` serves.
+
+`-w` prints `curl`{apos}s variables after a transfer, and the timing ones are moments, in seconds from the start of that transfer, with six decimals (<<curl-manual>>): `time_connect` when the connection was made, `time_pretransfer` when `curl` was ready to send the request, `time_starttransfer` when the first byte of the answer arrived, `time_total` when the transfer ended. The gap from `time_pretransfer` to `time_starttransfer` is the server{apos}s: here it is the 1.5-second hold, while the request was sent in well under a second. A slow network would show in `time_connect` instead, and a slow body in the gap from `time_starttransfer` to `time_total`.
+
+The warm-up comes first because the first transfer a `curl` process makes carries a one-time set-up cost, which lands in its timings. So the command fetches `/hello.txt` first, untimed, and `-w` follows the second URL. Each `-o` names where its URL{apos}s body goes, the null device for both, and `-s` keeps `curl` quiet. The second transfer reuses the first one{apos}s connection, so its `time_connect` is `0.000000`. Timings are claimed as ranges: at least 1.5 seconds to the first byte on the slow path, under a second on the fast one and on `/slowness.txt`, so the claims hold on a loaded machine.
+
+A budget is `-m`, the most time a transfer may take. `--next` starts a new set of options, so `-m 1` applies to the slow request and not to the warm-up. The slow request is cut off after a second: exit `28`, and status `000`, since no answer arrived. The same budget on the fast path is met, `200`.
+
+The server says the same from its side. `-v` sets the log level to verbose and `--log-file surl.log` writes the log to a file; it holds `GET held for 1.5 s by fault rule f1` for each request it held, the one `curl` gave up on included, since the server holds a request whether or not its client still waits (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-time-out-a-hanging-server>> for a server that answers nothing at all.
+* <<http-give-up-within-a-time-budget>> for a budget across retries.
+* <<http-slow-down-one-path>> for the same rule from the other side.
+* <<surl-readme>>, <<curl-manual>>.

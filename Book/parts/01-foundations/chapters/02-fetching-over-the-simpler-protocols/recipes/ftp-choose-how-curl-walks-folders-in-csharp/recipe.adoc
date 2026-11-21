@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-choose-how-curl-walks-folders-in-csharp]]
+=== Choosing the FTP Method in C#
+
+==== Problem
+
+Your C# client fetches deep paths over File Transfer Protocol (FTP), and you want to choose how it walks the folders in `CurlFtpOptions` and assert, from the recorded exchange, the `CWD` commands that each choice sent.
+
+==== Solution
+
+Start a `SurlServer` that records exchanges, then fetch a file three folders deep on a `CurlClient` of its own for each `FtpFileMethod`, and print the path commands that each exchange holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+An FTP server has a current folder, and `CWD` (change working directory) moves it. `CurlFtpOptions.FileMethod`, `--ftp-method` turned into a property, says how the client gets from the login folder to the file (<<rfc959>>). `FtpFileMethod.MultiCwd`, the default, sends one `CWD` for each folder, `CWD a`, `CWD b`, `CWD c`, then `SIZE` and `RETR` with the bare file name. `SingleCwd` sends the folder path in one `CWD`, `CWD d/e/f`. `NoCwd` sends none and puts the whole path in `SIZE` and `RETR`. With the property left unset the client behaves as `MultiCwd`.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free one; `Files` holds four files in memory, and a name with slashes, `a/b/c/one.txt`, makes the folders. `AllowAnonymous` lets `curl`{apos}s anonymous login in, so it is for a test on your own machine only. `RecordExchanges` keeps what each client sent and was answered: `SurlServer.Exchanges` has one `SurlExchangeRecord` for each connection, and its `Received` bytes hold the commands, which the program reads as ASCII and filters to `CWD`, `SIZE` and `RETR`. Each fetch is a `CurlRequest` `GET` whose `Ftp` property holds the `CurlFtpOptions`, and its `CurlResponse` body is read to the end. Each fetch gets a `CurlClient` of its own, because one client reuses its control connection and would skip a `CWD` that repeats the folder it is already in.
+
+The differences matter when a server refuses one of the commands. `Faults` takes `SurlFault.ProtocolError("550 CWD is not allowed here")` narrowed with `Scheme` `ftp`, `Command` `CWD` and `Path` `/locked`: every `CWD` under `/locked` is answered `550`. A fault loosens the server on purpose and is for tests only. With `MultiCwd` the first `CWD` fails and `SendAsync` throws a `CurlException` whose `Code` is `RemoteAccessDenied`, `curl`{apos}s exit `9`; no `SIZE` or `RETR` follows. `SingleCwd` fails the same way, at `CWD locked/in`: one `CWD` is still a `CWD`. `NoCwd` never changes folder, so the file arrives. The recorded exchange holds the server{apos}s answer, `550 CWD is not allowed here`.
+
+Other failures read differently. A missing file in a folder that exists is `RemoteFileNotFound`, `78`, after the `CWD`s and a `SIZE`. A missing folder is `RemoteAccessDenied` under `MultiCwd`, because its `CWD` fails, and `RemoteFileNotFound` under `NoCwd`, which only looked for the file.
+
+`SurlServerOptions.Log` takes a `TextWriter` that receives the lines `surl` would write, at `LogLevel.Verbose` as `-v` does. It holds one `CWD d/e/f`, one `RETR g/h/i/three.txt` and no `CWD` into `g`, `h` or `i`, so the log agrees with the exchanges.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-choose-how-curl-walks-folders>> for the same choice on the console, with `curl -v` showing the commands.
+* <<ftp-choose-how-curl-walks-folders-from-an-agent>> for the same choice made by an agent.
+* <<ftp-choose-passive-or-active-mode-in-csharp>> for choosing the data connection{apos}s mode in `CurlFtpOptions`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

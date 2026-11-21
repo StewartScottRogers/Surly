@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-transient-from-permanent-errors-from-an-agent]]
+=== Telling Transient from Permanent Errors from an Agent
+
+==== Problem
+
+A client{apos}s retry policy should try again after `503 Service Unavailable` and give up at once on `404 Not Found`. You want an artificial intelligence (AI) agent to set up a Hypertext Transfer Protocol (HTTP) server that gives both answers, and a few more, fetch each path under the policy, and count from the server{apos}s side how often each path was asked for, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the MCP software development kit (SDK): it starts a server with `start_server`, adds three error rules with `add_fault`, fetches each path with `curl-mcp`{apos}s `curl` tool and `-f --retry 2`, then counts the requests in `get_exchanges` and the rules that answered in `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent{apos}s own client. The argument after `--` picks the scenario. `start_server` holds three files in memory and answers with `server_id`, which every other `surl-mcp` tool takes, and `bound_urls`.
+
+`add_fault` adds one rule at a time, written as `surl`{apos}s `--fault` takes it, and answers its ID: `f1` answers `/report.txt` `503` once (`times=1`), `f2` answers `/broken.txt` `500` every time, and `f3` answers `/locked.txt` `403` every time. `scheme=http` says the reply is an HTTP status. `/missing.txt` needs no rule: no such file, so the answer is `404`.
+
+The `curl` tool runs a `curl` command line in-process and answers its `exitCode` and its output as JavaScript Object Notation (JSON) text. `--retry 2` allows two retries after a failure `curl` counts as transient, a timeout or one of `408`, `429`, `500`, `502`, `503` and `504` (<<curl-manual>>, <<rfc9110>>), and `--retry-delay 1` waits a second before each. `-f` makes an error status exit `22`, `-s` keeps the progress meter out of the answer, `-o -` writes the body to standard output, and `-w "%{http_code} %{num_retries}"` adds the last status and the retries made. The `503` is retried once and the file arrives, exit `0`. The `404` and the `403` end at once, exit `22` with no retry. The `500` is retried twice and stays: exit `22`, `500 2`.
+
+The server{apos}s side is two counts. `get_exchanges` gives the bytes each client sent; joining the `received` chunks and counting each request line gives two requests for `/report.txt`, one each for `/missing.txt` and `/locked.txt`, three for `/broken.txt`. `get_events` with `kinds` `fault_applied` gives an event each time a rule answered, and grouped by `rule_id` they agree: `f1` once, `f3` once, `f2` three times. That is the assertion that proves a client did not hammer a server over a permanent error.
+
+`--retry-all-errors` drops the distinction: the `404` and the `403` are asked for three times each and still end in `22`; the `503` is retried once either way. `transfer` makes one attempt per call, and an error status is an answer to read, not a tool error. An agent that retries only the transient statuses itself, at most twice and a second apart, gets the same results and the same counts as the `curl` tool. A second argument, a label such as `retries`, makes the program print only the lines that start with it, so each checked claim below looks at one line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-transient-from-permanent-errors>> for the same test on the console.
+* <<http-tell-transient-from-permanent-errors-in-csharp>> for the same test from a C# program.
+* <<http-retry-a-flaky-endpoint-from-an-agent>> for the back-off between retries.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

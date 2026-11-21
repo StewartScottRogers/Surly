@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-answer-try-later]]
+=== Answering SMTP with Try Later
+
+==== Problem
+
+Your mailer must keep a message and retry when a server says `451`, try later. You want a Simple Mail Transfer Protocol (SMTP) server that answers one recipient command with that temporary error and then accepts the retry, so you can see what the mailer does with the message in between.
+
+==== Solution
+
+Give `surl` a `--fault` rule that answers the first `RCPT` with `451` and then stands aside. Two sends of the same message, made by one command, show it: the first is refused, the second is accepted, and a second server, Internet Message Access Protocol (IMAP), counts what was stored.
+
+include::.generated/solution.adoc[]
+
+In a real test the mailer sends to port `8080`, and the test makes the check that follows.
+
+==== Discussion
+
+`--fault "error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=1"` is one fault rule. `error` answers a command with the reply the rule names instead of carrying it out; `scheme=smtp` says the reply is in SMTP{apos}s shape, and `command=RCPT` limits the rule to the recipient command. `times=1` spends the rule after one answer, and every `RCPT` after it is judged as usual (<<surl-readme>>). Because the rule acts on `RCPT`, the readiness check, which connects and sends nothing, does not spend it. The quotes keep the semicolons from the shell. The rest is a server for one domain: `--mail-domain example.com`, and a `--mailbox` for the app and one for Ann, each logged in to by its whole address.
+
+A reply that starts with `4` is a temporary failure: the client keeps the message and tries again later (<<rfc5321>>). The reply must be a code and text. `reply=451` alone is refused when `surl` starts, exit `2`, with `key reply does not fit the smtp error shape`.
+
+On the `curl` side, `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T order.eml` the message, `--crlf` turns the file{apos}s line feeds into the carriage return and line feed a message is made of, and `-s` keeps the progress meter and error messages out, and `-w "%{response_code}"` prints the last reply code the server gave. The URL's path is the name the client gives in its greeting, and `curl` expands `{first,second}` into two URLs, so one command makes two sends. `curl` exits with the last transfer{apos}s code, so the `451` that ended the first send is not the command{apos}s exit status; the second send is accepted, `250`, and the command exits `0`. A mailer that retried by itself would show the same two replies.
+
+The check is the server{apos}s. `-X "STATUS INBOX (MESSAGES)"` asks the IMAP server how many messages Ann{apos}s `INBOX` holds without fetching any (<<rfc9051>>): one. The refused send stored nothing; the retry stored one message, and its `Received` line names `second`, the name the retry gave. The log, from `-v` and `--log-file surl.log`, agrees: one line saying `RCPT answered with the chosen error of fault rule f1; nothing was stored.`, `f1` being the first rule{apos}s ID, and one `Message stored:` line.
+
+The refusal hits one recipient command, and what `curl` does with the rest of the message depends on one option. A second server answers the first two `RCPT` commands `451` (`times=2`) and has a mailbox for Bob too. Sent to Ann and Bob, in that order, the message is abandoned: Ann{apos}s `RCPT` is refused, `curl` exits `55` and reports `451`, and neither mailbox holds anything. The rule has answered once. With `--mail-rcpt-allowfails` the same send carries on after Ann{apos}s refusal, which is the rule{apos}s second answer; Bob{apos}s `RCPT` is accepted, `curl` exits `0`, and the message goes to Bob alone. A mailer that sends to several people has to decide which of the two it wants, and has to remember who was refused, since the server will not say so again. The rule is now spent: a plain send to Ann is accepted, and her `INBOX` holds one message.
+
+`curl`{apos}s own `--retry` is not a way to see the retry here: it does not count an SMTP `451` as transient, and `--retry-all-errors` retries a permanent `550` as well; <<smtp-survive-a-temporary-rcpt-failure>> shows both.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-answer-try-later-in-csharp>> for the same test in C#.
+* <<smtp-answer-try-later-from-an-agent>> for the same test from an agent.
+* <<smtp-survive-a-temporary-rcpt-failure>> for a sender that retries on its own.
+* <<smtp-send-to-several-recipients>> for one message to several recipients.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-retry-after-a-refused-login-in-csharp]]
+=== Retrying After a Refused Login in C#
+
+==== Problem
+
+Your .NET client tries a File Transfer Protocol (FTP) login again when the server refuses it. In a test, you want an in-process server that refuses one login with `530` and accepts the next, and you want both sides to say what happened: the client that it saw the refusal, waited and logged in on its second try, the server which login its rule refused.
+
+==== Solution
+
+Start a `SurlServer` with one account and a `SurlFault.RefuseLogin()` rule used once, fetch a file with a `CurlClient` that catches `LoginDenied`, waits and tries again, and read the server{apos}s login events and log:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Accounts` holds one `SurlAccount`, `app` with password `s3cret`. `AllowPlaintextAuthentication = true` lets the server check a password sent in clear, as every password over plain `ftp://` is; without it the server refuses the login unread. `SurlFault.RefuseLogin()` makes a rule that refuses a login whatever the password, as `surl --fault refuse-login` does, and `with { Times = 1 }` spends it after one refusal. Rules in `SurlServerOptions.Faults` are there from the start and are numbered `f1`, `f2` and so on.
+
+`CurlAuthenticationOptions` on the `CurlRequest` gives the client the account. The server answers the login `530 Login incorrect` (<<rfc959>>), and `SendAsync` throws a `CurlException` whose `Code` is `CurlCode.LoginDenied`, `67`, the code `curl` exits with. The program catches only that code, waits one second and sends the same request again, from a new `CurlClient`, so each attempt is a fresh connection and a fresh login. The rule is spent, so the second login is accepted and the `CurlResponse` carries the file in its `Body`. The retrying is the program{apos}s: `curl --retry` counts a `530` as a permanent failure, not worth a retry (<<curl-manual>>), and a client that agrees stops at the first `LoginDenied` and gives up with `67`. The rule is spent all the same, so a later fetch logs in.
+
+The server keeps its own count. `RecordExchanges = true` keeps every event, and `FindEvents`, given a `SurlEventQuery` whose `Kind` is `SurlEventKind.LoginJudged`, returns a `LoginJudgedEvent` for each login judged: `IsAccepted`, and `IsRefusedByFault` for a refusal the rule made. `Faults.List()` reads the rule back as a `SurlFaultRule` whose `Remaining` is `0` once it is spent. `Log`, a `TextWriter`, with `LogLevel.Verbose` gets the same log as `surl -v`; the program counts in it each `530 Login incorrect` sent and each `PASS ****`, the password withheld from the log.
+
+The events also tell a wrong password from the rule. The server checks the password first, so three logins with a wrong one are three plain refusals, none the rule{apos}s, and the rule keeps its one use; two retries do not help, and the program exits `67`. With `Times = 2` and a two-second wait, the third attempt logs in after two refusals by the rule. A server without `AllowPlaintextAuthentication` refuses the clear password before judging it: `LoginDenied` each time, no login event and no `530 Login incorrect`. A second argument, a label such as `retries`, makes the program print only the lines that start with it, so each checked claim below looks at one line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-retry-after-a-refused-login>> for the same test on the console, with `curl --retry-all-errors`.
+* <<ftp-retry-after-a-refused-login-from-an-agent>> for the same test from an agent.
+* <<http-stop-a-client-hammering-a-refused-login-in-csharp>> for a client that must not retry a refused login.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc959>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smb-copy-reports-to-a-windows-share]]
+=== Copying Reports to a Windows Share
+
+==== Problem
+
+Your job copies reports to a Server Message Block (SMB) share, a Windows file share; you want a test share that takes the upload and the same file readable over Hypertext Transfer Protocol (HTTP) afterwards.
+
+==== Solution
+
+Serve one folder over SMB and HTTP from one `surl`, with an account and uploads on, and copy the reports with `curl -T`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` takes both listen URLs, `smb://` and `http://`, and `--directory data` puts one folder behind both. Every folder directly in it is a share, named by the first segment of the URL path, so `data/reports` is the share `reports` and `smb://127.0.0.1:8080/reports/report-2026-11.csv` is `data/reports/report-2026-11.csv`. On HTTP the same file is `/reports/report-2026-11.csv`. A share holds what the folder holds: the job's copy is readable over HTTP the moment the upload closes, with no step between.
+
+`-u alice:s3cret` is the one account, and it guards both protocols. `curl` logs in to an SMB server with NTLMv1, the first version of NT LAN Manager authentication (<<ms-nlmp>>), and nothing else; `surl` leaves NTLMv1 out of its default methods because its responses are open to offline cracking by anyone who sees one, so a server without `--auth ntlmv1` refuses every SMB login from `curl` with exit 67, the right password included. `--auth` also sets HTTP{apos}s methods on the same server, which is why it says `ntlmv1,digest`: `curl` with `--digest` logs in over HTTP with Digest (<<rfc7616>>), and a GET with no login is `401`. `surl` warns on start naming the methods it accepts.
+
+Shares are read-only until `--allow-uploads`. With it, `curl -u alice:s3cret -T <file> <url>` stores the file at the URL{apos}s path, creating it or replacing it whole, and prints nothing; `-w "%{size_upload} bytes\n"` prints a line per upload so the job{apos}s log shows what went. Two `-T` pairs on one command line are two uploads. `-s` hides the progress meter and `-S` keeps error lines. Without `--allow-uploads` the copy is exit 9, `Access denied`, and nothing is written: HTTP answers `404` for it afterwards. Over HTTP the same file is served with `Content-Type: text/csv`, taken from the extension.
+
+What the server recorded is in the log that `-v` and `--log-file surl.log` write: each upload is its own SMB connection, an `ntlmv1` login accepted, then a `SMB close` line naming the file in the share and the bytes written. A test that greps it checks the job sent what it says it sent, without trusting the job{apos}s own report. The path in the log has SMB{apos}s backslash separator, written as `\x5C`.
+
+The failures a job meets each have their own exit code. A wrong password is 67, `Login denied`. A share the server does not have is 78, `Remote file not found`, and so is a folder inside the share that does not exist: `curl` makes no folders over SMB, so a job that files reports by year must have the year{apos}s folder made first. The cases check the missing folder over HTTP afterwards, with `-o` sending the empty body nowhere: `404`, no file. A re-run of the job with a corrected report replaces the old one, and HTTP serves the new bytes straight away.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smb-upload-to-a-share>> for an upload on its own, with a size limit.
+* <<smb-grant-each-user-their-share>> for shares that only some accounts may write.
+* <<sftp-upload-a-batch-and-verify-it>> for the same job over Secure Shell (SSH) File Transfer Protocol.
+* <<surl-readme>>, <<curl-readme>>, <<ms-smb>>, <<ms-nlmp>>, <<rfc7616>>, <<rfc9110>>.

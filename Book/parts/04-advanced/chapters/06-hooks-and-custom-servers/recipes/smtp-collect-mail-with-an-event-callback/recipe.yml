@@ -1,0 +1,108 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-collect-mail-with-an-event-callback
+title: Collecting Mail with an Event Callback
+protocols: [smtp]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlEventKind, StoreKind, StoreChangedEvent, StoreChange, SurlServerMail, SurlMailMessage, SurlMessagePage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlContent]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+# Every case runs on-delivery.cs; a case's argument picks what the callback is shown doing, and each claim reads its own lines.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A callback registered with OnEvent for mail store changes runs when the app's mail is delivered, with no polling; its event is a Delivered change of ann's INBOX at UID 1, its byte count is the stored message's, it carries the exchange, and the callback reads the Subject from the store."
+    program: on-delivery.cs
+    args: [one]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "app sent to ann@example.com: SMTP 250\ncallback: Delivered ann@example.com/INBOX/;UID=1, bytes match the stored message, exchange recorded, Subject: Order 1042 has shipped\n"
+
+  - id: name-is-owner-mailbox-uid
+    claim: "The event's Name is the owner, the mailbox and the unique identifier, ann@example.com/INBOX/;UID=1, from which the callback reads the message."
+    program: on-delivery.cs
+    args: [one]
+    expect:
+      exit: 0
+      stdout-matches: "callback: Delivered ann@example\\.com/INBOX/;UID=1, "
+
+  - id: size-and-exchange
+    claim: "The event's ByteCount equals the length of the message in the store, and its ExchangeId is set, tying the delivery to the connection that made it."
+    program: on-delivery.cs
+    args: [one]
+    expect:
+      exit: 0
+      stdout-matches: "bytes match the stored message, exchange recorded"
+
+  - id: filter-by-name
+    claim: "A query with Name set to ann@example.com matches by whole segments of the name: with mail sent to bob and then to ann, the callback runs once, for ann."
+    program: on-delivery.cs
+    args: [filter]
+    expect:
+      exit: 0
+      stdout: "app sent to bob@example.com: SMTP 250\napp sent to ann@example.com: SMTP 250\ncallback: Delivered ann@example.com/INBOX/;UID=1, bytes match the stored message, exchange recorded, Subject: For Ann\n"
+
+  - id: dispose-stops-the-callback
+    claim: "After the IDisposable that OnEvent returned is disposed the callback is not called: a second delivery is heard by a witness callback that stayed registered, and the disposed callback has run once."
+    program: on-delivery.cs
+    args: [dispose]
+    expect:
+      exit: 0
+      stdout: "app sent to ann@example.com: SMTP 250\napp sent to ann@example.com: SMTP 250\nwitness heard 2 deliveries: True\ncallback: Delivered ann@example.com/INBOX/;UID=1, bytes match the stored message, exchange recorded, Subject: Before\ncallback ran 1 time(s)\n"
+
+  - id: two-callbacks
+    claim: "Two callbacks on the same query are both called for every delivery."
+    program: on-delivery.cs
+    args: [two]
+    expect:
+      exit: 0
+      stdout-matches: '^(?=.*callback: again: Delivered ann@example\.com/INBOX/;UID=1, )(?=.*\ncallback: Delivered ann@example\.com/INBOX/;UID=1, )'
+
+  - id: delivery-order
+    claim: "Three mails to ann run the callback three times, in delivery order, at UIDs 1, 2 and 3."
+    program: on-delivery.cs
+    args: [order]
+    expect:
+      exit: 0
+      stdout: "app sent to ann@example.com: SMTP 250\napp sent to ann@example.com: SMTP 250\napp sent to ann@example.com: SMTP 250\ncallback: Delivered ann@example.com/INBOX/;UID=1, bytes match the stored message, exchange recorded, Subject: First\ncallback: Delivered ann@example.com/INBOX/;UID=2, bytes match the stored message, exchange recorded, Subject: Second\ncallback: Delivered ann@example.com/INBOX/;UID=3, bytes match the stored message, exchange recorded, Subject: Third\n"
+
+  - id: other-changes
+    claim: "The same query also reports the store's other changes: DeliverAsync gives a Seeded change and ResetAsync a Reset one, with no name, so a callback tests Change before it reads a message."
+    program: on-delivery.cs
+    args: [kinds]
+    expect:
+      exit: 0
+      stdout: "callback: Seeded ann@example.com/INBOX/;UID=1\ncallback: Reset\n"
+
+  - id: callback-can-react
+    claim: "A callback may act on a delivery: mail to the support desk makes it deliver an acknowledgement into the sender's mailbox, which then holds one message, and the filter on the support desk's name keeps the callback from reacting to its own delivery."
+    program: on-delivery.cs
+    args: [react]
+    expect:
+      exit: 0
+      stdout: "app sent to support@example.com: SMTP 250\ncallback: Delivered support@example.com/INBOX/;UID=1, bytes match the stored message, exchange recorded, Subject: Help with my order\napp holds 1\n"
+
+  - id: a-failing-callback-is-contained
+    claim: "A callback that throws does not stop the delivery, the other callbacks or the next delivery: both mails are accepted 250 and the other callback is called for both."
+    program: on-delivery.cs
+    args: [throws]
+    expect:
+      exit: 0
+      stdout: "app sent to ann@example.com: SMTP 250\napp sent to ann@example.com: SMTP 250\ncallback: Delivered ann@example.com/INBOX/;UID=1, bytes match the stored message, exchange recorded, Subject: First\ncallback: Delivered ann@example.com/INBOX/;UID=2, bytes match the stored message, exchange recorded, Subject: Second\n"
+
+  - id: unknown-address-no-event
+    claim: "Mail to an address in the domain with no mailbox is accepted 250 and discarded; no delivery happens, the callback is not called, and the test's two-second wait ends without it."
+    program: on-delivery.cs
+    args: [unknown]
+    expect:
+      exit: 0
+      stdout: "app sent to nobody@example.com: SMTP 250\na callback within 2 s: False\n"

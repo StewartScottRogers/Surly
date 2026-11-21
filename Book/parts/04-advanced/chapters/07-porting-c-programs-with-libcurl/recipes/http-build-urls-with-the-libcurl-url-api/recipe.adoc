@@ -1,0 +1,98 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-build-urls-with-the-libcurl-url-api]]
+=== Building URLs with Libcurl's URL API
+
+==== Problem
+
+Your C program builds and parses URLs with `curl_url_set` and `curl_url_get`, and you want the same calls in C# with the same answers for awkward input: spaces, relative references, missing parts and bad ports.
+
+==== Solution
+
+Port the program call for call with `Libcurl`{apos}s `CurlUrlHandle`, then fetch a built URL from `surl` through `CURLOPT_CURLU`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program the port starts from has three commands; `parse` and `join` are shown here in full, and `build` sets the parts one by one and hands the handle to an easy handle with `CURLOPT_CURLU`:
+
+[source,c]
+----
+#include <stdio.h>
+#include <string.h>
+#include <curl/curl.h>
+
+static int fail(const char *call, CURLUcode uc)
+{
+  fprintf(stderr, "%s: (%d) %s\n", call, (int)uc, curl_url_strerror(uc));
+  return 1;
+}
+
+int main(int argc, char *argv[])
+{
+  CURLU *h;
+  CURLUcode uc;
+  char *value;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  h = curl_url();
+  if(!strcmp(argv[1], "parse")) {
+    CURLUPart parts[] = { CURLUPART_SCHEME, CURLUPART_HOST, CURLUPART_PORT, CURLUPART_PATH, CURLUPART_QUERY };
+    const char *names[] = { "Scheme", "Host", "Port", "Path", "Query" };
+    int i;
+    uc = curl_url_set(h, CURLUPART_URL, argv[2], 0);
+    if(uc)
+      return fail("curl_url_set", uc);
+    for(i = 0; i < 5; i++) {
+      uc = curl_url_get(h, parts[i], &value, 0);
+      if(uc)
+        printf("%s: (%d) %s\n", names[i], (int)uc, curl_url_strerror(uc));
+      else {
+        printf("%s: %s\n", names[i], value);
+        curl_free(value);
+      }
+    }
+    curl_url_get(h, CURLUPART_PORT, &value, CURLU_DEFAULT_PORT);
+    printf("Port with CURLU_DEFAULT_PORT: %s\n", value);
+    curl_free(value);
+  }
+  else if(!strcmp(argv[1], "join")) {
+    uc = curl_url_set(h, CURLUPART_URL, argv[2], 0);
+    if(!uc)
+      uc = curl_url_set(h, CURLUPART_URL, argv[3], 0);
+    if(uc)
+      return fail("curl_url_set", uc);
+    curl_url_get(h, CURLUPART_URL, &value, 0);
+    printf("%s\n", value);
+    curl_free(value);
+  }
+  /* build: curl_url_set of CURLUPART_SCHEME, _HOST, _PORT, then _PATH with CURLU_URLENCODE
+     and each _QUERY with CURLU_APPENDQUERY | CURLU_URLENCODE; curl_url_get of CURLUPART_URL;
+     then curl_easy_setopt(curl, CURLOPT_CURLU, h) and curl_easy_perform. */
+  curl_url_cleanup(h);
+  curl_global_cleanup();
+  return 0;
+}
+----
+
+`CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, `CurlGlobalFlags` holding libcurl{apos}s flag values. `curl_url()` takes no argument in C; in C# it is `library.UrlInit()` on the `CurlLibrary`, and it returns a `CurlUrlHandle`, the `CURLU`, whose disposal is `curl_url_cleanup`. `Set` is `curl_url_set` and `Get` is `curl_url_get`, the part first, then the value or an `out` for it, and the flags. The part is a `CurlUrlPart` (`CURLUPART_URL` is `CurlUrlPart.Url`), the flags a `CurlUrlFlags` (`CURLU_URLENCODE` is `CurlUrlFlags.UrlEncode`), and each call answers a `CurlUrlCode`, libcurl{apos}s `CURLUcode` with the same numbers. `CurlUrlHandle.ErrorText` is `curl_url_strerror`, with libcurl{apos}s texts. There is no `curl_free`: the `out` string is the caller{apos}s.
+
+Building is part by part, and only the parts set with `CURLU_URLENCODE` are encoded. The path `/reports/my file.txt` becomes `/reports/my%20file.txt`. Each query set with `CURLU_APPENDQUERY` is added after a `&`, and with `CURLU_URLENCODE` as well it keeps its first `=` and turns a space into `+`, the form a query string expects. `CurlOption.Curlu` is `CURLOPT_CURLU`: `CurlEasy.SetOption` hands the easy handle the parsed URL itself, so nothing is parsed twice. `surl` serves the files in `site` with `--directory site`; it decodes `%20` and serves `site/reports/my file.txt`. The body goes to standard output through a `WriteCallback`, `Perform` answers a `CurlCode`, `CurlErrorText.Easy` is `curl_easy_strerror`, and `GetInfo` with `CurlInfo.ResponseCode` reads the 200.
+
+Parsing normalises as <<rfc3986>> says: the scheme in lower case, the dot segments of the path removed, so `/a/../b/./c` is `/b/c`, and an explicit `:80` kept. A part the URL lacks is not an empty string but a code: `CURLUE_NO_PORT`, 15, and `CURLUE_NO_QUERY`, 16. `CURLU_DEFAULT_PORT` answers the scheme{apos}s port, 80, instead. A program ported from C that tests the return value already handles this; one that assumes a string comes back does not.
+
+The refusals are what make the URL API worth porting faithfully, because a C program checks for them by number. A port past 65535, or one that is not a number at all, is `CURLUE_BAD_PORT_NUMBER`, 4. A scheme libcurl has no protocol for is `CURLUE_UNSUPPORTED_SCHEME`, 5, and a URL with no scheme `CURLUE_BAD_SCHEME`, 27, unless the caller passes `CURLU_GUESS_SCHEME`. A raw space in a whole URL is `CURLUE_MALFORMED_INPUT`, 3: libcurl encodes only what it is asked to.
+
+Setting `CURLUPART_URL` on a handle that already holds a URL resolves the new one as a relative reference against it, as a browser resolves a link. `../2025/dec.csv` from `/reports/2026/nov.csv` is `/reports/2025/dec.csv`; `?page=2` keeps the path and replaces the query; `//example.com/x` keeps only the scheme.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-build-a-url-from-parts-from-an-agent>> and <<http-parse-a-url-before-fetching-from-an-agent>> for the same URL API through `curl-mcp`.
+* <<http-fetch-a-file-with-an-awkward-name>> for awkward names on the `curl` command line.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc3986>>, <<rfc9110>>.

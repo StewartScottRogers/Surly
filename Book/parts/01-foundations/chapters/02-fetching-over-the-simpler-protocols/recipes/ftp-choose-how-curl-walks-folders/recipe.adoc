@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-choose-how-curl-walks-folders]]
+=== Choosing How curl Walks FTP Folders
+
+==== Problem
+
+You want to fetch a file three folders deep over File Transfer Protocol (FTP) and see how `--ftp-method` `multicwd`, `singlecwd` and `nocwd` change the commands `curl` sends, so that you can match a server that dislikes one of them.
+
+==== Solution
+
+Serve a directory with anonymous logins accepted, then fetch three files, each three folders down, once with each method. The `--next` options keep each fetch{apos}s options to itself:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+An FTP server has a current folder, and `CWD` (change working directory) moves it. `curl` has to get from the login folder to the file, and `--ftp-method` says how. `multicwd`, the default, sends one `CWD` for each folder in the path, `CWD a`, `CWD b`, `CWD c`, and then asks for the bare file name with `SIZE` and `RETR`. `singlecwd` sends the folder path in one `CWD`, `CWD d/e/f`, then the bare name. `nocwd` sends no `CWD` at all and puts the whole path in `SIZE` and `RETR`: `RETR g/h/i/three.txt` (<<rfc959>>). `-v` shows each command, `-s` keeps the progress meter away, `-S` still prints errors and `-o` with the null device sends the file nowhere while you read them. `--next` ends one fetch{apos}s options and starts the next{apos}s, so each fetch has its own `--ftp-method`. `--directory site` is the folder `surl` serves. The server{apos}s own log shows the same: run with `-v` and `--log-file site/surl.log` inside the served directory, it can be read back with `grep` and records the `CWD d/e/f` of the second fetch and the `RETR g/h/i/three.txt` of the third, and no `CWD` into `g`, `h` or `i`.
+
+The three fetches use three folders, so that each one has to send its own commands and none can lean on a folder the one before it left the connection in.
+
+The differences matter when a server refuses one of the commands. This server runs with `--fault "error;scheme=ftp;command=CWD;path=/locked;reply=550 CWD is not allowed here"`, which answers `550` to every `CWD` under `/locked`, as a server that restricts folder changes might. `--fault` loosens the server on purpose and is for tests only: it makes `surl` misbehave. The default, `multicwd`, stops at the first `CWD` with exit `9`, the server denied the change of folder; `singlecwd` has the same trouble, since one `CWD` is still a `CWD`. `nocwd` never changes folder, so the same file under `/locked` arrives, exit `0`. The server was configured to refuse `CWD`, not the file, which is what `nocwd` exploits.
+
+Exit codes tell the other failures apart. A missing file in a folder that exists is exit `78`. A missing folder is exit `9` under `multicwd`, because its `CWD` fails, and exit `78` under `nocwd`, which never looked at the folder, only for the file.
+
+`--allow-anonymous` lets `curl`{apos}s anonymous login in, as in <<ftp-download-anonymously>>; `surl` warns on start while it is on.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-choose-how-curl-walks-folders-in-csharp>> for the same choice made in `CurlFtpOptions`.
+* <<ftp-choose-how-curl-walks-folders-from-an-agent>> for the same choice made by an agent.
+* <<ftp-choose-passive-or-active-mode>> for the other way an FTP client can be made to match its server.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

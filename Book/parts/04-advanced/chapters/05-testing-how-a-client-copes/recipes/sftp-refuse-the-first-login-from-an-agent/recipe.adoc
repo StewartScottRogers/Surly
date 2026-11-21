@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-refuse-the-first-login-from-an-agent]]
+=== Refusing the First Login from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to check that a deploy command retries a login that fails once, as flaky Secure Shell (SSH) servers make it: a test server that refuses the first login with the right password and accepts the next, and a record of what it judged.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts an SSH File Transfer Protocol (SFTP) server through `surl-mcp`{apos}s `start_server` with a `refuse-login` fault, uploads with `curl-mcp`{apos}s `curl` tool and `--retry-all-errors`, then calls `read_file`, `get_events` and `list_faults`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name; `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, which holds `release.txt`. The argument after `--` picks the scenario.
+
+`start_server` takes `surl`{apos}s listen URLs and, in `arguments`, its options as words: `--throwaway-hostkey` for a host key made for this run, `--user alice:s3cret` for the account, `--allow-uploads` so it may write, and `--fault` with `refuse-login;times=2`, a rule that refuses a login whatever its password for the first two attempts it judges. The count is of login attempts, not connections. An SSH client may try several methods on one connection (<<rfc4252>>), and `curl` offers the password as a `password` login and then as `keyboard-interactive`. With `times=1` the second method is accepted on the same exchange and the upload succeeds at the first try, so the retry under test never runs; `times=2` refuses the whole first connection.
+
+The `curl` tool runs `curl`{apos}s own arguments: `-k` skips the host key check, `-u` logs in, `-T release.txt` uploads, `-w "%{num_retries}"` prints the retries made. A refused login is `curl` exit 67, which `--retry` alone treats as permanent: the answer's `exitCode` is 67, no retry, and the call is a tool error. `--retry-all-errors` retries it, and `--retry-delay 1` waits a second first; the answer is `exitCode` 0 with the first try's `curl: (67) Login denied` still in `standardError`, so the agent can see the server was flaky. A wrong password is retried as well and fails again, so a deploy that retries every error spends its retries on a password that will never work.
+
+`read_file` reads the server's store: the uploaded text, or the tool error `No file at /release.txt.` when nothing arrived. `get_events` with `kinds` `["login_judged"]` gives every login the server judged, oldest first, with `exchange_id`, `mechanism`, `account`, `is_accepted` and `is_refused_by_fault`. Two refusals by the rule on exchange 1 and an accepted password on exchange 2 are the proof that the retry was needed and that the same password was right. A wrong password is refused by the account check before the rule is tried, so those events are plain refusals and `list_faults` still shows `remaining` 2; the rule can make a right password fail but is not used up by a wrong one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-refuse-the-first-login>> for the same test on the console.
+* <<sftp-refuse-the-first-login-in-csharp>> for the same server and client in one .NET program.
+* <<http-lock-out-one-account-from-an-agent>> for `add_fault` and `remove_fault` on a running server.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4252>>.

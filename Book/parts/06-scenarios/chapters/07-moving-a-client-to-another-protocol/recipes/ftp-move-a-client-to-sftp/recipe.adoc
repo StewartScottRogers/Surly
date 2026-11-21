@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-move-a-client-to-sftp]]
+=== Moving a Client from FTP to SFTP
+
+==== Problem
+
+You are replacing File Transfer Protocol (FTP) with the Secure Shell (SSH) File Transfer Protocol (SFTP). You want one server serving both from the same files, so that the old client{apos}s download and the new client{apos}s compare byte for byte, and a way to see that the old one can be turned off.
+
+==== Solution
+
+Serve the folder on both protocols from one `surl`, fetch the report each way in a single `curl` command line, and compare the two copies with `cmp`:
+
+include::.generated/solution.adoc[]
+
+The helper that pins the host key:
+
+include::pin.sh[]
+
+It needs a POSIX shell (Git Bash on Windows). Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` can hold several listeners, and every listener serves the same store. Here `--directory site` is served at an `ftp://` listener and an `sftp://` one, so `site/report.bin` is the same file at the same path under both. Both run over Transmission Control Protocol (TCP), so each has a port of its own. The report is 3,000 bytes of random data, so a copy that differs by one byte cannot pass for the real one. This is what makes the test fair: the only thing that changes between the two fetches is the protocol.
+
+The server needs an account, `--user alice:s3cret`, and the SFTP listener needs a host key, `--hostkey host_key`, made in the setup with `ssh-keygen`. FTP sends the password in clear, which `surl` refuses unless told it is acceptable: `--allow-plaintext-auth` lets the old client log in and warns on start. `--list-directories` lets either client list a folder. `-v` with `--log-file surl.log` records every login and exchange in a file the cases read.
+
+`curl` takes several URLs on one command line, and `--next` gives each its own options. The FTP half is a plain `-u alice:s3cret -o over-ftp.bin`: `-u` gives the account and `-o` names the file. `-s` keeps the progress meter away and `-S` still prints errors; `-w` prints a format after a transfer, here the bytes downloaded or the exit code, and `-T` sends a file, which the second server{apos}s seed uses. The SFTP half adds `-k`, which skips the check of the server{apos}s host key; a throwaway key on your own machine is the one place for it. Without `-k` or a pinned key `curl` has nothing to check the host against. `cmp` exits `0` and says nothing when the two files hold the same bytes, and the `&&` makes `echo identical` run only after both fetches and the comparison succeeded. Both transfers report the 3,000 bytes the file holds, and `-l` lists the same names in the same order over both (<<rfc959>>).
+
+The pinned case is what `-k` stands in for. `--hostpubsha256` takes the fingerprint of the host key; `pin.sh` reads it from `host_key.pub` with `ssh-keygen -l`, and the report arrives identical. A fingerprint that is not the server{apos}s is refused, exit `60`. FTP has no counterpart: nothing in the protocol says whose server answered.
+
+The old and the new client leave different marks in the server{apos}s log. The FTP login is `Login accepted: ftp alice`; the SFTP one is `Login accepted: password alice`. Counting them is how to see which clients still use the old protocol, and it is the evidence to collect before turning it off.
+
+What changes for the script around the fetch is mostly nothing. A missing file is exit `78` over both, and a wrong password is `67` over both, so a handler that tests for them survives the move. The wording of `curl`{apos}s message differs, and a script that matches on the text must change.
+
+Turning the old protocol off is the failure path, and it can be rehearsed on a second `surl`. This one runs without `--allow-plaintext-auth`: its FTP listener refuses the old client{apos}s password, even the right one, and `curl` exits `67`, while the SFTP listener serves the same report, identical to the one on disk. The second server{apos}s store is in memory, since two `surl` processes cannot share one directory; its seed uploads the report over SFTP, which is why it runs with `--allow-uploads`. That option widens what a client may do and is on only here.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-move-a-client-to-sftp-in-csharp>> and <<ftp-move-a-client-to-sftp-from-an-agent>> for the same move from C# and from an agent.
+* <<tftp-move-a-firmware-fetch-to-http>> for another move between protocols.
+* <<sftp-list-and-make-folders>> for the SFTP side by itself.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

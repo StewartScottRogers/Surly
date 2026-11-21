@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-require-a-proxy-login-in-csharp]]
+=== Requiring a Proxy Login in C#
+
+==== Problem
+
+Your app's proxy settings carry a user name and password, and you want a C# test that runs a proxy needing a login, shows a 407 without it, a login with Basic or Digest, and proxy accounts kept apart from the accounts of the server behind it.
+
+==== Solution
+
+Start one `SurlServer` with an origin account and two proxy listeners that share one proxy account, then fetch through the `http://` proxy with a `CurlClient` that logs in to each hop with Digest:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server holds three listeners. `ListenUrls` is the Hypertext Transfer Protocol (HTTP) origin, whose `Accounts` hold the `SurlAccount` `web`; `Files` gives it its one file. `SurlServerOptions` has no proxy properties, so `AdditionalArguments` carries `surl`{apos}s own words: `--proxy` twice, for an `http://` and an `https://` proxy listener, and `-U app:proxy-pw`, the account of every proxy listener. `CertificateFile` and `KeyFile` serve the certificate `openssl` wrote in `setup:` on the `https://` one. `BoundUrls` lists the origin, then the proxies in the order given.
+
+Each fetch builds a `CurlClient` from `CurlClientOptions` and sends one `CurlRequest` for the origin's file. `CurlAuthenticationOptions` keeps the two logins apart in its member names. `ProxyUserPassword` and `ProxyAuthentication` are the login sent to the proxy, as `curl -U --proxy-digest` sends it; `UserPassword` and `HttpAuthentication` are the login sent to the origin, through the proxy. `CurlProxyOptions.Proxy` names the proxy, and `CurlTlsOptions.Proxy` holds the proxy's own TLS settings, here a `CurlTlsPeerOptions` whose `CertificateAuthorityFile` trusts its certificate, apart from `Origin`. The program reads each answer before its client is disposed.
+
+With no proxy login the proxy answers `407 Proxy Authentication Required` itself (<<rfc9110>>); to `SendAsync` that is an ordinary `CurlResponse`, and nothing throws. Over the `http://` listener its `Proxy-Authenticate` headers offer Digest access authentication (<<rfc7616>>) with `MD5`, `SHA-256` and `SHA-512-256`, and no Basic. A wrong proxy password gets the same `407` and the same offers, so a test cannot tell a wrong password from a missing one by the answer alone.
+
+`HttpAuthenticationMethods.Basic` (<<rfc7617>>) sends the password in base64, readable on the path, and the `http://` proxy refuses it unchecked with `403`. The `https://` proxy's connection is encrypted, so its `407` offers Basic as well, and a Basic login there gets the file. `AllowPlaintextAuthentication` (`--allow-plaintext-auth`) makes the `http://` proxy accept Basic too; it loosens every login on the server, so keep it to a test that must match an app with no other choice.
+
+The account stores never stand in for each other. The origin's `web` sent as the proxy login is answered `407`; the proxy's `app` sent as the origin login passes the proxy and is answered `401` by the origin. With `RecordExchanges` on, `FindEvents` with a `SurlEventQuery` for `SurlEventKind.LoginJudged` shows the two hops of one fetch as separate `LoginJudgedEvent` entries, `Digest app` accepted before `Digest web`, which is how a test proves which credential went where. Read those events, not `Log`: in this build nothing on a proxy listener is withheld from a verbose log, `Proxy-Authorization` included (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-require-a-proxy-login>> for the same proxy login on the console.
+* <<http-require-a-proxy-login-from-an-agent>> for the same proxy login driven by an agent.
+* <<http-run-a-test-proxy-in-csharp>> for the proxy itself from C#.
+* <<rfc9110>>, <<rfc7616>>, <<rfc7617>>, <<surl-readme>>, <<curl-readme>>.

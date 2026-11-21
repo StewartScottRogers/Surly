@@ -1,0 +1,111 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smb-copy-reports-to-a-windows-share
+title: Copying Reports to a Windows Share
+protocols: [smb, http]
+tier: scenarios
+surl-options: [-u, --auth, --allow-uploads, --directory, -v, --log-file]
+curl-options: [-u, -T, --digest, -s, -S, -w, -o]
+exit-codes: [0, 9, 67, 78]
+references: [surl-readme, curl-readme, ms-smb, ms-nlmp, rfc7616, rfc9110]
+
+# The job's two reports, a corrected one, and the folders the servers serve. Each folder directly
+# under a served directory is a share: data/reports is the share "reports".
+fixtures:
+  report-2026-10.csv: "region,total\nnorth,12\nsouth,9\n"
+  report-2026-11.csv: "region,total\nnorth,15\nsouth,11\n"
+  corrected/report-2026-11.csv: "region,total\nnorth,15\nsouth,13\n"
+  data/reports/.keep: ""
+  readonly/reports/.keep: ""
+
+servers:
+  # The test share: Server Message Block and HTTP over one folder, one account, uploads on.
+  main:
+    command: surl -u alice:s3cret --auth ntlmv1,digest --allow-uploads --directory data -v --log-file surl.log smb://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+  # The same share as a real one that refuses writes: no --allow-uploads.
+  readonly:
+    command: surl -u alice:s3cret --auth ntlmv1,digest --directory readonly smb://127.0.0.1:{{port3}}/ http://127.0.0.1:{{port4}}/
+    ready: port
+  # No --auth: the default methods leave out NTLMv1, the only login curl makes over SMB.
+  default-auth:
+    command: surl -u alice:s3cret --allow-uploads smb://127.0.0.1:{{port5}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command with two -T pairs copies both reports into the share reports, one SMB upload each, 30 and 31 bytes, exit 0; the files land in the served folder byte for byte.
+    run: curl -sS -u alice:s3cret -w "%{size_upload} bytes\n" -T report-2026-10.csv smb://127.0.0.1:{{port}}/reports/report-2026-10.csv -T report-2026-11.csv smb://127.0.0.1:{{port}}/reports/report-2026-11.csv
+    expect:
+      exit: 0
+      stdout: "30 bytes\n31 bytes\n"
+      files:
+        data/reports/report-2026-10.csv: "region,total\nnorth,12\nsouth,9\n"
+        data/reports/report-2026-11.csv: "region,total\nnorth,15\nsouth,11\n"
+
+  - id: read-over-http
+    claim: The same file is served over HTTP from the same surl at /reports/report-2026-11.csv; with Digest login it is 200 with Content-Type text/csv and the bytes the job copied.
+    run: curl -sS --digest -u alice:s3cret -w "%{http_code} %{content_type}\n" http://127.0.0.1:{{port2}}/reports/report-2026-11.csv
+    expect:
+      exit: 0
+      stdout: "region,total\nnorth,15\nsouth,11\n200 text/csv\n"
+
+  - id: http-needs-the-login
+    claim: The account guards HTTP as well; a GET with no login is 401.
+    run: curl -s -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port2}}/reports/report-2026-11.csv
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: log-records-the-writes
+    claim: The -v log records each upload as a write closed in the share with its byte count, on its own SMB connection after an NTLMv1 login.
+    run: 'grep -o -E "(Login accepted: ntlmv1 alice|SMB close .*: [0-9]+ bytes written)" surl.log'
+    expect:
+      exit: 0
+      stdout: "Login accepted: ntlmv1 alice\nSMB close reports\\x5Creport-2026-10.csv: 30 bytes written\nLogin accepted: ntlmv1 alice\nSMB close reports\\x5Creport-2026-11.csv: 31 bytes written\n"
+
+  - id: rerun-replaces
+    claim: Copying a corrected report under the same name replaces the file in the share, and HTTP serves the new bytes at once.
+    run: curl -sS -u alice:s3cret -T corrected/report-2026-11.csv smb://127.0.0.1:{{port}}/reports/report-2026-11.csv && curl -sS --digest -u alice:s3cret http://127.0.0.1:{{port2}}/reports/report-2026-11.csv
+    expect:
+      exit: 0
+      stdout: "region,total\nnorth,15\nsouth,13\n"
+
+  - id: wrong-password
+    claim: A wrong password is refused at the SMB login, curl exit 67.
+    run: curl -sS -u alice:wrong -T report-2026-11.csv smb://127.0.0.1:{{port}}/reports/report-2026-11.csv
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: missing-share
+    claim: A share the server does not have is exit 78, Remote file not found.
+    run: curl -sS -u alice:s3cret -T report-2026-11.csv smb://127.0.0.1:{{port}}/archive/report-2026-11.csv
+    expect:
+      exit: 78
+      stderr-contains: "curl: (78) Remote file not found"
+
+  - id: missing-folder
+    claim: curl makes no folders over SMB; a folder inside the share that does not exist is exit 78 too, and nothing is written.
+    run: curl -sS -u alice:s3cret -T report-2026-11.csv smb://127.0.0.1:{{port}}/reports/2026/report-2026-11.csv || curl -s --digest -u alice:s3cret -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port2}}/reports/2026/report-2026-11.csv
+    expect:
+      exit: 0
+      stdout: "404\n"
+      stderr-contains: "curl: (78)"
+
+  - id: uploads-off
+    claim: A server without --allow-uploads refuses the copy with exit 9, Access denied, and the file is not there over HTTP afterwards (404).
+    run: curl -sS -u alice:s3cret -T report-2026-11.csv smb://127.0.0.1:{{port3}}/reports/report-2026-11.csv || curl -s --digest -u alice:s3cret -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port4}}/reports/report-2026-11.csv
+    expect:
+      exit: 0
+      stdout: "404\n"
+      stderr-contains: "curl: (9)"
+
+  - id: ntlmv1-needs-auth
+    claim: Without --auth ntlmv1 the server accepts no SMB login from curl, even with the right password; exit 67.
+    run: curl -sS -u alice:s3cret -T report-2026-11.csv smb://127.0.0.1:{{port5}}/reports/report-2026-11.csv
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-tunnel-through-a-proxy-in-csharp]]
+=== Tunnelling through a Proxy in C#
+
+==== Problem
+
+Your app reaches Hypertext Transfer Protocol Secure (HTTPS) sites through a proxy, with a `CONNECT` tunnel. You want a C# test that runs a Transport Layer Security (TLS) origin and a proxy in process, opens a tunnel through one to the other, and shows the `CONNECT` in what the proxy recorded and logged.
+
+==== Solution
+
+Start one `SurlServer` with an `https://` origin and two `--proxy` listeners, fetch the origin's file through the `http://` proxy with a `CurlClient`, and read the proxy's recorded exchange and log:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`ListenUrls` holds the TLS origin, which serves the certificate `openssl` wrote in `setup:` through `CertificateFile` and `KeyFile`, and `Files` gives it its one file. `SurlServerOptions` has no proxy property, so `AdditionalArguments` carries `surl`{apos}s `--proxy` twice, an `http://` and an `https://` proxy listener; the `https://` one serves the same certificate. `BoundUrls` lists the origin, then the proxies. `RecordExchanges` keeps every exchange, and `Log` with `LogLevel.Verbose` is `surl -v`: every event and every wire line, each starting with its exchange number.
+
+`CurlProxyOptions.Proxy` set on `CurlClientOptions` sends every request to the proxy, as `curl -x` does; the program sends one `CurlRequest` for the origin's file and prints the `CurlResponse`{apos}s status and body. For an `https://` URL the client sends `CONNECT 127.0.0.1:<port> HTTP/1.1`, naming only the origin's address and port; the proxy connects there, answers `200`, and relays bytes both ways from then on (<<rfc9110>>). The client then runs its TLS handshake with the origin through the tunnel (<<rfc8446>>). `HttpProxyTunnel` is not needed: an `https://` URL through a proxy is always tunnelled.
+
+Each `SurlExchangeRecord` names the `ListenUrl` that accepted it. The proxy's starts with that `CONNECT` and holds nothing else in clear: the `GET /hello.txt` the client sent is not in its `Received` bytes, only TLS records. The origin's exchange has `Scheme` `https`, and its bytes, which the origin decrypted, start with `PRI * HTTP/2.0`: client and origin agreed on HTTP/2 (<<rfc9113>>) in their own handshake, which the proxy never read. `Log` shows the tunnel under the proxy's exchange number: the `CONNECT` line received, with `\r\n` written out, then `Tunnelling to 127.0.0.1:<port>; answered 200.`.
+
+`CurlTlsOptions` has two sets of TLS settings, because a tunnel can carry two TLS sessions. `Origin` is the origin's, a `CurlTlsPeerOptions` whose `CertificateAuthorityFile` trusts the origin's certificate, and without it `SendAsync` throws `CurlException` with `Code` `PeerFailedVerification` (60), although the tunnel opened, since the check runs end to end between client and origin. `Proxy` is the proxy's own, used only for an `https://` proxy: through that one the `CONNECT` is encrypted too, TLS inside TLS, and the file comes back when both are trusted. Trusting the origin alone does not trust the proxy; the same `60` comes back.
+
+A proxy can refuse the tunnel. With a `--fault` rule that answers `CONNECT` with `503`, it opens none, and `SendAsync` throws `CurlException` `CouldntConnect` (7), `CONNECT tunnel failed, response 503`: what an app sees from a proxy that will not let it out.
+
+In this build a verbose log of a proxy listener withholds nothing, so once the proxy asks for a login its `Log` holds the `Proxy-Authorization` header in full; keep it out of shared test output (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-tunnel-through-a-proxy>> for the same tunnel on the console.
+* <<https-tunnel-through-a-proxy-from-an-agent>> for the same tunnel driven by an agent.
+* <<http-run-a-test-proxy-in-csharp>> for requests the proxy forwards instead of tunnelling.
+* <<rfc9110>>, <<rfc8446>>, <<rfc9113>>, <<surl-readme>>, <<curl-readme>>.

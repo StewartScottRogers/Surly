@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+# Each case runs one policy and prints only the lines of one label (the second argument).
+schema: 2
+key: http-tell-transient-from-permanent-errors-in-csharp
+title: Telling Transient from Permanent Errors in C#
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlEventQuery, SurlEventKind, FaultAppliedEvent, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [22]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Under a policy that retries only the statuses curl --retry counts as transient, the 503 is retried once and the file arrives.
+    program: retry-policy.cs
+    args: ["transient", "report.txt"]
+    expect:
+      exit: 22
+      stdout: "report.txt: 200, retries 1\n"
+
+  - id: not-found-is-final
+    claim: The 404 is final at once, no retry.
+    program: retry-policy.cs
+    args: ["transient", "missing.txt"]
+    expect:
+      exit: 22
+      stdout: "missing.txt: 404, retries 0\n"
+
+  - id: forbidden-is-final
+    claim: The 403 is final at once too.
+    program: retry-policy.cs
+    args: ["transient", "locked.txt"]
+    expect:
+      exit: 22
+      stdout: "locked.txt: 403, retries 0\n"
+
+  - id: transient-that-stays
+    claim: The 500 is retried twice and stays, so the program exits 22.
+    program: retry-policy.cs
+    args: ["transient", "broken.txt"]
+    expect:
+      exit: 22
+      stdout: "broken.txt: 500, retries 2\n"
+
+  - id: server-counts-requests
+    claim: The server's verbose log counts two, one, one and three requests for the four paths.
+    program: retry-policy.cs
+    args: ["transient", "requests"]
+    expect:
+      exit: 22
+      stdout: "requests: report.txt 2, missing.txt 1, locked.txt 1, broken.txt 3\n"
+
+  - id: server-counts-rules
+    claim: The FaultApplied events count rules f1, f3 and f2 answering one, one and three requests.
+    program: retry-policy.cs
+    args: ["transient", "rules applied"]
+    expect:
+      exit: 22
+      stdout: "rules applied: f1 1, f3 1, f2 3\n"
+
+  - id: retry-all
+    claim: A policy that retries every error status asks for the 404 three times, with the same answer.
+    program: retry-policy.cs
+    args: ["all", "missing.txt"]
+    expect:
+      exit: 22
+      stdout: "missing.txt: 404, retries 2\n"
+
+  - id: retry-all-503
+    claim: For the 503 that policy makes no difference; it is retried once either way.
+    program: retry-policy.cs
+    args: ["all", "report.txt"]
+    expect:
+      exit: 22
+      stdout: "report.txt: 200, retries 1\n"
+
+  - id: retry-all-requests
+    claim: Under that policy the server counts three requests each for the 404, the 403 and the 500.
+    program: retry-policy.cs
+    args: ["all", "requests"]
+    expect:
+      exit: 22
+      stdout: "requests: report.txt 2, missing.txt 3, locked.txt 3, broken.txt 3\n"
+
+  - id: no-retry
+    claim: A client that never retries takes the 503 as final as well.
+    program: retry-policy.cs
+    args: ["none", "report.txt"]
+    expect:
+      exit: 22
+      stdout: "report.txt: 503, retries 0\n"

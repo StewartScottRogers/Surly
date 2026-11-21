@@ -1,0 +1,119 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-download-every-file-in-a-folder
+title: Downloading a Whole FTP Folder
+protocols: [ftp]
+tier: foundations
+surl-options: [--allow-anonymous, --list-directories, --directory]
+curl-options: [-l, -o, -w, -s, -S, --fail-early]
+exit-codes: [0, 19, 78]
+references: [surl-readme, curl-readme, rfc959]
+
+# The folder to download, and the script that downloads it.
+fixtures:
+  site/pub/a.txt: "alpha\n"
+  site/pub/b.txt: "bravo\n"
+  site/pub/c.txt: "charlie\n"
+  site/pub/.hidden: "not served\n"
+  site/pub/archive/old.txt: "from last year\n"
+  fetch-folder.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # fetch-folder.sh URL DIR: downloads every file of the FTP folder URL (ending in /) into DIR, in one
+    # curl command, and skips the subfolders. Names with spaces are not handled.
+    url=$1; dir=$2
+    mkdir -p "$dir"
+    # The long listing tells folders from files: a folder's line starts with d.
+    folders=" $(curl -sS "$url" | tr -d '\r' | awk '/^d/ { print $NF }' | tr '\n' ' ')"
+    set --
+    for name in $(curl -sS -l "$url" | tr -d '\r'); do
+      case "$folders" in
+        *" $name "*) echo "skip $name/" ;;
+        *) set -- "$@" -o "$dir/$name" "$url$name" ;;
+      esac
+    done
+    curl -sS --fail-early -w "get %{url.path} %{exitcode}\n" "$@"
+
+# main lists folders; closed does not, and runs in memory.
+servers:
+  main:
+    command: surl --allow-anonymous --list-directories --directory site ftp://127.0.0.1:{{port}}/
+    ready: port
+  closed:
+    command: surl --allow-anonymous ftp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: fetch-folder.sh downloads the three files of /pub/ into out/ in one curl command, each get exit 0, and skips the archive subfolder; exit 0.
+    run: sh fetch-folder.sh ftp://127.0.0.1:{{port}}/pub/ out
+    expect:
+      exit: 0
+      stdout: "skip archive/\nget /pub/a.txt 0\nget /pub/b.txt 0\nget /pub/c.txt 0\n"
+
+  - id: files-arrived
+    claim: Each file arrived byte for byte, and the subfolder and the dot file did not.
+    run: cmp site/pub/a.txt out/a.txt && cmp site/pub/b.txt out/b.txt && cmp site/pub/c.txt out/c.txt && ls out
+    expect:
+      exit: 0
+      stdout: "a.txt\nb.txt\nc.txt\n"
+
+  - id: names-only
+    claim: curl -l lists names only, in order, one a line, and the subfolder is among them; the dot file is not, since surl does not serve dot files.
+    run: curl -sS -l ftp://127.0.0.1:{{port}}/pub/
+    expect:
+      exit: 0
+      stdout: "a.txt\narchive\nb.txt\nc.txt\n"
+
+  - id: long-listing
+    claim: Without -l the listing is the long one, and a folder's line starts with d where a file's starts with a dash.
+    run: curl -sS ftp://127.0.0.1:{{port}}/pub/
+    expect:
+      exit: 0
+      stdout-matches: '^-rw-r--r-- 1 surl surl\s+6 \w+ +\d+ [\d:]+ a\.txt\r?\n(.*\n)*drwxr-xr-x 1 surl surl\s+0 \w+ +\d+ [\d:]+ archive\r?\n'
+
+  - id: folder-is-not-a-file
+    claim: Fetching a subfolder as if it were a file is exit 78, the file does not exist, and nothing is written; that is why the script skips them.
+    run: curl -sS -o never.txt ftp://127.0.0.1:{{port}}/pub/archive
+    expect:
+      exit: 78
+      stderr-contains: "curl: (78)"
+
+  - id: nothing-written
+    claim: The failed fetch of the folder left no file behind.
+    run: test ! -e never.txt && echo absent
+    expect:
+      exit: 0
+      stdout: "absent\n"
+
+  - id: subfolder-by-hand
+    claim: A subfolder is downloaded by running the script on its own URL, which fetches its one file.
+    run: sh fetch-folder.sh ftp://127.0.0.1:{{port}}/pub/archive/ out/archive
+    expect:
+      exit: 0
+      stdout: "get /pub/archive/old.txt 0\n"
+      files:
+        out/archive/old.txt: "from last year\n"
+
+  - id: listing-refused
+    claim: A server without --list-directories refuses to list; curl exits 19 and the script, which has no names, fetches nothing.
+    run: curl -sS -l ftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 19
+      stdout: ""
+
+  - id: fail-early
+    claim: A file that has vanished between the listing and the fetch is a failed transfer; --fail-early stops at it with the code, exit 78, and the files after it are not fetched.
+    run: curl -sS --fail-early -w "get %{url.path} %{exitcode}\n" -o gone1.txt ftp://127.0.0.1:{{port}}/pub/gone.txt -o gone2.txt ftp://127.0.0.1:{{port}}/pub/a.txt
+    expect:
+      exit: 78
+      stdout: "get /pub/gone.txt 78\n"
+
+  - id: stopped-early
+    claim: The file after the failed one was not fetched; no gone2.txt exists.
+    run: test ! -e gone2.txt && echo absent
+    expect:
+      exit: 0
+      stdout: "absent\n"

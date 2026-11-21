@@ -1,0 +1,40 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-count-the-faults-that-fired
+title: Counting the Faults That Fired
+protocols: [http, ftp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFault, FaultStage, SurlFaultRule, SurlEventQuery, SurlEventKind, FaultAppliedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A client that reaches all four rules sees two 503 answers and then the file, a held but answered request, a refused FTP login and then a good one, and a dropped connection (RecvError). The server's FaultApplied events count f1 twice and f2, f3 and f4 once each; the rules with times have none left, and the test passes with exit 0.
+    program: count-faults.cs
+    args: [all]
+    expect:
+      exit: 0
+      stdout: "GET /report.txt: 503, 503, 200\nGET /slow/status.txt: 200\nFTP report.txt: LoginDenied, ok\nGET /export.csv: RecvError\nf1 error;scheme=http;path=%2Freport.txt;reply=503: fired 2, remaining 0\nf2 delay;path=%2Fslow;stage=command;ms=300: fired 1, remaining no limit\nf3 refuse-login;scheme=ftp: fired 1, remaining 0\nf4 drop;path=%2Fexport.csv;stage=command: fired 1, remaining no limit\nevery rule fired\n"
+
+  - id: rule-never-fired
+    claim: A client that never asks for /export.csv leaves the drop rule f4 at zero; the test names it and fails with exit 1, though every request it made behaved as before.
+    program: count-faults.cs
+    args: [partial]
+    expect:
+      exit: 1
+      stdout: "GET /report.txt: 503, 503, 200\nGET /slow/status.txt: 200\nFTP report.txt: LoginDenied, ok\nf1 error;scheme=http;path=%2Freport.txt;reply=503: fired 2, remaining 0\nf2 delay;path=%2Fslow;stage=command;ms=300: fired 1, remaining no limit\nf3 refuse-login;scheme=ftp: fired 1, remaining 0\nf4 drop;path=%2Fexport.csv;stage=command: fired 0, remaining no limit\nnever fired: f4\n"
+
+  - id: what-each-event-says
+    claim: Each FaultApplied event names its rule, its kind, the stage it acted at and its target, the request path for the HTTP rules and the account for the refused login.
+    program: count-faults.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout: "GET /report.txt: 503, 503, 200\nGET /slow/status.txt: 200\nFTP report.txt: LoginDenied, ok\nGET /export.csv: RecvError\nf1 Error at Command on /report.txt\nf1 Error at Command on /report.txt\nf2 Delay at Command on /slow/status.txt\nf3 RefuseLogin at Login on app\nf4 Drop at Command on /export.csv\n"

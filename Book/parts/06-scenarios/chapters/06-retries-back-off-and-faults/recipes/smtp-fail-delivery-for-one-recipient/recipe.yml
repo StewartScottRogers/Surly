@@ -1,0 +1,108 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-fail-delivery-for-one-recipient
+title: Failing Delivery for One Recipient
+protocols: [smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlEventQuery, SurlMessagePage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlContent, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+# Every case runs fail-one.cs; a case's argument picks the scenario, and each claim reads its own lines.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A rule on RCPT scoped to bob's address refuses it 550; the notice to ann, bob and cy is reported as failed for <bob@example.com> only, MailboxUnavailable, and ann and cy each hold the message while bob holds none."
+    program: fail-one.cs
+    args: [one]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "reported: <bob@example.com> MailboxUnavailable: Mailbox unavailable. The server response was: 5.1.1 mailbox unavailable\nann@example.com holds 1\nbob@example.com holds 0\ncy@example.com holds 1\n"
+
+  - id: reports-the-address
+    claim: "SmtpClient reports the refusal as an SmtpFailedRecipientException whose FailedRecipient is bob's address and whose message carries the server's own text."
+    program: fail-one.cs
+    args: [one]
+    expect:
+      exit: 0
+      stdout-matches: "^reported: <bob@example\\.com> MailboxUnavailable: Mailbox unavailable\\. The server response was: 5\\.1\\.1 mailbox unavailable\n"
+
+  - id: the-others-are-delivered
+    claim: "SmtpClient still delivers to the accepted recipients; ann and cy each hold one copy, read from the store without a client, and bob none."
+    program: fail-one.cs
+    args: [one]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\nbob@example\\.com holds 0\ncy@example\\.com holds 1\n$"
+
+  - id: log-one-refusal
+    claim: "The server's log records the one RCPT that a fault rule answered, and that nothing was stored for it."
+    program: fail-one.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout-matches: "refusals logged: 1\n"
+
+  - id: log-one-stored
+    claim: "The log records one message stored, for two recipients."
+    program: fail-one.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout-matches: "stored logged: 1\n$"
+
+  - id: two-refused
+    claim: "With rules for bob's and cy's addresses, SmtpClient throws an SmtpFailedRecipientsException whose inner exceptions name both, and only ann receives the notice."
+    program: fail-one.cs
+    args: [two]
+    expect:
+      exit: 0
+      stdout: "reported: <bob@example.com> MailboxUnavailable\nreported: <cy@example.com> MailboxUnavailable\nann@example.com holds 1\nbob@example.com holds 0\ncy@example.com holds 0\n"
+
+  - id: only-recipient
+    claim: "With bob as the only recipient the same refusal fails the whole send, reported for his address, and nobody holds a message."
+    program: fail-one.cs
+    args: [only]
+    expect:
+      exit: 0
+      stdout: "reported: <bob@example.com> MailboxUnavailable: Mailbox unavailable. The server response was: 5.1.1 mailbox unavailable\nann@example.com holds 0\nbob@example.com holds 0\ncy@example.com holds 0\n"
+
+  - id: temporary-refusal-delivers-to-nobody
+    claim: "Refused 451, try later, instead of 550, bob's RCPT fails the whole message: SmtpClient throws a plain SmtpException with no address, and nobody holds a message."
+    program: fail-one.cs
+    args: [temporary]
+    expect:
+      exit: 0
+      stdout: "reported: SmtpException LocalErrorInProcessing: Error in processing. The server response was: 4.3.0 try later\nann@example.com holds 0\nbob@example.com holds 0\ncy@example.com holds 0\n"
+
+  - id: rule-is-scoped-to-the-address
+    claim: "A notice to ann and cy alone is sent to everyone, and the rule, scoped to bob's address, never acts: no fault event."
+    program: fail-one.cs
+    args: [unaffected]
+    expect:
+      exit: 0
+      stdout: "sent to everyone\nann@example.com holds 1\nbob@example.com holds 0\ncy@example.com holds 1\nfault events: 0\n"
+
+  - id: curl-abandons-the-message
+    claim: "Curl.Api sends the same notice as one envelope: without MailRecipientAllowFails the refusal throws a CurlException, error 55 SendError, and nobody holds a message."
+    program: fail-one.cs
+    args: [curl]
+    expect:
+      exit: 0
+      stdout-matches: "^allow fails False: curl error 55 SendError: RCPT failed: 550\nann@example\\.com holds 0\nbob@example\\.com holds 0\ncy@example\\.com holds 0\n"
+
+  - id: curl-allow-fails-delivers-the-rest
+    claim: "With MailRecipientAllowFails the send returns 250 and ann and cy hold the message, bob none."
+    program: fail-one.cs
+    args: [curl]
+    expect:
+      exit: 0
+      stdout-matches: "allow fails True: SMTP 250\nann@example\\.com holds 1\nbob@example\\.com holds 0\ncy@example\\.com holds 1\n$"

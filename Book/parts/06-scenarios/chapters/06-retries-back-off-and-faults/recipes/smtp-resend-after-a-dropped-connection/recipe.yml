@@ -1,0 +1,125 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-resend-after-a-dropped-connection
+title: Resending After a Dropped Connection
+protocols: [smtp, imap]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox, --fault, -v, --log-file]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, -s, -S, -w, -X, --retry, --retry-all-errors, --retry-delay, --retry-connrefused]
+exit-codes: [0, 56]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+fixtures:
+  order.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Order 1042 has shipped\r\n\r\nYour order is on its way.\r\n"
+
+# Each server drops a connection once or twice and then behaves. An accept-stage rule with times
+# is spent by verify's readiness connection, so these servers use ready: none and the seed lines
+# wait for each server's IMAP port instead, which no rule touches. IMAP is listed last, so its
+# port answering means the SMTP port is bound too.
+#   greeting: the first SMTP connection is dropped before the greeting
+#   twice: the first two are
+#   data: the first DATA command drops the connection, unanswered
+#   quit: the first QUIT drops the connection, after the message was accepted
+servers:
+  greeting:
+    command: surl -v --log-file surl.log --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --fault "drop;scheme=smtp;times=1" imap://127.0.0.1:{{port2}}/ smtp://127.0.0.1:{{port}}/
+    ready: none
+  twice:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --fault "drop;scheme=smtp;times=2" imap://127.0.0.1:{{port4}}/ smtp://127.0.0.1:{{port3}}/
+    ready: none
+  data:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --fault "drop;scheme=smtp;stage=command;command=DATA;times=1" imap://127.0.0.1:{{port6}}/ smtp://127.0.0.1:{{port5}}/
+    ready: none
+  quit:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --fault "drop;scheme=smtp;stage=command;command=QUIT;times=1" imap://127.0.0.1:{{port8}}/ smtp://127.0.0.1:{{port7}}/
+    ready: none
+
+seed:
+  - curl -s --retry 30 --retry-connrefused --retry-delay 1 -X NOOP imap://127.0.0.1:{{port2}}/
+  - curl -s --retry 30 --retry-connrefused --retry-delay 1 -X NOOP imap://127.0.0.1:{{port4}}/
+  - curl -s --retry 30 --retry-connrefused --retry-delay 1 -X NOOP imap://127.0.0.1:{{port6}}/
+  - curl -s --retry 30 --retry-connrefused --retry-delay 1 -X NOOP imap://127.0.0.1:{{port8}}/
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first SMTP connection is dropped before the greeting; curl, told to retry every error, connects again after a second, the send is accepted 250 after one retry, and ann's INBOX holds exactly one message.
+    run: 'curl -s --retry 1 --retry-all-errors --retry-delay 1 --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml -w "%{response_code} %{num_retries}\n" smtp://127.0.0.1:{{port}}/example.com && curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/'
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "250 1\n* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: log-two-connections
+    claim: The server's log records two SMTP connections, the dropped one and the retry.
+    run: 'grep -c "opened: smtp" surl.log'
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: log-one-stored
+    claim: The same log records exactly one message stored.
+    run: 'grep -c "Message stored: " surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: drop-is-exit-56
+    claim: On twice, which drops its first two connections, curl with --retry alone does not retry a dropped connection; it exits 56, names the error on stderr, and has no reply code.
+    run: curl -sS --retry 3 --retry-delay 1 --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml -w "%{response_code} %{num_retries}\n" smtp://127.0.0.1:{{port3}}/example.com
+    expect:
+      exit: 56
+      stdout: "000 0\n"
+      stderr-contains: "curl: (56)"
+
+  - id: dropped-stores-nothing
+    claim: The dropped connection delivered nothing; ann's INBOX on twice holds none.
+    run: 'curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n"
+
+  - id: retry-all-errors-resends
+    claim: "With --retry-all-errors the same send drops once more (twice's second connection) and the next attempt, the third connection, is accepted: 250 after one retry."
+    run: curl -s --retry 1 --retry-all-errors --retry-delay 1 --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml -w "%{response_code} %{num_retries}\n" smtp://127.0.0.1:{{port3}}/example.com
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "250 1\n"
+
+  - id: one-copy-after-two-drops
+    claim: After two dropped connections and one accepted send, ann's INBOX holds exactly one message.
+    run: 'curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: drop-at-data-resends
+    claim: A connection dropped at DATA, before the message is accepted, is resent by --retry-all-errors; the retry is accepted 250 after one retry.
+    run: curl -s --retry 1 --retry-all-errors --retry-delay 1 --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml -w "%{response_code} %{num_retries}\n" smtp://127.0.0.1:{{port5}}/example.com
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "250 1\n"
+
+  - id: drop-at-data-one-copy
+    claim: The message cut off at DATA was never stored, so the resend leaves exactly one copy.
+    run: 'curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port6}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: drop-after-accept-is-not-resent
+    claim: A connection dropped at QUIT comes after the server accepted and stored the message; curl has its 250 and exits 0 with no retry.
+    run: curl -s --retry 1 --retry-all-errors --retry-delay 1 --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml -w "%{response_code} %{num_retries}\n" smtp://127.0.0.1:{{port7}}/example.com
+    expect:
+      exit: 0
+      stdout: "250 0\n"
+
+  - id: drop-after-accept-one-copy
+    claim: That mail is in ann's INBOX once; a sender that treated the dropped QUIT as a failure and sent again would leave two.
+    run: 'curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port8}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"

@@ -1,0 +1,90 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-take-timings-with-curl-easy-getinfo]]
+=== Taking Timings with curl_easy_getinfo
+
+==== Problem
+
+Your C program reports connect and first-byte times from `curl_easy_getinfo`, and you want the port to C# to report the same timers, with its numbers checked against a path the server delays on purpose.
+
+==== Solution
+
+Port the program call for call with `Libcurl`, and run it against `surl` with a fault rule that holds one path for 1.5 seconds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program fetches each URL given on its command line on one easy handle and prints libcurl{apos}s timers for each:
+
+[source,c]
+----
+#include <stdio.h>
+#include <curl/curl.h>
+
+static size_t discard(char *data, size_t size, size_t nmemb, void *userdata)
+{
+  return size * nmemb;
+}
+
+static void seconds(curl_off_t us, char *out)
+{
+  sprintf(out, "%" CURL_FORMAT_CURL_OFF_T ".%06ld", us / 1000000, (long)(us % 1000000));
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *curl;
+  CURLcode res = CURLE_OK;
+  int i;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard);
+  for(i = 1; i < argc; i++) {
+    long code, connects;
+    curl_off_t connect, pretransfer, starttransfer, total;
+    double starttransfer_s;
+    char c[32], p[32], s[32], t[32];
+
+    curl_easy_setopt(curl, CURLOPT_URL, argv[i]);
+    res = curl_easy_perform(curl);
+    if(res != CURLE_OK) {
+      fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+      break;
+    }
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_getinfo(curl, CURLINFO_NUM_CONNECTS, &connects);
+    curl_easy_getinfo(curl, CURLINFO_CONNECT_TIME_T, &connect);
+    curl_easy_getinfo(curl, CURLINFO_PRETRANSFER_TIME_T, &pretransfer);
+    curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME_T, &starttransfer);
+    curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME_T, &total);
+    curl_easy_getinfo(curl, CURLINFO_STARTTRANSFER_TIME, &starttransfer_s);
+    seconds(connect, c); seconds(pretransfer, p); seconds(starttransfer, s); seconds(total, t);
+    printf("%s %ld connects %ld connect %s pretransfer %s starttransfer %s total %s (%.6f)\n",
+           argv[i], code, connects, c, p, s, t, starttransfer_s);
+  }
+  curl_easy_cleanup(curl);
+  curl_global_cleanup();
+  return (int)res;
+}
+----
+
+The port prints the URL{apos}s path where the C prints the whole URL, so the output does not carry the port. Everything else is a line for a line. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, with `CurlGlobalFlags` holding libcurl{apos}s flag values, and returns the `CurlLibrary` the easy handle is made from, and disposing the two is `curl_global_cleanup` and `curl_easy_cleanup`. `CurlEasy.SetOption` is `curl_easy_setopt` with a `CurlOption` named after its `CURLOPT_` constant; the write callback is a `WriteCallback` that takes the bytes and returns how many it took, so the body is read and dropped. `Perform` answers a `CurlCode`, libcurl{apos}s `CURLcode` with the same numbers, and `CurlErrorText.Easy` is `curl_easy_strerror`.
+
+`GetInfo` is `curl_easy_getinfo`. Its generic form takes the `out` variable C passes by address, typed as C types it: a `long` for `CURLINFO_RESPONSE_CODE` and `CURLINFO_NUM_CONNECTS`, a `long` for each `_T` timer, which is a `curl_off_t` of microseconds, and a `double` of seconds for the older `CURLINFO_STARTTRANSFER_TIME`. Each `CurlInfo` member is the constant without its prefix, so `CURLINFO_STARTTRANSFER_TIME_T` is `CurlInfo.StarttransferTimeT`. Every timer counts from the start of that transfer: connect is when the Transmission Control Protocol (TCP) connection was made, pretransfer when the request was about to go, starttransfer when the first byte of the response came back, total when the transfer ended (<<libcurl-api>>).
+
+`surl` serves the files in `site` with `--directory site`. `--fault "delay;stage=command;path=/slow.txt;ms=1500"` makes it read a request for `/slow.txt` and then wait 1.5 seconds before answering, every time; other paths are answered at once. `--fault` loosens the server on purpose, and `surl` warns on start. The delay lands between pretransfer and starttransfer, so a port whose numbers are right shows a starttransfer of 1.5 seconds or more with connect and pretransfer well under a second. That is the check this recipe makes: not exact numbers, which no two runs share, but where the delay shows up.
+
+The second URL on the handle reuses the first one{apos}s connection, as libcurl does by default: `CURLINFO_NUM_CONNECTS` is 0 and the connect time is 0, because no connection was made for it. A program that wants the connect time of every request must not compare a reused transfer with a new one. Nothing listening is `CURLE_COULDNT_CONNECT`, 7, and the program stops before printing a line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-time-each-phase-of-a-download>> for the same timers from the `curl` command line with `-w`.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<http-read-headers-with-curl-easy-header>> for reading the response{apos}s headers after the transfer.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc9110>>.

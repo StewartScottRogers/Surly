@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-give-up-within-a-time-budget]]
+=== Giving Up Within a Time Budget
+
+==== Problem
+
+Your client retries, but a job that calls it must finish in bounded time, however many retries it is allowed. You want a Hypertext Transfer Protocol (HTTP) server that is slow and always failing, and a client with a retry time budget, so a test can show that the whole retry loop ends near that budget instead of running through every retry.
+
+==== Solution
+
+Give `surl` two `--fault` rules, one that holds every connection and one that answers every request `503`, and fetch with `curl --retry 10 --retry-max-time 5`; the checked claims below time the whole command and count what the server did:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "delay;ms=1500"` holds each new connection 1.5 seconds before the server reads from it, and `--fault "error;scheme=http;reply=503"` answers every request `503 Service Unavailable` (<<rfc9110>>). The first rule acts when a connection is accepted and the second when a request arrives, so both apply to each try. Neither has `times`, so neither is ever spent: retries cannot help. `--directory site` serves the folder the rules stand in front of.
+
+`--retry 10` allows ten retries after a failure `curl` counts as transient, and `503` is one (<<curl-manual>>). `-f` makes the `503` a failure, exit `22`. Each retry here opens a new connection, which is held again. `--retry-delay 1` waits one second before each retry instead of doubling, and `curl` says so on standard error, which `--no-progress-meter` keeps free of the progress bar; `-s` in the other cases keeps `curl` quiet. Ten retries could take minutes against a server like this one; `--retry-max-time 5` is the budget. After each failed try `curl` checks the time since the first try began, and once five seconds have passed it makes no more retries. A retry it has already decided on still runs, so the loop ends after the budget by at most one wait and one try. Here that is after one to three retries of the ten, exit `22`, and `-w "%{http_code} %{num_retries}\n"` prints `503` and the retries made. The count is a range because it depends on how fast the machine is; the budget does not.
+
+`%{time_total}` covers the last try only, so a short script, `timed.sh`, times the whole command with `date`. With the budget, `curl` takes at least the five seconds and well under twenty, a range that leaves room for a slow machine and for the first transfer{apos}s one-time set-up. Without `--retry-max-time`, the retry count alone sets the time: `--retry 3` makes all three retries, and four 1.5-second tries and three one-second waits take at least eight seconds by the whole-second clock. The script needs a POSIX shell, such as Git Bash on Windows.
+
+The budget bounds the loop, not a try. Against a server that holds every request ten seconds and answers nothing, `--fault "delay;stage=command;ms=10000"`, a try would wait the ten seconds; `-m 1` ends each one after a second with exit `28`, which `curl` counts as transient, and `--retry-max-time 3` stops the retries after one to three. That command takes at least the three-second budget and well under twenty. A client that wants bounded time needs both: `-m` for each try, `--retry-max-time` for the loop.
+
+The server keeps its own account. `-v` sets the log level to verbose and `--log-file surl.log` writes the log to a file; it says `held for 1.5 s by fault rule f1` for each connection and `answered 503 Service Unavailable by fault rule f2` for each request.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-give-up-within-a-time-budget-in-csharp>> for the same test from a C# program.
+* <<http-give-up-within-a-time-budget-from-an-agent>> for the same test from an agent.
+* <<http-time-out-a-hanging-server>> for `-m` on a single request.
+* <<http-retry-a-flaky-endpoint>> for retries that succeed.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

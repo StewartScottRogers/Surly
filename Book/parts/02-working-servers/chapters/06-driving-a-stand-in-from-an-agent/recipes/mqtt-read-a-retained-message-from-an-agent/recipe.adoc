@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-read-a-retained-message-from-an-agent]]
+=== Reading a Retained Message
+
+==== Problem
+
+You want your agent to read the retained message of a Message Queuing Telemetry Transport (MQTT) topic with `read_retained_message`, and to compare it with what a subscriber is sent.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, starts a broker with `start_server`, seeds a message with `publish_message`, reads it with `read_retained_message`, and subscribes with the `curl` tool. It takes a case name as its argument, so each claim below runs the same file:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A retained message is one the broker keeps for a topic and sends to every client that subscribes later. `start_server` takes `listen_urls`, here `mqtt://127.0.0.1:0` for a free port, and `arguments`, the `surl` options as a list. `--allow-anonymous` is a loosening: it lets a client connect with no user name, and the broker warns of it in `log_lines`. Without it the subscriber is refused, as the last case shows, and the seeded message is kept all the same, since a seed is the test{apos}s own and needs no login.
+
+`publish_message` takes the `server_id`, a `topic`, a `payload` as text or `payload_base64` for bytes, and `retain`. With `retain` true the call sets the retain flag itself, so the message is kept with no client, no login and no `--topic` filter, and it is kept by the time the tool answers. With `retain` false it reaches only subscribers connected at that moment, and nothing is kept. A later publish on a topic replaces the message, and an empty payload takes it away.
+
+`read_retained_message` takes the `server_id` and a `topic` and reads the store, not a client{apos}s view of it: it answers `qos` and either `text`, when the payload is valid UTF-8, or `base64` when it is not. A topic with nothing kept is `{"retained": false}`, an answer and not a tool error. The QoS is 0 because a seed carries QoS 0. No call lists topics: an agent asks about a topic it knows.
+
+The `curl` tool takes the arguments of a `curl` command line. With no `-d`, `mqtt://` is a subscribe: the broker sends the retained messages that match and ends the call itself, so no timeout is needed, and curl exits 0 even when it was sent nothing. The answer{apos}s `standardOutput` is the topic{apos}s two-byte length, the topic and the payload, as `content`, or as base64 when the bytes are not text, which the program decodes. A `#` in the topic is written `%23`, since a plain one is a URL fragment and is not sent; the messages of a wildcard subscribe follow one another without a separator, so the program checks which topics are in the answer and how many bytes there are.
+
+With `-d` the same tool publishes, and a client{apos}s publish has the retain flag clear. QoS 0 is not acknowledged, so curl returns before the broker has dealt with it, and a `read_retained_message` straight after can answer the old state or none, whatever the broker will end up with. The program calls `wait_for_event` with `kinds` `exchange_ended`, the `after_sequence` of the last one it saw, and a `timeout_ms` of ten seconds, after each `curl` call: the exchange ends after the broker has applied what the client sent. The `curl` publish here changes nothing in the store, and the wait makes that a fact rather than a race.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-check-a-retained-message-from-an-agent>> for MQTT 5 and what the broker keeps under a `--topic` filter.
+* <<mqtt-check-retained-state-after-a-run>> for checking the store after a run.
+* <<mqtt-publish-a-retained-reading-in-process>> for the same reading from C#.
+* <<surl-readme>>, <<curl-readme>>.

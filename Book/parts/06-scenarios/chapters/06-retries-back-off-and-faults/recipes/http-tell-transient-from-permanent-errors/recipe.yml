@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-tell-transient-from-permanent-errors
+title: Telling Transient from Permanent Errors
+protocols: [http]
+tier: scenarios
+surl-options: [--directory, --fault, -v, --log-file]
+curl-options: [-s, -f, -w, --retry, --retry-delay, --retry-all-errors]
+exit-codes: [0, 22]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/report.txt: "report ready\n"
+  site/broken.txt: "never served\n"
+  site/locked.txt: "never served\n"
+  site/later.txt: "report ready\n"
+
+# One server, four paths. /report.txt is busy (503) for one request, then served; /broken.txt is
+# always 500 and /locked.txt always 403; /missing.txt does not exist, so it is a plain 404.
+# /later.txt is busy for one request too, for the case that retries everything. The rules act at
+# the command stage, so the readiness check, which sends nothing, does not spend them.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --fault "error;scheme=http;reply=503;path=/report.txt;times=1" --fault "error;scheme=http;reply=500;path=/broken.txt" --fault "error;scheme=http;reply=403;path=/locked.txt" --fault "error;scheme=http;reply=503;path=/later.txt;times=1" http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A 503 is transient to curl, so -f --retry 2 waits one second, retries once and gets the file, exit 0.
+    run: curl -s -f --retry 2 --retry-delay 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/report.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "report ready\n200 1\n"
+
+  - id: not-found-is-final
+    claim: A 404 is permanent to curl, so the same options make no retry and exit 22.
+    run: curl -s -f --retry 2 --retry-delay 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/missing.txt
+    expect:
+      exit: 22
+      stdout: "404 0\n"
+
+  - id: forbidden-is-final
+    claim: A 403 is permanent too, no retry, exit 22.
+    run: curl -s -f --retry 2 --retry-delay 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/locked.txt
+    expect:
+      exit: 22
+      stdout: "403 0\n"
+
+  - id: transient-that-stays
+    claim: A 500 is transient to curl, so it is retried, but a server that always answers 500 uses up both retries and curl exits 22.
+    run: curl -s -f --retry 2 --retry-delay 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/broken.txt
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: "500 2\n"
+
+  - id: server-saw-two-for-503
+    claim: The server's verbose log records two requests for /report.txt, the 503 and the retry.
+    run: grep -c " < GET /report.txt HTTP/1.1" surl.log
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: server-saw-one-for-404
+    claim: The log records one request for /missing.txt and one for /locked.txt; nothing asked for either again.
+    run: grep -c -e " < GET /missing.txt HTTP/1.1" -e " < GET /locked.txt HTTP/1.1" surl.log
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: server-saw-three-for-500
+    claim: The log records three 500 answers by fault rule f2 for /broken.txt, the first try and two retries.
+    run: 'grep -c "GET /broken.txt: answered 500 Internal Server Error by fault rule f2" surl.log'
+    expect:
+      exit: 0
+      stdout: "3\n"
+
+  - id: retry-all-errors
+    claim: --retry-all-errors drops the distinction, so the 404 is retried twice as well, with the same result.
+    run: curl -s -f --retry 2 --retry-delay 1 --retry-all-errors -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/missing.txt
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: "404 2\n"
+
+  - id: retry-all-errors-503
+    claim: For a 503, --retry-all-errors makes no difference; the retry is made either way.
+    run: curl -s -f --retry 2 --retry-delay 1 --retry-all-errors -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/later.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "report ready\n200 1\n"

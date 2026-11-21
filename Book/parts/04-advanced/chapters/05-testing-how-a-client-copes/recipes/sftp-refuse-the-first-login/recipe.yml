@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: sftp-refuse-the-first-login
+title: Refusing the First Login Only
+protocols: [sftp]
+tier: advanced
+surl-options: [--throwaway-hostkey, -u, --allow-uploads, --directory, --fault, -v, --log-file]
+curl-options: [-k, -u, -T, -s, -S, -w, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc4252]
+
+fixtures:
+  release.txt: "build 42\n"
+  deploy/.keep: ""
+
+# Each server refuses logins for a fixed number of attempts, and a spent rule stays spent, so each
+# claim that needs a fresh rule has its own server. times counts login attempts, not connections.
+servers:
+  main:
+    command: surl --throwaway-hostkey -u alice:s3cret --allow-uploads --directory deploy --fault "refuse-login;times=2" sftp://127.0.0.1:{{port}}/
+    ready: port
+  no-retry:
+    command: surl --throwaway-hostkey -u alice:s3cret --allow-uploads --fault "refuse-login;times=2" sftp://127.0.0.1:{{port2}}/
+    ready: port
+  shell-retry:
+    command: surl --throwaway-hostkey -u alice:s3cret --allow-uploads --fault "refuse-login;times=2" sftp://127.0.0.1:{{port3}}/
+    ready: port
+  once:
+    command: surl --throwaway-hostkey -u alice:s3cret --allow-uploads -v --log-file once.log --fault "refuse-login;times=1" sftp://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Against a server that refuses the first two login attempts, curl with --retry 1 --retry-all-errors is refused once (curl prints its exit 67 line), retries after a second, logs in with the same password and uploads the file, exit 0, one retry.
+    run: curl -sS -k -u alice:s3cret --retry 1 --retry-all-errors --retry-delay 1 -w "%{num_retries}\n" -T release.txt sftp://127.0.0.1:{{port}}/release.txt
+    expect:
+      exit: 0
+      stdout: "1\n"
+      stderr-contains: "curl: (67) Login denied"
+      files:
+        deploy/release.txt: "build 42\n"
+
+  - id: wrong-password-still-fails
+    claim: Once the rule is spent, a wrong password is refused on every try; --retry-all-errors retries it as well, so the command takes the retry and still exits 67.
+    run: curl -sS -k -u alice:wrong --retry 1 --retry-all-errors --retry-delay 1 -w "%{num_retries}\n" -T release.txt sftp://127.0.0.1:{{port}}/release.txt
+    expect:
+      exit: 67
+      stdout: "1\n"
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: retry-alone-does-not-retry
+    claim: --retry without --retry-all-errors does not count a refused login as transient, so curl makes no retry and exits 67.
+    run: curl -sS -k -u alice:s3cret --retry 1 --retry-delay 1 -w "%{num_retries}\n" -T release.txt sftp://127.0.0.1:{{port2}}/release.txt
+    expect:
+      exit: 67
+      stdout: "0\n"
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: second-command-logs-in
+    claim: A script's own retry works too; the first curl exits 67, and the second, with the same password, uploads the file and fetches it back.
+    run: curl -sS -k -u alice:s3cret -T release.txt sftp://127.0.0.1:{{port3}}/release.txt || curl -sS -k -u alice:s3cret -T release.txt sftp://127.0.0.1:{{port3}}/release.txt && curl -sS -k -u alice:s3cret sftp://127.0.0.1:{{port3}}/release.txt
+    expect:
+      exit: 0
+      stdout: "build 42\n"
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: one-time-is-one-attempt
+    claim: With times=1 the first connection is not refused; curl's password attempt uses up the rule, curl falls back to keyboard-interactive with the same password, and the upload succeeds at once, exit 0, no retry.
+    run: curl -sS -k -u alice:s3cret --retry 1 --retry-all-errors -w "%{num_retries}\n" -T release.txt sftp://127.0.0.1:{{port4}}/release.txt
+    expect:
+      exit: 0
+      stdout: "0\n"
+
+  - id: log-shows-the-two-methods
+    claim: The -v log of that server shows both attempts on the one connection; the password login refused, then the keyboard-interactive login accepted.
+    run: 'grep -o -E "Login (accepted|refused): [a-z-]+ alice" once.log'
+    expect:
+      exit: 0
+      stdout: "Login refused: password alice\nLogin accepted: keyboard-interactive alice\n"

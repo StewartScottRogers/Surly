@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-require-a-proxy-login-in-csharp
+title: Requiring a Proxy Login in C#
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventKind, SurlEventQuery, LoginJudgedEvent, CurlClient, CurlClientOptions, CurlProxyOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, HttpAuthenticationMethods, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [rfc9110, rfc7616, rfc7617, surl-readme, curl-readme]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A CurlClient with ProxyUserPassword and ProxyAuthentication Digest for the proxy, and UserPassword and HttpAuthentication Digest for the origin, fetches the file through the proxy, 200.
+    program: proxy-login.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "fetch: 200, hello from surl\n"
+
+  - id: no-login-407
+    claim: With no proxy login the proxy answers 407 itself, an ordinary CurlResponse, and over the http listener its Proxy-Authenticate headers offer Digest with MD5, SHA-256 and SHA-512-256, and no Basic.
+    program: proxy-login.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "no proxy login: 407\noffers: Digest MD5\noffers: Digest SHA-256\noffers: Digest SHA-512-256\n"
+
+  - id: wrong-password-407
+    claim: A wrong proxy password is answered 407 again, with the same offers as no login at all.
+    program: proxy-login.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout: "wrong proxy password: 407\noffers: Digest MD5\noffers: Digest SHA-256\noffers: Digest SHA-512-256\n"
+
+  - id: basic-over-http-refused
+    claim: ProxyAuthentication Basic to the http proxy listener would send the password in clear, so the proxy refuses it unchecked with 403.
+    program: proxy-login.cs
+    args: [basic-http]
+    expect:
+      exit: 0
+      stdout: "Basic to the http proxy: 403\n"
+
+  - id: https-offers-basic
+    claim: The https proxy listener, trusted through CurlTlsOptions.Proxy, offers Basic in its 407 as well as Digest.
+    program: proxy-login.cs
+    args: [https-offers]
+    expect:
+      exit: 0
+      stdout: "no proxy login: 407\noffers: Digest MD5\noffers: Digest SHA-256\noffers: Digest SHA-512-256\noffers: Basic\n"
+
+  - id: basic-over-https
+    claim: Through the https proxy a Basic proxy login is accepted and the file comes back.
+    program: proxy-login.cs
+    args: [basic-https]
+    expect:
+      exit: 0
+      stdout: "Basic to the https proxy: 200, hello from surl\n"
+
+  - id: plaintext-allowed
+    claim: With AllowPlaintextAuthentication on the server, the http proxy accepts the same Basic login.
+    program: proxy-login.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "Basic to the http proxy: 200, hello from surl\n"
+
+  - id: accounts-kept-apart
+    claim: The origin's account is not a proxy account, so the proxy answers it 407; the proxy account is not an origin account, so it passes the proxy and the origin answers it 401.
+    program: proxy-login.cs
+    args: [swapped]
+    expect:
+      exit: 0
+      stdout: "origin account at the proxy: 407\noffers: Digest MD5\noffers: Digest SHA-256\noffers: Digest SHA-512-256\nproxy account at the origin: 401\n"
+
+  - id: events-name-each-hop
+    claim: FindEvents with LoginJudged shows the proxy login and the origin login of one fetch as separate Digest logins, app and web, each accepted; app's comes first.
+    program: proxy-login.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: '^fetch: 200, hello from surl\n(.*\n)?http Digest app: accepted\n(.*\n)?http Digest web: accepted\n'

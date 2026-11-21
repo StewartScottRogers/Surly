@@ -1,0 +1,109 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-resend-after-a-dropped-connection-in-csharp
+title: Resending After a Dropped Connection in C#
+protocols: [smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, FaultStage, SurlEventQuery, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlContent, CurlException, SurlMessagePage]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; no readiness connection
+# is made, so a drop rule with times is not spent before the app connects.
+# Every case runs resend.cs; a case's argument picks the scenario, and each claim reads its own lines.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "The first SMTP connection is dropped before the greeting, which Curl.Api throws as a CurlException with code RecvError (56); the sender tries again after a second, the second connection is accepted 250 after one retry, and ann holds exactly one message."
+    program: resend.cs
+    args: [greeting]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "send, try 1: curl error 56 RecvError\nsend, try 2: SMTP 250, 1 retries\nann@example.com holds 1\n"
+
+  - id: log-two-connections
+    claim: "The server's log, read from a StringWriter at verbose level, records two SMTP connections, the dropped one and the retry."
+    program: resend.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout-matches: "connections logged: 2\n"
+
+  - id: log-one-stored
+    claim: "The same log records exactly one message stored."
+    program: resend.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout-matches: "stored logged: 1\n$"
+
+  - id: drop-is-error-56
+    claim: "On a server that drops its first two connections, a send with no retry throws once, with RecvError (56) and no reply code."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "^first send, try 1: curl error 56 RecvError\n"
+
+  - id: dropped-stores-nothing
+    claim: "The dropped connection delivered nothing; ann holds none after the first send."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "first send, try 1: curl error 56 RecvError\nann@example\\.com holds 0\n"
+
+  - id: retry-resends
+    claim: "The second send drops once more (the server's second connection) and the next try, the third connection, is accepted 250 after one retry."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "second send, try 1: curl error 56 RecvError\nsecond send, try 2: SMTP 250, 1 retries\n"
+
+  - id: one-copy-after-two-drops
+    claim: "After two dropped connections and one accepted send, ann holds exactly one message."
+    program: resend.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\n$"
+
+  - id: drop-at-data-resends
+    claim: "A connection dropped at DATA, before the message is accepted, is resent; the retry is accepted 250 after one retry."
+    program: resend.cs
+    args: [data]
+    expect:
+      exit: 0
+      stdout: "send, try 1: curl error 56 RecvError\nsend, try 2: SMTP 250, 1 retries\nann@example.com holds 1\n"
+
+  - id: drop-at-data-one-copy
+    claim: "The message cut off at DATA was never stored, so the resend leaves exactly one copy."
+    program: resend.cs
+    args: [data]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\n$"
+
+  - id: drop-after-accept-is-not-resent
+    claim: "A connection dropped at QUIT comes after the server accepted and stored the message; the send returns 250 with no retry."
+    program: resend.cs
+    args: [quit]
+    expect:
+      exit: 0
+      stdout: "send, try 1: SMTP 250, 0 retries\nann@example.com holds 1\n"
+
+  - id: drop-after-accept-one-copy
+    claim: "That mail is in ann's INBOX once; a sender that treated the dropped QUIT as a failure and sent again would leave two."
+    program: resend.cs
+    args: [quit]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\n$"

@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: https-tunnel-through-a-proxy
+title: Tunnelling HTTPS through a Proxy
+protocols: [https, http]
+tier: advanced
+surl-options: [--directory, --cert, --key, --proxy, -v, --log-file, --fault]
+curl-options: [-x, --cacert, --proxy-cacert, -s, -S, -v, -o, -w]
+exit-codes: [0, 1, 7, 60]
+references: [rfc9110, rfc8446, surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+servers:
+  # The TLS origin on 8080.
+  origin:
+    command: surl --directory site --cert server.pem --key server.key https://127.0.0.1:{{port}}/
+    ready: port
+  # The proxy on 8081, logging every event and wire line to proxy.log; an https proxy on 8082 beside it.
+  proxy:
+    command: surl --proxy http://127.0.0.1:{{port2}}/ --proxy https://127.0.0.1:{{port3}}/ --cert server.pem --key server.key -v --log-file proxy.log
+    ready: port
+  # A proxy that refuses every tunnel with 503 Service Unavailable.
+  refusing:
+    command: surl --proxy http://127.0.0.1:{{port4}}/ --fault "error;scheme=http-proxy;command=CONNECT;reply=503"
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -x sends an https:// URL through the proxy in a CONNECT tunnel, checks the origin's certificate with --cacert, and gets the file.
+    run: curl -s --cacert server.pem -x http://127.0.0.1:{{port2}}/ https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: connect-answered-200
+    claim: The proxy answers the CONNECT 200, which curl reports as %{http_connect}.
+    run: curl -s --cacert server.pem -o {{null}} -w "%{http_connect}" -x http://127.0.0.1:{{port2}}/ https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "200"
+
+  - id: curl-sends-connect
+    claim: curl -v shows the CONNECT it sends to the proxy, naming the origin's host and port, before any TLS.
+    run: curl -sv --cacert server.pem -o {{null}} -x http://127.0.0.1:{{port2}}/ https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stderr-contains: "> CONNECT 127.0.0.1:"
+
+  - id: proxy-log-shows-connect
+    claim: The proxy's log holds the CONNECT it received, line for line, with the origin's address and port.
+    run: grep -m1 -E "< CONNECT 127\.0\.0\.1:[0-9]+ HTTP/1\.1" proxy.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ < CONNECT 127\.0\.0\.1:\d+ HTTP/1\.1\\r\\n\n$'
+
+  - id: proxy-log-shows-the-tunnel
+    claim: The proxy's log says it opened the tunnel to that address and answered 200.
+    run: grep -m1 "Tunnelling to 127.0.0.1:" proxy.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* Tunnelling to 127\.0\.0\.1:\d+; answered 200\.\n$'
+
+  - id: proxy-never-sees-the-request
+    claim: Inside the tunnel the proxy relays only encrypted bytes, so its log never holds the GET /hello.txt the client sent; grep counts 0 and exits 1.
+    run: grep -c "GET /hello.txt" proxy.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: certificate-checked-end-to-end
+    claim: The certificate check is between curl and the origin, through the tunnel; without --cacert curl does not trust the origin and exits 60.
+    run: curl -sS -x http://127.0.0.1:{{port2}}/ https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 60
+      stderr-contains: "curl: (60)"
+
+  - id: https-proxy
+    claim: Through the https proxy the CONNECT itself is encrypted too, TLS inside TLS; --proxy-cacert trusts the proxy's certificate and --cacert the origin's.
+    run: curl -s --proxy-cacert server.pem --cacert server.pem -x https://127.0.0.1:{{port3}}/ https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: tunnel-refused
+    claim: A proxy whose fault rule answers CONNECT with 503 opens no tunnel, and curl exits 7 with CONNECT tunnel failed, response 503.
+    run: curl -sS --cacert server.pem -x http://127.0.0.1:{{port4}}/ https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 7
+      stderr-contains: "curl: (7) CONNECT tunnel failed, response 503"

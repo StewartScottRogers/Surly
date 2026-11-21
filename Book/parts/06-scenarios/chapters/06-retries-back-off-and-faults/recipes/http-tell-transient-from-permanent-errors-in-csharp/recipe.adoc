@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-transient-from-permanent-errors-in-csharp]]
+=== Telling Transient from Permanent Errors in C#
+
+==== Problem
+
+Your .NET client{apos}s retry policy should try again after `503 Service Unavailable` and give up at once on `404 Not Found`. In a test, you want an in-process Hypertext Transfer Protocol (HTTP) server that gives both answers, and a few more, and you want the server to count how often each path was asked for, so the test proves the policy tells a passing failure from a permanent one.
+
+==== Solution
+
+Start a `SurlServer` whose `SurlFault` rules answer some paths with chosen error statuses, fetch each path with a `CurlClient` under the policy, and count the requests and the rules that answered:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlFault.ProtocolError("503")` makes a rule that answers a request with that status instead of serving it, as `surl --fault error;reply=503` does; `with { Scheme = "http" }` says the reply is an HTTP status, `Path` limits the rule to one path and `Times = 1` spends it after one answer. Rules in `SurlServerOptions.Faults` are there when `SurlServer.StartAsync` starts the server, numbered in the order added: `f1` makes `/report.txt` busy, `503`, for one request; `f2` answers `/broken.txt` `500` every time and `f3` answers `/locked.txt` `403` every time. `/missing.txt` needs no rule: it is not in `Files`, so the server answers `404` as it would anyway.
+
+An error status is an answer to Curl.Api, not a failure: `CurlClient.SendAsync`, given a `CurlRequest`, returns a `CurlResponse` whose `StatusCode` says what came back, and throws nothing. The policy is the program{apos}s. It retries the statuses `curl --retry` counts as transient, `408`, `429`, `500`, `502`, `503` and `504` (<<curl-manual>>, <<rfc9110>>), at most twice and one second apart, and takes every other status as final. Under it the `503` is retried once and the file arrives; the `404` and the `403` end at once; the `500` is retried twice and stays, so the program exits `22`, the code `curl -f` exits with.
+
+The server keeps its own account. `Log`, a `TextWriter`, with `LogLevel.Verbose` gets the same log as `surl -v`, one `GET /path HTTP/1.1` line per request, and the program counts them per path: two, one, one and three. `RecordExchanges = true` keeps every event; `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.FaultApplied` returns a `FaultAppliedEvent` each time a rule answered, and its `RuleId` names the rule. They agree with the log: `f1` once, `f3` once and `f2` three times. A test that wants to prove the client did not hammer a server over a permanent error asserts that count.
+
+The other policies show what the count catches. One that retries every error status asks for `/missing.txt` and `/locked.txt` three times each and gets the same answers; the `503` is retried once either way. One that never retries takes the `503` as final too, and each path is asked for once. A second argument, a label such as `retries`, makes the program print only the lines that start with it, so each checked claim below looks at one line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-transient-from-permanent-errors>> for the same test on the console, with `curl --retry`.
+* <<http-tell-transient-from-permanent-errors-from-an-agent>> for the same test from an agent.
+* <<http-retry-a-flaky-endpoint-in-csharp>> for the back-off between retries.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

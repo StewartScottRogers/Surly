@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-answer-try-later-in-csharp]]
+=== SMTP Try-Later Replies in C#
+
+==== Problem
+
+Your mailer must keep a message and retry when the server says `451`, try later, and you want a test in C# that has an in-process Simple Mail Transfer Protocol (SMTP) server answer one recipient command with that temporary error and then accept the retry.
+
+==== Solution
+
+Start a `SurlServer` with a fault rule on `RCPT`, send the same mail twice with `Curl.Api`, and read from the server{apos}s store what it kept. The program takes the case to run as its argument; the first case, with no argument, is the retry itself:
+
+include::try-later.cs[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `smtp://` listen URL on port `0`, `MailDomains` for `--mail-domain example.com`, and a `Mailboxes` entry, `--mailbox`, for the app, Ann and Bob. `Faults` holds the fault rules, `--fault`, and `SurlFault.ProtocolError("451 4.3.0 try later")` is `error` with that reply; `with { Scheme = "smtp", Command = "RCPT", Times = 1 }` narrows it to the recipient command of SMTP and spends it after one answer (<<surl-readme>>). The reply must be a code and text: `ProtocolError("451")` makes `SurlServer.StartAsync` throw a `SurlServerStartException`, whose `ExitCode` is `FailedInit` and whose first line is `option --fault: key reply does not fit the smtp error shape`. After the start, `server.Faults.List()` gives each `SurlFaultRule`, with its `Id`, `f1` here, and `Remaining`: `0` once the rule is spent, `1` after one answer of two.
+
+A reply that starts with `4` is a temporary failure, and the client keeps the message and tries again later (<<rfc5321>>). The app sends with one `CurlClient`: a `CurlRequest` with `HttpMethod.Put` to the SMTP URL, whose path is the name the client gives in its greeting, `CurlAuthenticationOptions` with the app{apos}s login, `CurlMailOptions` with the envelope sender and the recipients, and the message as `CurlContent.FromStream`. A refused recipient throws a `CurlException`, whose `Code` is `SendError`, `55`, and whose `Message` carries the reply, `RCPT failed: 451`. An accepted send returns a `CurlResponse`, and its `StatusCode` is the last reply, `250`. The first send is refused and the same send again is accepted. The store agrees: `server.Mail.ListMessagesAsync("ann@example.com", "INBOX")` returns a `SurlMessagePage` with one message in `Messages`, the refused send having stored none. The stored message is the retry{apos}s, since `ReadMessageAsync` returns a `SurlMailMessage` whose `Received` line names `second`, the greeting name of the second send. The server{apos}s log, written to a `StringWriter` through `Log` at `LogLevel.Verbose`, has one line saying `RCPT answered with the chosen error of fault rule f1; nothing was stored.` and one `Message stored:` line.
+
+Mail is delivered asynchronously, so the test does not read the store at once after the send. `OnEvent` with a `SurlEventQuery` for `StoreChanged` events in the mail store runs a callback for every delivery, a `StoreChangedEvent`, and the callback releases a `SemaphoreSlim`; after an accepted send the test waits on it for at most ten seconds, so a lost message fails the test rather than hanging it. A refused send delivers nothing, so it does not wait.
+
+The refusal hits one recipient command, and what the send does with the rest of the message depends on one property. A second server answers the first two `RCPT` commands `451`, `Times = 2`. Sent to Ann and Bob, in that order, the message is abandoned: Ann{apos}s `RCPT` is refused, the send throws, one answer is left on the rule, and neither mailbox holds anything. With `MailRecipientAllowFails = true`, `--mail-rcpt-allowfails` on the `curl` side, the same send carries on after Ann{apos}s refusal, the rule{apos}s second answer; Bob{apos}s `RCPT` is accepted, the send returns `250`, and the message is in Bob{apos}s mailbox alone. A mailer that sends to several people has to remember who was refused, since the server will not say so again. The rule is now spent, and a plain send to Ann is accepted: her `INBOX` holds one message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-answer-try-later>> for the same test on the console.
+* <<smtp-answer-try-later-from-an-agent>> for the same test from an agent.
+* <<smtp-survive-a-temporary-rcpt-failure-in-csharp>> for a mailer that retries on its own.
+* <<surl-readme>>, <<rfc5321>>.

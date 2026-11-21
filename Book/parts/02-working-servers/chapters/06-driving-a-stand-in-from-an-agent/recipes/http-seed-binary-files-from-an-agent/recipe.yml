@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-seed-binary-files-from-an-agent
+title: Seeding Binary Files
+protocols: [http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, put_file, read_file, transfer, curl]
+exit-codes: [0]
+references: []
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "An image and an archive seeded with files_base64 in start_server are served byte for byte: curl-mcp's transfer answers 200 with each file's Content-Type and a base64 body whose SHA-256 is the seed's."
+    program: program.cs
+    args: ["solution"]
+    expect:
+      exit: 0
+      stdout: "logo.png: 200 image/png 3000 bytes, identical: True\npack.zip: 200 application/zip 5000 bytes, identical: True\n"
+
+  - id: put-file
+    claim: "put_file with base64 adds a binary file to the running server, creating its folder, and answers the path and byte count; the fetched file is byte for byte the seed."
+    program: program.cs
+    args: ["put-file"]
+    expect:
+      exit: 0
+      stdout: "put_file: {\"path\":\"/images/icon.png\",\"byte_count\":1200}\nimages/icon.png: 200 image/png 1200 bytes, identical: True\n"
+
+  - id: read-file
+    claim: "read_file on a binary file answers base64 in place of text and the same bytes; on a file of plain text it answers text."
+    program: program.cs
+    args: ["read-file"]
+    expect:
+      exit: 0
+      stdout: "/logo.png: image/png, 3000 bytes, base64, identical: True\n/notes.txt: text/plain, 11 bytes, text plain text\n"
+
+  - id: to-disk
+    claim: "The curl tool with -o and --create-dirs writes the archive under the root, and the file on disk is byte for byte the seed."
+    program: program.cs
+    args: ["to-disk"]
+    expect:
+      exit: 0
+      stdout: "got/pack.zip: 5000 bytes, identical: True\n"
+
+  - id: content-types
+    claim: "The Content-Type comes from the file name's extension, not the bytes: .png image/png, .zip application/zip, .jpg image/jpeg, .pdf application/pdf, and application/octet-stream for .bin."
+    program: program.cs
+    args: ["content-types"]
+    expect:
+      exit: 0
+      stdout: "logo.png: image/png\npack.zip: application/zip\na.jpg: image/jpeg\nb.pdf: application/pdf\nc.bin: application/octet-stream\n"
+
+  - id: split-seed
+    claim: "Six files of 512 KiB seeded with one put_file call each, so no message is large, are all fetched to disk byte for byte."
+    program: program.cs
+    args: ["split-seed"]
+    expect:
+      exit: 0
+      stdout: "identical: 6 of 6\n"
+
+  - id: transfer-limit
+    claim: "For a file of 2 MiB, transfer answers only the first MiB and says so with isTruncated, so a hash of its body would be wrong; the curl tool with -o writes all of it."
+    program: program.cs
+    args: ["transfer-limit"]
+    expect:
+      exit: 0
+      stdout: "transfer: 1048576 of 2097152 bytes, truncated: True\ncurl -o: 2097152 bytes, identical: True\n"
+
+  - id: bad-base64
+    claim: "Text that is not base64 is a tool error, from put_file and from start_server alike, and the error names the argument."
+    program: program.cs
+    args: ["bad-base64"]
+    expect:
+      exit: 0
+      stdout: "put_file: error base64: expected a base64 string\nstart_server: error files_base64.bad.bin: expected a base64 string\n"
+
+  - id: both-given
+    claim: "put_file given both text and base64 is a tool error, and so is start_server given one path in both files and files_base64."
+    program: program.cs
+    args: ["both-given"]
+    expect:
+      exit: 0
+      stdout: "put_file: error give exactly one of text and base64\nstart_server: error files_base64.same.bin: the path is given more than once across files and files_base64\n"
+

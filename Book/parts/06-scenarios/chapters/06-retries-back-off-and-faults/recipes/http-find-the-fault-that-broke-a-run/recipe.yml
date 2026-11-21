@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs find-fault.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-find-the-fault-that-broke-a-run
+title: Finding the Fault That Broke a Run
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, transfer, get_exchanges, get_events, list_faults]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Of six requests, four fail. Matched to their exchanges by request line, the 503 is rule f1's error, the timeout (exit 28) is f2's delay, the reset connection (exit 56) is f3's drop with nothing sent, and the 404 had no fault at all, the server's own answer. After the hold the server still wrote 200 OK to the client that had gone (Windows); elsewhere it may have sent nothing.
+    program: find-fault.cs
+    args: [match]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: "^run /index\\.html: 200 0\\nrun /orders\\.json: 503 0\\nrun /reports/q3\\.txt: 000 28\\nrun /export\\.csv: 000 56\\nrun /missing\\.txt: 404 0\\nrun /index\\.html: 200 0\\n/orders\\.json \\(503 0\\): exchange 3, sent HTTP/1\\.1 503 Service Unavailable: f1 error\\n/reports/q3\\.txt \\(000 28\\): exchange 4, sent (HTTP/1\\.1 200 OK|nothing): f2 delay\\n/export\\.csv \\(000 56\\): exchange 5, sent nothing: f3 drop\\n/missing\\.txt \\(404 0\\): exchange 6, sent HTTP/1\\.1 404 Not Found: no fault, the server's own answer\\n$"
+
+  - id: server-side-alone
+    claim: Read from the server's side alone, by what it sent, the delayed request can look served; only the client's failure list finds it. The 503, the drop and the 404 show either way.
+    program: find-fault.cs
+    args: [answers]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: "\\nexchange 3: GET /orders\\.json HTTP/1\\.1 -> HTTP/1\\.1 503 Service Unavailable: f1 error\\n(exchange 4: GET /reports/q3\\.txt HTTP/1\\.1 -> nothing sent: f2 delay\\n)?exchange 5: GET /export\\.csv HTTP/1\\.1 -> nothing sent: f3 drop\\nexchange 6: GET /missing\\.txt HTTP/1\\.1 -> HTTP/1\\.1 404 Not Found: no fault, the server's own answer\\n$"
+
+  - id: rule-that-never-fired
+    claim: list_faults with the fault_applied events per rule shows f1, f2 and f3 fired once each and f4, the 500 on /admin, never; the run never asked for /admin.
+    program: find-fault.cs
+    args: [rules]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: "\\nf1 error;scheme=http;path=%2Forders\\.json;reply=503: fired 1\\nf2 delay;path=%2Freports;stage=command;ms=3000: fired 1\\nf3 drop;path=%2Fexport\\.csv;stage=command: fired 1\\nf4 error;scheme=http;path=%2Fadmin;reply=500: fired 0\\n$"

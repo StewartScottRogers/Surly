@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-resend-after-a-dropped-connection]]
+=== Resending After a Dropped Connection
+
+==== Problem
+
+Your app sends mail over Simple Mail Transfer Protocol (SMTP), and the first connection to the server is dropped before the server says a word. You want the sender to connect again and send the message, and a test that proves exactly one copy was delivered.
+
+==== Solution
+
+Give `surl` a `--fault` rule that drops the first SMTP connection, send with `curl` told to retry every error, then ask the server over Internet Message Access Protocol (IMAP) how many messages arrived. The server is not asked to accept a probe connection first, since that would spend the rule, so the setup line waits for the IMAP port, which no rule touches and which is listed last, so that the SMTP port is bound by then:
+
+include::.generated/solution.adoc[]
+
+In a real test the app sends to port `8080`, and the test runs the `STATUS` check.
+
+==== Discussion
+
+`--fault "drop;scheme=smtp;times=1"` is one fault rule. `drop` closes a connection without answering; with no `stage` it acts when the connection is accepted, before the greeting, which is the failure of a server that is down or overloaded. `scheme=smtp` limits the rule to the SMTP listener and `times=1` spends it after one connection, so every connection after it is served as usual (<<surl-readme>>). The quotes keep the semicolon from the shell. The rest is a server for one domain: `--mail-domain example.com`, and a `--mailbox` for the app and one for Ann, each logged in to by its whole address. `-v` and `--log-file surl.log` write a verbose log to a file, which the checked claims read.
+
+A readiness check that connects to the port would be the first connection and be dropped, so the rule would be gone before the test began. The server therefore has no readiness check, and the setup line is a `curl` that sends `NOOP` to the IMAP port, which needs no login, and tries again for up to thirty seconds if the port is not open yet (`--retry-connrefused`, `--retry-delay 1`).
+
+On the `curl` side, `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T order.eml` the message, `--crlf` turns the file{apos}s line feeds into the carriage return and line feed a message is made of, and `-w "%{response_code} %{num_retries}"` prints the last reply code and how many retries were made. `-s` keeps the progress meter and, unless `-S` brings them back, the error messages out. A dropped connection is `curl` error `56`, a receive failure, and `curl` does not count it as transient: `--retry 3` alone makes no retry, exits `56`, prints `curl: (56)` under `-S`, reports no reply code (`000`) and `0` retries (<<curl-manual>>). `--retry-all-errors` makes every failure count. With `--retry 1` and `--retry-delay 1` the sender connects again after one second, the second connection is served, the reply is `250` (<<rfc5321>>), and one retry is counted. The log shows both connections, two `opened: smtp` lines, and one `Message stored:` line.
+
+The check is the server{apos}s. `-X "STATUS INBOX (MESSAGES)"` asks the IMAP server how many messages Ann{apos}s `INBOX` holds without fetching any (<<rfc9051>>), and the answer is `1`: the dropped connection stored nothing, the retry stored one message.
+
+Where the connection drops matters, and three more servers show it. `twice` drops its first two connections (`times=2`). The first send, with `--retry 3` alone, exits `56` and leaves Ann{apos}s `INBOX` empty; the second, with `--retry 1 --retry-all-errors`, is dropped once more and then accepted, one retry in all, and the `INBOX` holds one message: three connections, two dropped, one copy. `data` has `stage=command;command=DATA`, so the connection is dropped when the sender asks to send the message, before the server has taken it. The message is not stored, the retry is accepted, and one copy arrives. `quit` drops the connection at `QUIT`, after the server has stored the message and answered `250`. `curl` already has its reply and exits `0` with no retry, and Ann holds one message. A sender that read the dropped goodbye as a failed send, and sent again, would leave two; a test that wants one copy has to tell a drop before the reply from a drop after it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-resend-after-a-dropped-connection-in-csharp>> for the same test in C#.
+* <<smtp-resend-after-a-dropped-connection-from-an-agent>> for the same test from an agent.
+* <<smtp-survive-a-temporary-rcpt-failure>> for a recipient refused with a try-later reply.
+* <<http-recover-from-a-dropped-connection>> for the same fault over HTTP.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

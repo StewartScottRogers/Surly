@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-seed-a-file-tree-for-a-test]]
+=== Seeding a File Tree for a Test
+
+==== Problem
+
+Your C# test needs a nested folder of files before it starts. You want `Files.PutAsync` to build it, and HTTP and File Transfer Protocol (FTP) clients to see it.
+
+==== Solution
+
+Start one `Surl.Api` server that listens on HTTP and FTP, call `server.Files.PutAsync` once for each file of the tree, and fetch the files with `Curl.Api`. The program takes a scenario name as its argument, so each claim below runs the same file:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds two addresses with port 0, so each gets a free port, and `server.BoundUrls` gives them in the same order: `[0]` is HTTP, `[1]` is FTP. Both schemes serve one store, the server's files. `Files.PutAsync(path, bytes)` writes into that store from the test, as if an upload had arrived, but with no login and no `AllowUploads`: it is the test's own hand, not a client's. `CurlClient` fetches them: each fetch is a `CurlRequest` with `HttpMethod.Get`, answered by a `CurlResponse` whose `StatusCode` and `Body` stream the program reads, over HTTP or FTP alike. A path starts with a slash and names a file; the folders on the way are made by the file in them, so `/reports/2026/q1.csv` makes `reports` and `2026`. There is no call to make a folder alone. The program puts five files, three levels deep, and an HTTP client gets each at once with a `200` and the bytes that were put. Putting a path that exists replaces it.
+
+`Files.ListAsync(folder)` answers a `SurlFolderPage`: its `Entries` are the folder's children, one level, in name order, each a `SurlFolderEntry` with `Name`, `IsFolder` and, for a file, `ByteCount`. It reads the store, not a protocol, so it does not depend on `ListDirectories`; the program calls it once per folder to print the tree.
+
+The two schemes differ in what they will do for a client, and the cases show it. HTTP has no listing: a folder is a `404` with no body, whatever it holds. FTP lists a folder, but only with `ListDirectories = true`, the property for `--list-directories`; without it the client's request for the folder fails as `CurlException` with code `FtpCouldntRetrFile`, curl's exit 19. A listing is the long form, one entry per line, the first character a type, `d` for a folder, and the last word the name; the program prints the names. FTP also needs a login. `AllowAnonymous = true`, the property for `--allow-anonymous`, is a loosening: `surl` warns at start, and without it an FTP client is refused with `LoginDenied`, curl's exit 67. HTTP, which serves `GET` with no login, is not affected.
+
+A path without its leading slash is refused with an `ArgumentException` whose message names `NotRooted`. `CurlException` is in `Curl.Api.Errors`; its `Code` is the name of the exit code curl would give.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-put-and-delete-files-in-process>> for putting and deleting one file, and the events that make.
+* <<ftp-list-and-upload-in-csharp>> for FTP listings and client uploads.
+* <<http-seed-a-site-from-fixture-files-in-csharp>> for seeding from files on disk.
+* <<surl-readme>>, <<curl-readme>>.
