@@ -47,6 +47,8 @@ Do not read the Surl or Curl READMEs or `--aihelp` end to end; look up one thing
   do; its Solution says it needs a POSIX shell (Git Bash on Windows). Prefer single commands.
 - Timing: claim ranges or orderings that hold on a loaded machine and a slow CI runner. The first Curl.Api request in a
   process takes about 4 s (one-time set-up, Curl BL-5635): make one untimed warm-up request before any timed case.
+- Never change the machine's settings: no certificate stores (certutil, Keychain), firewall, registry, hosts
+  file or environment beyond your own shell. If a recipe fails because of machine state, stop and report it.
 - Never stop processes you did not start: no `taskkill /IM`, `pkill` or `killall` by name, since other writers' servers run beside yours; stop your own by its process ID; never `timeout N` a surl; never write `> NUL` in Git Bash.
 
 ## Done means
