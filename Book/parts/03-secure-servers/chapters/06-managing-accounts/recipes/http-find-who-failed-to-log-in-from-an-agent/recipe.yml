@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs failed-logins.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks what it reads back.
+schema: 2
+key: http-find-who-failed-to-log-in-from-an-agent
+title: Finding a Failed Login from an Agent
+protocols: [https]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl, get_events]
+surl-options: [--cert, --key, --user]
+curl-options: [-s, -o, --cacert, --digest, --basic, -u]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7616, rfc7617, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Four clients log in to one HTTPS server; get_events with kinds login_judged, counted by account, mechanism and verdict, names reports with Basic as refused three times, biling with Digest refused once, and billing and search accepted.
+    program: failed-logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "reports Basic: 3 refused\nbiling Digest: 1 refused\nbilling Digest: 1 accepted\nsearch Basic: 1 accepted\n"
+
+  - id: unknown-name-is-named
+    claim: A login for an account the server does not hold is a refused event under the name the client claimed, the same shape as a wrong password.
+    program: failed-logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbiling Digest: 1 refused\n'
+
+  - id: not-a-fault
+    claim: None of the refusals is marked is_refused_by_fault, so each is the client's credentials, not a rule the test set.
+    program: failed-logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^reports Basic: 3 refused\n(?!.*fault rule)'
+
+  - id: where-it-came-from
+    claim: The first refused login is in exchange 3, as reports, and the exchange_started event of that exchange gives the client's address and port.
+    program: failed-logins.cs
+    args: [exchange]
+    expect:
+      exit: 0
+      stdout-matches: '^first refusal: exchange 3, reports, from 127\.0\.0\.1:\d+\n$'

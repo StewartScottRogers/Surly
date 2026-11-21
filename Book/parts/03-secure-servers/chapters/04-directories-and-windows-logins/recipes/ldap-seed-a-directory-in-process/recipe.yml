@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: ldap-seed-a-directory-in-process
+title: Seeding a Directory in Process
+protocols: [ldap]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerDirectory, SurlSeedRefusedException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc4511, rfc4516]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A new Surl.Api server has an empty directory, so a Curl.Api search throws CurlException 39, LdapSearchFailed; after AddEntriesAsync with alice's LDIF the same search finds her, and a second AddEntriesAsync on the running server adds bob beside her.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^empty: CurlException 39 LdapSearchFailed\nafter the first batch: 1 \[cn=alice,ou=people,dc=example,dc=com, cn: alice\]\nafter the second batch: 2 \[cn=alice,ou=people,dc=example,dc=com, cn: alice \| cn=bob,ou=people,dc=example,dc=com, cn: bob\]\n'
+
+  - id: all-or-none
+    claim: A batch is all or none. When one entry has no parent, AddEntriesAsync throws SurlSeedRefusedException and the entry that was fine, carol, is not added either.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmixed batch: refused\ncarol after it: 0 \[\]\n'
+
+  - id: existing-name-and-bad-text
+    claim: Adding a name that already exists, or text that is not LDIF, throws SurlSeedRefusedException too.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nalice again: refused\nnot LDIF: refused\n'
+
+  - id: export
+    claim: ExportLdifAsync reads the directory back as LDIF with the seeded entries in it and every userPassword value left out.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nexport: alice present, bob present, userPassword absent, b0bpass absent\n'
+
+  - id: another-server-is-empty
+    claim: A second SurlServer has a directory of its own, empty again, so one test{apos}s people are not another{apos}s.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nanother server: CurlException 39 LdapSearchFailed\n$'

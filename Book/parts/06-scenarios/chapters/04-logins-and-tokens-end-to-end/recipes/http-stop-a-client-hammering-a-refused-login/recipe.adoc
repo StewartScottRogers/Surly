@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-stop-a-client-hammering-a-refused-login]]
+=== Stopping a Client Retrying a Bad Login
+
+==== Problem
+
+A client that retries a refused login with the same password gets accounts locked and fills the server's logs. You want logins for one account refused, to prove your client stops at the first 401 instead of hammering the server with the same password.
+
+==== Solution
+
+Give `surl` a `--fault` rule that refuses one account's logins whatever the password, run the client against it, and count in the server's log how many times it tried; here `curl` with `--retry` stops at the first `401`:
+
+include::.generated/solution.adoc[]
+
+Then count the refused logins the server saw:
+
+[source,shell]
+----
+grep -c "Login refused: Digest app" surl.log
+----
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`--directory site` serves the files, and each `--user name:password` adds an account. `--fault "refuse-login;account=app"` makes `surl` refuse every login of `app`, with its right password too, and answer `401 Unauthorized` as it would for a wrong one (<<rfc9110>>). Quote it: the `;` is the shell's. A fault is a way to make `surl` misbehave on purpose for a test, and it is for tests only (<<surl-readme>>). The rule touches nothing else: the account `other` logs in and gets the file.
+
+The client here is `curl`. `--digest` with `-u app:s3cret` logs in with Digest access authentication (<<rfc7616>>). `-f` turns a status of 400 or above into an error, exit 22, and `-S` with `-s` prints that error and nothing else on stderr: `curl: (22) The requested URL returned error: 401`. `--retry 3` retries up to three times, but only errors it counts as transient, and a `401` is not one, so `curl` stops at once. `-w "%{http_code} %{num_retries}\n"` prints the status and the number of retries, `401 0`, and `-o` to the null device drops the body. `--retry-delay 1` waits one second between tries rather than doubling each time, which only keeps the hammering case short.
+
+What proves the client stopped is what the server saw, not what the client says. `-v` and `--log-file surl.log` keep a verbose log, which has one line per judged login, `Login refused: Digest app`, naming the account and never the password. `grep -c` counts them: one.
+
+Without `-f`, a `401` is a finished transfer, not an error: `curl` makes no retry and exits 0, and the program reading its output has to look at the status itself.
+
+`--retry-all-errors` is the hammering client. It makes `curl` retry every error, the `401` that `-f` produced included, so the same password goes out three more times, each refused, and `curl` exits 22 with `401 3`. On the second server, with a log of its own, `grep -c` counts four refused logins for one request. A client that must not do this never retries a `401` with the same credentials; it asks for new ones or gives up.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-stop-a-client-hammering-a-refused-login-in-csharp>> for the same check from a C# test.
+* <<http-stop-a-client-hammering-a-refused-login-from-an-agent>> for the same check from an agent.
+* <<http-lock-out-one-account>> for the refuse-login rule and lifting it.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc9110>>.

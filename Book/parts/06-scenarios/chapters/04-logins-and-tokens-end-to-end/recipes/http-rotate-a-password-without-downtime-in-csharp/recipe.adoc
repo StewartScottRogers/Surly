@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-password-without-downtime-in-csharp]]
+=== Rotating a Password Without Downtime in C#
+
+==== Problem
+
+Your services share a password that must change, and a C# test has to prove the change locks no one out. You want the test to add the new password, move clients over and remove the old one, and see from the judged logins which clients still use it.
+
+==== Solution
+
+Start an in-process server with the old account, add the new password as a second account with `Accounts.Add`, move each client, read the old account's logins with `FindEvents`, and remove the old account with `Accounts.Remove` last:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. Two `ListenUrls` serve Hypertext Transfer Protocol Secure (HTTPS) and FTPS, the File Transfer Protocol over Transport Layer Security (TLS), where the connection is TLS from its first byte (<<rfc4217>>, <<rfc8446>>). `SelfSigned` makes one throwaway certificate for both, and the client trusts exactly that certificate through `SelfSignedCertificatePem`, passed as `CertificateAuthorityBlob` in a `CurlTlsPeerOptions` inside `CurlTlsOptions`, so verification stays on. `Accounts` holds one `SurlAccount`, `app-v1`, which logs in on every scheme the server serves. `RecordExchanges` keeps the events `FindEvents` reads, and `Log` with `LogLevel` keeps the server's log in memory.
+
+`SurlServer.Accounts` is a `SurlServerAccounts`: the running server's account book. It holds one password per account name, so the overlap a rotation needs is two accounts. `Add("app-v2", "new-secret")` adds the second, and from the next login on, either password works: the web client, a `CurlRequest` whose `CurlAuthenticationOptions` name `app-v2` with `HttpAuthenticationMethods.Basic` (<<rfc7617>>), is answered `200` in a `CurlResponse`, while the FTPS job, still on `app-v1`, checks that `hello.txt` is there. The job sends a `HEAD`, which over FTP logs in and asks for the file's size, as `curl -I` does, and reads `Content-Length` from the answer's `Headers`: 16 bytes. Each `CurlClient` here is made per request, so each login is its own connection.
+
+`FindEvents` with a `SurlEventQuery` of `Kind` `SurlEventKind.LoginJudged` and `Account` `app-v1` answers the logins the server judged for the old account, each a `LoginJudgedEvent` with `Scheme`, `Mechanism` and `IsAccepted`. After the web client moved there is one: an accepted `password` login on `ftps`. That names the FTPS job as the client still to move. No event carries a password.
+
+Once the job is on `app-v2`, `Remove("app-v1")` returns `true`. A new login as `app-v1` is then refused on both schemes: `401` over HTTPS, and over FTPS a `CurlException` whose `Code` is `LoginDenied`, 67, the exit code `curl` would give. `app-v2` logs in on both as before.
+
+Removing an account refuses new logins, not open sessions. An FTPS client that logged in as `app-v1` before the removal and kept its connection checks the file again on that connection afterwards; only a new connection is refused. A test that must prove the old password is dead uses a fresh client, as this one does.
+
+Changing a password in place leaves no overlap. `Accounts.Add` for a name that exists throws `ArgumentException`, so a change takes `Remove` then `Add`, and from then on the old password is refused with `401` while the new one is accepted: a client not yet moved fails at that moment. And removing the last account opens the server rather than closing it: `HasAccounts` turns `false`, a `GET` with no login is answered `200`, and the log says `surl: warning: no account left; the server now needs no login`. Add the new account before removing the old one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-rotate-a-password-without-downtime>> for the same rotation on the console, through the control endpoint.
+* <<http-rotate-a-password-without-downtime-from-an-agent>> for the same rotation from an agent.
+* <<http-rotate-a-password-in-process>> for an app that must pick up a changed password.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc4217>>, <<rfc8446>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-copy-a-report-from-ftp-to-s3-in-csharp]]
+=== Copying a Report from FTP to S3
+
+==== Problem
+
+In a C# test, a nightly job downloads a report over File Transfer Protocol (FTP) and uploads it to an Amazon Simple Storage Service (S3) bucket; you want the whole hop tested, and the object{apos}s bytes compared with the source.
+
+==== Solution
+
+Host an FTP server and an S3 server in the test, run the job{apos}s two requests with `Curl.Api`, then compare what the S3 server stored with what the FTP server holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Each `SurlServerOptions` is `surl`{apos}s command line as properties. The FTP server listens on `ftps://`, FTP over Transport Layer Security (TLS) from the first byte (<<rfc4217>>), and on plain `ftp://` beside it; its `Accounts` hold the job{apos}s `SurlAccount`, `nightly`, and `Files` puts tonight{apos}s report in its store, with Windows line ends. The S3 server listens on `s3://` with one key pair and `AllowUploads`, and already holds last night{apos}s report. Both take `CertificateFile` and `KeyFile`, made in setup for `127.0.0.1` and for every bucket{apos}s host in `us-east-1`.
+
+The job is two `CurlRequest`s on one `CurlClient`. The first is a `GET` of the report from the `ftps://` URL, with `CurlAuthenticationOptions` naming the account and `CurlTlsOptions` whose `CurlTlsPeerOptions.CertificateAuthorityBlob` is `server.pem`, so the client trusts the server before it sends the password. The `CurlResponse` body is read whole: 37 bytes (<<rfc959>>). The second is a `PUT` with those bytes as `Body` to `s3://reports/2026-11-20.csv`, signed from the key pair in its `CurlAuthenticationOptions`, with `CurlNetworkOptions.ConnectTo` sending the bucket{apos}s host name to the local port; the server answers `200` (<<aws-s3-api>>).
+
+The comparison is the test, and it reads both ends without a request: `server.Files` is each server{apos}s `SurlServerFiles`, and `ReadAsync` returns a `SurlFileContents` whose `Bytes` the program compares. The object is identical to the source, line ends included.
+
+The failures stop the job before the upload, which is what keeps yesterday{apos}s file from being published under today{apos}s date. A report missing on the FTP server throws `CurlException` with `Code` `RemoteFileNotFound`, `curl`{apos}s exit 78. The same login sent to the plain `ftp://` listener would cross in the clear, so `surl` refuses it with `530` before checking it: `LoginDenied`, exit 67. Either way the bucket has nothing for the date: `ReadAsync` throws `SurlNotFoundException`, and the test exits 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-copy-a-report-from-ftp-to-s3>> for the hop as one `curl` command.
+* <<ftp-copy-a-report-from-ftp-to-s3-from-an-agent>> for an agent running it.
+* <<s3-sign-a-run-of-s3-requests-in-csharp>> for signed S3 requests from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc4217>>, <<aws-s3-api>>.

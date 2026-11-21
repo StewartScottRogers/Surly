@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-grant-topics-to-a-group-in-csharp]]
+=== Granting Topics to Groups in C#
+
+==== Problem
+
+Your sensors publish and your dashboards subscribe, and you want rights by role rather than by account. You want a C# test that groups accounts, grants each group its right on the topics, and shows that a member of the wrong group is refused, with the broker in the same program and the clients from `Curl.Api`.
+
+==== Solution
+
+Start a `SurlServer` as a Message Queuing Telemetry Transport (MQTT) broker with accounts, groups and one grant line, publish as a sensor through a `CurlClient`, and read as a dashboard:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `mqtt://127.0.0.1:0`, a broker on a free port. `Accounts` takes `SurlAccount` values, the `--user` options. `Groups` is `--group`, each item `name=member,...`: `"sensors=sensor1,sensor2"` names a group of two accounts. `TopicAccess` is `--topic-access`, and `"plant/#=@sensors:pub,@dashboards:sub"` grants the filter `plant/#`, every topic under `plant/`, to two groups, the sensors may publish and the dashboards may subscribe; the `@` is what makes a member a group (<<surl-readme>>). `Topics` is `--topic`, and `"plant/#;retain"` keeps each publish as the topic{apos}s last message, which is what a dashboard reads: a client publishes with the retain flag clear, so without it nothing would be kept (<<mqtt311>>, <<mqtt-keep-a-retained-message-in-csharp>>). `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, a loosening for a test, since the passwords travel in clear over `mqtt://`; without it the broker refuses even a correct one.
+
+The clients are one `CurlClient`, and each call is a `CurlRequest` with a `CurlAuthenticationOptions` holding the `UserName` and `Password`, the login in the `CONNECT`: `HttpMethod.Post` with a `Body` of `CurlContent` bytes publishes, and `HttpMethod.Get` subscribes (<<curl-readme>>). A subscription{apos}s `CurlResponse.Body` is the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters. The refusals are exceptions: `SendAsync` throws a `CurlException` whose `Code` is `8`, the code `curl` exits with, and whose `Message` is what `curl` prints.
+
+Once any grant is given, every publish and every subscribe needs one, so the grant is also the refusal. A member of the dashboards group that publishes has its message dropped, with no exception, since a publish at quality of service 0 gets no answer (<<mqtt311>>); the proof is `ReadRetainedAsync` on `server.Messages`, a `SurlServerMessages`, which reads the broker{apos}s store without a client and so without a grant, and answers a `SurlRetainedMessage` that still holds the sensor{apos}s value. A member of the sensors group that subscribes is refused in the `SUBACK`, and `SendAsync` throws with `Weird server reply`. An account in neither group, `sensor3`, is refused both ways. Adding it to the group, `"sensors=sensor1,sensor2,sensor3"`, is the only change that lets it publish, and the grant line is untouched.
+
+The login comes before the grant. A wrong password is refused with `CONNACK` return code 4, and the exception{apos}s message is `Expected 0000 but got 0004`; with `AllowPlaintextAuthentication` off, a correct one gets return code 5.
+
+A publish is not acknowledged, so `SendAsync` can return before the broker has applied it or dropped it, and a read straight after can be stale: this can happen on macOS. The program does not sleep. `RecordExchanges` is on, and after each publish it calls `WaitForEventAsync` with a `SurlEventQuery` for the next `SurlEventKind.ExchangeEnded`, which the broker records once what the client sent has been dealt with, with a ten second bound that a failure alone ever reaches.
+
+Last, the grants are checked as the broker starts. A grant that names `sensors` without the `@`, one that names `@robots`, which was never declared, and a group with a member `ghost` that is no account each stop `SurlServer.StartAsync` with a `SurlServerStartException`, whose message is `surl`{apos}s own, `(2)` being its exit code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-grant-topics-to-a-group>> for the same grants on the console.
+* <<mqtt-grant-topics-to-a-group-from-an-agent>> for the same grants from an agent.
+* <<mqtt-keep-a-retained-message-in-csharp>> for what makes a reading retained.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs login-once.cs, a C# program on the official MCP SDK that starts both hosts from
+# PATH; its argument picks the client.
+schema: 2
+key: http-stop-a-client-hammering-a-refused-login-from-an-agent
+title: Stopping a Client Retrying a Bad Login
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, remove_fault, get_events, curl]
+curl-options: [-s, -S, -f, --digest, -u, -o, -w, --retry, --retry-delay, --retry-all-errors]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7616, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After add_fault refuse-login;account=app, curl -f --retry 3 through curl-mcp is answered 401, makes no retry and exits 22; get_events counts one login judged for app, refused by the rule.
+    program: login-once.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\napp: 401 0, exit 22\nother: 200 0, exit 0\nlogins judged for app: 1, refused by the rule: 1\n"
+
+  - id: others-unaffected
+    claim: The rule refuses only app; the account other logs in and is answered 200, exit 0.
+    program: login-once.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nother: 200 0, exit 0\n'
+
+  - id: hammering
+    claim: With --retry-all-errors added, curl retries the 401 three times; get_events counts four logins judged for app, all refused by the rule.
+    program: login-once.cs
+    args: [hammering]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\napp: 401 3, exit 22\nother: 200 0, exit 0\nlogins judged for app: 4, refused by the rule: 4\n"
+
+  - id: lifted
+    claim: After remove_fault f1 the same client logs in as app at the first try, one login judged and none refused by the rule.
+    program: login-once.cs
+    args: [lifted]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\nremove_fault: f1\napp: 200 0, exit 0\nother: 200 0, exit 0\nlogins judged for app: 1, refused by the rule: 0\n"

@@ -1,0 +1,96 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-start-a-mailbox-with-folders
+title: Starting Mailboxes with Folders
+protocols: [imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -T, -s, -o, --next]
+exit-codes: [0, 2]
+references: [surl-readme, curl-manual, rfc9051]
+
+# sent.eml is a message the client files in Sent; APPEND needs it with CRLF line ends already.
+fixtures:
+  sent.eml: "From: ann@example.com\r\nTo: bob@example.com\r\nSubject: Minutes\r\n\r\nThe minutes are attached.\r\n"
+
+# ann and bob start with three folders each; carol has only INBOX; dave shows nesting and a space; erin a comma.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox "ann@example.com:annpass;folders=Sent,Drafts,Archive" --mailbox "bob@example.com:bobpass;folders=Sent,Drafts,Archive" --mailbox carol@example.com:carolpass --mailbox "dave@example.com:davepass;folders=Sent Items,Archive/2026" --mailbox "erin@example.com:erinpass;folders=Paid%2CUnpaid" imap://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: ann's mailbox has Sent, Drafts and Archive from the moment the server starts; LIST on the root URL shows INBOX first, then the three.
+    run: curl -u ann@example.com:annpass imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\HasNoChildren) \"/\" Archive\n* LIST (\\HasNoChildren) \"/\" Drafts\n* LIST (\\HasNoChildren) \"/\" Sent\n"
+
+  - id: start-empty
+    claim: The folders start empty; STATUS on Sent answers MESSAGES 0.
+    run: curl -u ann@example.com:annpass -X "STATUS Sent (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS Sent (MESSAGES 0)\n"
+
+  - id: each-mailbox-its-own
+    claim: Each mailbox gets its own copies; a message ann's client files in her Sent with APPEND makes it 1, while bob's Sent stays 0.
+    run: curl -s -u ann@example.com:annpass -T sent.eml imap://127.0.0.1:{{port}}/Sent --next -u ann@example.com:annpass -X "STATUS Sent (MESSAGES)" imap://127.0.0.1:{{port}}/ --next -u bob@example.com:bobpass -X "STATUS Sent (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS Sent (MESSAGES 1)\n* STATUS Sent (MESSAGES 0)\n"
+
+  - id: no-folders-key
+    claim: A mailbox given without folders= starts with INBOX alone.
+    run: curl -u carol@example.com:carolpass imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"
+
+  - id: nested-and-spaced
+    claim: A folder name may hold a space, which LIST quotes, and a slash, which nests it; Archive/2026 also brings its parent Archive, marked \Noselect \HasChildren, as a name that only holds other folders.
+    run: curl -u dave@example.com:davepass imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\Noselect \\HasChildren) \"/\" Archive\n* LIST (\\HasNoChildren) \"/\" Archive/2026\n* LIST (\\HasNoChildren) \"/\" \"Sent Items\"\n"
+
+  - id: comma-encoded
+    claim: A comma inside a folder name is written %2C; erin's folders=Paid%2CUnpaid makes one folder named Paid,Unpaid.
+    run: curl -u erin@example.com:erinpass -X "STATUS Paid,Unpaid (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS Paid,Unpaid (MESSAGES 0)\n"
+
+  - id: deleted-folder
+    claim: A client may still delete a start folder; after DELETE Drafts, ann's LIST no longer shows it.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X "DELETE Drafts" imap://127.0.0.1:{{port}}/ --next -u ann@example.com:annpass imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\HasNoChildren) \"/\" Archive\n* LIST (\\HasNoChildren) \"/\" Sent\n"
+
+  - id: back-after-restart
+    claim: After a restart the server starts the mailboxes over; Drafts is back and Sent is empty again, since the mail store lives in memory.
+    restart: main
+    run: curl -s -u ann@example.com:annpass imap://127.0.0.1:{{port}}/ --next -u ann@example.com:annpass -X "STATUS Sent (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\HasNoChildren) \"/\" Archive\n* LIST (\\HasNoChildren) \"/\" Drafts\n* LIST (\\HasNoChildren) \"/\" Sent\n* STATUS Sent (MESSAGES 0)\n"
+
+  - id: folder-twice
+    claim: A folder named twice in one folders= list is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox "ann@example.com:annpass;folders=Sent,Sent" imap://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --mailbox: member Sent is given twice\n'
+
+  - id: folders-empty
+    claim: folders= with nothing after it is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox "ann@example.com:annpass;folders=" imap://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --mailbox: key folders needs a value\n'

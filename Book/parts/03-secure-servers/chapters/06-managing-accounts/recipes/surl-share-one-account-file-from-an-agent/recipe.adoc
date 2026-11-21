@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-share-one-account-file-from-an-agent]]
+=== Sharing One Account File from an Agent
+
+==== Problem
+
+Your stack talks Hypertext Transfer Protocol (HTTP), File Transfer Protocol (FTP), Internet Message Access Protocol (IMAP) and Message Queuing Telemetry Transport (MQTT), and you want one list of test accounts for all of them. You want an agent to stand up one server with one user file that every listener checks, the same login working on each and a missing user refused on each.
+
+==== Solution
+
+The agent starts one server with `surl-mcp` that reads `users.txt` and listens on four TLS schemes, logs in on each with `curl-mcp`, and asks the server which logins it judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `listen_urls`, here `https://`, `ftps://`, `imaps://` and `mqtts://` on port `0` so each takes a free port, and `arguments`, surl{apos}s own options as a list of words. `--user-file users.txt` names the account file, a path under the folder the host is confined to, with one `user:password` a line; a blank line and a line that starts with `#` are skipped. `--cert` and `--key` give the one certificate all four need. `files` puts `hello.txt` in memory for the two file protocols to serve. The answer{apos}s `bound_urls` has the ports taken, in the order given. The accounts belong to the server, not to a scheme, so the one file serves all four.
+
+The `curl` tool of `curl-mcp` takes curl{apos}s own arguments in `args`, so the same `-u alice:s3cret` goes on each call, with `--cacert server.pem` to trust the certificate. The answer is JSON: `exitCode`, and `standardOutput` and `standardError`, each with a `content` or `null`. The program prints the protocol, the exit code and the first of the two that has text. `alice` gets the file over HTTPS and over FTP with TLS, the `STATUS` answer from IMAP, and a quiet publish over MQTT, all with exit `0`. `bob`, on the second line, does the same.
+
+A user the file does not hold is refused on each listener, and `curl` says so in its own exit code for each. HTTPS exits `22` with `-f`, from a `401`. FTPS and IMAPS exit `67`, login denied. MQTTS exits `8`, since the broker answers its connect with code `4`. A wrong password for a user in the file is refused the same way. No loosening option is set: with accounts present, the secure defaults stay on.
+
+`get_events` with `kinds` set to `login_judged` is how the agent checks what the server decided without reading its log. Every login is an event with the `account` and `is_accepted`. After `alice` logs in on four protocols the server has judged four logins, all for `alice`, all accepted; after `dave` it has judged refusals under the name `dave`.
+
+If the file has a line that is not `user:password`, `start_server` is a tool error whose structured `exit_code` is `2` and whose text names the line, here `line 1`, and no server is started.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-share-one-account-file>> for the same task on the console.
+* <<surl-share-one-account-file-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-readme>>.

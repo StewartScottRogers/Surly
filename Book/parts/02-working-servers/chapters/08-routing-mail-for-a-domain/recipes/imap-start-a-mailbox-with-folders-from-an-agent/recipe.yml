@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs start-folders.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-start-a-mailbox-with-folders-from-an-agent
+title: Starting Mailboxes with Folders from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, list_mailboxes, curl, seed_mail, reset_server]
+curl-options: [-s, -S, -u, -X, -T]
+exit-codes: [0, 1, 2]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: start_server with --mailbox ann@example.com:annpass;folders=Sent,Drafts,Archive gives ann four empty folders, which list_mailboxes names in ordinal order and IMAP LIST through the curl tool names with INBOX first.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^list_mailboxes ann: Archive \(0\), Drafts \(0\), INBOX \(0\), Sent \(0\)\ncurl ann: INBOX, Archive, Drafts, Sent\n'
+
+  - id: no-folders-key
+    claim: carol, with no folders=, lists INBOX alone, and STATUS on ann's Sent answers MESSAGES 0.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ncurl carol: INBOX\nSTATUS ann Sent: \* STATUS Sent \(MESSAGES 0\)\n'
+
+  - id: nested-and-spaced
+    claim: dave's folders=Sent Items,Archive/2026 lists "Sent Items" quoted and Archive/2026 nested, its parent Archive implied and marked \Noselect \HasChildren.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n\* LIST \(\\HasNoChildren\) "/" INBOX\n\* LIST \(\\Noselect \\HasChildren\) "/" Archive\n\* LIST \(\\HasNoChildren\) "/" Archive/2026\n\* LIST \(\\HasNoChildren\) "/" "Sent Items"\n'
+
+  - id: comma-encoded
+    claim: erin's folders=Paid%2CUnpaid makes one folder named Paid,Unpaid.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlist_mailboxes erin: INBOX \(0\), Paid,Unpaid \(0\)\n'
+
+  - id: each-mailbox-its-own
+    claim: A message ann's client files in her Sent with -T (IMAP APPEND) makes her Sent 1; bob's Sent, made from the same folders= list, stays 0.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter APPEND, ann: Archive \(0\), Drafts \(0\), INBOX \(0\), Sent \(1\)\nafter APPEND, bob: Archive \(0\), Drafts \(0\), INBOX \(0\), Sent \(0\)\n'
+
+  - id: deleted-folder
+    claim: A client may delete a start folder; after DELETE Drafts, ann's LIST shows INBOX, Archive and Sent.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter DELETE Drafts: INBOX, Archive, Sent\n'
+
+  - id: reset-restores-folders
+    claim: reset_server empties every mailbox, ann's INBOX and Sent included, and puts the start folders back, the deleted Drafts too.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter seed_mail: Archive \(0\), INBOX \(1\), Sent \(1\)\nafter reset_server: Archive \(0\), Drafts \(0\), INBOX \(0\), Sent \(0\)\nafter reset_server, bob: Archive \(0\), Drafts \(0\), INBOX \(0\), Sent \(0\)\n$'
+
+  - id: folder-twice
+    claim: A folders= list naming Sent twice makes start_server a tool error carrying surl's exit_code 2, FailedInit, and its message.
+    program: start-folders.cs
+    args: [twice]
+    expect:
+      exit: 1
+      stdout: "start_server: exit_code 2 (FailedInit), option --mailbox: member Sent is given twice\n"
+
+  - id: folders-empty
+    claim: folders= with nothing after it is refused the same way, key folders needs a value.
+    program: start-folders.cs
+    args: [empty]
+    expect:
+      exit: 1
+      stdout: "start_server: exit_code 2 (FailedInit), option --mailbox: key folders needs a value\n"

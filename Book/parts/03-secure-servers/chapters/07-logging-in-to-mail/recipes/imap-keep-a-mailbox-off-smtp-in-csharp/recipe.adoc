@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-keep-a-mailbox-off-smtp-in-csharp]]
+=== Keeping a Mailbox Off SMTP in C#
+
+==== Problem
+
+One test mailbox must be readable over Internet Message Access Protocol (IMAP) but must never log in to send mail; from a C# test with `Surl.Api` and `Curl.Api`, you want the same password accepted on IMAP and refused on Simple Mail Transfer Protocol (SMTP) for that mailbox alone.
+
+==== Solution
+
+Start a `SurlServer` with IMAP, SMTP and Post Office Protocol version 3 (POP3) listeners and a mailbox whose entry ends in `;protocols=imap`. Send it a mail as another mailbox, wait for the delivery event, then try the viewer on each protocol with a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds three URLs on port 0, `MailDomains` the domain, and each `Mailboxes` entry is `address:password`, a mailbox and the account that logs in to it by its whole address (<<surl-readme>>). `protocols=imap` after the password replaces the default list, which is SMTP, IMAP and POP3 and their Transport Layer Security (TLS) twins, with IMAP and its twin. `app@example.com` has no such key. `BoundUrls` holds one `Uri` per listen URL in order, so the program reads its three ports from it.
+
+Mail reaches the mailbox without the viewer ever logging in to send: `app` sends it with `CurlRequest` and `CurlMailOptions` for the envelope (<<rfc5321>>). The program does not read straight after `SendAsync`. It registers a callback with `OnEvent` for `SurlEventKind.StoreChanged` on the mail store before it sends, and waits for the callback to complete a `TaskCompletionSource` for at most ten seconds; the event{apos}s `Name`, `viewer@example.com/INBOX/;UID=1`, names the new message. On a slow runner the wait is longer, never a fixed sleep.
+
+The viewer then tries each protocol with the right password, each attempt on a client of its own: a `CurlClient` reuses a connection that is already logged in, and a shared one would skip the login it is meant to test. IMAP reads the body with `;SECTION=TEXT` in the URL (<<rfc9051>>). SMTP and POP3 throw `CurlException` with code 67, login denied, and so does a wrong password over IMAP. The program asks the server what it judged: with `RecordExchanges` on, `FindEvents` for `SurlEventKind.LoginJudged` returns one `LoginJudgedEvent` per login, here three for the viewer, accepted on IMAP and refused on SMTP and POP3, all by CRAM-MD5. `server.Mail.ListMailboxesAsync` reports the viewer{apos}s `INBOX` holds one message. The restriction closes logins, not delivery.
+
+Nothing loosens security: the password is still checked on IMAP, and the two refusals do not say whether the account exists.
+
+The types are few. `SurlEventQuery` filters events by kind, store, scheme and more; `StoreChangedEvent` is a delivery, with the `Name` of the message; `CurlAuthenticationOptions` holds the user name and password; `CurlContent.FromStream` wraps the mail as the upload body; and `CurlResponse` carries the `StatusCode` and a `Body` stream.
+
+The refusal does not say why. `FindExchanges` for the `smtp` scheme gives `Sent`, the bytes the server wrote; each refused login ends in `535 5.7.8 Authentication credentials invalid`, and the viewer{apos}s is the same line as that of `app` given a wrong password, which the program also sends. Two refusals, one reply, so a caller cannot tell a closed protocol from a wrong password. `app` throws `CurlException` 67 as well, and with the right password it logs in on SMTP, IMAP and POP3, which the cases check one by one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-keep-a-mailbox-off-smtp>> for the same check on the console.
+* <<imap-keep-a-mailbox-off-smtp-from-an-agent>> for the same check run by an agent.
+* <<smtp-log-in-with-cram-md5-in-csharp>> for the login judged here.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

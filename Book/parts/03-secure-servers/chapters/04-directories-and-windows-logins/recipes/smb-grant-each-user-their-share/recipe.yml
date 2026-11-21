@@ -1,0 +1,142 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smb-grant-each-user-their-share
+title: Granting Each User a Share
+protocols: [smb]
+tier: secure-servers
+surl-options: [--share, --share-access, --group, --allow-uploads, --auth, -u]
+curl-options: [-u, -T, -s, -S]
+exit-codes: [0, 9, 67, 78]
+references: [surl-readme, ms-smb]
+
+# Three folders on disk, each served as the share reports by its own surl, since two surl cannot
+# hold one folder. other is a second share that nothing grants.
+fixtures:
+  reports/q1.txt: "q1 numbers\n"
+  reports2/q1.txt: "q1 numbers\n"
+  reports3/q1.txt: "q1 numbers\n"
+  other/o.txt: "open to all\n"
+  new.txt: "q2 numbers\n"
+  draft.txt: "unfinished\n"
+
+servers:
+  main:
+    command: surl --share reports=reports --share other=other --allow-uploads --auth ntlmv1 -u reader:r3ad -u writer:wr1te -u carol:c4rol --share-access reports=reader:r,writer:rw smb://127.0.0.1:{{port}}/
+    ready: port
+  no-uploads:
+    command: surl --share reports=reports2 --auth ntlmv1 -u reader:r3ad -u writer:wr1te --share-access reports=reader:r,writer:rw smb://127.0.0.1:{{port2}}/
+    ready: port
+  grouped:
+    command: surl --share reports=reports3 --allow-uploads --auth ntlmv1 -u reader:r3ad -u writer:wr1te --group editors=writer --share-access reports=reader:r,@editors:rw smb://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The account granted rw uploads new.txt into the reports share; curl prints nothing, exits 0, and the file is in the shared folder.
+    run: curl -s -S -u writer:wr1te -T new.txt smb://127.0.0.1:{{port}}/reports/new.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        reports/new.txt: "q2 numbers\n"
+
+  - id: reader-reads
+    claim: The account granted r reads a file in the share.
+    run: curl -s -S -u reader:r3ad smb://127.0.0.1:{{port}}/reports/q1.txt
+    expect:
+      exit: 0
+      stdout: "q1 numbers\n"
+
+  - id: reader-reads-the-writers-file
+    claim: What the rw account uploaded is there for the r account to read.
+    run: curl -s -S -u reader:r3ad smb://127.0.0.1:{{port}}/reports/new.txt
+    expect:
+      exit: 0
+      stdout: "q2 numbers\n"
+
+  - id: reader-upload-refused
+    claim: The same server refuses the r account's upload, although --allow-uploads is on; curl exits 9, access denied.
+    run: curl -s -S -u reader:r3ad -T draft.txt smb://127.0.0.1:{{port}}/reports/draft.txt
+    expect:
+      exit: 9
+      stdout: ""
+      stderr-contains: "Access denied"
+
+  - id: refused-upload-leaves-nothing
+    claim: The refused upload wrote nothing; reading the name back as the rw account makes curl exit 78, remote file not found.
+    run: curl -s -S -u writer:wr1te smb://127.0.0.1:{{port}}/reports/draft.txt
+    expect:
+      exit: 78
+      stdout: ""
+
+  - id: unlisted-account-sees-no-share
+    claim: A valid account the grant does not name gets exit 78 for a file in the share, as if the share were not there.
+    run: curl -s -S -u carol:c4rol smb://127.0.0.1:{{port}}/reports/q1.txt
+    expect:
+      exit: 78
+      stdout: ""
+
+  - id: unlisted-account-cannot-write
+    claim: That account cannot upload into the share either; curl exits 78, remote file not found, not 9.
+    run: curl -s -S -u carol:c4rol -T draft.txt smb://127.0.0.1:{{port}}/reports/carol.txt
+    expect:
+      exit: 78
+      stdout: ""
+
+  - id: ungranted-share-stays-open
+    claim: A share that no grant names stays open to every account that logs in, so carol reads other.
+    run: curl -s -S -u carol:c4rol smb://127.0.0.1:{{port}}/other/o.txt
+    expect:
+      exit: 0
+      stdout: "open to all\n"
+
+  - id: ungranted-share-takes-uploads
+    claim: With --allow-uploads on, that open share also takes carol's upload, so a share left out of the grants is the one to watch.
+    run: curl -s -S -u carol:c4rol -T draft.txt smb://127.0.0.1:{{port}}/other/draft.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        other/draft.txt: "unfinished\n"
+
+  - id: wrong-password
+    claim: A grant is not a login; the writer with a wrong password is refused at the session, curl exit 67, login denied.
+    run: curl -s -S -u writer:wrong smb://127.0.0.1:{{port}}/reports/q1.txt
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Login denied"
+
+  - id: rw-still-needs-allow-uploads
+    claim: Without --allow-uploads the rw account is refused too, curl exit 9, and the reader still reads.
+    run: curl -s -S -u writer:wr1te -T new.txt smb://127.0.0.1:{{port2}}/reports/new.txt
+    expect:
+      exit: 9
+      stdout: ""
+      stderr-contains: "Access denied"
+
+  - id: reader-reads-without-uploads
+    claim: On that server the r account reads as before.
+    run: curl -s -S -u reader:r3ad smb://127.0.0.1:{{port2}}/reports/q1.txt
+    expect:
+      exit: 0
+      stdout: "q1 numbers\n"
+
+  - id: group-grants-rw
+    claim: A grant may name a group, @editors:rw; a member of the group uploads.
+    run: curl -s -S -u writer:wr1te -T new.txt smb://127.0.0.1:{{port3}}/reports/new.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        reports3/new.txt: "q2 numbers\n"
+
+  - id: group-leaves-reader-read-only
+    claim: On the same server the account that is not in the group is refused its upload, curl exit 9.
+    run: curl -s -S -u reader:r3ad -T draft.txt smb://127.0.0.1:{{port3}}/reports/draft.txt
+    expect:
+      exit: 9
+      stdout: ""
+      stderr-contains: "Access denied"

@@ -1,0 +1,122 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: s3-sign-a-run-of-s3-requests
+title: Signing a Run of S3 Requests
+protocols: [s3, https]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --user, --allow-uploads, --list-directories]
+curl-options: [--cacert, --connect-to, -u, -T, --aws-sigv4, -X, -s, -S, -w]
+exit-codes: [0, 4, 22]
+references: [surl-readme, curl-readme, aws-s3-api, rfc9110]
+
+fixtures:
+  q3.csv: "region,total\nnorth,1200\n"
+  store/reports/2026-q2.csv: "region,total\nnorth,1100\n"
+  readonly/reports/2026-q2.csv: "region,total\nnorth,1100\n"
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# main: the recipe's server, one key pair, uploads and listings on.
+# readonly: the same key pair and listings, uploads off, its own folder.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads --list-directories s3://127.0.0.1:{{port}}/
+    ready: port
+  readonly:
+    command: surl --directory readonly --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --list-directories s3://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command signed with the key pair puts q3.csv as reports/2026-q3.csv and then lists the bucket, which holds the new object beside 2026-q2.csv; exit 0, and the object is the file store/reports/2026-q3.csv.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T q3.csv s3://reports/2026-q3.csv s3://reports/
+    expect:
+      exit: 0
+      stdout: "2026-q2.csv\n2026-q3.csv\n"
+      files:
+        store/reports/2026-q3.csv: "region,total\nnorth,1200\n"
+
+  - id: wrong-secret-put
+    claim: The same put signed with the right access key and a wrong secret is refused 403 SignatureDoesNotMatch, and curl exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:wrong -T q3.csv s3://reports/2026-q4.csv
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: SignatureDoesNotMatch"
+
+  - id: wrong-secret-list
+    claim: A listing signed with the wrong secret is refused 403 SignatureDoesNotMatch the same way, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:wrong s3://reports/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: SignatureDoesNotMatch"
+
+  - id: wrong-secret-delete
+    claim: A DELETE signed with --aws-sigv4 and the wrong secret is answered 403 with an S3 error document whose Code is SignatureDoesNotMatch; over https curl prints it and exits 0.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:wrong -X DELETE -w "\n%{http_code}\n" https://reports.s3.us-east-1.amazonaws.com/2026-q3.csv
+    expect:
+      exit: 0
+      stdout-matches: '<Error><Code>SignatureDoesNotMatch</Code>.*</Error>\n403\n$'
+
+  - id: refused-changed-nothing
+    claim: None of the refused requests changed the bucket; it still holds 2026-q2.csv and 2026-q3.csv and no 2026-q4.csv.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/
+    expect:
+      exit: 0
+      stdout: "2026-q2.csv\n2026-q3.csv\n"
+
+  - id: delete
+    claim: The same DELETE signed with the right secret is answered 204 No Content.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret -X DELETE -w "%{http_code}\n" https://reports.s3.us-east-1.amazonaws.com/2026-q3.csv
+    expect:
+      exit: 0
+      stdout: "204\n"
+
+  - id: gone-from-listing
+    claim: After the delete the listing holds only 2026-q2.csv.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/
+    expect:
+      exit: 0
+      stdout: "2026-q2.csv\n"
+
+  - id: delete-again
+    claim: Deleting a key that holds no object is also answered 204 No Content, as S3 does, so a retried delete is safe.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret -X DELETE -w "%{http_code}\n" https://reports.s3.us-east-1.amazonaws.com/2026-q3.csv
+    expect:
+      exit: 0
+      stdout: "204\n"
+
+  - id: s3-scheme-has-no-delete
+    claim: curl's s3:// scheme sends only GET, or PUT with -T; -X DELETE on it is refused by curl with exit 4 before anything is sent.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -X DELETE s3://reports/2026-q2.csv
+    expect:
+      exit: 4
+      stdout: ""
+      stderr-contains: "s3:// does not support -X DELETE"
+
+  - id: unsigned-delete
+    claim: A DELETE with no signature is answered 403 with Code AccessDenied.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -X DELETE -w "\n%{http_code}\n" https://reports.s3.us-east-1.amazonaws.com/2026-q2.csv
+    expect:
+      exit: 0
+      stdout-matches: '<Error><Code>AccessDenied</Code>.*</Error>\n403\n$'
+
+  - id: uploads-off-delete
+    claim: Without --allow-uploads, a correctly signed DELETE is answered 403 AccessDenied; deleting is writing.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret -X DELETE -w "\n%{http_code}\n" https://reports.s3.us-east-1.amazonaws.com/2026-q2.csv
+    expect:
+      exit: 0
+      stdout-matches: '<Error><Code>AccessDenied</Code>.*</Error>\n403\n$'
+
+  - id: uploads-off-kept
+    claim: The object on the server without --allow-uploads is still listed afterwards.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/
+    expect:
+      exit: 0
+      stdout: "2026-q2.csv\n"

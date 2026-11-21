@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-share-one-account-file]]
+=== Sharing One Account File
+
+==== Problem
+
+Your stack talks Hypertext Transfer Protocol (HTTP), File Transfer Protocol (FTP), Internet Message Access Protocol (IMAP) and Message Queuing Telemetry Transport (MQTT), and you want one list of test accounts for all of them. You want one user file that every listener checks, with the same login working on each and a missing user refused on each.
+
+==== Solution
+
+Put the accounts in a file, one `user:password` a line, and give it to `surl` with `--user-file`. This `users.txt` holds two accounts and a comment:
+
+[source,text]
+----
+# test accounts, one user:password a line
+alice:s3cret
+bob:b0bpass
+----
+
+One `surl` then serves all four protocols over TLS from it, and `alice` logs in on each with `curl -u`. The commands are chained with `--next`, and the checked claims below run them one by one:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C]. The checked claims below also run a second `surl`, on port `8084`.
+
+==== Discussion
+
+`--user-file users.txt` reads accounts from the file when `surl` starts, one per line, split at the first colon, as `--user` reads its value; blank lines and lines starting with `#` are skipped (<<surl-readme>>). The accounts belong to the server, not to a protocol. The one `surl` here has four listen URLs, `https://`, `ftps://`, `imaps://` and `mqtts://`, so `alice` is the same login on the web page, the file transfer, the mailbox and the message broker. Each of them needs the certificate that `--cert` and `--key` give, which is why the recipe makes one with `openssl` and `curl` trusts it with `--cacert`. The `--directory site` serves `hello.txt` over HTTPS and FTP.
+
+`--next` starts a new transfer with its own options, `-s` hides the progress meter and `-S` keeps an error message, `-f` makes an HTTP error an exit code, `-d on` sends the data `on`, and `-X` sends a custom command, here an IMAP `STATUS`. The first command prints the file over HTTPS, the second the same bytes over FTP with TLS, the third asks the IMAP server for the size of `INBOX`, and the fourth publishes `on` over MQTT and prints nothing. An exit code of `0` for the chain means every login was accepted. `bob`, on the second line, logs in on the same four listeners, so a line is as good as any other.
+
+A user the file does not hold is refused on each listener, and each says it in its own way. HTTPS answers `401`, which `curl -f` turns into exit `22`. FTP and IMAP refuse the login and `curl` exits `67`. MQTT answers its connect with code `4`, bad user name or password, and `curl` exits `8`. A wrong password for a user in the file is refused the same way on each. None of these needs a loosening option: with accounts present, the secure defaults stay on.
+
+`-u` and `--user-file` add up. The second `surl` is given `-u carol:c4rol` and a file that holds only `bob`, and both log in. The accounts of the file come after those given with `-u`.
+
+The file is checked at start, so a bad one stops `surl` before it listens. A file that cannot be read exits `37`, and a line without a colon exits `2` and names the line, here `line 1`. The file holds passwords in clear, so outside a test let only the user `surl` runs as read it (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-share-one-account-file-in-csharp>> for the same task from C#.
+* <<surl-share-one-account-file-from-an-agent>> for the same task with an agent.
+* <<surl-readme>>, <<curl-readme>>.

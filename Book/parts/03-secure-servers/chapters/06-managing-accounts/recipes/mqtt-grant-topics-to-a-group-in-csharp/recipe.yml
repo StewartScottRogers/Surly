@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt-grant-topics-to-a-group-in-csharp
+title: Granting Topics to Groups in C#
+protocols: [mqtt]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, SurlServerMessages, SurlRetainedMessage, SurlEventQuery, SurlEventKind, SurlEvent, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An account in the sensors group publishes 21 to plant/line1/temp through Curl.Api, and an account in the dashboards group, subscribing after, reads it.
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dash1 reads 21\n"
+
+  - id: second-member
+    claim: Another member of the sensors group publishes under the same grant, and the dashboard reads its reading, the newer of the two.
+    program: program.cs
+    args: [second]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dash1 reads 22\n"
+
+  - id: wrong-role
+    claim: A member of the dashboards group, granted sub, has its publish dropped without an error, so ReadRetainedAsync still holds the sensor's 22, and a member of the sensors group, granted pub, has its subscription refused with a CurlException of code 8.
+    program: program.cs
+    args: [dashboard]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "kept: 22\nsensor1 refused: curl error 8: Weird server reply\n"
+
+  - id: outside-every-group
+    claim: A valid account in neither group is refused both ways, its publish dropped and its subscription failing with code 8.
+    program: program.cs
+    args: [outsider]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "kept: 22\nsensor3 refused: curl error 8: Weird server reply\n"
+
+  - id: membership-is-the-change
+    claim: With the same grant and the same accounts, adding sensor3 to the sensors group is the whole change that lets it publish, and the dashboard reads 23.
+    program: program.cs
+    args: [grown]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dash1 reads 23\n"
+
+  - id: wrong-password
+    claim: A wrong password is refused at the login, before any grant is looked at, with CONNACK return code 4, as a CurlException of code 8.
+    program: program.cs
+    args: [wrong-password]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dash1 refused: curl error 8: Expected 0000 but got 0004\n"
+
+  - id: clear-password-refused
+    claim: With AllowPlaintextAuthentication off, a correct password over mqtt:// is refused with CONNACK return code 5, as a CurlException of code 8.
+    program: program.cs
+    args: [no-plaintext]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensor1 refused: curl error 8: Expected 0000 but got 0005\n"
+
+  - id: bad-grants-refuse-to-start
+    claim: A grant that names a group without the @, one that names a group never declared, and a group with a member that is no account each stop SurlServer.StartAsync with a SurlServerStartException, carrying surl's exit code 2 and its message.
+    program: program.cs
+    args: [bad-grant]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "SurlServerStartException: (2) option --topic-access: member sensors names no account or group\nSurlServerStartException: (2) option --topic-access: member @robots names no account or group\nSurlServerStartException: (2) option --group: member ghost names no account or group\n"

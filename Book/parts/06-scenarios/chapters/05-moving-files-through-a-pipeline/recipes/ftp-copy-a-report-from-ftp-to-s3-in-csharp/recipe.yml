@@ -1,0 +1,47 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-copy-a-report-from-ftp-to-s3-in-csharp
+title: Copying a Report from FTP to S3
+protocols: [ftp, ftps, s3]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerFiles, SurlFileContents, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlException, CurlAuthenticationOptions, CurlNetworkOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc959, rfc4217, aws-s3-api]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed. Both servers use it.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts both servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The job downloads out/report.csv over ftps:// as nightly (37 bytes, Windows line ends included), puts it as s3://reports/2026-11-20.csv signed with the key pair (200), and the object read from the S3 server's store is identical to the file in the FTP server's store; exit 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ftp: 37 bytes\ns3: 200\nobject: 37 bytes, identical to the source\n"
+
+  - id: missing-report
+    claim: A report missing on the FTP server throws CurlException RemoteFileNotFound, the job stops before the upload, the bucket has no object for the date, and the test exits 1.
+    program: program.cs
+    args: [missing]
+    expect:
+      exit: 1
+      stdout: "job stopped: RemoteFileNotFound (The file does not exist)\nobject: none\n"
+
+  - id: plain-login-refused
+    claim: The same login sent to the server's plain ftp:// listener is refused unchecked with 530, CurlException LoginDenied, and nothing reaches the bucket.
+    program: program.cs
+    args: [plain]
+    expect:
+      exit: 1
+      stdout: "job stopped: LoginDenied (Access denied: 530)\nobject: none\n"

@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-password-in-process]]
+=== Rotating a Password in Process
+
+==== Problem
+
+Your app must pick up a changed password without a restart, reading it again from its secret store when the server refuses the old one. You want a C# test whose in-process server drops the old account and adds the new one mid-test, while the app keeps running.
+
+==== Solution
+
+Start a `SurlServer` with the account, let the app make a call, then change the password with `Accounts.Remove` and `Accounts.Add` and in the app's secret file, let the app call again, and read the judged logins back with `FindEvents`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one Hypertext Transfer Protocol (HTTP) listen URL, `Accounts` with one `SurlAccount`, `app`, and `RecordExchanges` so the test can read what the server saw. The app here stands for yours: it holds one `CurlClient` for its whole life and reads its password from `app-secret.txt`. Each call is a `CurlRequest` whose `CurlAuthenticationOptions` give the account and password and choose `HttpAuthenticationMethods.Digest`, Digest access authentication (<<rfc7616>>), and `SendAsync` returns the `CurlResponse`.
+
+`SurlServer.Accounts` is a `SurlServerAccounts`, the running server's account book, changed from the test while the server serves. It holds one password per name, so `Add` for an account that exists throws `ArgumentException` rather than change it. The change is `Remove("app")`, which returns `true`, then `Add("app", "new-secret")`, and the test writes the new password to the secret file, as a secret store would be updated. Nothing restarts.
+
+The app's next call still carries the old password and is answered `401 Unauthorized` (<<rfc9110>>). The app under test treats a `401` as the sign to read its secret again, does so once, and its second attempt is answered `200`. `FindEvents` with a `SurlEventQuery` of `Kind` `SurlEventKind.LoginJudged` and `Account` `app` answers the logins as `LoginJudgedEvent` records; after the one from before the change come a refused login and an accepted one.
+
+Both came over the connection the app opened before the change: `server.Exchanges` counts one exchange. Over HTTP each request logs in again, so a changed password applies to the very next request, with no need to close connections. An app that read its password once at start, as the `caches` run does, keeps sending the old one: it is answered `401`, and the server judged one refused login after the change. That is the failure this test exists to catch.
+
+Between `Remove` and `Add` there is no account `app` at all, and from `Add` on only the new password works. A test that must show no client is ever refused rotates to a second account instead, as <<http-rotate-a-password-without-downtime-in-csharp>> does.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-rotate-a-password-without-downtime-in-csharp>> for rotating with two accounts and no refused login.
+* <<http-tell-clients-apart-by-account-in-csharp>> for reading which account did what.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc9110>>.

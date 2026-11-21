@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-log-in-with-an-oauth-token]]
+=== Logging In to IMAP with a Token
+
+==== Problem
+
+Your mail client logs in to Internet Message Access Protocol (IMAP) with an OAuth 2.0 access token, by the XOAUTH2 or OAUTHBEARER mechanism, not with a password. You want a test IMAP server that accepts the token over Transport Layer Security (TLS), refuses a wrong one, and refuses any token over plain IMAP.
+
+==== Solution
+
+Give `surl` a certificate, its key, and the token as an account with an empty user name, then offer IMAP over TLS. `curl --oauth2-bearer` logs in with it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` issues no tokens and checks none against an identity provider. `--user :tok-abc123` is an account with an empty user name, whose password is the token (<<surl-readme>>); a test supplies whatever string its client will send (<<rfc6750>>). The `--cert` and `--key` files come from `openssl` in the recipe, never from a fixture. The mailboxes are ordinary ones, `--mailbox` with `--mail-domain`, and a message ann sends herself over plain SMTP is the one the solution reads: `-u ann@example.com --oauth2-bearer tok-abc123` and `;SECTION=TEXT` in the URL.
+
+Over `imaps://` the server advertises `AUTH=OAUTHBEARER AUTH=XOAUTH2`. `curl` picks OAUTHBEARER unless told otherwise; `--login-options AUTH=XOAUTH2` makes it send XOAUTH2 with the same token. A wrong token is refused: exit 67, login denied. The token is not ann{apos}s: it is an account of its own, and the user name the client gives picks the mailbox it reads, so `bob@example.com` with the same token finds no message 1 (exit 78). A token is therefore a master key for every mailbox on the server, which is fine for a test and worth knowing before a test of access control.
+
+Over plain `imap://` the server does not advertise either mechanism. It offers `STARTTLS`, `LOGINDISABLED` and CRAM-MD5, and `curl` sends no `AUTHENTICATE`, so it exits 67. A client that sends `AUTHENTICATE XOAUTH2` regardless gets `NO [PRIVACYREQUIRED] Encryption required` for the right token and for a wrong one alike (<<rfc9051>>), so nothing about the token is revealed. The refusal is of a token in clear, not of the plain port: upgraded with `STARTTLS` by `--ssl-reqd`, the same login succeeds.
+
+`--allow-plaintext-auth` is the loosening, and `surl` warns when it is on. With it the plain server accepts a token in clear, anyone who sees the connection can read it, and a wrong one is still refused. `--auth oauthbearer` narrows the other way: only `AUTH=OAUTHBEARER` is advertised, and a client that insists on XOAUTH2 finds nothing in common and exits 67.
+
+On the `curl` side, `--cacert server.pem` makes `curl` trust that certificate, `--oauth2-bearer` is the token, `-s` keeps the progress meter out, `-S` keeps error messages in, and `-v` prints the exchange, which the cases that read it need. The one mail the recipe sends first uses `--crlf` for the line ends mail needs, `--mail-from` and `--mail-rcpt` for the envelope and `-T` for the file to upload.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-log-in-with-an-oauth-token-in-csharp>> for the same check in C#.
+* <<imap-log-in-with-an-oauth-token-from-an-agent>> for the same check run by an agent.
+* <<smtp-log-in-with-cram-md5>> for the login a plain port offers instead.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6750>>, <<rfc9051>>.

@@ -66,3 +66,16 @@ ftp-choose-passive-or-active-mode (+ -in-csharp, -from-an-agent), ftp-read-a-fil
 - Fixtures are text; a binary image is made by `setup: head -c 1300 /dev/urandom > site/firmware.bin` (needs schema 2) and compared with `cmp a b && echo identical`.
 
 - Curl.Api has Unix sockets (`CurlNetworkOptions`) and the TFTP block size (`CurlTftpOptions`) (Curl session, 2026-11-20).
+
+## TLS from Curl.Api (http-rotate-a-password-without-downtime-in-csharp, Curl 7d167fa10a, 2026-11-20, windows)
+- `CurlNetworkOptions { UseSsl = UseSsl.All }` (`using Curl.Api.Options.Network;`, on the request or the client) does NOT send AUTH TLS on ftp://: the password goes in clear and surl answers `530 Login needs TLS first: send AUTH TLS`, `LoginDenied`. Console `curl --ssl-reqd` works. Use an `ftps://` listener (`SelfSigned = true` covers it) from Curl.Api. Reported.
+- Curl.Api FTPS downloads fail about 1 in 30 with `PartialFile` (18) `server did not report OK, got 426` (surl: `The client closed the data connection before the whole file was sent`); 120 console curl downloads all passed. A HEAD (SIZE only, `Content-Length` in `Headers`) logs in with no data connection and is stable. Reported.
+
+## FTP to S3 hop (ftp-copy-a-report-from-ftp-to-s3 and twins, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20)
+- `surl --cert server.pem --key server.key --user u:p ftp://H:P/` (no loosening) + `curl --ssl-reqd --cacert server.pem -u u:p` works (AUTH TLS); without `--ssl-reqd` the login is 530, exit 67. CRLF bytes arrive unchanged; `-B` changed nothing on Windows (not claimed).
+- `curl ... -o f ftp://.../missing --next ... -T f s3://...`: the download fails 78 but curl goes on and uploads whatever `f` already holds (a stale file), exit 0 (last transfer's). `--fail-early` stops at the 78. If `f` does not exist the upload is exit 26.
+- verify's `files:` reads text (CR LF folded to LF): show byte identity with `cmp a b && echo identical` (Git's cmp works under cmd).
+- Curl.Api: `CurlNetworkOptions.UseSsl = UseSsl.All` (`Curl.Api.Options.Network`) on an `ftp://` URL did NOT upgrade: the server saw `USER`/`PASS` in clear, 530 LoginDenied (finding reported). An `ftps://` listen URL (implicit TLS) with `CertificateFile`/`KeyFile` and Curl.Api `Tls` trust works; `ListenUrls = { "ftps://...:0", "ftp://...:0" }` gives both, `BoundUrls[1]` the plain one. Missing file: `RemoteFileNotFound`.
+- surl-mcp `start_server` with `--cert server.pem --key server.key` in `arguments` (relative to SURL_MCP_ROOT) works for ftp and s3; curl-mcp `curl` with `--ssl-reqd ... --next ... -T` works; `read_file` text keeps CR LF.
+
+- Do not use Curl.Api `UseSsl.All` (or Try/Control) in a recipe until Curl BL-5640 lands: on `ftp://` it sends USER and PASS in clear with no AUTH TLS, and on `imap://` the STARTTLS login fails 67. Use the implicit-TLS scheme (`ftps://`, `imaps://`, `pop3s://`, `smtps://`) instead (Curl session, 2026-11-20).

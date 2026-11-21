@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-start-a-mailbox-with-folders-in-csharp]]
+=== Starting Mailboxes with Folders in C#
+
+==== Problem
+
+Your C# mail client expects Sent, Drafts and Archive to exist, and you want the test server to create them when it starts and the test to list them over Internet Message Access Protocol (IMAP) and from the server{apos}s store.
+
+==== Solution
+
+Add `folders=` to the mailbox in `SurlServerOptions`, start the server, and list the folders both ways:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `imap://` URL on port 0, bound to a free port; `MailDomains` is `--mail-domain`; each `Mailboxes` entry is a `--mailbox`, an address and password followed by keys after `;` (<<surl-readme>>). `folders=Sent,Drafts,Archive` creates those folders beside `INBOX` before the server accepts a connection, so the client under test finds them on its first login. `carol`{apos}s entry has no `folders=` and starts with `INBOX` alone. `SurlServer.StartAsync` returns once the listener is bound; `BoundUrls` gives the port.
+
+The client{apos}s view is one `CurlRequest` for the bound URL with no folder in it, which `curl` answers with the account{apos}s folders, one `* LIST` line each, the name last (<<rfc9051>>). `CurlAuthenticationOptions` is the login, the spelling of `curl -u`; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `CurlClient` uses, so no loosening option is set. The program reads the `CurlResponse` `Body` and keeps the names: `INBOX` first, then the rest by name.
+
+A start folder is an ordinary folder: Curl.Api selects `Sent` with the path `Sent?ALL`, and the search answers `* SEARCH` with no number. Names may hold more than letters. `dave`{apos}s `folders=Sent Items,Archive/2026` lists `"Sent Items"`, quoted for its space, and `Archive/2026`, nested since `/` is the separator, with the parent `Archive` implied and marked `\Noselect \HasChildren`, a name that only holds other folders (<<rfc9051>>). A `,` would end a name, so it is written `%2C`: `erin`{apos}s `folders=Paid%2CUnpaid` makes one folder, `Paid,Unpaid`.
+
+The server{apos}s view needs no client. `server.Mail` is a `SurlServerMail`, and `ListMailboxesAsync` returns a `SurlMailboxInfo` per folder, in ordinal order of name, with its `MessageCount`; the four are there and empty. A test that seeds mail between runs keeps the folders: after `DeliverAsync` puts one message in `INBOX`, `ResetAsync` empties every mailbox and leaves all four folders in place.
+
+The list is checked when the server starts. Naming `Sent` twice makes `StartAsync` throw `SurlServerStartException`, whose `ExitCode` is `FailedInit`, `surl`{apos}s exit code `2`, and whose first line is `surl`{apos}s message, `option --mailbox: member Sent is given twice`. `folders=` with nothing after it is refused the same way, `key folders needs a value`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-start-a-mailbox-with-folders>> for the same server on the console.
+* <<imap-start-a-mailbox-with-folders-from-an-agent>> for an agent that starts it.
+* <<surl-readme>>, <<rfc9051>>.

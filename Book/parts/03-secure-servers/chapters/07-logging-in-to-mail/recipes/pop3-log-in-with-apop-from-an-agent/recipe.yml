@@ -1,0 +1,85 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs apop.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: pop3-log-in-with-apop-from-an-agent
+title: POP3 Logins with APOP from an Agent
+protocols: [pop3]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, get_events, get_exchanges, curl]
+curl-options: [-s, -u, -T]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc1939]
+
+fixtures:
+  apop.pop: "APOP ann@example.com 0123456789abcdef0123456789abcdef\r\nQUIT\r\n"
+  userpass.pop: "USER ann@example.com\r\nPASS annpass\r\nQUIT\r\n"
+  capa.pop: "CAPA\r\nQUIT\r\n"
+
+
+cases:
+  - id: solution
+    role: solution
+    claim: "With --auth apop, the curl tool logs in with APOP (exit 0) and get_events shows that login as APOP, accepted."
+    program: apop.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "curl\\ login:\\ exit\\ 0\\n[\\s\\S]*login_judged:\\ APOP\\ ann@example\\.com\\ is_accepted\\ true\\n"
+
+  - id: default-refuses-apop
+    claim: "On the default server the greeting has no timestamp and a raw APOP is answered Unsupported authentication mechanism."
+    program: apop.cs
+    args: ["default"]
+    expect:
+      exit: 0
+      stdout-matches: "greeting:\\ \\+OK\\ surl\\ ready\\nraw\\ APOP:\\ \\-ERR\\ Unsupported\\ authentication\\ mechanism\\n"
+
+  - id: default-uses-cram-md5
+    claim: "Against the default server curl logs in with CRAM-MD5, and get_events says so; no APOP is involved."
+    program: apop.cs
+    args: ["default"]
+    expect:
+      exit: 0
+      stdout-matches: "curl\\ login:\\ exit\\ 0\\nlogin_judged:\\ CRAM\\-MD5\\ ann@example\\.com\\ is_accepted\\ true\\n"
+
+  - id: greeting-timestamp
+    claim: "Named by --auth, APOP changes the greeting, which now ends in a timestamp, and a raw APOP with a made-up digest is refused Authentication failed."
+    program: apop.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "greeting:\\ ends\\ in\\ a\\ timestamp\\nraw\\ APOP:\\ \\-ERR\\ \\[AUTH\\]\\ Authentication\\ failed\\n"
+
+  - id: digest-on-the-wire
+    claim: "get_exchanges shows an APOP digest that is the MD5 of the greeting's timestamp followed by the password, and the password itself is not in it."
+    program: apop.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "digest\\ is\\ MD5\\ of\\ timestamp\\ and\\ password:\\ True\\npassword\\ on\\ the\\ wire:\\ False\\n"
+
+  - id: wrong-password
+    claim: "A wrong password fails the APOP login; curl exits 67."
+    program: apop.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "wrong\\ password:\\ curl\\ exit\\ 67\\n"
+
+  - id: apop-only
+    claim: "With APOP named alone the other logins are gone: USER is answered Encryption required and CAPA lists no SASL."
+    program: apop.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "USER:\\ \\-ERR\\ \\[AUTH\\]\\ Encryption\\ required\\nCAPA\\ lists\\ SASL:\\ False\\n"
+
+  - id: apop-with-cram-md5
+    claim: "Naming APOP beside CRAM-MD5 keeps the timestamp greeting, but curl still logs in with CRAM-MD5."
+    program: apop.cs
+    args: ["both"]
+    expect:
+      exit: 0
+      stdout-matches: "greeting:\\ ends\\ in\\ a\\ timestamp\\n[\\s\\S]*login_judged:\\ CRAM\\-MD5\\ ann@example\\.com\\ is_accepted\\ true\\n"

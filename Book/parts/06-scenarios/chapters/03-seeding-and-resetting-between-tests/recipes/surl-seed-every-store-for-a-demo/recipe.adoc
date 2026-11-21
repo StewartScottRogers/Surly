@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-seed-every-store-for-a-demo]]
+=== Seeding Every Store for a Demo
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to fill a test server{apos}s files, mail, a retained message, Redis keys, directory entries and a Domain Name System (DNS) zone, so a demo starts fully populated, and to check that each store holds what it was given.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts one server with seven listeners through `surl-mcp`, calls one seed tool per store, then reads each store back:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` with seven `listen_urls` on port 0 starts one server that speaks Hypertext Transfer Protocol (HTTP), Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP), MQTT, Redis, Lightweight Directory Access Protocol (LDAP) and DNS, each on a free port given back in `bound_urls`. Its `arguments` are `surl`{apos}s options: `--mail-domain example.com` and `--mailbox ann@example.com:s3cret` give the mail store one mailbox. Each seed tool takes the `server_id` and writes straight into a store, with no client and no login:
+
+* `put_file` writes `/index.html` into the content store that HTTP serves (<<rfc9110>>);
+* `seed_mail` delivers a message to `ann@example.com` as SMTP would, for IMAP to serve (<<rfc9051>>);
+* `publish_message` with `retain` true keeps `open` on the topic `shop/status`, for the next MQTT subscriber;
+* `set_key` sets the Redis string `cart:ann`, and answers its database and byte count;
+* `add_ldap_entries` adds LDAP Data Interchange Format (LDIF) records (<<rfc2849>>), a domain and one person, and answers `entry_count` 2;
+* `add_dns_zone` adds the zone `shop.test` from zone-file text (<<rfc1035>>).
+
+The read tools are the agent{apos}s check, and they too need no client: `read_file` answers the page with its `content_type`, `text/html`; `list_messages` lists the `INBOX` of the `owner` `ann@example.com` with UID 1; `read_retained_message` gives the topic{apos}s payload; `read_key` the key{apos}s type and text; `read_directory` the directory as LDIF; and `read_zone` the zone as master-file text with absolute names, where `www.shop.test.` has its A record.
+
+The demo{apos}s clients see the same over the wire. `curl-mcp`{apos}s `curl` tool, which runs `curl`{apos}s own `args`, gets the page over HTTP, an answer for `www.shop.test` from the DNS server, and the message{apos}s subject over IMAP with `ann`{apos}s login. Seeding needed no login, but the server is still surly to a client that brings none: Redis refuses at its first command (exit 67), LDAP refuses the anonymous bind (exit 38) and MQTT refuses the connection (exit 8). A demo that shows those three needs accounts for its clients, as in <<redis-seed-a-cache-for-a-test-from-an-agent>>.
+
+A seed the store cannot take is a tool error, not a half-done job. A mail for `bob@example.com`, who has no mailbox, is refused `NoSuchAccount`. A batch of LDAP entries is all or none: one entry whose parent is not in the directory refuses the batch, and its good first entry is not added either.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-seed-a-mailbox-before-a-test-from-an-agent>> for mail on its own.
+* <<redis-seed-a-cache-for-a-test-from-an-agent>> for Redis keys and the logins around them.
+* <<mqtt-change-retained-config-mid-test-from-an-agent>> for retained messages.
+* <<surl-catch-a-seed-the-server-refuses>> for seeds a server refuses.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc9051>>, <<rfc2849>>, <<rfc1035>>.

@@ -1,0 +1,51 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs rotate-proxy.cs, a C# program on the official MCP SDK that starts both hosts from
+# PATH; its argument picks the scenario.
+schema: 2
+key: http-rotate-a-proxy-account
+title: Rotating a Proxy Account
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_proxy_account, remove_proxy_account, add_account, get_events, curl]
+surl-options: [--proxy, -U]
+curl-options: [-s, -o, -w, -x, --proxy-digest, -U]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7616, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: add_proxy_account puts app-v2 beside app-v1 and both fetch through the proxy (200); after remove_proxy_account app-v1, the proxy answers app-v1 407 while app-v2 still gets 200.
+    program: rotate-proxy.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "add_proxy_account app-v2: {\"user\":\"app-v2\"}\napp-v1: 200\napp-v2: 200\nremove_proxy_account app-v1: {\"user\":\"app-v1\"}\napp-v1: 407\napp-v2: 200\napp-v1 login: http Digest accepted\napp-v1 login: http Digest refused\n"
+
+  - id: events-show-the-refusal
+    claim: get_events with kinds login_judged and account app-v1 answers the old account's proxy logins in order, a Digest login accepted before the removal and one refused after it.
+    program: rotate-proxy.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\napp-v1 login: http Digest accepted\napp-v1 login: http Digest refused\n$'
+
+  - id: last-account-opens-the-proxy
+    claim: remove_proxy_account of the only proxy account answers with no warning, and from then on the proxy forwards a request with no proxy login at all (200).
+    program: rotate-proxy.cs
+    args: [last]
+    expect:
+      exit: 0
+      stdout: "remove_proxy_account app-v1: {\"user\":\"app-v1\"}\nno proxy login: 200\napp-v1: 200\n"
+
+  - id: origin-account-is-not-a-proxy-account
+    claim: add_account adds an account for the server's own schemes, not the proxy, so the proxy still answers app-v2 407.
+    program: rotate-proxy.cs
+    args: [not-an-origin-account]
+    expect:
+      exit: 0
+      stdout: "add_account app-v2: {\"user\":\"app-v2\"}\napp-v2: 407\n"

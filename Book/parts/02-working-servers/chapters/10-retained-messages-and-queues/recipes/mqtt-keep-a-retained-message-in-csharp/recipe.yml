@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt-keep-a-retained-message-in-csharp
+title: Keeping a Retained Message in C#
+protocols: [mqtt]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlRetainedMessage, SurlEventQuery, SurlEventKind, SurlEvent, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A reading seeded with Messages.PublishAsync is what a later subscriber reads through Curl.Api, a second subscriber reads it too, and ReadRetainedAsync holds it at QoS 0.
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/temp: subscriber reads 21.5\nsensors/kitchen/temp: subscriber reads 21.5\nkept: 21.5 at QoS 0\n"
+
+  - id: through-the-filter
+    claim: A reading that a Curl.Api client publishes, with the retain flag clear, under the declared filter sensors/# is kept, once the test has waited for the end of the client's exchange, and a later subscriber reads it.
+    program: program.cs
+    args: [filter]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "kept: 21.5 at QoS 0\nsensors/kitchen/temp: subscriber reads 21.5\n"
+
+  - id: last-reading-wins
+    claim: A second publish to the same topic replaces the first, so a later subscriber reads only the newer reading.
+    program: program.cs
+    args: [replaced]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/temp: subscriber reads 22.0\n"
+
+  - id: one-per-topic
+    claim: Each topic keeps its own reading, so a publish to sensors/hall/temp leaves the kitchen's alone.
+    program: program.cs
+    args: [topics]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/hall/temp: subscriber reads 19.0\nsensors/kitchen/temp: subscriber reads 22.0\n"
+
+  - id: outside-the-filter
+    claim: A client's publish on a topic outside the filter is not kept, while a message seeded with PublishAsync on the same topic is, because the seed sets the retain flag itself.
+    program: program.cs
+    args: [outside]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "client publish, kept: nothing\nseeded, kept: 21.5 at QoS 0\nlab/kitchen/temp: subscriber reads 21.5\n"
+
+  - id: no-filter
+    claim: A broker with no topic filter keeps nothing a client publishes, but a seeded message is kept.
+    program: program.cs
+    args: [no-filter]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "client publish, kept: nothing\nseeded, kept: 21.5 at QoS 0\nsensors/kitchen/temp: subscriber reads 21.5\n"
+
+  - id: empty-message-clears
+    claim: An empty message clears the topic, so a later subscriber reads nothing and ReadRetainedAsync answers null.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/hall/temp: subscriber reads nothing\nkept: nothing\n"
+
+  - id: closed-without-anonymous
+    claim: The seed needs no login, but a subscriber to a broker without AllowAnonymous is refused, and Curl.Api throws a CurlException with code 8.
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 8
+      stdout-matches: '^curl error 8: '

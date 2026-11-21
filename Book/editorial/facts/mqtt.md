@@ -45,7 +45,7 @@ surl-mcp: `publish_message(server_id, topic, queue, payload, payload_base64, ret
 - In YAML, quote a claim containing ` #`, or the rest is a comment.
 
 ## Recipes
-mqtt-publish-and-subscribe, mqtt-grant-a-topic, mqtt-change-retained-config-mid-test (and twins), mqtt5-check-a-retained-message-from-an-agent.
+mqtt-publish-and-subscribe, mqtt-grant-a-topic, mqtt-grant-topics-to-a-group, mqtt-keep-a-retained-message, mqtt-subscribe-with-a-wildcard (all with twins), mqtt-change-retained-config-mid-test (and twins), mqtt5-check-a-retained-message-from-an-agent.
 
 ## Retained state (mqtt-check-retained-state-after-a-run)
 - surl-mcp `read_retained_message(server_id, topic)` answers `{topic, qos, text}`; a topic with nothing kept is `{"retained": false}`, not a tool error. No call lists topics.
@@ -69,3 +69,13 @@ mqtt-publish-and-subscribe, mqtt-grant-a-topic, mqtt-change-retained-config-mid-
   Without `--allow-anonymous`: exitCode 8, stderr `curl: (8) Expected 0000 but got 0005`.
 - mqtt5: curl publish refused with no login is exit 67 `MQTT 5 CONNACK reason code 0x87 NotAuthorized`. A curl-mcp subscribe on `mqtt5://` needs `--mqtt5-disconnect-after-retained` on the broker, else it hangs.
   `--topic "devices/#;retain;qos=1"` is a cap (ADR-0102): a QoS 0 publish is still read back with `qos` 0. No tool or option in these builds publishes a retained message at QoS 1 or 2.
+
+## Groups, wildcards and waiting for a publish (mqtt-grant-topics-to-a-group, mqtt-subscribe-with-a-wildcard, mqtt-keep-a-retained-message and twins; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20, windows)
+- Groups: `--group name=member,...` (auth category of `surl --help`, not mqtt); a grant names one as `@name:right`, `--topic-access "plant/#=@sensors:pub,@dashboards:sub"`. Rights are `pub`, `sub`, `pubsub`; another word exits 2 `option --topic-access: is badly used here`.
+  A bare group name in a grant is looked up as an account: exit 2 `surl: (2) option --topic-access: member sensors names no account or group`; same for `@robots`; `--group sensors=sensor1,ghost` exits 2 `option --group: member ghost names no account or group`.
+  An account in neither group, or a dashboard (`sub`) that publishes: publish dropped, curl exit 0; a sensor (`pub`) or outsider that subscribes: exit 8 `Weird server reply`. Wrong password CONNACK 4 (`got 0004`); without `--allow-plaintext-auth` CONNACK 5.
+  Surl.Api: `SurlServerOptions.Groups.Add("sensors=a,b")`, `TopicAccess.Add("plant/#=@sensors:pub")`, `Accounts`, `AllowPlaintextAuthentication`; a bad grant makes `SurlServer.StartAsync` throw `SurlServerStartException` with the same message. surl-mcp `start_server` with a bad grant: tool error, `exit_code` 2, `exit_code_name` `FailedInit`, text `surl: (2) option ...`.
+- Subscribe filters (`--topic` is separate): `+` literal in the curl URL works; `#` must be `%23`, a plain `#` is a URL fragment and not sent (subscribes to nothing, exit 0). `sensors/#` also matches `sensors`; `+` one level; `sensors/%23/temp` and `sensors/k+/temp` are refused in the SUBACK, exit 8 `Weird server reply` (Curl.Api: `CurlException` code 8). No match: empty, exit 0. Several retained messages arrive back to back (length, topic, payload, no payload length); seen sorted by topic on Windows, so cases check which messages and the byte count, not order. Payload ends at the next 0x00 if topics are under 256 bytes.
+- Waiting after a QoS 0 publish: Curl.Api POST or curl-mcp `curl -d` returns before the broker has applied it. C#: `RecordExchanges = true`, then `server.WaitForEventAsync(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded, AfterSequence = last }, TimeSpan.FromSeconds(10))` and keep `ended.Sequence`; agent: `wait_for_event(server_id, kinds:["exchange_ended"], after_sequence, timeout_ms)`, answer carries `sequence` (inside `event` or flat). Works for dropped publishes too (nothing is stored, so no store_changed). A seed (`PublishAsync`, `publish_message`) needs no wait.
+- Surl.Api `ReadRetainedAsync` and surl-mcp `read_retained_message` read the store without a client, so without grants: the way to show a dropped publish left the value alone.
+- Console `seed:` (schema 2) runs curl publishes into the running server before the first case and prints them in the Solution.

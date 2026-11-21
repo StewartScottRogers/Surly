@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs stray-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-catch-mail-for-unknown-addresses-from-an-agent
+title: Catching Mail for Unknown Addresses from an Agent
+protocols: [smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_messages, read_message]
+curl-options: [-s, -S, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1, 2, 55]
+references: [surl-readme, curl-manual, rfc5321]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: start_server with --mail-catch-all warns that example.com now keeps mail to unknown addresses; three sends through the curl tool exit 0; after ann's delivery event, list_messages and read_message find the two strays in the catch-all by their To headers.
+    program: stray-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "start_server: surl: warning: --mail-catch-all: example.com keeps mail to every unknown address, which would otherwise be discarded\nsent to anne@example.com: curl exit 0\nsent to bob.smith@example.com: curl exit 0\nsent to ann@example.com: curl exit 0\nwait_for_event: ann@example.com/INBOX/;UID=1\ncaught UID 1: To: anne@example.com\ncaught UID 2: To: bob.smith@example.com\nstray messages caught: 2\n"
+
+  - id: no-catch-all
+    claim: Without --mail-catch-all there is no warning, the same sends still exit 0, ann's mail arrives, and the catch-all holds nothing; the strays were discarded.
+    program: stray-mail.cs
+    args: [no-catch-all]
+    expect:
+      exit: 1
+      stdout: "sent to anne@example.com: curl exit 0\nsent to bob.smith@example.com: curl exit 0\nsent to ann@example.com: curl exit 0\nwait_for_event: ann@example.com/INBOX/;UID=1\nstray messages caught: 0\n"
+
+  - id: letter-case
+    claim: An address that has a mailbox is not caught, whatever its letter case; mail to Ann@Example.COM is delivered to ann@example.com and the catch-all holds nothing.
+    program: stray-mail.cs
+    args: [letter-case]
+    expect:
+      exit: 1
+      stdout-matches: '\nsent to Ann@Example\.COM: curl exit 0\nwait_for_event: ann@example\.com/INBOX/;UID=1\nstray messages caught: 0\n$'
+
+  - id: alias-not-caught
+    claim: An alias is not unknown either; with --mail-alias support@example.com=ann@example.com, mail to support@ is delivered to ann and the catch-all holds nothing.
+    program: stray-mail.cs
+    args: [alias]
+    expect:
+      exit: 1
+      stdout-matches: '\nsent to support@example\.com: curl exit 0\nwait_for_event: ann@example\.com/INBOX/;UID=1\nstray messages caught: 0\n$'
+
+  - id: per-domain
+    claim: The catch-all serves example.com only; one message to stray@ and team@example.org, a domain with no catch-all, exits 0, is delivered to team alone, and the stray copy is discarded.
+    program: stray-mail.cs
+    args: [other-domain]
+    expect:
+      exit: 1
+      stdout-matches: '\nsent to stray@example\.org, team@example\.org: curl exit 0\nwait_for_event: team@example\.org/INBOX/;UID=1\nstray messages caught: 0\n$'
+
+  - id: envelope-only-address
+    claim: The caught copy does not record which address it was for; a message sent to jo@example.com whose To header names ann is caught, and read_message shows To ann@example.com.
+    program: stray-mail.cs
+    args: [envelope-only]
+    expect:
+      exit: 1
+      stdout-matches: '\nsent to jo@example\.com: curl exit 0\nwait_for_event: catchall@example\.com/INBOX/;UID=1\ncaught UID 1: To: ann@example\.com\nstray messages caught: 1\n$'
+
+  - id: outside
+    claim: An address outside every mail domain is neither caught nor discarded but refused 550 at RCPT TO; the curl tool reports curl's exit 55.
+    program: stray-mail.cs
+    args: [outside]
+    expect:
+      exit: 1
+      stdout-matches: '\nsent to someone@example\.net: curl exit 55, curl: \(55\) RCPT failed: 550\n$'
+
+  - id: one-per-domain
+    claim: Two --mail-catch-all options for example.com make start_server a tool error carrying exit_code 2, FailedInit, catch-all domain example.com is given twice.
+    program: stray-mail.cs
+    args: [twice]
+    expect:
+      exit: 1
+      stdout: "start_server: exit_code 2 (FailedInit), option --mail-catch-all: catch-all domain example.com is given twice\n"

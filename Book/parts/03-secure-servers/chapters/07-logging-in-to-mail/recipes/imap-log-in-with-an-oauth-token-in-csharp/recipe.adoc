@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-log-in-with-an-oauth-token-in-csharp]]
+=== IMAP Logins with a Token in C#
+
+==== Problem
+
+Your mail client logs in to Internet Message Access Protocol (IMAP) with an OAuth 2.0 access token, by XOAUTH2 or OAUTHBEARER, not with a password; from a C# test with `Surl.Api` and `Curl.Api`, you want an IMAP server that accepts the token over Transport Layer Security (TLS), refuses a wrong one, and refuses any token over plain IMAP.
+
+==== Solution
+
+Start a `SurlServer` with an `imaps://` and an `imap://` listener, a self-signed certificate, the token as an account with an empty user name and two mailboxes. Log in with `Curl.Api`, giving the token as `XOAuth2Bearer`, then ask the server what it judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `SelfSigned` makes the server generate a certificate, and `SelfSignedCertificatePem` returns it, so the client can trust exactly that certificate with `CertificateAuthorityBlob` in `CurlTlsOptions` and no file is written. `new SurlAccount("", "tok-abc123")` is the token: an account with an empty user name whose password is the token (<<surl-readme>>, <<rfc6750>>). `surl` issues no tokens and checks none against an identity provider; a test chooses a string. `RecordExchanges` is on so that `FindEvents` works.
+
+The client sets `UserName` to the mailbox and `XOAuth2Bearer` to the token, and `Curl.Api` picks OAUTHBEARER, which the server advertises beside XOAUTH2 over TLS; `LoginOptions` of `AUTH=XOAUTH2` makes it send XOAUTH2. Each attempt uses a client of its own: a `CurlClient` keeps a connection that is already logged in and reuses it, so a second request on the same client would never log in at all and a wrong token would seem to work. A wrong token throws `CurlException` with code 67, login denied. The token is not ann{apos}s: it is an account of its own, and the user name the client gives picks the mailbox it reads, so bob with the same token gets code 78 for message 1, which sits in ann{apos}s mailbox. A token is a master key to every mailbox, which suits a test and is worth knowing.
+
+Over plain `imap://` the server advertises no token mechanism, so `Curl.Api` sends no login and throws 67. A `TcpClient` that writes `AUTHENTICATE XOAUTH2` itself (<<rfc9051>>) gets `NO [PRIVACYREQUIRED] Encryption required`, for the right token and a wrong one alike, so the token is never checked. Those refusals are not logins the server judged. `FindEvents` for `SurlEventKind.LoginJudged` returns the four on `imaps`, each a `LoginJudgedEvent` with its `Scheme`, `Mechanism`, the account `bearer token`, never the token, and `IsAccepted`.
+
+`AllowPlaintextAuthentication` is the loosening, `--allow-plaintext-auth`, and `surl` warns when it is on. With it the plain server accepts the token, which anyone who sees the connection can read, and still refuses a wrong one. `AuthenticationMethods` set to `oauthbearer` narrows it the other way: only that mechanism is advertised, and a client that insists on XOAUTH2 throws 67 with nothing judged.
+
+The types are few. `SurlAccount` is a user name and a password; `SurlEventQuery` filters events by kind; `CurlRequest` is the request, with `Authentication`, `Tls` and the method; `CurlAuthenticationOptions` holds the user name, `XOAuth2Bearer` and `LoginOptions`; `CurlTlsPeerOptions` holds the trusted certificate; and `CurlResponse` carries a `Body` stream.
+
+The server{apos}s side is read from the recorded exchanges: the first line the server wrote on `imaps` carries `AUTH=OAUTHBEARER AUTH=XOAUTH2` beside CRAM-MD5, PLAIN and LOGIN, and on plain `imap` only `AUTH=CRAM-MD5`, which is why `Curl.Api` has nothing to send there. No login is judged on the plain listener at all. `Curl.Api` has a `UseSsl` setting in `CurlNetworkOptions` for the `STARTTLS` upgrade, but in this build the token login after it was refused (code 67), where `curl --ssl-reqd` succeeds; the console recipe shows the upgrade working and no case here claims it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-log-in-with-an-oauth-token>> for the same check on the console.
+* <<imap-log-in-with-an-oauth-token-from-an-agent>> for the same check run by an agent.
+* <<smtp-log-in-with-cram-md5-in-csharp>> for the login a plain port offers instead.
+* <<surl-readme>>, <<rfc6750>>, <<rfc9051>>.

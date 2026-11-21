@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-check-unread-counts]]
+=== Checking Unread Counts
+
+==== Problem
+
+You want to know how many messages a mailbox holds and how many are unread, the numbers behind an unread badge, over Internet Message Access Protocol (IMAP), without opening the mailbox, and to see them change when a message is read.
+
+==== Solution
+
+Ask for the counts with an IMAP `STATUS` command, sent with `curl -X` to the server{apos}s root URL:
+
+include::.generated/solution.adoc[]
+
+The two seed lines stand in for the mail arriving: a shop sends `ann` three orders, and the second line waits until the third is in.
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL serves both over one mail store (<<surl-readme>>). `--mail-domain example.com` serves mail for the domain, and each `--mailbox` adds a mailbox with the account that logs in to it by its whole address, which `curl` gives with `-u`. The first seed line sends the three order files in one Simple Mail Transfer Protocol (SMTP) session: `-T "order[1-3].eml"` is a `curl` glob, `--crlf` gives each line the carriage return and line feed mail needs, and `--mail-from` and `--mail-rcpt` are the envelope.
+
+Delivery is asynchronous: `curl` has its `250` before the message is necessarily in the mailbox, and on a slow machine a count taken at once can be short. The second seed line waits for it with a bound instead of a fixed pause. `-X "FETCH 3 FLAGS"` on `.../INBOX` asks for message 3{apos}s flags, which a missing message answers with an error (`curl` exit `21`); `--retry 10` allows ten more tries, `--retry-all-errors` lets it retry an error that is not a network one, and `--retry-delay 1` spaces them a second apart. Asking for flags sets none.
+
+`STATUS INBOX (MESSAGES UNSEEN)` answers in one line, `* STATUS INBOX (MESSAGES 3 UNSEEN 3)`: three messages, none without the `\Seen` flag (<<rfc9051>>). It works on a mailbox that is not selected. With the URL ending in `/`, `curl` sends it straight after logging in, the third command of the session (`-v` shows `> A003 STATUS INBOX (MESSAGES UNSEEN)`), with no `SELECT` before it. The login itself needs no loosening option: without Transport Layer Security `surl` offers only `CRAM-MD5`, which never sends the password, and `curl` uses it.
+
+Reading is what changes the count. Fetching `INBOX;UID=1` sets message 1{apos}s `\Seen` flag, and the next `STATUS` answers `UNSEEN 2`. Fetching only the `Subject` header of message 2 counts as reading as well: `curl` asks for `BODY[HEADER.FIELDS (SUBJECT)]`, not the `BODY.PEEK[...]` that would leave the flag alone (`-v` shows the command), so `UNSEEN` drops to `1`. `STATUS` gives numbers only; to know which messages are unread, a search for `UNSEEN` (`INBOX?UNSEEN`) names them, `* SEARCH 3`. To put a message back to unread, `-X "STORE 1 -FLAGS (\Seen)"` on `.../INBOX` takes the flag off, and `UNSEEN` is `2` again. `--next` runs the second transfer in the same `curl`, with its own options; `-s` hides the progress meter, `-o /dev/null` keeps the fetched message off the screen, and `-S` keeps `curl`{apos}s error line when `-s` is on.
+
+`STATUS` has more items. `UIDNEXT` is the identifier the next message will get, `4` here; a test that keeps it can tell later whether anything new has come without counting. `surl` speaks IMAP4rev1, so the `SIZE` item that IMAP4rev2 added is answered `BAD Invalid arguments`, and a folder that does not exist is answered `NO [NONEXISTENT] Mailbox does not exist`. Either way `curl` exits `21`, its code for a command the server refused, and `-v` shows the server{apos}s line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-check-unread-counts-in-csharp>> for the counts from C#.
+* <<imap-check-unread-counts-from-an-agent>> for the counts checked by an agent.
+* <<imap-poll-until-the-mail-arrives>> for waiting on a message an app sends later.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

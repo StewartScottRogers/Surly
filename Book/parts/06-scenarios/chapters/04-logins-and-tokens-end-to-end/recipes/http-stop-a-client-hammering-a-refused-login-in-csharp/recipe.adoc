@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-stop-a-client-hammering-a-refused-login-in-csharp]]
+=== Stopping a Client Retrying a Bad Login
+
+==== Problem
+
+Your .NET client retries failed requests, and a refused login must not be one of them. In a C# test, you want logins for one account refused, to prove your client stops at the first 401 instead of hammering the server with the same password.
+
+==== Solution
+
+Start an in-process server with a fault that refuses one account's logins, run the client's retry policy against it, and count with `FindEvents` how many logins the server judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `Accounts` holds two `SurlAccount` entries, `app` and `other`, and `RecordExchanges` keeps the events the test reads back. `SurlFault.RefuseLogin()` with `Account` set to `app` is the rule `--fault "refuse-login;account=app"`: every login of `app` is refused, with its right password too, and answered `401 Unauthorized` exactly as a wrong password would be (<<rfc9110>>). Added to `Faults` before the start, it applies from the first request. A fault is for tests only (<<surl-readme>>). The rule touches nothing else: `other` logs in through the same client and is answered `200`.
+
+The client is a `CurlClient` and a loop. Each try sends a `CurlRequest` whose `CurlAuthenticationOptions` name the account and choose `HttpAuthenticationMethods.Digest`, Digest access authentication (<<rfc7616>>); `SendAsync` returns a `CurlResponse` for a `401` as for any status, and throws nothing. The policy decides what is worth another try. The careful one retries a `429` or a `503`, statuses that may pass, and returns the `401` at once: `app: 401 after 0 retries`. The program then exits 22, the code `curl -f` gives an error status; that choice is the program's.
+
+What proves the client stopped is what the server saw. `FindEvents` with a `SurlEventQuery` of `Kind` `SurlEventKind.LoginJudged` and `Account` `app` answers each login the server judged for `app` as a `LoginJudgedEvent`; `IsRefusedByFault` is `true` when the rule, not the password, refused it. The careful client leaves one, refused by the rule.
+
+The hammering policy retries every status of 400 or above. Against the same rule it sends the same password three more times, all refused: the server judged four logins for one request. Without the rule, the careful client logs in as `app` at the first try, one login judged and none refused by a rule, which shows the count measures the client, not the server.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-stop-a-client-hammering-a-refused-login>> for the same check on the console, with `curl --retry`.
+* <<http-stop-a-client-hammering-a-refused-login-from-an-agent>> for the same check from an agent.
+* <<http-lock-out-one-account-in-csharp>> for adding and removing the rule while the server runs.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc9110>>.

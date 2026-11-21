@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008).
+schema: 2
+key: surl-share-one-account-file-from-an-agent
+title: Sharing One Account File from an Agent
+protocols: [http, ftps, imaps, mqtts]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl, get_events]
+exit-codes: [0, 8, 22, 67]
+references: [surl-readme, curl-readme]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures:
+  users.txt: "# test accounts, one user:password a line\nalice:s3cret\nbob:b0bpass\n"
+  bad-users.txt: "alice\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Alice, who is in users.txt, logs in with curl-mcp on all four listeners of one surl-mcp server, and get_events records four logins judged, all accepted.
+    program: program.cs
+    args: ["alice", "s3cret"]
+    expect:
+      exit: 0
+      stdout-matches: '^https: exit 0 hello from surl\nftps: exit 0 hello from surl\nimaps: exit 0 \* STATUS INBOX \(MESSAGES 0\)\nmqtts: exit 0\nlogins judged: 4; alice accepted\n$'
+
+  - id: second-line
+    claim: Bob, on the second account line of the file, logs in on the same four listeners.
+    program: program.cs
+    args: ["bob", "b0bpass"]
+    expect:
+      exit: 0
+      stdout-matches: '^https: exit 0 hello from surl\nftps: exit 0 hello from surl\nimaps: exit 0 \* STATUS INBOX \(MESSAGES 0\)\nmqtts: exit 0\nlogins judged: 4; bob accepted\n$'
+
+  - id: missing-user
+    claim: A user the file does not hold is refused on each listener. HTTPS exits 22, FTPS and IMAPS exit 67, MQTTS exits 8, and get_events records the refusals under the name given.
+    program: program.cs
+    args: ["dave", "nope"]
+    expect:
+      exit: 0
+      stdout-matches: '^https: exit 22 curl: \(22\)[^\n]*\nftps: exit 67 curl: \(67\)[^\n]*\nimaps: exit 67 curl: \(67\)[^\n]*\nmqtts: exit 8 curl: \(8\)[^\n]*\nlogins judged: \d+; dave refused\n$'
+
+  - id: wrong-password
+    claim: A wrong password for a user in the file is refused the same way on each.
+    program: program.cs
+    args: ["alice", "wrong"]
+    expect:
+      exit: 0
+      stdout-matches: '^https: exit 22 curl: \(22\)[^\n]*\nftps: exit 67 curl: \(67\)[^\n]*\nimaps: exit 67 curl: \(67\)[^\n]*\nmqtts: exit 8 curl: \(8\)[^\n]*\nlogins judged: \d+; alice refused\n$'
+
+  - id: bad-file
+    claim: A file with a line that is not user:password stops start_server, which answers a tool error with exit_code 2 and a message that names the line.
+    program: program.cs
+    args: ["alice", "s3cret", "bad-users.txt"]
+    expect:
+      exit: 1
+      stdout-matches: '^start refused: 2 [^\n]*line 1'

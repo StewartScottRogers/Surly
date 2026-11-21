@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-stop-a-client-hammering-a-refused-login-in-csharp
+title: Stopping a Client Retrying a Bad Login
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFault, SurlEventQuery, SurlEventKind, LoginJudgedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc7616, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; its argument picks the client.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With a RefuseLogin fault on app, a client that retries only 429 and 503 is answered 401 and makes no retry; the server judged exactly one login for app, refused by the rule, and the program exits 22.
+    program: login-once.cs
+    args: []
+    expect:
+      exit: 22
+      stdout: "app: 401 after 0 retries\nother: 200\nlogins judged for app: 1, refused by the rule: 1\n"
+
+  - id: others-unaffected
+    claim: The rule refuses only app; the account other logs in through the same client and is answered 200.
+    program: login-once.cs
+    args: []
+    expect:
+      exit: 22
+      stdout-matches: '\nother: 200\n'
+
+  - id: hammering
+    claim: A client that retries every status of 400 or above sends the same password three more times; the server judged four logins for app, all refused by the rule.
+    program: login-once.cs
+    args: [hammering]
+    expect:
+      exit: 22
+      stdout: "app: 401 after 3 retries\nother: 200\nlogins judged for app: 4, refused by the rule: 4\n"
+
+  - id: no-rule
+    claim: Without the rule the same client logs in as app with the same password at the first try, one login judged and none refused by a rule, and the program exits 0.
+    program: login-once.cs
+    args: [no-rule]
+    expect:
+      exit: 0
+      stdout: "app: 200 after 0 retries\nother: 200\nlogins judged for app: 1, refused by the rule: 0\n"

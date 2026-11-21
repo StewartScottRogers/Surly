@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-sign-a-run-of-s3-requests]]
+=== Signing a Run of S3 Requests
+
+==== Problem
+
+Your client signs Amazon Simple Storage Service (S3) requests with Signature Version 4 (SigV4); you want a test that uploads, lists and deletes with one key pair, and proves that a wrong secret is refused with `SignatureDoesNotMatch`.
+
+==== Solution
+
+Serve a bucket over `s3://` with one key pair, uploads and listings on. Put and list with one signed `curl` command:
+
+include::.generated/solution.adoc[]
+
+Then delete the object with a signed `DELETE`, try each step with the wrong secret, and list again after each; the cases below are that run, in order.
+
+==== Discussion
+
+`--user AKIAIOSFODNN7EXAMPLE:s3cret` gives the server one access key ID and its secret. Every request to an `s3://` listener must be signed with them; `--allow-uploads` lets a signed request write and `--list-directories` lets it list. `surl` serves `s3://` over Transport Layer Security (TLS) only, so it takes `--cert` and `--key`; the certificate made in setup names `*.s3.us-east-1.amazonaws.com`, the host `curl` gives a bucket, and `--cacert server.pem` makes `curl` trust it. `--connect-to ::127.0.0.1:8080` sends that host name to the local server.
+
+`curl`{apos}s `s3://reports/2026-q3.csv` names the bucket `reports` and the key; `-u` with the access key ID and secret signs the request with SigV4, and `-T q3.csv` makes it a put. The second URL on the line has no `-T`, so it is a `GET`, and because it ends in `/` it is a listing: one key a line. The put landed as the file `store/reports/2026-q3.csv`, since each folder under `--directory` is a bucket. `-s` hides the progress meter and `-S` still prints an error.
+
+`curl`{apos}s `s3://` scheme sends only `GET`, or `PUT` with `-T`: `-X DELETE` on it is refused by `curl` itself with exit `4` before anything is sent. A delete goes over `https://` to the bucket{apos}s host instead, signed by `--aws-sigv4 aws:amz:us-east-1:s3` (provider, region, service) with the same `-u`. The server answers `204 No Content`, the listing loses the key, and deleting the key again is `204` as well, as in S3 (<<aws-s3-api>>), so a client that retries a delete sees no error. `-w "%{http_code}\n"` prints the status.
+
+The wrong secret is the point of the test. With the right access key and a wrong secret, the server finds the account, computes the signature it expects, and refuses the request with `403` and the code `SignatureDoesNotMatch`. `curl`{apos}s `s3://` turns that into exit `22` and the message `S3 returned error 403: SignatureDoesNotMatch` for the put and the listing. Over `https://` the `403` is an ordinary answer (<<rfc9110>>): `curl` prints the S3 error document, whose `<Code>` is `SignatureDoesNotMatch`, and exits `0`. None of the refused requests changed anything: the next signed listing shows the same two objects and no `2026-q4.csv`.
+
+The other refusals say what else was wrong. A `DELETE` with no signature at all is `AccessDenied`. A correctly signed `DELETE` to a server without `--allow-uploads` is `AccessDenied` too: deleting is writing, and that server allows reads only, so the object is still listed afterwards.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-sign-a-run-of-s3-requests-in-csharp>> for the same run as a C# test.
+* <<s3-sign-a-run-of-s3-requests-from-an-agent>> for an agent running it.
+* <<s3-tell-the-refusals-apart>> for every S3 refusal side by side.
+* <<s3-put-and-get-an-object>> for one object, put and got.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc9110>>.

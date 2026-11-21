@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-peek-at-headers-with-top-in-csharp]]
+=== Peeking at Headers with TOP in C#
+
+==== Problem
+
+Your C# mail poller reads headers first and retrieves only the messages it wants, and you want it to send Post Office Protocol version 3 (POP3) `UIDL` and `TOP` through Curl.Api to a test server and parse the answers.
+
+==== Solution
+
+Host the server with Surl.Api, put three messages in, and let the program list them with `UIDL`, read each header with `TOP`, and retrieve one in full:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` holds one `pop3://` URL on port 0, bound to a free port; `MailDomains` is `--mail-domain`; `Mailboxes` is `--mailbox`, whose address is also the login (<<surl-readme>>). `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrls` gives the port. `server.Mail`, a `SurlServerMail`, puts the three orders into the `INBOX` with `DeliverAsync`, which returns once each is stored.
+
+A `CurlRequest`{apos}s method is the POP3 command, and `curl` appends the URL{apos}s path to it, decoded. `new HttpMethod("UIDL")` on the root URL sends `UIDL`, and the `CurlResponse` `Body` is one line per message, its number and its unique identifier (<<rfc1939>>). `new HttpMethod("TOP")` with the path `2%200` sends `TOP 2 0`: the header of message 2, the blank line that ends it, and no body. That path is how to pass two arguments, because a method is one Hypertext Transfer Protocol token and cannot hold a space. With `2%202` the answer adds the first two body lines and stops. `CurlAuthenticationOptions` is the login, the spelling of `curl -u`; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `CurlClient` uses, so no loosening option is set.
+
+The program reads each message{apos}s `Subject` from its header, 73 bytes each here, and retrieves only the delayed order with `RETR` and the path `2`. The 113 bytes it gets are the size the store gives in its `SurlMessagePage`: `ListMessagesAsync` returns each message{apos}s `SurlMessageSummary`, with `Uid` and `Size`, read without a client. A poller that keeps the identifiers, not the numbers, can tell next time which messages it has seen, as the deletion below shows.
+
+`TOP` with `2%2099`, more lines than the body has, answers the whole message, the same 113 bytes `RETR` gives.
+
+The identifiers outlast the numbers. `DELE` with the path `1` marks message 1, and the same `CurlClient`, which keeps its connection and so its session, still lists messages `2` and `3` under their old numbers. The deletion takes effect at `QUIT`, which Curl.Api sends when the client is disposed; a new `CurlClient` then numbers the two left `1` and `2`, and their identifiers end `.2` and `.3` as before.
+
+A message that is not there, `TOP` with `9%200`, is answered `-ERR`, and Curl.Api throws `CurlException` with `Code` 8, `Weird server reply`, the same code `curl` exits with.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-peek-at-headers-with-top>> for the same commands on the console.
+* <<pop3-peek-at-headers-with-top-from-an-agent>> for an agent that picks a message by its header.
+* <<surl-readme>>, <<rfc1939>>.

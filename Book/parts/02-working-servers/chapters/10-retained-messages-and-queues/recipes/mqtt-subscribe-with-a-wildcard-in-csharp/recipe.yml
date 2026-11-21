@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt-subscribe-with-a-wildcard-in-csharp
+title: Subscribing with a Wildcard in C#
+protocols: [mqtt]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+# The program seeds six readings: sensors/kitchen/temp, sensors/hall/temp, sensors/kitchen/humidity,
+# sensors/kitchen/oven/temp, sensors/temp and sensors, and prints what a filter receives and what it misses.
+cases:
+  - id: solution
+    role: solution
+    claim: A subscription to sensors/+/temp receives the seeded readings of sensors/hall/temp and sensors/kitchen/temp, the topics with one level between sensors and temp, and misses the other four, the parent sensors, sensors/temp, sensors/kitchen/humidity and the oven's sensors/kitchen/oven/temp.
+    program: program.cs
+    args: ['sensors/+/temp']
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/+/temp receives: sensors/hall/temp=19, sensors/kitchen/temp=21\nsensors/+/temp misses: sensors=up, sensors/kitchen/humidity=40, sensors/kitchen/oven/temp=180, sensors/temp=5\n"
+
+  - id: hash-matches-everything-below
+    claim: A subscription to sensors/# receives all six readings, the nested sensors/kitchen/oven/temp and the parent sensors among them, and misses none.
+    program: program.cs
+    args: ['sensors/#']
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/# receives: sensors=up, sensors/hall/temp=19, sensors/kitchen/humidity=40, sensors/kitchen/oven/temp=180, sensors/kitchen/temp=21, sensors/temp=5\nsensors/# misses: nothing\n"
+
+  - id: plus-for-the-room-reading
+    claim: A + in the last place matches every reading in a room, so sensors/kitchen/+ receives the kitchen's temperature and humidity but not the oven's, which is a level deeper.
+    program: program.cs
+    args: ['sensors/kitchen/+']
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/+ receives: sensors/kitchen/humidity=40, sensors/kitchen/temp=21\nsensors/kitchen/+ misses: sensors=up, sensors/hall/temp=19, sensors/kitchen/oven/temp=180, sensors/temp=5\n"
+
+  - id: hash-below-a-room
+    claim: A # after a room takes the room and everything beneath it, so sensors/kitchen/# receives the oven's reading as well.
+    program: program.cs
+    args: ['sensors/kitchen/#']
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/# receives: sensors/kitchen/humidity=40, sensors/kitchen/oven/temp=180, sensors/kitchen/temp=21\nsensors/kitchen/# misses: sensors=up, sensors/hall/temp=19, sensors/temp=5\n"
+
+  - id: two-pluses
+    claim: Two pluses are two levels, so sensors/+/+ receives the three readings exactly two levels below sensors and misses the oven's, three levels down, and sensors/temp and sensors, which are fewer.
+    program: program.cs
+    args: ['sensors/+/+']
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/+/+ receives: sensors/hall/temp=19, sensors/kitchen/humidity=40, sensors/kitchen/temp=21\nsensors/+/+ misses: sensors=up, sensors/kitchen/oven/temp=180, sensors/temp=5\n"
+
+  - id: exact-topic
+    claim: A filter with no wildcard is a single topic, so sensors/kitchen/temp receives that reading alone.
+    program: program.cs
+    args: [sensors/kitchen/temp]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/temp receives: sensors/kitchen/temp=21\nsensors/kitchen/temp misses: sensors=up, sensors/hall/temp=19, sensors/kitchen/humidity=40, sensors/kitchen/oven/temp=180, sensors/temp=5\n"
+
+  - id: nothing-matches
+    claim: A filter that matches no retained topic, sensors/+/pressure, receives nothing, and the subscription is not an error.
+    program: program.cs
+    args: ['sensors/+/pressure']
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/+/pressure receives: nothing\nsensors/+/pressure misses: sensors=up, sensors/hall/temp=19, sensors/kitchen/humidity=40, sensors/kitchen/oven/temp=180, sensors/kitchen/temp=21, sensors/temp=5\n"
+
+  - id: bare-hash-is-a-fragment
+    claim: Left as a plain # in the URL, the hash is taken as a fragment and not sent, so the subscription receives nothing, which is why the program writes it %23.
+    program: program.cs
+    args: ['sensors/#', raw]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/# receives: nothing\nsensors/# misses: sensors=up, sensors/hall/temp=19, sensors/kitchen/humidity=40, sensors/kitchen/oven/temp=180, sensors/kitchen/temp=21, sensors/temp=5\n"
+
+  - id: hash-only-last
+    claim: In a subscription a # has to be the last level, so sensors/#/temp is refused, and Curl.Api throws a CurlException with code 8.
+    program: program.cs
+    args: ['sensors/#/temp']
+    timeout: 90
+    expect:
+      exit: 8
+      stdout: "sensors/#/temp: curl error 8: Weird server reply\n"
+
+  - id: plus-fills-a-level
+    claim: A + has to fill a whole level, so sensors/k+/temp is refused the same way, with code 8.
+    program: program.cs
+    args: ['sensors/k+/temp']
+    timeout: 90
+    expect:
+      exit: 8
+      stdout: "sensors/k+/temp: curl error 8: Weird server reply\n"

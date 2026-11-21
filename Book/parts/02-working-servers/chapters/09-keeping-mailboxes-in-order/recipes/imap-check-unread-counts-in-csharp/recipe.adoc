@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-check-unread-counts-in-csharp]]
+=== Checking Unread Counts in C#
+
+==== Problem
+
+Your C# mail client shows an unread badge, and you want a test that reads the unread count over Internet Message Access Protocol (IMAP) with Curl.Api, checks it against the server{apos}s own count, and sees both change when a message is read.
+
+==== Solution
+
+Host the server with Surl.Api, put three messages in, and compare the client{apos}s count with the store{apos}s before and after reading one:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` holds one `imap://` URL on port 0, bound to a free port; `MailDomains` is `--mail-domain`; `Mailboxes` is `--mailbox`, an address and password, the address also being the login (<<surl-readme>>). `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrls` gives its real port. `server.Mail` is the server{apos}s mail store, a `SurlServerMail`. Its `DeliverAsync` puts each message into `ann`{apos}s `INBOX` as Simple Mail Transfer Protocol delivery would, and returns once it is stored, so the counts that follow need no wait.
+
+The client{apos}s count is a `CurlRequest` for `INBOX?UNSEEN`: a query on an IMAP URL is a `SEARCH`, and the `CurlResponse` `Body` is its answer, `* SEARCH` and the numbers of the messages without the `\Seen` flag (<<rfc9051>>). `CurlAuthenticationOptions` is the login, the spelling of `curl -u`; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `CurlClient` uses, so no loosening option is set. The store{apos}s count is `ListMailboxesAsync`, one `SurlMailboxInfo` per folder with `MessageCount` and `UnseenCount`, read with no client and setting no flag.
+
+Before anything is read both say three unseen, and the search names `1 2 3`. Fetching `INBOX;UID=1` through Curl.Api sets its `\Seen` flag, and both counts drop to two. Fetching only message 2{apos}s `Subject` header, `INBOX;UID=2;SECTION=HEADER.FIELDS%20(SUBJECT)`, is a read as well, because `curl` asks for `BODY[...]` rather than `BODY.PEEK[...]`: the search then names `3` alone and the store says one unseen. The test{apos}s own look at a message does not count as reading: `ReadMessageAsync` returns a `SurlMailMessage` with the exact `Bytes`, 86 of them for message 3, and never sets `\Seen`, so both counts stay at one. That is the difference to keep in mind when a test checks a badge: read through the store, and the badge stays as the user would see it.
+
+New mail raises the store{apos}s count at once: after a fourth `DeliverAsync` it says four messages, two unseen. The `CurlClient` does not see it yet. It keeps its connection, with `INBOX` still selected, and `surl` does not announce the new message to that session, so its next search covers `1 2 3` and still names `3` alone. A new `CurlClient` logs in and selects afresh, and its search names `3 4`. A client that holds a connection open must select again to see what came in; a test that compares counts should use a fresh client, or the store.
+
+Errors arrive as exceptions. A folder `ann` does not have, `Archive?UNSEEN`, cannot be selected, and Curl.Api throws `CurlException` with `Code` 67, `Select failed`. `ListMailboxesAsync` for an account that does not exist throws `SurlNotFoundException`, `No mailboxes for nobody@example.com.`
+
+The console recipe asks with IMAP `STATUS`, which counts without opening the mailbox. Curl.Api 0.2.0 has no way to send it: a request{apos}s method is a `HttpMethod`, one Hypertext Transfer Protocol token, and `new HttpMethod("STATUS INBOX (MESSAGES UNSEEN)")` throws `FormatException`, `The format of the HTTP method is invalid.`, before anything is sent. `SEARCH UNSEEN` selects the mailbox first, which changes no flag, so the count it gives is the same.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-check-unread-counts>> for the same counts with `STATUS` on the console.
+* <<imap-check-unread-counts-from-an-agent>> for the counts checked by an agent.
+* <<surl-readme>>, <<rfc9051>>.

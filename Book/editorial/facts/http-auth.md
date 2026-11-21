@@ -58,7 +58,7 @@ curl-mcp `transfer(url, method, headers, ...)` or `curl(args)`. No surl-mcp tool
 - Curl.Api Bearer: `new CurlAuthenticationOptions { XOAuth2Bearer = token, HttpAuthentication = HttpAuthenticationMethods.Bearer }` (`using Curl.Api.Options.Authentication;`). Basic: `HttpAuthentication = HttpAuthenticationMethods.Basic`.
 
 ## Recipes
-http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http-log-in-with-ntlm, http-require-a-login, http-refuse-a-password-in-clear, http-tell-clients-apart-by-account (and its twins), http-exchange-a-password-for-a-token (and its twins), http-sign-requests-with-aws-sigv4 (and its twins), http-lock-out-one-account (and its twins).
+http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http-log-in-with-ntlm, http-require-a-login, http-refuse-a-password-in-clear, http-tell-clients-apart-by-account (and its twins), http-exchange-a-password-for-a-token (and its twins), http-sign-requests-with-aws-sigv4 (and its twins), http-lock-out-one-account (and its twins), surl-share-one-account-file (and its twins).
 
 - Decided by Surl (2026-11-20): `--auth basic` over plain `http://` answers 403 with no `WWW-Authenticate`, because a 401 must carry a challenge and offering Basic in clear invites the password (Surl ADR-0032 step 5).
 
@@ -77,3 +77,24 @@ http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http
 - Surl.Api: `options.Faults.Add(SurlFault.RefuseLogin() with { Account = "bob", Times = 1 })`; `server.Faults.List().Single().Id` is `f1`, `Remove(id)` returns true. surl-mcp: `add_fault(server_id, fault: "refuse-login;account=bob")` -> `fault_id` f1, `remove_fault`, `list_faults`.
 
 - Decided by Surl (2026-11-20): `--auth aws-sigv4` accepts any provider, region and service (Surl ADR-0043 decision 2). They are bound into the signature, not configured on the server, so surl answers whatever curl was told to sign for. State it as designed.
+
+## One account file for four TLS protocols (surl-share-one-account-file + twins; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20, windows)
+- `--user-file users.txt` (lines `user:password`, `#` comments and blank lines skipped, read at start) beside `-u`: one surl with `https://`, `ftps://`, `imaps://`, `mqtts://` (one `--cert`/`--key`, four ports) logs the same accounts in on all four. `curl --cacert server.pem -u alice:s3cret`: https GET 200 (Basic preemptive over TLS), ftps GET file, imaps `-X "STATUS INBOX (MESSAGES)"` prints `* STATUS INBOX (MESSAGES 0)` (a file account has an empty INBOX), mqtts `-d on` exit 0.
+- Refused (missing user and wrong password alike): https 401 (`-f` exit 22), ftps 67, imaps 67, mqtts CONNACK 4 exit 8 `Expected 0000 but got 0004`. Curl.Api: https a `CurlResponse` 401, ftps/imaps `LoginDenied` 67, mqtts `WeirdServerReply` 8.
+- Unreadable file exit 37 (`Could not read user file X`); a line without a colon exit 2 (`User file X, line 1: expected <user:password>`). `SurlServerOptions.UserFile` adds to `Accounts`; a bad file is `SurlServerStartException`; surl-mcp `start_server` is an `isError` with `exit_code` 2.
+- surl-mcp `get_events(kinds:["login_judged"])`: one event per login, `account` and `is_accepted`; four curl-mcp calls (one per protocol) gave four events for alice, all accepted; refusals are under the claimed name.
+
+## Changing accounts while the server runs (http-rotate-a-password-without-downtime + twins, http-rotate-a-password-in-process; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20, windows)
+- One password per account name; an account logs in on every scheme of the server (https and ftp/ftps shared). Rotation without a refused login = a second account (app-v1, app-v2), then remove the old.
+- Console: control endpoint `POST /v1/accounts` with `curl --json @file.json` (`{"user":..,"password":..}`; without application/json: 415) -> 204; `DELETE /v1/accounts/<user>` -> 204, unknown -> 404 `{"error":"not_found","message":"no account is named x"}`. POST for an EXISTING name REPLACES its password (204; old refused at once). Events: `GET /v1/events?kind=login_judged&account=x` (kind `store_changed` also works: `account_added`/`account_removed` with `name`).
+- Surl.Api: `server.Accounts.Add(user, pw)` (existing name: ArgumentException), `Remove(user)` -> bool, `HasAccounts`. surl-mcp: `add_account` -> `{"user"}`; existing name: tool error `user app-v1 already has an account`; `remove_account` -> `{"user"}`, unknown: tool error `server s1 has no account x`.
+- Removing the LAST account opens the server: GET with no login 200 (PUT still 401). Surl.Api logs `surl: warning: no account left; the server now needs no login`; surl-mcp answers `{"user","warning":"server s1 has no account left and now needs no login"}` plus a second text block (`.Single()` on text blocks throws); the control endpoint writes no warning at all.
+- Removal refuses new logins only: an FTPS connection logged in before keeps working (Curl.Api client reuse). Over HTTP every request logs in, so the next request on the same connection is refused (one exchange, refused then accepted after a reread).
+- Events: `LoginJudgedEvent.Scheme` `https`/`ftp`/`ftps`; FTP mechanism `password`; https Basic via `curl -u` (no method).
+
+## Retrying a refused login (http-stop-a-client-hammering-a-refused-login + twins)
+- `curl -f --retry 3` does not retry a 401 (`%{num_retries}` 0, exit 22); without -f exit 0; `--retry-all-errors` retries it (3 retries, 4 refused logins). Count with `grep -c "Login refused: Digest app"` on a per-server -v log, or LoginJudged events (`is_refused_by_fault` true for the rule).
+
+## CurlHttpMessageHandler (http-test-an-httpclient-app-against-surl)
+- `new HttpClient(new CurlHttpMessageHandler(curlClient)) { BaseAddress = server.BoundUrl }`; trust via `CurlClient.Create(new CurlClientOptions { Tls = ... })`. App-set `Authorization` headers (Basic, Bearer) pass through unchanged. `handler.Credentials = new NetworkCredential(u, p)` answers the challenge with Digest over https. A 401 is a response (`EnsureSuccessStatusCode` -> HttpRequestException StatusCode 401); untrusted certificate -> HttpRequestException, inner CurlException `PeerFailedVerification` (60).
+- Recipes: http-rotate-a-password-without-downtime (+ twins), http-rotate-a-password-in-process, http-stop-a-client-hammering-a-refused-login (+ twins), http-find-who-failed-to-log-in-from-an-agent (get_events grouped by account/mechanism; `exchange_started` gives `client`), http-test-an-httpclient-app-against-surl.

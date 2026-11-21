@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: s3-sign-a-run-of-s3-requests-from-an-agent
+title: Signing a Run of S3 Requests
+protocols: [s3, https]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_files, get_events]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api, rfc9110]
+
+# The report the agent uploads, in the folder both hosts are confined to.
+fixtures:
+  q3.csv: "region,total\nnorth,1200\n"
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the right secret, one curl call puts q3.csv and lists the bucket (both reports), a DELETE over https signed with --aws-sigv4 is answered 204, the next listing holds 2026-q3.csv alone, and list_files agrees.
+    program: program.cs
+    args: [run]
+    expect:
+      exit: 0
+      stdout-matches: '\n-- secret s3cret\nput, list: exitCode 0 \[2026-q2\.csv 2026-q3\.csv\]\ndelete: exitCode 0 \[204\]\nlist: exitCode 0 \[2026-q3\.csv\]\nlist_files: 2026-q3\.csv\n'
+
+  - id: wrong-secret
+    claim: With the right access key and a wrong secret, the put and listings are refused SignatureDoesNotMatch with exitCode 22, and the https DELETE is answered 403 with SignatureDoesNotMatch in its error document and exitCode 0.
+    program: program.cs
+    args: [run]
+    expect:
+      exit: 0
+      stdout-matches: '^-- secret wrong\nput, list: exitCode 22 \[\] SignatureDoesNotMatch\ndelete: exitCode 0 \[403\] SignatureDoesNotMatch\nlist: exitCode 22 \[\] SignatureDoesNotMatch\n'
+
+  - id: logins-judged
+    claim: get_events with kinds login_judged shows the account's logins in order, four refused (put, listing, delete, listing) and then four accepted.
+    program: program.cs
+    args: [run]
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin_judged \(AKIAIOSFODNN7EXAMPLE\): refused refused refused refused accepted accepted accepted accepted\n$'
+
+  - id: uploads-off
+    claim: Without --allow-uploads, the signed put is refused AccessDenied but the listing after it is served, so the call's exitCode is 0, the last transfer's; the signed DELETE is answered 403 AccessDenied and list_files still shows 2026-q2.csv.
+    program: program.cs
+    args: [read-only]
+    expect:
+      exit: 0
+      stdout-matches: '^-- secret s3cret\nput, list: exitCode 0 \[2026-q2\.csv\] AccessDenied\ndelete: exitCode 0 \[403\] AccessDenied\nlist: exitCode 0 \[2026-q2\.csv\]\nlist_files: 2026-q2\.csv\n'

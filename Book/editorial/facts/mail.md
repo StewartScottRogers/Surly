@@ -170,6 +170,35 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   address, which would otherwise be discarded`.
 - `put_file(server_id, path, text)` publishes a page an `http://` listener of the same server serves at once.
 
+## Logins by token and APOP (2026-11-20, windows probed)
+- `--mailbox "viewer@example.com:pw;protocols=imap"`: the account logs in on IMAP (and imaps) only. SMTP and POP3 give
+  curl 67 `Login denied`; SMTP `-v` shows `AUTH CRAM-MD5` then `535 5.7.8 Authentication credentials invalid`, the reply a
+  wrong password gets. Delivery to the mailbox still works. `protocols=http` makes a mailbox that takes mail and logs in on no
+  mail protocol (IMAP/POP3 curl 67 `Access denied.`, SMTP 67). `protocols=gopher` was accepted at start (no exit 2).
+- A token is an account with an empty user name (`--user :tok`). IMAP: curl `-u ann@example.com --oauth2-bearer tok` over
+  imaps sends `AUTHENTICATE OAUTHBEARER` (`--login-options AUTH=XOAUTH2` -> `AUTHENTICATE XOAUTH2`); logins judged as account
+  `bearer token`. The user name only picks the mailbox read (bob with ann's token: UID 1 exit 78; unknown name: empty LIST).
+  Over plain imap CAPABILITY has no OAUTHBEARER/XOAUTH2 (`STARTTLS LOGINDISABLED AUTH=CRAM-MD5`), curl sends nothing, exit 67;
+  raw `AUTHENTICATE XOAUTH2 <b64>` gets `NO [PRIVACYREQUIRED] Encryption required` right or wrong token, no login judged.
+  With `--ssl-reqd` (STARTTLS) the token works. `--allow-plaintext-auth`: plain imap accepts it, wrong token still 67.
+  `--auth oauthbearer`: only `AUTH=OAUTHBEARER` advertised; AUTH=XOAUTH2 curl 67. XOAUTH2 base64 =
+  `user=<name>\x01auth=Bearer <tok>\x01\x01`. SMTP over smtps: `AUTH OAUTHBEARER` -> `334 ` -> payload -> 235; with
+  `AUTH=XOAUTH2` curl sends `AUTH XOAUTH2` then the payload on its own line. Stored mail `Received: ... with ESMTPSA`.
+- `--auth oauthbearer,xoauth2` does NOT close IMAP `LOGIN` (curl falls back to it: `A002 LOGIN ann pw` OK over imaps) or
+  POP3 USER/PASS over pop3s; SMTP password logins are refused. A wrong password over imaps there: curl 67 `Access denied.`.
+- curl keeps one IMAP session across `--next` and CurlClient reuses a logged-in connection: a second request with a wrong
+  token on the same session still succeeds. One client / one curl run per login attempt.
+- POP3 APOP: `--auth apop` (alone) greets `+OK surl ready <hex.digits@surl>`, curl logs in with APOP by itself
+  (`> APOP ann@example.com <md5 of timestamp+password>`), wrong password curl 67; raw `APOP` with a bad digest
+  `-ERR [AUTH] Authentication failed`; `USER` -> `-ERR [AUTH] Encryption required`; CAPA has no SASL line. Default server:
+  greeting `+OK surl ready` (no timestamp), raw APOP `-ERR Unsupported authentication mechanism`. `--login-options AUTH=APOP`:
+  curl exit 3. `--auth apop,cram-md5`: timestamp kept, curl picks CRAM-MD5. Surl.Api `AuthenticationMethods = ["apop"]`
+  (null by default, assign a list); `LoginJudgedEvent.Scheme` exists. `SurlExchangeRecord.Sent/Received` are the server's
+  view (Sent = server to client).
+- Surl.Api `SelfSigned = true` + `server.SelfSignedCertificatePem` + `CurlTlsOptions{Origin=CurlTlsPeerOptions{CertificateAuthorityBlob}}`.
+  `new SurlAccount("", "tok")` is the token account. Curl.Api `XOAuth2Bearer` + `UserName` works for IMAP and SMTP.
+  MCP `wait_for_event` answers `{"event":{...,"sequence":n,"name":..}}`; `after_sequence` skips earlier ones.
+
 ## Gotchas
 - Fixture line ends: LF fixtures need `--crlf`; CRLF fixtures in mcp recipes avoid it but it is harmless.
 - `Received:` carries the client's EHLO name (SmtpClient sends the machine name): never match it exactly.
@@ -191,6 +220,46 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
 
 ` (IMAP).
 
+## Counts, folders, TOP and the catch-all (2026-11-20, Surl 9ad60d80c, Curl 7d167fa10a, windows)
+- Bounded wait for asynchronous delivery on the console, no sleep: `curl --retry 10 --retry-all-errors --retry-delay 1
+  -X "FETCH 3 FLAGS" imap://h:p/INBOX` (missing message: `BAD Invalid message sequence number`, exit 21; FETCH FLAGS
+  sets no flag), or `... -X "LIST 3" pop3://h:p/` (exit 8), or `"imap://h:p/INBOX;UID=3"` (exit 78). Works as a `seed:` line
+  and after `--next` in a case. On Windows 30 send-then-STATUS loops never lagged; the guard is for macOS CI.
+- IMAP CAPABILITY: `IMAP4rev1 SASL-IR UIDPLUS UNSELECT NAMESPACE CHILDREN ID MOVE APPENDLIMIT=104857600` (+ auth). No
+  SPECIAL-USE: LIST shows no \Sent/\Drafts; `LIST "" "*" RETURN (SPECIAL-USE)` -> exit 21.
+- STATUS: `-X "STATUS INBOX (MESSAGES UNSEEN)" imap://h:p/` -> `* STATUS INBOX (MESSAGES 3 UNSEEN 3)`, sent as A003 with
+  no SELECT. Items MESSAGES, UNSEEN, RECENT (always 0), UIDNEXT, UIDVALIDITY; `SIZE`/`DELETED` (IMAP4rev2) -> `BAD Invalid
+  arguments`, exit 21. Unknown folder -> `NO [NONEXISTENT] Mailbox does not exist`, exit 21.
+- curl fetches with `UID FETCH n BODY[...]` (never BODY.PEEK): `INBOX;UID=1` AND `;SECTION=HEADER.FIELDS%20(SUBJECT)`
+  both set \Seen. `-X "STORE 1 -FLAGS (\Seen)"` unsets it. POP3 RETR/TOP do NOT set IMAP \Seen. `INBOX?UNSEEN` lists them.
+- `--mailbox "a@x:pw;folders=Sent,Drafts,Archive"`: LIST `INBOX` first then by name, all `\HasNoChildren`, empty. Space kept
+  (`"Sent Items"` quoted in LIST); `Archive/2026` alone implies `(\Noselect \HasChildren) "/" Archive`; `%2C` -> a comma in
+  the name. `folders=Sent,Sent` -> exit 2 `surl: option --mailbox: member Sent is given twice`; `folders=` -> exit 2
+  `key folders needs a value`; `folders=INBOX` accepted silently. Client may DELETE a start folder; a restart (memory
+  store) brings it back and empties the rest. ResetAsync / reset_server keep the folders. Surl.Api/MCP list ordinal order.
+- POP3: `-X UIDL` -> `n <uidvalidity>.<uid>` per line; `-X "UIDL 2"` prints nothing (`-v`: `< +OK 2 1795220321.2`).
+  `-X "TOP 2 0"` -> header + blank line; `TOP 2 2` + two body lines; `TOP 2 99` whole message. `-X TOP pop3://h:p/2%200`
+  sends `TOP 2 0` (curl appends the decoded path to a custom command: the way to pass two arguments from Curl.Api).
+  Missing message: `-ERR No such message`, exit 8 (Curl.Api CurlException 8 `Weird server reply`). `TOP 1` (no count) is
+  answered +OK (lenient). `--next` POP3: DELE then UIDL in one curl still lists old numbers; a new curl renumbers, IDs kept.
+- Catch-all: alias and real mailboxes win over it; address match ignores letter case (`Ann@Example.COM` -> ann). Per
+  domain: an unknown address of another served domain with no catch-all is discarded (`surl -v`: `Mail for x discarded:
+  no such account`, then `Message stored: ... for 0 recipients`). Caught copy has no Delivered-To/X-Original-To: an
+  envelope-only (Bcc) address cannot be searched. Target may be in another served domain. Same domain twice -> exit 2
+  `catch-all domain example.com is given twice`.
+- Curl.Api 0.2.0 cannot send IMAP STATUS (one-token HttpMethod: `FormatException: The format of the HTTP method is
+  invalid.`); count with `INBOX?UNSEEN` (SEARCH) instead. `new HttpMethod("UIDL")`, `("TOP")` + path `n%200`, `("RETR")` + `n` work.
+- Surl.Api `SurlMailboxInfo.UnseenCount`; `ListMessagesAsync(owner, mailbox)` returns `SurlMessagePage` (`.Messages`,
+  `.HasMore`); `DeliverAsync` adds no Return-Path/Received. ReadMessageAsync / read_message never set \Seen.
+- A CurlClient keeps its IMAP connection with the folder selected and curl skips the re-SELECT, and surl sends no
+  untagged EXISTS: mail delivered after that SELECT is invisible to the same client (`INBOX?ALL` -> `1 2 3` after a 4th);
+  a new CurlClient sees it. Use a fresh client or the store for counts after new mail.
+- Curl.Api SELECT of a missing folder (`Archive?UNSEEN`): CurlException 67 `Select failed`. Store reads for an unknown
+  owner: SurlNotFoundException `No mailboxes for x.`
+- Curl.Api `new HttpMethod("UIDL")` + path `2` hung (>60 s); avoid. `DELE` + path `1` then dispose the client: QUIT
+  commits; the same client still lists the old numbers.
+- reset_server (and presumably ResetAsync) RESTORES a start folder a client deleted, as well as emptying mailboxes.
+
 ## Recipes
 smtp-send-and-read-it-over-imap, pop3-retrieve-and-delete-a-message, smtp-serve-a-mail-domain,
 smtp-check-the-mail-an-app-sent (+ -in-csharp, -from-an-agent), smtp-catch-every-address-in-one-mailbox
@@ -201,4 +270,11 @@ surl-stand-up-mail-files-and-messages (+ twins), smtp-send-a-batch-of-mails-from
 smtp-wait-for-an-apps-mail, surl-give-each-task-its-own-account, surl-smoke-test-every-listener (+ twins), surl-run-a-test-server-in-ci (+ twins),
 imap-test-a-shared-team-folder (+ twins), smtp-check-a-mail-attachment (+ twins), imap-poll-until-the-mail-arrives,
 smtp-assert-mail-in-an-xunit-fixture, smtp-collect-mail-as-it-arrives,
-smtp-survive-a-temporary-rcpt-failure (+ twins), smtp-test-a-password-reset-mail (+ twins), smtp-review-an-apps-mail-against-rules.
+smtp-survive-a-temporary-rcpt-failure (+ twins), smtp-test-a-password-reset-mail (+ twins), smtp-review-an-apps-mail-against-rules,
+imap-check-unread-counts (+ twins), imap-start-a-mailbox-with-folders (+ twins), pop3-peek-at-headers-with-top (+ twins),
+smtp-catch-mail-for-unknown-addresses (+ twins).
+imap-keep-a-mailbox-off-smtp, imap-log-in-with-an-oauth-token, pop3-log-in-with-apop, imap-log-in-to-mail-with-a-token (all with twins).
+
+- Do not use Curl.Api `UseSsl.All` (or Try/Control) in a recipe until Curl BL-5640 lands: on `ftp://` it sends USER and PASS in clear with no AUTH TLS, and on `imap://` the STARTTLS login fails 67. Use the implicit-TLS scheme (`ftps://`, `imaps://`, `pop3s://`, `smtps://`) instead (Curl session, 2026-11-20).
+
+- Decided by Surl (2026-11-20): IMAP `LOGIN` and POP3 `USER`/`PASS` stay outside `--auth` and are governed by `--allow-plaintext-auth` alone (Surl ADR-0049 decision 1); `;protocols=` closes them. POP3 `TOP n` with no line count means 0 lines (ADR-0056 decision 5). A repeated list member is reported as "member X is given twice" everywhere (ADR-0101). Only `NOOP` and the commands ADR-0055 names report new mail (`EXISTS`) to an open IMAP session; FETCH, STORE, SEARCH, COPY and MOVE do not.

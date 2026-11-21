@@ -1,0 +1,62 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs rotate.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks the scenario.
+schema: 2
+key: http-rotate-a-password-without-downtime-from-an-agent
+title: Rotating a Password Without Downtime
+protocols: [https, ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_account, remove_account, get_events, curl]
+curl-options: [-s, -o, -w, --cacert, -u, --ssl-reqd]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7617, rfc959, rfc4217, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: add_account puts app-v2 beside app-v1; the web client logs in over HTTPS as app-v2 (200) while the FTP job still downloads as app-v1; get_events for app-v1 shows one accepted ftp password login; after the job moves, remove_account app-v1 makes app-v1 refused on both schemes (401, curl exit 67) while app-v2 still logs in on both.
+    program: rotate.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "add_account app-v2: {\"user\":\"app-v2\"}\nhttps app-v2: 200\nftp app-v1: hello from surl\nstill on app-v1: ftp password accepted\nftp app-v2: hello from surl\nremove_account app-v1: {\"user\":\"app-v1\"}\nhttps app-v1: 401\nftp app-v1: exit 67\nhttps app-v2: 200\nftp app-v2: hello from surl\n"
+
+  - id: who-still-uses-the-old-password
+    claim: get_events with kinds login_judged and account app-v1, called after the web client moved, answers a single accepted password login on the ftp scheme, which names the FTP job as the client still to move.
+    program: rotate.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nftp app-v1: hello from surl\nstill on app-v1: ftp password accepted\nftp app-v2: '
+
+  - id: no-change-in-place
+    claim: add_account for a name that exists is a tool error, user app-v1 already has an account, and the old password still logs in (200) while the new one does not (401).
+    program: rotate.cs
+    args: [in-place]
+    expect:
+      exit: 0
+      stdout: "add_account app-v1 again: error: user app-v1 already has an account\nhttps app-v1 old password: 200\nhttps app-v1 new password: 401\n"
+
+  - id: last-account-opens-the-server
+    claim: remove_account of the only account answers with a warning that the server has no account left and now needs no login, and a GET with no login is then answered 200.
+    program: rotate.cs
+    args: [last]
+    expect:
+      exit: 0
+      stdout: "remove_account app-v1: {\"user\":\"app-v1\",\"warning\":\"server s1 has no account left and now needs no login\"}\nhttps, no login: 200\n"
+
+  - id: unknown-account
+    claim: remove_account for a name the server does not hold is a tool error naming the server and the account.
+    program: rotate.cs
+    args: [unknown]
+    expect:
+      exit: 0
+      stdout: "remove_account app-v0: error: server s1 has no account app-v0\n"

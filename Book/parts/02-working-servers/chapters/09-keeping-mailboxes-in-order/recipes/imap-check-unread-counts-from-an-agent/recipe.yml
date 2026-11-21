@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs unread-counts.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-check-unread-counts-from-an-agent
+title: Checking Unread Counts from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, curl, list_mailboxes, read_message]
+curl-options: [-s, -S, -v, -u, -X, -o]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After three seeded messages, each waited for by its event, STATUS through the curl tool answers MESSAGES 3 UNSEEN 3 and list_mailboxes agrees; once curl reads UID 1 both say 2 unseen.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^before: \* STATUS INBOX \(MESSAGES 3 UNSEEN 3\); list_mailboxes 3 messages, 3 unseen\nafter curl read UID 1: \* STATUS INBOX \(MESSAGES 3 UNSEEN 2\); list_mailboxes 3 messages, 2 unseen\n'
+
+  - id: header-fetch-marks-seen
+    claim: Fetching only UID 2's Subject header through the curl tool marks it read too; both counts drop to 1 unseen.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nUID 2 header: Subject: Order 2 shipped\nafter curl read UID 2''s header: \* STATUS INBOX \(MESSAGES 3 UNSEEN 1\); list_mailboxes 3 messages, 1 unseen\n'
+
+  - id: which-are-unseen
+    claim: STATUS only counts; a SEARCH for UNSEEN names the message still unread, 3.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nSEARCH UNSEEN: \* SEARCH 3\n'
+
+  - id: read-message-sets-no-flag
+    claim: read_message gives the agent UID 3's text and sets no flag; both counts still say 1 unseen.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nread_message UID 3: Subject: Order 3 shipped\nafter read_message UID 3: \* STATUS INBOX \(MESSAGES 3 UNSEEN 1\); list_mailboxes 3 messages, 1 unseen\n'
+
+  - id: mark-unread-again
+    claim: STORE 1 -FLAGS (\Seen) through the curl tool makes message 1 unread again; both counts go back to 2.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter STORE 1 -FLAGS: \* STATUS INBOX \(MESSAGES 3 UNSEEN 2\); list_mailboxes 3 messages, 2 unseen\n'
+
+  - id: uidnext-and-new-mail
+    claim: STATUS (UIDNEXT) answers 4; a fourth seeded message, waited for by its event, makes both counts 4 messages, 3 unseen.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nUIDNEXT: \* STATUS INBOX \(UIDNEXT 4\)\nafter a fourth message: \* STATUS INBOX \(MESSAGES 4 UNSEEN 3\); list_mailboxes 4 messages, 3 unseen\n$'
+
+  - id: no-folder
+    claim: STATUS for a folder ann does not have is answered NO [NONEXISTENT], and the curl tool reports curl's exit 21.
+    program: unread-counts.cs
+    args: [no-folder]
+    expect:
+      exit: 1
+      stdout: "STATUS Archive (MESSAGES UNSEEN): curl exit 21, < A003 NO [NONEXISTENT] Mailbox does not exist\n"
+
+  - id: no-size
+    claim: STATUS with SIZE, an IMAP4rev2 item surl does not speak, is answered BAD Invalid arguments, curl exit 21.
+    program: unread-counts.cs
+    args: [no-size]
+    expect:
+      exit: 1
+      stdout: "STATUS INBOX (SIZE): curl exit 21, < A003 BAD Invalid arguments\n"
+
+  - id: unknown-owner
+    claim: list_mailboxes for an account that does not exist is a tool error, No mailboxes for nobody@example.com.
+    program: unread-counts.cs
+    args: [unknown-owner]
+    expect:
+      exit: 1
+      stdout: "list_mailboxes nobody: isError True, No mailboxes for nobody@example.com.\n"

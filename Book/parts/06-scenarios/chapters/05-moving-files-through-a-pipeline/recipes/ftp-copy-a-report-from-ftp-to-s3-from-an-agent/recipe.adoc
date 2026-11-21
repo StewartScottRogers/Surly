@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-copy-a-report-from-ftp-to-s3-from-an-agent]]
+=== Copying a Report from FTP to S3
+
+==== Problem
+
+As an agent, you test a nightly job that downloads a report over File Transfer Protocol (FTP) and uploads it to an Amazon Simple Storage Service (S3) bucket; you want the whole hop run, and the object{apos}s bytes compared with the source.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts an FTP server and an S3 server with `surl-mcp`, runs the hop as one call of `curl-mcp`{apos}s `curl` tool, and compares the two ends with `read_file`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts each server as `surl` with the same `arguments` would. Both take `--cert` and `--key`, the certificate made in setup for `127.0.0.1` and every bucket{apos}s host in `us-east-1`: the FTP server needs it to offer Transport Layer Security (TLS), and `s3://` is served over TLS only. The FTP server has the job{apos}s account, `--user nightly:s3cret`, and holds tonight{apos}s report in `files`, with Windows line ends; the S3 server has one key pair and `--allow-uploads`. `bound_urls` gives each real port.
+
+The `curl` tool runs one `curl` command line given as `args`, with the files in the folder `CURL_MCP_ROOT` names. The first half downloads: `--ssl-reqd` upgrades the FTP connection to TLS before the password is sent (<<rfc4217>>), `--cacert server.pem` trusts the server, and `-o report.csv` keeps the file. `--next` starts the second half with its own options: `--connect-to` sends the bucket{apos}s host to the S3 server, `-u` with the key pair signs, and `-T report.csv s3://reports/2026-11-20.csv` puts it (<<aws-s3-api>>). `-sS` keeps the answer to errors only. The answer is text holding JavaScript Object Notation (JSON), with `exitCode` and `standardError`.
+
+`read_file` reads a file from a server{apos}s store by `server_id` and `path`, without a request, and answers its `text`. The agent reads the report from the FTP server and the object from the S3 server and compares them: 37 bytes, identical, line ends included (<<rfc959>>). A date with no object is a tool error, which the program prints as `none`.
+
+`--fail-early` is the line between a failed night and a quiet lie. With it, a report missing on the FTP server stops the call at the download: `exitCode` 78, a tool error, and no object. Without it, `curl` goes on to the upload, finds the `report.csv` the last good run left in the folder, and puts that under the new date; the call answers `exitCode` 0 and no tool error, because `curl` exits with the last transfer{apos}s code, and the 78 is only in `standardError`. The new object is byte for byte the old report, so a comparison of bytes alone cannot catch it; the exit code can, if the job asks for it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-copy-a-report-from-ftp-to-s3>> for the hop as one `curl` command.
+* <<ftp-copy-a-report-from-ftp-to-s3-in-csharp>> for the hop as a C# test.
+* <<s3-sign-a-run-of-s3-requests-from-an-agent>> for signed S3 requests from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc4217>>, <<aws-s3-api>>.

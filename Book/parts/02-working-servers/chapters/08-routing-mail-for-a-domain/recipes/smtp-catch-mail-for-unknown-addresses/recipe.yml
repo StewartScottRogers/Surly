@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-catch-mail-for-unknown-addresses
+title: Catching Mail for Unknown Addresses
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox, --mail-catch-all, --mail-alias]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, --next, --retry, --retry-all-errors, --retry-delay, -X, -s, -S, -o]
+exit-codes: [0, 2, 55, 78]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+# welcome.eml goes to a misspelt address; notice.eml names ann in To but is sent to jo, as a Bcc is.
+fixtures:
+  welcome.eml: "From: app@example.com\nTo: anne@example.com\nSubject: Welcome\n\nYour account is ready.\n"
+  notice.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Notice\n\nThe service stops at noon.\n"
+
+# Two domains; example.com has a catch-all, example.org has none. support@ is an alias for ann.
+servers:
+  main:
+    command: surl --mail-domain example.com --mail-domain example.org --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox catchall@example.com:catchpass --mailbox team@example.org:teampass --mail-catch-all example.com=catchall@example.com --mail-alias support@example.com=ann@example.com smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# Delivery is asynchronous: each case that reads after a send fetches the message it expects with
+# --retry, a try a second for at most ten, rather than reading once or sleeping a fixed time.
+cases:
+  - id: solution
+    role: solution
+    claim: Mail to anne@example.com, an address no mailbox has, is accepted and lands in catchall@example.com's INBOX as UID 1, unchanged apart from the Return-Path and Received lines surl adds.
+    run: curl --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt anne@example.com -T welcome.eml smtp://127.0.0.1:{{port}}/example.com --next --retry 10 --retry-all-errors --retry-delay 1 -u catchall@example.com:catchpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1"
+    expect:
+      exit: 0
+      stdout-matches: '^Return-Path: <app@example\.com>\nReceived: from example\.com \(\[127\.0\.0\.1\]\) by surl with ESMTPA; [^\n]+\nFrom: app@example\.com\nTo: anne@example\.com\nSubject: Welcome\n\nYour account is ready\.\n$'
+
+  - id: missing-uid
+    claim: Reading a UID the catch-all does not hold, 9, fails with exit 78; that error is what the solution's --retry tries again on.
+    run: curl -s -S -u catchall@example.com:catchpass "imap://127.0.0.1:{{port2}}/INBOX;UID=9"
+    expect:
+      exit: 78
+      stderr-contains: "curl: (78)"
+
+  - id: search-by-to
+    claim: An IMAP SEARCH of the catch-all for TO anne@example.com finds it, UID 1.
+    run: curl -u catchall@example.com:catchpass "imap://127.0.0.1:{{port2}}/INBOX?TO%20anne@example.com"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n"
+
+  - id: real-mailbox-any-case
+    claim: An address that has a mailbox is not caught, whatever its letter case; mail to Ann@Example.COM lands in ann's INBOX as UID 1, and the catch-all still holds one message.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt Ann@Example.COM -T welcome.eml smtp://127.0.0.1:{{port}}/example.com --next -s -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 1 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -u catchall@example.com:catchpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: alias-not-caught
+    claim: An alias is not unknown either; mail to support@example.com goes to ann, her UID 2, and the catch-all still holds one.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt support@example.com -T welcome.eml smtp://127.0.0.1:{{port}}/example.com --next -s -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 2 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -u catchall@example.com:catchpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: per-domain
+    claim: The catch-all serves example.com only; one message to stray@example.org and team@example.org is accepted, exit 0, reaches team, and the stray copy is discarded, so the catch-all still holds one.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt stray@example.org --mail-rcpt team@example.org -T welcome.eml smtp://127.0.0.1:{{port}}/example.com --next -s -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u team@example.org:teampass -X "FETCH 1 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -u catchall@example.com:catchpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: envelope-only-address
+    claim: The caught copy does not record which address it was for; a message sent to jo@example.com whose To header names ann is caught as UID 2, but a SEARCH for TO jo@example.com finds nothing.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt jo@example.com -T notice.eml smtp://127.0.0.1:{{port}}/example.com --next -s -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u catchall@example.com:catchpass -X "FETCH 2 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -u catchall@example.com:catchpass "imap://127.0.0.1:{{port2}}/INBOX?TO%20jo@example.com"
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: outside-every-domain
+    claim: An address outside every --mail-domain is neither caught nor discarded but refused 550 at RCPT TO, and curl exits 55.
+    run: curl -s -S --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt someone@example.net -T welcome.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: one-per-domain
+    claim: A domain takes one catch-all; naming example.com twice is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox catchall@example.com:catchpass --mailbox ann@example.com:annpass --mail-catch-all example.com=catchall@example.com --mail-catch-all example.com=ann@example.com smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --mail-catch-all: catch-all domain example\.com is given twice\n'

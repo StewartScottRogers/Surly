@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: mqtt-keep-a-retained-message
+title: Keeping a Retained Message
+protocols: [mqtt]
+tier: working-servers
+surl-options: [--allow-anonymous, --topic]
+curl-options: [-s, -S, -d, --next]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+# main keeps what is published under sensors/. bare has no --topic, so it keeps nothing.
+# closed has the filter and no --allow-anonymous.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "sensors/#;retain" mqtt://127.0.0.1:{{port}}/
+    ready: port
+  bare:
+    command: surl --allow-anonymous mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  closed:
+    command: surl --topic "sensors/#;retain" mqtt://127.0.0.1:{{port3}}/
+    ready: port
+
+# curl writes each message it receives as two bytes of topic length (big-endian),
+# the topic, then the payload; "sensors/kitchen/temp" is 20 bytes, 0x00 0x14.
+cases:
+  - id: solution
+    role: solution
+    claim: curl publishes 21.5 to a topic under the declared filter, then, after --next, subscribes to it and receives the reading, written as the topic's length in two bytes, the topic and the message.
+    run: curl -s -d 21.5 mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp --next -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x14sensors/kitchen/temp21\.5\Z'
+
+  - id: later-subscriber
+    claim: A client that connects afterwards, in a command of its own, is sent the same reading, and does not use it up, so a second subscriber gets it too.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp --next -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x14sensors/kitchen/temp21\.5\x00\x14sensors/kitchen/temp21\.5\Z'
+
+  - id: last-reading-wins
+    claim: A second publish to the same topic replaces the first, so a later subscriber receives only the newer reading.
+    run: curl -s -d 22.0 mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp --next -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x14sensors/kitchen/temp22\.0\Z'
+
+  - id: one-per-topic
+    claim: Each topic under the filter keeps its own reading, so a publish to sensors/hall/temp leaves the kitchen's alone.
+    run: curl -s -d 19.0 mqtt://127.0.0.1:{{port}}/sensors/hall/temp --next -s mqtt://127.0.0.1:{{port}}/sensors/hall/temp --next -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11sensors/hall/temp19\.0\x00\x14sensors/kitchen/temp22\.0\Z'
+
+  - id: outside-the-filter
+    claim: A publish to a topic outside the filter is accepted, curl exits 0, and is not kept, so a later subscriber receives nothing.
+    run: curl -s -d 22.0 mqtt://127.0.0.1:{{port}}/lab/kitchen/temp --next -s mqtt://127.0.0.1:{{port}}/lab/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: no-filter-keeps-nothing
+    claim: A server started with no --topic keeps nothing curl publishes, because curl publishes with the retain flag clear.
+    run: curl -s -d 21.5 mqtt://127.0.0.1:{{port2}}/sensors/kitchen/temp --next -s mqtt://127.0.0.1:{{port2}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: empty-message-clears
+    claim: An empty message to a topic clears what was kept, so a later subscriber receives nothing.
+    run: curl -s -d "" mqtt://127.0.0.1:{{port}}/sensors/hall/temp --next -s mqtt://127.0.0.1:{{port}}/sensors/hall/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: closed-without-anonymous
+    claim: The filter does not open the server, so with no --allow-anonymous the connection is refused with CONNACK return code 5, and curl exits 8.
+    run: curl -s -S -d 21.5 mqtt://127.0.0.1:{{port3}}/sensors/kitchen/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Expected 0000 but got 0005\n"

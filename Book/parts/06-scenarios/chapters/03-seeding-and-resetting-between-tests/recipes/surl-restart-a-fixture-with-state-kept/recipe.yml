@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: surl-restart-a-fixture-with-state-kept
+title: Restarting a Fixture with State Kept
+protocols: [http, smtp, imap]
+tier: scenarios
+surl-options: [--directory, --allow-uploads, --user, --mail-domain, --mailbox]
+curl-options: [--digest, -u, -T, --mail-from, --mail-rcpt, --next, -X, -s, -S, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110, rfc5321, rfc9051]
+
+fixtures:
+  notes.txt: "notes, version 1\n"
+  order.eml: "Subject: order 42\r\n\r\nshipped\r\n"
+  later.eml: "Subject: order 43\r\n\r\nshipped too\r\n"
+  data/readme.txt: "the fixture's data directory\n"
+
+# kept: the fixture, with a data directory; files and mail live under data.
+# memory: the same options without --directory.
+servers:
+  kept:
+    command: surl --directory data --allow-uploads --user alice:s3cret --mail-domain example.com --mailbox ann@example.com:s3cret http://127.0.0.1:{{port}}/ smtp://127.0.0.1:{{port2}}/ imap://127.0.0.1:{{port3}}/
+    ready: port
+  memory:
+    command: surl --allow-uploads --user alice:s3cret --mail-domain example.com --mailbox ann@example.com:s3cret http://127.0.0.1:{{port4}}/ smtp://127.0.0.1:{{port5}}/ imap://127.0.0.1:{{port6}}/
+    ready: port
+
+# Before the first case: one upload and one message into each server.
+seed:
+  - curl -sS --digest -u alice:s3cret -T notes.txt http://127.0.0.1:{{port}}/notes.txt
+  - curl -sS -u ann@example.com:s3cret --mail-from ann@example.com --mail-rcpt ann@example.com -T order.eml smtp://127.0.0.1:{{port2}}/
+  - curl -sS --digest -u alice:s3cret -T notes.txt http://127.0.0.1:{{port4}}/notes.txt
+  - curl -sS -u ann@example.com:s3cret --mail-from ann@example.com --mail-rcpt ann@example.com -T order.eml smtp://127.0.0.1:{{port5}}/
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the server with --directory data is stopped outright and started again with the same command, one curl command reads back both the uploaded file over HTTP and the delivered message's text over IMAP.
+    restart: [kept]
+    run: curl -sS --digest -u alice:s3cret http://127.0.0.1:{{port}}/notes.txt --next -u ann@example.com:s3cret "imap://127.0.0.1:{{port3}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout-matches: '\Anotes, version 1\nshipped\r?\n\Z'
+
+  - id: on-disk
+    claim: The upload is the plain file data/notes.txt, and the mail store is under data/.surl/mail, next to the lock file.
+    run: curl -sS -o {{null}} --digest -u alice:s3cret http://127.0.0.1:{{port}}/notes.txt
+    expect:
+      exit: 0
+      files:
+        data/notes.txt: "notes, version 1\n"
+        data/.surl/mail/index: null
+        data/.surl/lock: null
+
+  - id: uids-carry-on
+    claim: After the restart the INBOX still holds one message and its next UID is still 2, so a client that remembers UIDs need not start over.
+    run: curl -sS -u ann@example.com:s3cret -X "STATUS INBOX (MESSAGES UIDNEXT)" imap://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout-matches: '\* STATUS INBOX \(MESSAGES 1 UIDNEXT 2\)'
+
+  - id: change-after-restart
+    claim: The restarted server takes new work as before; a second message gets UID 2 and the file is replaced, 204 No Content.
+    run: curl -sS -u ann@example.com:s3cret --mail-from ann@example.com --mail-rcpt ann@example.com -T later.eml smtp://127.0.0.1:{{port2}}/ --next --digest -u alice:s3cret -T order.eml -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port}}/notes.txt --next -u ann@example.com:s3cret "imap://127.0.0.1:{{port3}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout-matches: '\A204\r?\n\* SEARCH 1 2\r?\n\Z'
+
+  - id: second-restart
+    claim: A second restart keeps the changes made since the first; both messages are there, and the file is the 30-byte replacement.
+    restart: [kept]
+    run: curl -sS -u ann@example.com:s3cret "imap://127.0.0.1:{{port3}}/INBOX?ALL" --next --digest -u alice:s3cret -o {{null}} -w "%{size_download}\n" http://127.0.0.1:{{port}}/notes.txt
+    expect:
+      exit: 0
+      stdout-matches: '\A\* SEARCH 1 2\r?\n30\n\Z'
+
+  - id: memory-before
+    claim: The server without --directory holds the same seeded file and message while it runs.
+    run: curl -sS --digest -u alice:s3cret http://127.0.0.1:{{port4}}/notes.txt --next -u ann@example.com:s3cret "imap://127.0.0.1:{{port6}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout-matches: '\Anotes, version 1\n\* SEARCH 1\r?\n\Z'
+
+  - id: memory-after-restart
+    claim: Restarted, the server without --directory starts empty; the file is 404 Not Found and the INBOX has no messages, though the mailbox, from the command line, is back.
+    restart: [memory]
+    run: curl -sS --digest -u alice:s3cret -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port4}}/notes.txt --next -u ann@example.com:s3cret "imap://127.0.0.1:{{port6}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout-matches: '\A404\n\* SEARCH\r?\n\Z'

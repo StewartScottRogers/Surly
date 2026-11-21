@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008).
+schema: 2
+key: smb-grant-each-user-their-share-from-an-agent
+title: Per-User Share Rights from an Agent
+protocols: [smb]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl]
+exit-codes: [0, 9, 67, 78]
+references: [surl-readme, ms-smb]
+
+# Each mode has its own folders, since cases share a case root and a folder takes a lock.
+fixtures:
+  grants/reports/q1.txt: "q1 numbers\n"
+  grants/other/o.txt: "open to all\n"
+  nouploads/reports/q1.txt: "q1 numbers\n"
+  group/reports/q1.txt: "q1 numbers\n"
+  new.txt: "q2 numbers\n"
+  draft.txt: "unfinished\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the grant reports=reader:r,writer:rw, curl-mcp{apos}s curl tool uploads new.txt as the writer and exits 0, the reader reads it, and the reader{apos}s upload exits 9, access denied, and writes nothing.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: '^writer uploads: exit 0\nreader reads: exit 0 q1 numbers\nreader reads new: exit 0 q2 numbers\nreader uploads: exit 9 curl: \(9\)[^\n]*\nwriter reads draft: exit 78 curl: \(78\)'
+
+  - id: unlisted-account
+    claim: An account the grant does not name, carol, gets exit 78 for a read or an upload in the share, as if it were not there.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: 'carol reads: exit 78 curl: \(78\)[^\n]*\ncarol uploads: exit 78 curl: \(78\)'
+
+  - id: ungranted-share-stays-open
+    claim: A share that no grant names stays open, so carol reads other and, with --allow-uploads on, uploads into it.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: 'carol reads other: exit 0 open to all\ncarol uploads other: exit 0\n'
+
+  - id: wrong-password
+    claim: A grant is not a login; the writer with a wrong password exits 67, login denied.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: 'wrong password: exit 67 curl: \(67\) Login denied\n$'
+
+  - id: rw-still-needs-allow-uploads
+    claim: Without --allow-uploads the rw account is refused too, exit 9, and the reader still reads.
+    program: program.cs
+    args: ["no-uploads"]
+    expect:
+      exit: 0
+      stdout-matches: '^writer uploads: exit 9 curl: \(9\)[^\n]*\nreader reads: exit 0 q1 numbers\n$'
+
+  - id: group-grants-rw
+    claim: A group, --group editors=writer with the grant @editors:rw, lets its member upload, while the account outside it is refused with 9.
+    program: program.cs
+    args: ["group"]
+    expect:
+      exit: 0
+      stdout-matches: '^writer uploads: exit 0\nreader uploads: exit 9 curl: \(9\)[^\n]*\n$'

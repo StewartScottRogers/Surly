@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-test-an-httpclient-app-against-surl
+title: Testing an HttpClient App Against Surl
+protocols: [https]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, LoginJudgedEvent, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlHttpMessageHandler, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc7617, rfc6750, rfc7616, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; its argument picks the scenario.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app, an HttpClient on a CurlHttpMessageHandler, logs in with Basic over HTTPS, gets the token and calls the API with it as a Bearer token; it prints the orders, and the server recorded an accepted Basic login as app, then an accepted Bearer login.
+    program: app-test.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "token: tok-7f3a9c\norders: [{\"id\":1,\"total\":40}]\nserver: Basic app accepted\nserver: Bearer bearer token accepted\n"
+
+  - id: token-never-recorded
+    claim: The server names the Bearer login's account bearer token, never the token itself.
+    program: app-test.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nserver: Bearer bearer token accepted\n$'
+
+  - id: wrong-password
+    claim: With a wrong password the token endpoint answers 401, and the app's EnsureSuccessStatusCode throws HttpRequestException with StatusCode 401 before the API is called.
+    program: app-test.cs
+    args: [wrong-password]
+    expect:
+      exit: 1
+      stdout: "HttpRequestException: status 401\n"
+
+  - id: untrusted-certificate
+    claim: A CurlClient that does not trust the server's certificate fails the transfer; the handler throws HttpRequestException whose inner CurlException is PeerFailedVerification, 60.
+    program: app-test.cs
+    args: [untrusted]
+    expect:
+      exit: 1
+      stdout: "HttpRequestException: PeerFailedVerification (60)\n"
+
+  - id: handler-credentials
+    claim: With the handler's Credentials set instead of the app's own header, the request is answered 200 and the server recorded a Digest login as app, the strongest method the credential and the server share.
+    program: app-test.cs
+    args: [credentials]
+    expect:
+      exit: 0
+      stdout: "token.txt: 200\nserver: Digest app accepted\n"

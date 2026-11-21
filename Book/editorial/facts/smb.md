@@ -35,4 +35,11 @@ Read-only shares; NTLMv1 not accepted; smbs without a certificate refused to sta
 - Digest with HTTP PUT in Curl.Api works with a byte body (201 create, 204 replace; 405 uploads off, 413 over `MaxFileSize`).
 
 ## Recipes
-smb-upload-to-a-share, smbs-read-a-share-over-tls (each with -in-csharp and -from-an-agent); also smb-read-a-share.
+smb-upload-to-a-share, smbs-read-a-share-over-tls, smb-grant-each-user-their-share (each with -in-csharp and -from-an-agent); also smb-read-a-share.
+
+## Per-user share rights (smb-grant-each-user-their-share, + twins; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20, windows)
+- `--share <name>=<path>` serves a folder as a share (path must exist, relative to the case root; a non-readonly share takes a lock like `--directory`, so one folder per surl). `--share-access <share>=<member>:<r|rw>,...` (member an account or `@group`, repeatable per share; `--group editors=writer` names a group). A bad shape such as `reports=writer:q` exits 2 `option --share-access: is badly used here`.
+- `r` reads and lists; `rw` also uploads, but a write still needs `--allow-uploads` (without it even rw is exit 9). An `r` account's upload: exit 9 `Access denied to remote resource`, nothing written.
+- An account the grant does not name: read or upload in the share is exit 78 `Remote file not found` (the share is missing to it). A share no `--share-access` names stays open to every login, and takes uploads with `--allow-uploads`.
+- Surl.Api: `Shares`, `ShareAccess`, `Groups` are `IList<string>` of the option's value (`Shares = { "reports=" + folder }`, `ShareAccess.Add("reports=reader:r,writer:rw")`); Curl.Api: refused write `RemoteAccessDenied` 9, ungranted `RemoteFileNotFound` 78, wrong password `LoginDenied` 67. surl-mcp: put `--share`, `--share-access`, `--group` in `arguments` (folders under `SURL_MCP_ROOT`).
+- In YAML, a claim holding `: ` must be rephrased or quoted (the writer guide's heredoc gotcha also applies: write files with the Write tool).
