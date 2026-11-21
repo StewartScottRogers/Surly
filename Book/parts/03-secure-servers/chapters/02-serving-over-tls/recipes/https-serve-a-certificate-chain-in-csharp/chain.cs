@@ -42,7 +42,9 @@ await using (server)
 {
     // The client trusts the root alone, or nothing. NoRevoke is curl's --ssl-no-revoke: the test
     // certificates carry no revocation address, which Windows' Schannel would otherwise insist on.
-    ReadOnlyMemory<byte>? root = scenario == "no-trust" ? null : File.ReadAllBytes("root.pem");
+    // No trust is a null blob, not an empty one: an empty blob is a CA bundle holding nothing,
+    // which the OpenSSL build (Linux, macOS) refuses with SslCacertBadfile, 77.
+    ReadOnlyMemory<byte>? root = scenario == "no-trust" ? null : new ReadOnlyMemory<byte>(File.ReadAllBytes("root.pem"));
     var peer = new CurlTlsPeerOptions { SslOptions = SslOptions.NoRevoke, CertificateAuthorityBlob = root };
     await using CurlClient client = CurlClient.Create(new CurlClientOptions { Tls = new CurlTlsOptions { Origin = peer } });
     try

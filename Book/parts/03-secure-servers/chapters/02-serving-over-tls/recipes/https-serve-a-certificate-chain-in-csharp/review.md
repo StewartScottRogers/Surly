@@ -10,3 +10,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Windows' Schannel needs `--ssl-no-revoke` for any real chain and caches intermediates it has seen, so the leaf-only server uses a second intermediate. Linux and macOS are not run locally: the `60` wording differs (cases match the exit code), and the `58` message is matched by its prefix.
 2. `--cacert inter.pem` (trusting the intermediate alone) verifies on Windows; not claimed.
 3. Twin of `https-serve-a-certificate-chain`: it carries the console recipe's claims that this surface can show, each in its own words; a claim only the console can show is said so in the Discussion.
+4. CI run 44835381862: `no-trust` was 77 on Linux and macOS because `cond ? null : File.ReadAllBytes(...)` made an empty, non-null `CertificateAuthorityBlob`; the no-trust branch now passes a real null (60 everywhere).

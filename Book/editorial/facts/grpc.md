@@ -13,7 +13,7 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-20
 - `grpc://host:port/<pkg.Service>/<Method>`, request `-d '{...}'` JSON; reply printed as JSON, one object per message, default values left out (`index` 0).
 - `--grpc-proto file.proto`: types from the file, no reflection. The file decides the JSON names (field numbers on the wire). Errors: unknown field `curl: (2) -d: the data is not a surl.test.Ask message as JSON (UnknownField)` (exit 2); method not in the file `--grpc-proto: service surl.test.Echo has no method Chat` (2); missing file exit 26 `File "missing.proto" was not found`; syntax error exit 26 `bad.proto:1:28: Expected a service name, found "{".`; a service the server does not have, with a file: `grpc-status 12 (UNIMPLEMENTED): unknown service`, exit 22.
 - Any `grpc-status` other than 0: exit 22, stdout the replies already sent, stderr `curl: (22) grpc-status 5 (NOT_FOUND): no such order`. Empty message: `grpc-status 14 (UNAVAILABLE): `. `statusCode` outside 0..16 (99, -1): `grpc-status 3 (INVALID_ARGUMENT): request field out of range`. `grpc-message` percent-encoding is undone (`disk 100% full`).
-- `-m 1` with `delayMilliseconds` 3000: exit 28, no status. The text includes the elapsed milliseconds; match `curl: (28)`.
+- `-m 1` with `delayMilliseconds` 3000: exit 28, no status. The text includes the elapsed milliseconds; match `curl: (28)`. `-m` is also sent as `grpc-timeout`, which surl enforces, so the server can answer `grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded`, exit 22, first (seen on macOS); add `-H "grpc-timeout:"` to leave the header off (see platforms.md).
 - With no body, `GET`: curl without `-d` calls with an empty request; reply `{}` for Echo.
 
 ## MCP

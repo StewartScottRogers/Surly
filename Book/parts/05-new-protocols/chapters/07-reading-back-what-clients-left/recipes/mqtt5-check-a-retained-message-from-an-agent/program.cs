@@ -43,6 +43,7 @@ CallToolResult started = await surl.CallToolAsync("start_server", new Dictionary
 });
 string server = started.StructuredContent!.Value.GetProperty("server_id").GetString()!;
 string broker = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
+long lastSequence = 0;
 
 switch (which)
 {
@@ -132,4 +133,19 @@ async Task Curl(params string[] curlArguments)
     string sent = curlArguments[0] == "-d" ? (curlArguments[1] == "" ? "an empty message" : curlArguments[1]) : "";
     string what = curlArguments[0] == "-d" ? $"publish {sent}" : "subscribe";
     Console.WriteLine($"curl {what}: exit {answer.GetProperty("exitCode")}{(output == "" ? "" : $", {output}")}{(error == "" ? "" : $" ({error})")}");
+
+    // A QoS 0 publish is not acknowledged, so curl can return before the broker has kept it. The broker
+    // records the end of each client's connection, after what it sent is applied: wait for that, not a sleep.
+    CallToolResult waited = await surl.CallToolAsync("wait_for_event", new Dictionary<string, object?>
+    {
+        ["server_id"] = server, ["after_sequence"] = lastSequence, ["kinds"] = new[] { "exchange_ended" }, ["timeout_ms"] = 10000,
+    });
+    JsonElement found = waited.StructuredContent!.Value;
+    JsonElement ended = found.TryGetProperty("event", out JsonElement inner) ? inner : found;
+    if (!ended.TryGetProperty("sequence", out JsonElement sequence))
+    {
+        throw new TimeoutException("the broker did not end curl's connection in 10 s");
+    }
+
+    lastSequence = sequence.GetInt64();
 }
