@@ -123,3 +123,5 @@ curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-
 
 ## Timing from surl-mcp's record (http-find-a-slow-path-from-an-agent, 2026-11-21)
 - `get_exchanges` chunks carry no timestamps (only `started_at` per exchange). Timing comes from `get_events` `exchange_started`/`exchange_ended` `at` (ISO 8601 with offset; `GetDateTimeOffset()` parses it). `exchange_bytes` events came back empty for HTTP here. Each curl-mcp `transfer` call is its own exchange (new connection); one `curl` tool call with several URLs is one exchange holding every request, so per-path timing needs one request per connection. `fault_applied` events name `target` and `exchange_id`. `exchange_ended` can lag the client a moment: poll until started equals ended.
+
+- Decided by Surl (2026-11-21): `get_exchanges` caps each exchange at 64 KiB (ADR-0103 decision 3) and marks it with `is_cut`, `shown_bytes` and `recorded_bytes`. Byte events are never kept, so `exchange_bytes` is empty (ADR-0143 decision 2). There will be no Unix-socket property on SurlServerOptions (ADR-0099); use AdditionalArguments.

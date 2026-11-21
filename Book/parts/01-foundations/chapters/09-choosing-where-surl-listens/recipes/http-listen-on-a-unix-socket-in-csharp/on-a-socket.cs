@@ -15,7 +15,8 @@ using Surl.Api;
 
 string which = args.Length > 0 ? args[0] : "fetch";
 string listenUrl = $"http://localhost:{(args.Length > 1 ? args[1] : "8080")}/";
-string socket = which == "file-exists" ? "taken.sock" : "surl.sock";
+// Each case has its own socket file, so one that fails cannot leave a file in the next one's way.
+string socket = which switch { "fetch" => "surl.sock", "file-exists" => "taken.sock", _ => $"{which}.sock" };
 
 // The server: surl's --unix-socket, as surl's own words. The listen URL names the server; no port opens.
 var options = new SurlServerOptions { ListenUrls = { listenUrl }, AdditionalArguments = { "--unix-socket", socket } };
@@ -46,8 +47,9 @@ Console.WriteLine($"listening on {server.BoundUrl}, socket file there: {File.Exi
 // The client: the request names a URL, and UnixSocketPath says where to connect instead.
 string url = which == "any-host" ? "http://files.example/hello.txt" : $"{listenUrl}hello.txt";
 var network = which == "no-tcp" ? null : new CurlNetworkOptions { UnixSocketPath = socket };
-await using (CurlClient client = CurlClient.Create())
+try
 {
+    await using CurlClient client = CurlClient.Create();
     try
     {
         CurlResponse response = await client.SendAsync(new CurlRequest(HttpMethod.Get, url) { Network = network }, CancellationToken.None);
@@ -59,7 +61,10 @@ await using (CurlClient client = CurlClient.Create())
         Console.WriteLine($"{e.Code}: {e.Message}");
     }
 }
+finally
+{
+    // Stopping the server in process removes the socket file it made, whatever the request did.
+    Console.WriteLine($"stopped: {await server.StopAsync()}, socket file there: {File.Exists(socket)}");
+}
 
-// Stopping the server in process removes the socket file it made.
-Console.WriteLine($"stopped: {await server.StopAsync()}, socket file there: {File.Exists(socket)}");
 return 0;

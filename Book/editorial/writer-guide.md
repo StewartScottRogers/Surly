@@ -39,7 +39,7 @@ Do not read the Surl or Curl READMEs or `--aihelp` end to end; look up one thing
   `` `name`'s ``; wrap `=>` and `<=` in `` `+...+` ``; no "simply", "just" or exclamation marks.
 - Behaviour that differs by platform (WinLDAP, NTLM, SSPI, the TLS library) gets `platforms:` on its
   case and is stated as such; read `facts/platforms.md` first. Only Windows runs locally; CI runs Linux and macOS.
-- Portable across Windows, Linux and macOS: BSD `wc` pads its count (use `wc -c < f | tr -d ' '`); `cat`/`ls` exit
+- Portable across Windows, Linux and macOS: CI's Linux is Ubuntu 26.04, whose coreutils are uutils (write `sort -t '='`, not `sort -t=`); BSD `wc` pads its count (use `wc -c < f | tr -d ' '`); `cat`/`ls` exit
   codes differ (use `test`); counts that depend on scheduling (connections opened, retries before a race) are
   claimed as a range or "more than one"; every client call that can hang (HTTP/3, a dropped connection) gets
   `--connect-timeout`/`--max-time` or a cancellation token, so a case fails fast instead of at 60 s.
