@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # kafka facts
-Checked against: surl 1.0.0 (Surl 9ad60d80c), curl (Curl 7d167fa10a), 2026-11-20, windows (SASL re-probed; the rest carried from Surl 763754785 / Curl b9ca725077).
+Checked against: surl 1.0.0 (Surl 9ad60d80c), curl (Curl 7d167fa10a), 2026-11-20, windows (SASL re-probed; the rest carried from Surl 763754785 / Curl b9ca725077). Batch-09 sections (Curl.Api publish, AMQP 1.0, durable queues, STOMP worker, keys and the log) against Surl 9ad60d80c, Curl 7d167fa10a, 2026-11-21, windows.
 
 ## Listen URLs and readiness
 `kafka://`, `kafkas://` (TLS, needs `--cert`/`--key`); TCP, `ready: port`. Every topic has one partition, 0.
@@ -38,3 +38,20 @@ surl-mcp `start_server(listen_urls ["kafka://127.0.0.1:0"], arguments ["--allow-
 kafka-produce-and-consume, kafka-replay-a-topic-from-an-offset (and twins)
 
 - Libcurl answers `UnsupportedProtocol` for this scheme by design: Libcurl mirrors upstream libcurl's protocol set, and extensions never change Libcurl or `curl -V`. Use Curl.Api or the console (Curl session, 2026-11-20).
+
+## Logging in over TLS (kafka-log-in-over-tls and twins; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
+- curl cannot be made to insist on PLAIN (`--login-options AUTH=PLAIN`, `--sasl-ir` change nothing): it takes PLAIN where offered (kafkas://, or kafka:// with `--allow-plaintext-auth`), else SCRAM-SHA-512. The mechanism is named in the refusal: `Kafka SASL PLAIN authentication failed`, `Kafka SASL SCRAM-SHA-512 authentication failed` (kafka:// default), `SCRAM-SHA-256` with `--auth SCRAM-SHA-256`; Curl.Api messages end `: Authentication failed`. `--auth PLAIN` over kafka://: exit 67 `SASL is not enabled on the Kafka listener, it offers no SASL mechanism`.
+- kafkas:// no login: exit 56 (Curl.Api `RecvError` `Connection disconnected`); untrusted certificate: 60 (message is the TLS library's: print only the code).
+- Surl.Api: `AuthenticationMethods = ["SCRAM-SHA-256"]` (`IList<string>`, `--auth`), `AllowPlaintextAuthentication`, `CertificateFile`/`KeyFile`; Curl.Api `Authentication` on a GET consumes after login. surl-mcp: `--user`, `--cert`, `--auth X` in `arguments`; curl-mcp `curl -sS -u alice:s3cret -d first kafkas://.../orders`; `read_log` then answers the record. RFC 4616 is not in the bibliography.
+
+## Keys and the log (batch-09, `kafka-read-a-topic-log-after-a-test`, `kafka-check-a-consumer-saw-every-record`)
+- No producer here sets a record key: `curl -d` has no key option (`?key=` is refused, exit 3 `Kafka URL query is offset=<number>`),
+  and `PublishAsync` / `publish_message` take none. Every `SurlLogRecord.Key` has no value. A recipe that claims keys says so.
+- `ReadLogAsync(topic, fromOffset, limit 1..1000, ct)`: a `SurlLogPage` (`Records` with `Offset`, `Timestamp`, `Key`, `Payload`;
+  `NextOffset`; `HasMore`). Past the end: `SurlReadRefusedException` `Offset 9 is outside the log, which holds 0 to 4.` A topic nobody
+  wrote to: `SurlNotFoundException` `No log for topic refunds.` Reads take nothing; Curl.Api `GET ...orders?offset=2` afterwards
+  still sees the records.
+- MCP `read_log(server_id, topic, from_offset, limit)`: `{records:[{offset, timestamp, text}], next_offset, has_more}`; a refused read
+  is a tool error with the same text. A Kafka produce (curl `-d` or `publish_message`) is acknowledged before it returns, so the log
+  holds the record at once and no wait is needed.
+

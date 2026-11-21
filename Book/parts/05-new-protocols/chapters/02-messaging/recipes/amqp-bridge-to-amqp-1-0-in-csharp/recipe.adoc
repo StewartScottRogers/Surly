@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-bridge-to-amqp-1-0-in-csharp]]
+=== Bridging AMQP Versions in C#
+
+==== Problem
+
+One service publishes with RabbitMQ's Advanced Message Queuing Protocol (AMQP) 0-9-1 client and another receives with an AMQP 1.0 client. You want a message on a queue received from the same address on either version, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts a server with an AMQP 0-9-1 listener and an AMQP 1.0 listener, puts a message on the queue `orders`, and receives it with a `CurlClient` over AMQP 1.0, then looks for it over AMQP 0-9-1:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for two listeners on port `0`, so the system picks free ports: `amqp://` and `amqp1://`. `SurlServer` is the running server, and its `BoundUrls` hold one `Uri` for each listener, in the order asked, with the real port. Both listeners sit on one message bus (<<surl-readme>>). `Queues` names the queue `orders` so it exists from the start, and `SurlAccount` is the login `alice`, which the clients use.
+
+The program does not send with `Curl.Api`: this `Curl.Api` has no way to publish over AMQP, and a request with a `Body` is a receive. `server.Messages`, a `SurlMessages`, puts the message on the queue from the server's side with `EnqueueAsync`, which is where a producer of either version would leave it. A queue it does not know is refused. The console recipe sends with `curl -d` over each version (<<amqp-bridge-to-amqp-1-0>>).
+
+A receive is a `GET` through `CurlClient.SendAsync` of a `CurlRequest`, with `Authentication` set to a `CurlAuthenticationOptions` for `alice`. The `CurlResponse` has the message as its `Body`. The URLs differ by one thing: AMQP 0-9-1 names a virtual host and then the queue, `<BoundUrls[0]>%2F/orders`, where `%2F` is the virtual host `/`, the only one `surl` serves; AMQP 1.0 has only the address, `<BoundUrls[1]>orders` (<<amqp091>>, <<amqp10>>). Over AMQP 1.0 the receive returns `hello`. Over AMQP 0-9-1 the same queue gives it just as well, and when the message has been taken over one version, a receive over the other finds nothing: one queue, one copy. With two messages on the queue, one taken over each version comes out in the order they were put.
+
+An empty queue is answered differently by each version. Over AMQP 0-9-1 the body is empty and nothing is thrown. Over AMQP 1.0 the receive waits for a message to arrive, so a test needs a limit: the program passes a `CancellationToken` that fires after two seconds, and the call throws `OperationCanceledException`, which the program reports as cancelled. The address is the queue's name and nothing more, so `refunds` holds nothing while the message is still on `orders`, and a receive of `orders` takes it.
+
+The login is checked on both listeners. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, which lets `alice` log in with no TLS, and `surl` warns on start while it is on. With it, a wrong password throws `CurlException` with `Code` `67`, `LoginDenied`: over AMQP 1.0 the message names SASL outcome code `1`, and over AMQP 0-9-1 `connection.close` 403, `ACCESS_REFUSED`. The Simple Authentication and Security Layer (SASL) is the login step of AMQP 1.0. With it left off, the AMQP 1.0 listener does not offer SASL PLAIN and the AMQP 0-9-1 listener offers only CRAM-MD5, which `Curl.Api` does not use, so the first receive throws the same exception before any password is sent.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-bridge-to-amqp-1-0>> for the same task on the console.
+* <<amqp-bridge-to-amqp-1-0-from-an-agent>> for the same task from an agent.
+* <<amqp-seed-a-queue-and-browse-what-is-left>> for seeding a queue and browsing it.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>, <<amqp10>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-move-a-device-to-mqtt5]]
+=== Moving a Device to MQTT 5
+
+==== Problem
+
+You have devices that speak Message Queuing Telemetry Transport (MQTT) 3.1.1 and you are moving them to MQTT 5 one at a time. For the weeks in between you want one broker that serves both versions over one message bus, so an old device and a new one still exchange messages, and you want to know what changes for a device when it moves.
+
+==== Solution
+
+Start one `surl` with an `mqtt://` listener and an `mqtt5://` listener. The two share one bus, so a message published through one is received through the other. Here an old device publishes and a new one receives:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` takes more than one listen URL, one per protocol, each with its own port. `mqtt://` is MQTT 3.1.1 and `mqtt5://` is MQTT 5 (<<mqtt311>>, <<mqtt5>>). `--allow-anonymous` lets a device in with no login, and `--user lamp:s3cret` makes an account instead. Each device is one `curl` command: `-d` publishes, a URL alone subscribes, `--next` chains a subscribe after a publish, `-u` is the login, `-s` hides the progress meter and `-S` keeps the error text. Both are views of one broker: a retained message belongs to the topic, not to the version that published it. `--topic "plant/#;retain"` keeps every publish under `plant`, because `curl` publishes with the retain flag off and without the option nothing would be kept for a later subscriber. A publish to a topic outside the filter, `garden/temp` in the recipe, is accepted and kept on neither listener. `--mqtt5-disconnect-after-retained` ends an MQTT 5 subscription once the retained messages are sent, so `curl` exits instead of waiting; the MQTT 3.1.1 listener ends its own subscription without it (<<surl-readme>>).
+
+What a device sees is the same messages in different dress. An MQTT 5 subscriber is written the payload alone. An MQTT 3.1.1 subscriber is written two bytes of topic length, then the topic, then the payload: `plant/hall/temp` is 15 bytes, so `71` arrives as `0x00 0x0f plant/hall/temp 71`. A reader that parses the old layout has to change when its device moves. The bus keeps one message per topic: the last publish replaces the one before it, and an empty message clears the topic for subscribers of both versions.
+
+The login is the second thing that changes. One account serves both versions, and a password in clear is refused on both unless `--allow-plaintext-auth` is given, which loosens security and makes `surl` warn at start; the refusal is a not-authorized answer without the password being checked. The refusals differ in code. MQTT 3.1.1 answers in its CONNACK packet with a return code, 4 for a wrong password and 5 for no login or an unchecked one, and `curl` exits `8` with `Expected 0000 but got 0004` or `0005`. MQTT 5 answers with a reason code, `0x86` for a wrong password and `0x87` for not authorized, and `curl` exits `67`. A test that expects exit `8` from the old device must expect `67` from the new one (<<mqtt5>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-move-a-device-to-mqtt5-in-csharp>> for the same task from C#.
+* <<mqtt-move-a-device-to-mqtt5-from-an-agent>> for the same task from an agent.
+* <<mqtt5-publish-and-subscribe>> for MQTT 5 on its own.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<mqtt5>>.

@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-move-a-device-to-mqtt5-in-csharp]]
+=== Moving a Device to MQTT 5 in C#
+
+==== Problem
+
+You are moving devices from Message Queuing Telemetry Transport (MQTT) 3.1.1 to MQTT 5 one at a time. You want a test in your own .NET code against one broker that serves both versions over one message bus, to see an old and a new device exchange messages and to see what changes for a device when it moves.
+
+==== Solution
+
+The program starts `SurlServer` in process with an `mqtt://` and an `mqtt5://` listener, plays the devices with a `CurlClient`, and asks the broker what it kept. The argument picks the scenario; the first, `old-to-new`, has the old device publish and a new one subscribe:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `ListenUrls` takes one URL per protocol, here `mqtt://127.0.0.1:0` and `mqtt5://127.0.0.1:0`, port `0` for a free one, and `server.BoundUrls` holds the real addresses in the order given. Both listeners are views of one bus: a retained message belongs to the topic, not to the version that published it (<<mqtt311>>, <<mqtt5>>). `Topics` holds `--topic` items, and `plant/#;retain` keeps what a device publishes under `plant`; a publish outside it, `garden/temp`, is accepted and kept by neither listener. `--mqtt5-disconnect-after-retained` has no property, so it goes in `AdditionalArguments`, which takes any other `surl` option in its own words; it ends an MQTT 5 subscription once the retained messages are sent, so the `GET` returns. `RecordExchanges` makes the server record each client connection.
+
+A device is a `CurlClient` call with a `CurlRequest`. A `POST` to an `mqtt://` URL publishes the `CurlContent` body to the topic in its path, with `CurlAuthenticationOptions` as the login; a `GET` subscribes, and the `CurlResponse` body is every retained message (<<curl-readme>>). A publish is not acknowledged, so the call can return before the broker has applied it. The program therefore waits after every call for the server to record the end of the exchange, with `server.WaitForEventAsync`, a `SurlEventQuery` for the `SurlEventKind.ExchangeEnded` kind that returns a `SurlEvent`, and a ten-second bound, starting after the last sequence it has seen. `server.Messages.ReadRetainedAsync` then reads what the broker holds as a `SurlRetainedMessage`, with no client and no login.
+
+What a device sees is the same messages in different dress. The MQTT 5 subscriber is given the payload alone. The MQTT 3.1.1 subscriber is given two bytes of topic length, the topic, then the payload, which the program decodes: `plant/hall/temp` is 15 bytes. The bus keeps one message per topic, so the old device's `72` replaces the `71` before it, and an empty message clears the topic for both versions.
+
+The `Curl.Api` build this book pins does not publish over `mqtt5://`: a `POST` there sends a subscribe and nothing is kept. The program plays the MQTT 5 side of a message with `server.Messages.PublishAsync`, which sets the retain flag itself, so those cases show what the old device and the broker do with an MQTT 5 message, not what an MQTT 5 client sends. The console recipe publishes with `curl` over MQTT 5.
+
+The login is the second change. One `SurlAccount`, `lamp`, serves both versions, and a password in clear is refused on both unless `AllowPlaintextAuthentication` is set, which is `--allow-plaintext-auth` and loosens security (<<surl-readme>>). A refusal does not return a response: the call throws `CurlException`. MQTT 3.1.1 answers in its CONNACK packet with a return code, 4 for a wrong password and 5 for no login or an unchecked one, and the exception is `WeirdServerReply`, code 8, with `Expected 0000 but got 0004` or `0005`. MQTT 5 answers with a reason code, `0x86` for a wrong password and `0x87` for not authorized, and the exception is `LoginDenied`, code 67. A test that catches code 8 from the old device has to catch 67 from the new one; the program returns the code it caught.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-move-a-device-to-mqtt5>> for the same task on the console.
+* <<mqtt-move-a-device-to-mqtt5-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<mqtt5>>.

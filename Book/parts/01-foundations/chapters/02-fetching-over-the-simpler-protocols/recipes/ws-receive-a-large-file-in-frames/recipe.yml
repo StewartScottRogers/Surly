@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ws-receive-a-large-file-in-frames
+title: Receiving a Large File in Frames
+protocols: [ws]
+tier: foundations
+surl-options: [--directory, -v, --log-file]
+curl-options: [-s, -o]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc6455]
+
+fixtures: {}
+
+# Files of random bytes, made fresh: 200,000 bytes, exactly 64 KiB (65,536) and one byte more.
+setup:
+  - mkdir site
+  - head -c 200000 /dev/urandom > site/big.bin
+  - head -c 65536 /dev/urandom > site/at-limit.bin
+  - head -c 65537 /dev/urandom > site/over-limit.bin
+
+# surl.log is beside the folder the server serves, not in it.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site ws://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'A 200,000-byte file is received over WebSocket and written to a local file, and the copy is identical to the original, byte for byte.'
+    run: curl -s -o got.bin ws://127.0.0.1:{{port}}/big.bin && cmp got.bin site/big.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: size
+    claim: 'The message curl writes to standard output is 200,000 bytes, the whole file, with nothing added between frames.'
+    run: curl -s ws://127.0.0.1:{{port}}/big.bin | wc -c | tr -d ' '
+    expect:
+      exit: 0
+      stdout: "200000\n"
+
+  - id: four-frames
+    claim: 'The server''s log records the 200,000 bytes as one binary message sent in 4 frames.'
+    run: grep -a -m1 -o "Sent 200000 bytes of /big.bin as a binary message in 4 frames" surl.log
+    expect:
+      exit: 0
+      stdout: "Sent 200000 bytes of /big.bin as a binary message in 4 frames\n"
+
+  - id: at-limit
+    claim: 'A file of exactly 65,536 bytes, 64 KiB, goes in one frame, and arrives whole.'
+    run: curl -s -o at.bin ws://127.0.0.1:{{port}}/at-limit.bin && cmp at.bin site/at-limit.bin && grep -a -m1 -o "Sent 65536 bytes of /at-limit.bin as a binary message in 1 frames" surl.log
+    expect:
+      exit: 0
+      stdout: "Sent 65536 bytes of /at-limit.bin as a binary message in 1 frames\n"
+
+  - id: over-limit
+    claim: 'One byte more, 65,537, goes in 2 frames, and arrives whole.'
+    run: curl -s -o over.bin ws://127.0.0.1:{{port}}/over-limit.bin && cmp over.bin site/over-limit.bin && grep -a -m1 -o "Sent 65537 bytes of /over-limit.bin as a binary message in 2 frames" surl.log
+    expect:
+      exit: 0
+      stdout: "Sent 65537 bytes of /over-limit.bin as a binary message in 2 frames\n"

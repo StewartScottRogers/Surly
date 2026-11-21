@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-reuse-one-connection-for-many-files-from-an-agent]]
+=== Reusing One Connection from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to fetch several files in one `curl` call and then prove, from the server{apos}s own record, that they shared one connection, using Model Context Protocol (MCP) tools only.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts a server with `surl-mcp`{apos}s `start_server`, fetches the three files with one call to `curl-mcp`{apos}s `curl` tool, and reads the connections back with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in. The argument after `--` picks the scenario.
+
+`start_server` serves the three files from memory on port 0, and the program fetches from the URL in `bound_urls`. The `curl` tool runs one `curl` command line in process. The URL glob `{a,b,c}.txt` makes three transfers of it; `-o "got/#1.txt"` with `--create-dirs` saves each under its own name inside `CURL_MCP_ROOT`; `-s` turns the progress meter off; and `-w "%{url.path} %{num_connects}\n"` prints a line per transfer (<<curl-manual>>). `num_connects` is the number of connections the transfer opened: `1` for the first, `0` for the two that went down the connection it left open. Three URLs named one by one, each with its own `-o`, are reused the same way. A second `curl` call shares nothing with the first: each call is a `curl` command line of its own, so its first transfer opens a connection. Over Hypertext Transfer Protocol (HTTP) version 1.1 a connection stays open after a response unless one side says otherwise (<<rfc9110>>). The tool answers in text, as JavaScript Object Notation (JSON), with `exitCode` and the `-w` lines in `standardOutput`; the program trims the line ends, which come back as carriage return and line feed on Windows.
+
+`get_exchanges` is the server{apos}s side. Each exchange is one connection, from accept to close, numbered from 1 (<<surl-readme>>). Its `chunks` are the bytes in the order they crossed, and each chunk with `direction` `received` here is one request head, whose first line is the request line. One exchange holding all three `GET` lines is the proof an agent should read: `num_connects` is what the client believed, the exchange is what the server saw.
+
+Adding `-H "Connection: close"` asks the server to close after each answer: the same call opens three connections, `num_connects` is 1 for each, and `get_exchanges` shows three exchanges of one request. `--http1.0` ends reuse too, since the server answers an HTTP/1.0 request and closes. Idle time is the third way: `--rate 1/2s` makes `curl` wait two seconds between transfers, well inside the server{apos}s default `--idle-timeout` of 120 seconds, so the connection is reused; against a server started with `--idle-timeout 1` in `arguments`, the pause outlasts the timeout, the server closes the connection, and `curl` opens a new one without an error. The `transfer` tool is the other way to fetch from `curl-mcp`, one request per call, described by fields. Calls to it share no connection: three calls are three exchanges. An agent that wants reuse puts the files in one `curl` call.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-reuse-one-connection-for-many-files>> for the same task on the console.
+* <<http-reuse-one-connection-for-many-files-in-csharp>> for one shared `CurlClient` doing the same from C#.
+* <<http-download-several-files-at-once-from-an-agent>> for fetching files side by side.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

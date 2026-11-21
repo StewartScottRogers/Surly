@@ -68,6 +68,10 @@ Linux case shows the password was not checked.
 
 - Git Bash (MSYS) converts arguments that look like POSIX paths, `path=/backups` included, into Windows paths before a native program sees them; a `--fault` scoped by `path=` then never matches. Set `MSYS_NO_PATHCONV=1` (2026-11-20, `ftp-run-out-of-space-on-upload`). Recipe scripts that pass such arguments need it on Windows.
 
+## Unix domain sockets
+- surl `--unix-socket`, curl `--unix-socket`, Curl.Api `UnixSocketPath`, surl-mcp and curl-mcp all work on Windows (AF_UNIX); no `platforms:` needed for serving and fetching. What differs is stopping: Git Bash's `kill` ends surl outright on Windows, leaving the socket file (next start 45); Linux and macOS SIGTERM lets surl remove it (`http-listen-on-a-unix-socket`, cases `[windows]` and `[linux, macos]`). Path limit 107 bytes (Linux, Windows), 103 (macOS): use relative paths.
+- macOS fetch through the socket fails (CI run 44906624868, surl 1.0.0 / Surl 9ad60d80c, Curl 7d167fa10a; reported to Surl): surl binds the file and prints `Listening on ... over unix://surl.sock`, then `curl -s --unix-socket surl.sock http://localhost:<port>/hello.txt` exits 55; curl-mcp's `curl` tool fails `CurlExit`; a Surl.Api plus Curl.Api program aborts (exit 134), leaving its socket file, so the next case on that path gets `BindFailed (45) ... Address already in use`. Not the path length: the paths are relative (9 bytes), the connect succeeds (a long path would be curl exit 6, nothing listening exit 7), and the same relative paths pass on Linux. Cases that only bind, refuse or stop pass on macOS. Fetching cases are `[windows, linux]`, with a `[macos]` case claiming the 55 (`http-listen-on-a-unix-socket` and twins). C# programs: one socket file per case and `StopAsync` in `finally`.
+
 ## Unacknowledged writes
 - MQTT QoS 0 through curl or curl-mcp: curl returns before the broker keeps the message, and on macOS a
   `read_retained_message` straight after answered the previous value or nothing (CI run 44835381862). After each
@@ -82,7 +86,7 @@ ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scop
 surl-start-and-stop-in-a-shell-script, surl-run-a-test-server-in-ci, https-serve-a-certificate-chain (and twins), https-move-a-client-to-http3 (and twins),
 grpc-test-a-failing-call-from-an-agent, mqtt5-check-a-retained-message-from-an-agent, mqtt-check-retained-state-after-a-run,
 https-fall-back-when-http3-is-missing-from-an-agent, sftp-offer-a-single-cipher, http-multiplex-requests-over-http2-in-csharp,
-http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it.
+http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it, http-download-in-parallel-segments, http-listen-on-a-unix-socket (and twins), telnet-hold-a-line-session-in-csharp.
 
 - Alt-Svc on Windows (Curl ADR-1313, confirmed by the Curl session 2026-11-20): with no version option, curl, Curl.Api and curl-mcp ignore a stored h3 or h2 Alt-Svc entry, as the Windows reference curl 8.22.0 (Schannel) does. With `--http3` (or `--http2`; Curl.Api `Http3`) given, a stored h3 entry is used on Windows too, so a recipe that moves a client to HTTP/3 through Alt-Svc passes `--http3` on every platform.
 
@@ -92,3 +96,13 @@ http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it.
 - BSD `wc -c` (macOS) pads its count with spaces; use `wc -c < f | tr -d ' '` in scripts whose output is matched.
 - Connections opened without `PipeWait` (Curl.Api, HTTP/2, five requests at once): 5 on Windows, 2 on Ubuntu, 1 on macOS. A race: claim a range, never an exact count. A count of connections over HTTP/1.1 is exact only when the requests overlap: macOS reused a finished one (4, not 5, CI run 44878668055); hold each request with a 1 s `delay;stage=command` fault.
 - `SurlFault.DropConnection() with { AfterBytes = ... }` mid-body: on macOS the Curl.Api body read never ended (60 s timeout); Windows gets `CurlException` `RecvError` at once. `CurlClientOptions.Timeout` covers the streamed body as well (Windows: a slowed reader got `CurlException` at the timeout), so a bound makes it a `CurlException` everywhere (`http-stream-a-download-and-hash-it`).
+
+## CI fixes from run 44898744862 (Curl 7d167fa10a; Windows verified, Linux and macOS from the CI log)
+- A `drop` fault at the accept stage (no `stage`), before the greeting: Windows `curl` and Curl.Api always got 56 `RecvError`; Linux and macOS console `curl` got 7 `Could not connect to server`, and Curl.Api on Linux got 56 on one connection and 7 `CouldntConnect` on the next in the same run. A race: claim "fails, 7 or 56" (`smtp-resend-after-a-dropped-connection` and its C# twin). `--retry` alone retries neither. A drop at `stage=command` comes after the connection is made: 56 everywhere. The agent twin accepts both too.
+- `curl -v` over FTP: the command order is the same on all three (PWD, CWD..., EPSV, TYPE I, SIZE, REST, RETR), but the Windows trace as verify reads it has a blank line after each line and Linux and macOS have none, so a `stderr-contains` spanning two trace lines passes only on Windows. Pipe `2>&1 | grep` for the lines the claim needs and match `stdout` exactly (`ftp-choose-how-curl-walks-folders`, `ftp-resume-an-interrupted-download`).
+
+## CI fixes from run 44906624868 (batch-09, Surl 9ad60d80c / Curl 7d167fa10a; Windows verified, Linux checked in WSL and Docker)
+- ubuntu-latest is now Ubuntu 26.04, whose coreutils are uutils (Rust), not GNU: `sort -t=` (separator glued to the option) is refused `sort: separator must be exactly one character long: ''` (exit 2, nothing on stdout), so a pipeline ending in it prints nothing on Linux only. Write `sort -t '=' ...` with the separator as its own argument (`http-download-in-parallel-segments`). Other glued short-option arguments are suspect too; WSL's Ubuntu 26.04 reproduces it (`printf 'a=2\nb=1\n' | sort -t= -k2n`).
+- Telnet through Curl.Api, server closing after `line too long`: the close comes 5-50 ms after the text on Windows and in a Linux container on one CPU, but a 1 s silence window missed it once on a loaded ubuntu runner. A program that tells "closed" from "went quiet" waits 5 s of silence (`telnet-hold-a-line-session-in-csharp`).
+
+- Unix sockets on macOS (diagnosed 2026-11-21): surl at 9ad60d80c crashes on its first accept over a Unix socket (.NET `ArgumentException: Destination is too short` in `FinishOperationAccept`), so the first client sees an empty reply or a send failure and every later connect is refused. Surl BL-1565 owns it; curl is not at fault. Until it is fixed, Unix-socket fetch cases are marked off macOS.

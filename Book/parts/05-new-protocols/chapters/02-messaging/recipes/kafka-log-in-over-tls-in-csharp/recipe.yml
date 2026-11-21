@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: kafka-log-in-over-tls-in-csharp
+title: Logging In to Kafka over TLS in C#
+protocols: [kafkas, kafka]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 56, 60, 67]
+references: [surl-readme, curl-readme, kafka-protocol, rfc8446]
+
+fixtures: {}
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Over kafkas the account logs in with the certificate trusted, with no loosening option, and consumes the record the server holds."
+    program: program.cs
+    args: ["tls"]
+    expect:
+      exit: 0
+      stdout: "logged in, consumed: first\n"
+
+  - id: tls-uses-plain
+    claim: "Offered PLAIN over TLS, Curl.Api uses it; a wrong password makes the call throw CurlException with code 67, LoginDenied, and the message names SASL PLAIN."
+    program: program.cs
+    args: ["tls-wrong"]
+    expect:
+      exit: 67
+      stdout: "refused: curl code 67 LoginDenied: Kafka SASL PLAIN authentication failed: Authentication failed\n"
+
+  - id: tls-no-login
+    claim: "A connection with no login is closed by the TLS listener, and the call throws CurlException with code 56, RecvError."
+    program: program.cs
+    args: ["tls-no-login"]
+    expect:
+      exit: 56
+      stdout: "refused: curl code 56 RecvError\n"
+
+  - id: untrusted-certificate
+    claim: "Without CertificateAuthorityFile the client does not trust the certificate and sends no login: CurlException with code 60, PeerFailedVerification."
+    program: program.cs
+    args: ["tls-untrusted"]
+    expect:
+      exit: 60
+      stdout: "refused: curl code 60 PeerFailedVerification\n"
+
+  - id: plain-listener-scram
+    claim: "The plain listener does not offer PLAIN, and the same login works over kafka because the client takes SCRAM instead."
+    program: program.cs
+    args: ["plain"]
+    expect:
+      exit: 0
+      stdout: "logged in, consumed: first\n"
+
+  - id: plain-names-scram
+    claim: "On the plain listener a wrong password is refused with code 67 and the message names SCRAM-SHA-512, not PLAIN."
+    program: program.cs
+    args: ["plain-wrong"]
+    expect:
+      exit: 67
+      stdout: "refused: curl code 67 LoginDenied: Kafka SASL SCRAM-SHA-512 authentication failed: Authentication failed\n"
+
+  - id: scram-256-only
+    claim: "With AuthenticationMethods set to SCRAM-SHA-256 the server offers that one mechanism and the refusal names it."
+    program: program.cs
+    args: ["scram-256"]
+    expect:
+      exit: 67
+      stdout: "refused: curl code 67 LoginDenied: Kafka SASL SCRAM-SHA-256 authentication failed: Authentication failed\n"
+
+  - id: only-plain-offers-nothing
+    claim: "With AuthenticationMethods set to PLAIN alone over kafka, the server offers no mechanism at all, and the client stops before it sends the password: code 67, it offers no SASL mechanism."
+    program: program.cs
+    args: ["only-plain"]
+    expect:
+      exit: 67
+      stdout: "refused: curl code 67 LoginDenied: SASL is not enabled on the Kafka listener, it offers no SASL mechanism\n"
+
+  - id: plaintext-option-loosens
+    claim: "With AllowPlaintextAuthentication the server offers PLAIN over kafka too, the client uses it, and a wrong password now names SASL PLAIN."
+    program: program.cs
+    args: ["loosened"]
+    expect:
+      exit: 67
+      stdout: "refused: curl code 67 LoginDenied: Kafka SASL PLAIN authentication failed: Authentication failed\n"

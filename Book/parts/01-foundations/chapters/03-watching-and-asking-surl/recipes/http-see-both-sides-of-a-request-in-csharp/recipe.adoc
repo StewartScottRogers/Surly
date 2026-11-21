@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-see-both-sides-of-a-request-in-csharp]]
+=== Seeing Both Sides in C#
+
+==== Problem
+
+A C# test that uploads a file gets `405 Method Not Allowed` and fails with nothing more to go on. You want the test to print what `Curl.Api` sent and what `Surl.Api` answered, and why the server refused, so the failure explains itself.
+
+==== Solution
+
+Start the `SurlServer` with `RecordExchanges` and a verbose `Log`, and after the request print each request head and status line from `Exchanges`, then the log lines that give the server{apos}s reasons:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` gives the server one account, a `SurlAccount` for `alice`, and leaves `AllowUploads` off, as `surl` without `--allow-uploads`. `RecordExchanges = true` keeps every exchange the server handles in `server.Exchanges`; each `SurlExchangeRecord` is one connection, and its `Chunks` are the bytes in the order they crossed. Each `SurlExchangeChunk` has a `Direction`, `SurlExchangeDirection.Received` for what the client sent and `Sent` for what the server answered, and its `Bytes`. `Log` with `LogLevel.Verbose` is `surl -v`: every event the server decides, marked `*`, and every protocol line, marked `<` received and `>` sent (<<surl-readme>>). The program writes the log to a `StringWriter` behind `TextWriter.Synchronized` and reads it after `StopAsync`, when the last lines are in.
+
+`CurlRequest` is a `PUT` with the file{apos}s bytes as `Body`, and `CurlAuthenticationOptions` with `HttpAuthenticationMethods.Digest` is `curl --digest -u alice:s3cret` (<<rfc7616>>). `CurlClient.SendAsync` returns the `CurlResponse` with `StatusCode` `405`; it throws nothing, since a refusal is an answer. Printing the heads shows the whole conversation inside one exchange: Digest needs a challenge first, so the client sent the `PUT` without credentials, the server answered `401 Unauthorized`, the client sent it again with `Authorization: Digest username="alice"` and more, and the server answered `405` with `Allow: GET, HEAD`, the methods it takes there (<<rfc9110>>). The heads say what happened; the log says why: the login was accepted, and the method is not served. The cause is the server{apos}s options, not the client{apos}s request.
+
+The server judges the login before the method, so with no login the same `PUT` is answered `401` and the log says a login is needed; a `405` from `surl` means any login it needed was good. With `AllowUploads` the same request is answered `201 Created`, and the log names where the bytes were stored. Uploads are off unless asked for, because a server that accepts writes is a decision for whoever starts it.
+
+The two records treat the credential differently. `Exchanges` keeps the `Authorization` header exactly as received, by design, for a test that wants to check it; the log writes `Authorization: Digest ****` in its place. A test that prints its log on failure prints no credential; one that prints `Exchanges` should print only the parts it needs, as this one does.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-see-both-sides-of-a-request>> for the same task on the console, with `--trace-ascii` on both programs.
+* <<http-see-both-sides-of-a-request-from-an-agent>> for an agent comparing `curl -v` with `get_exchanges`.
+* <<surl-send-server-logs-to-test-output>> for the server{apos}s log in a test{apos}s output.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc7616>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-report-download-progress]]
+=== Reporting Download Progress
+
+==== Problem
+
+Your C# tool fetches large files over Hypertext Transfer Protocol (HTTP), and you want it to print a progress line as the bytes arrive, from Curl.Api's own progress reports rather than by counting bytes yourself.
+
+==== Solution
+
+Set `Progress` on the `CurlRequest` to an `IProgress<CurlTransferProgress>` that prints a line each time another quarter of the body has arrived:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server is `surl` in-process (<<surl-readme>>): `SurlServerOptions` holds a 16 mebibyte (MiB) `big.bin` in `Files` on a free port. `CurlClientOptions.Timeout` of 60 seconds bounds every transfer, so a run that goes wrong fails instead of hanging, and the program makes one untimed request first, because the first Curl.Api request in a process spends a few seconds setting the engine up.
+
+`CurlRequest.Progress` takes any `IProgress<CurlTransferProgress>`. The engine calls its `Report` each time libcurl would call a transfer's progress callback, `CURLOPT_XFERINFOFUNCTION` (<<libcurl-api>>), with a `CurlTransferProgress`: `DownloadNow` and `DownloadTotal` for the response body, `UploadNow` and `UploadTotal` for a request body, the average speeds, and `Phase`. `DownloadTotal` comes from the response's `Content-Length`, here 16777216. The reports come while `CurlClient.SendAsync`{apos}s `CurlResponse` body is being read: each quarter line is printed before the program's own `body read to its end`, so the line tracks the bytes as they arrive, not after. They never go back, there are ten or more for this file, and the last says 16777216 of 16777216.
+
+`Report` runs on the engine's own thread, one report at a time and in order, so `QuarterLine` keeps its state in plain fields and writes from there. That is why it implements `IProgress<T>` itself rather than using .NET's `Progress<T>` class, which hands each report on to another thread to be handled later. Keep `Report` short; the transfer is the engine's to get on with.
+
+`Phase`, a `CurlTransferPhase`, says which way the bytes are moving: `Connecting` until the response body has a size or a byte, then `Downloading` (`Uploading` belongs to a request body). For a path the server does not have, the answer is `404 Not Found` (<<rfc9110>>) with `Content-Length: 0`, and the reports stay `Connecting` with `DownloadTotal` 0. Zero means the size is not known, so `QuarterLine` prints no percentage at all; a progress line for a failed fetch never claims it finished. Curl.Api documents the same 0 for a body whose size is not known yet (<<curl-readme>>), so a tool facing a server that sends no `Content-Length` would show a byte count instead of a percentage.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-report-progress-of-a-large-upload>> for the same reports on an upload.
+* <<http-cancel-a-download-midway>> for stopping a download once it has what it needs.
+* <<http-stream-a-large-download-to-disk>> for writing the body to a file as it arrives.
+* <<surl-readme>>, <<curl-readme>>, <<libcurl-api>>, <<rfc9110>>.

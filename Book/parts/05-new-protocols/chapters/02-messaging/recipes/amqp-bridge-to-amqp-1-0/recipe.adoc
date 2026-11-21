@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-bridge-to-amqp-1-0]]
+=== Bridging AMQP 0-9-1 and 1.0
+
+==== Problem
+
+One service publishes with RabbitMQ's Advanced Message Queuing Protocol (AMQP) 0-9-1 client and another receives with an AMQP 1.0 client. You want a message sent to a queue on one protocol and received from the same address on the other.
+
+==== Solution
+
+Start one `surl` with a listener for each version. They share one message bus, so the queue `orders` of AMQP 0-9-1 is the address `orders` of AMQP 1.0. Send with `-d` to the first and, after `--next`, receive from the second:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The two protocols are different wire formats for the same job (<<amqp091>>, <<amqp10>>), and `surl` serves both from one process: listen URLs `amqp://` and `amqp1://` on two ports. Behind them is one bus. A queue has one name, a message put on it by either protocol is one message, and whichever protocol takes it takes it for good. That is why the receive over AMQP 1.0 returns `hello` and a later receive over AMQP 0-9-1 finds the queue empty and writes nothing, exit `0`. The reverse holds, a message sent over AMQP 1.0 is received over AMQP 0-9-1, and when both versions send, the messages come out in the order sent, the oldest first (<<surl-readme>>).
+
+The URLs differ by one thing. An AMQP 0-9-1 URL names a virtual host, then the queue: `amqp://host:port/%2F/orders`, where `%2F` is the virtual host `/`, the only one `surl` serves. An AMQP 1.0 URL has no virtual host: `amqp1://host:port/orders`, and the path is the address (<<curl-protocols>>). `-d` sends and no `-d` receives, one message each time, and a send writes nothing to standard output.
+
+The address is the queue's name and nothing more. The message sent to `orders` is not at `refunds`: an AMQP 1.0 receive from an address that holds nothing does not return empty, as AMQP 0-9-1 does, it waits for a message to arrive. `-m 2` stops `curl` after two seconds, exit `28`, with nothing written, and the message is still on `orders` afterwards. Any receive over AMQP 1.0 from a queue that may be empty needs such a limit.
+
+The account `alice` is checked on both listeners, so a wrong password is refused over AMQP 1.0 with SASL outcome code `1` and over AMQP 0-9-1 with `connection.close` 403, access refused; `curl` exits `67` for both. SASL is the Simple Authentication and Security Layer, the login step of AMQP 1.0.
+
+`--allow-plaintext-auth` is what lets `alice` log in here. Over a connection with no encryption `surl` does not offer a mechanism that sends the password in the clear by default: the AMQP 1.0 listener does not offer SASL PLAIN, and the AMQP 0-9-1 listener offers only CRAM-MD5, which `curl` does not use. Without the option `curl` stops before it sends the password, exit `67`, and says which mechanism was missing. The option loosens `surl`{apos}s defaults, and `surl` writes a `surl: warning:` line when it starts. Use it on a test bus, or put the listeners behind TLS (<<amqp-send-and-receive>>).
+
+`--user alice:s3cret` gives `surl` the account, and `-u alice:s3cret` is `curl` logging in as it. `-s` keeps `curl`{apos}s progress meter out of the output and `-S` puts its error messages back, so a refusal shows on standard error. `--next` ends one transfer and starts the next with its own options, which is how one command sends and then receives.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-send-and-receive>> for sending and receiving over AMQP 0-9-1 and TLS.
+* <<amqp-bridge-to-amqp-1-0-in-csharp>> for the same task in a C# test.
+* <<amqp-bridge-to-amqp-1-0-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<amqp091>>, <<amqp10>>.

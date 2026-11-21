@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-a-slow-path-from-an-agent]]
+=== Finding a Slow Path from an Agent
+
+==== Problem
+
+A test run against a `surl` server was slow, and you want an artificial intelligence (AI) agent to read what the server recorded and say which Hypertext Transfer Protocol (HTTP) path took longest, without rerunning the test under a stopwatch.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). After the run it asks `surl-mcp` for `get_events`, when each exchange started and ended, and `get_exchanges`, what each one carried, and pairs them up:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program plays both parts. As the test run, it starts a server with `start_server`, three files in `files`, and `arguments` holding `--fault "delay;stage=command;path=/reports/weekly.csv;ms=1500"`: the server holds every request for that path 1.5 seconds before answering, a stand-in for a slow handler. The run fetches the three paths with `curl-mcp`{apos}s `transfer`, one call each, `timeoutSeconds` bounding every call. The first transfer `curl-mcp` makes sets its engine up, so the program makes one first against a second server, which keeps it out of the recorded run.
+
+As the agent, it needs nothing from the run but the server's ID. `get_events` with `kinds` `exchange_started` and `exchange_ended` gives each exchange's `exchange_id` and `at`, the moment it happened; for HTTP an exchange is one connection. An exchange ends when the server sees its connection close, a moment after the client is done, so the agent asks again until every started exchange has ended, 5 seconds at most. `get_exchanges` gives each exchange's `chunks`; a `received` chunk in `text` encoding that begins with a request line, `GET /reports/weekly.csv HTTP/1.1`, says what was asked (<<rfc9110>>). End minus start, per exchange, names the slow path: `/reports/weekly.csv` at 1.5 to 4 seconds, the other two under 1 second. The chunks carry no times of their own, so the events are where the timing comes from.
+
+The fault is visible in the record too. `fault_applied` events carry the rule's `target`, the path it acted on, and the `exchange_id`, so an agent can confirm that the slowness was the server's doing rather than the network's or the client's. Against a real slow service there is no such event, and the timings alone have to do.
+
+The pairing holds only while each connection carries one request. When the run fetches all three paths in one `curl` tool call, `curl` keeps one connection open for them (<<curl-readme>>), and the server records one exchange of 1.5 to 4 seconds holding all three requests: the timing names the connection, not the path. Here only the `fault_applied` event says which request was held. A test that wants its slow path found from the server's record should make one connection per request, or have a fault or log line that names the path; `surl -v` logs each answer per request with its path (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-slow-down-one-path-from-an-agent>> for the fault that makes one path slow.
+* <<ftp-find-what-an-upload-left-from-an-agent>> for reading a server's store after a run.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-uploads-to-s3-from-an-agent]]
+=== Moving File Uploads to S3
+
+==== Problem
+
+As an agent: your app uploads files with Hypertext Transfer Protocol (HTTP) `PUT` requests. You want to move it to the Amazon Simple Storage Service (S3) protocol and prove that the same files land under the same names in the same store.
+
+==== Solution
+
+Start one server through `surl-mcp` with an S3 and an HTTPS listener, upload once each way through `curl-mcp`, and read the store and the server{apos}s login events back:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` of `surl-mcp` takes `listen_urls`, here an `s3://` and an `https://` URL, each on port 0 for a free one, and `bound_urls` lists them in that order. `files`, a map from path to text, is the store both serve, and `uploads/readme.txt` makes the bucket. Over S3 each top-level folder is a bucket and the path under it the key, so the HTTP path `/uploads/report.csv`, the object `s3://uploads/report.csv` and the store path `/uploads/report.csv` are one thing under three names. That is what makes the move testable: the only thing that changes is the protocol.
+
+`arguments` is `surl`{apos}s own words. S3 is HTTPS from the first byte, so `--cert server.pem` and `--key server.key`, made in the setup with `openssl`, serve both listeners. `--user AKIAIOSFODNN7EXAMPLE:s3cret` is one access key ID and its secret, which HTTP takes as a user name and password. `--allow-uploads` lets clients write and `--list-directories` lets a signed request list a bucket.
+
+The `curl` tool of `curl-mcp` runs real `curl` options: `args` is the list of words, and the answer holds `exitCode`, `standardOutput` and `standardError`, each with its `content`. `-T` uploads a file from the folder `curl-mcp` is confined to. On the `https://` URL, `-u` goes as Basic authentication over the encrypted connection (<<rfc7617>>); on an `s3://` URL it signs the request with AWS Signature Version 4, so the secret never crosses the wire (<<aws-s3-api>>). `curl` sends an `s3://` request to the bucket{apos}s host name at Amazon, so `--connect-to` sends it to the server{apos}s S3 port, the certificate names `*.s3.us-east-1.amazonaws.com`, and `--cacert server.pem` trusts it. `-s` keeps the progress meter away, `-S` still shows an error, and `-w %{http_code}` prints the status. An `s3://` URL ending in `/` lists the bucket, one name a line: both files beside the one already there.
+
+The store can be read without a protocol. `list_files` of `surl-mcp` with the `path` `/uploads` answers `entries`, each with its `name`: the same three. `read_file` answers a file{apos}s `text`, and each upload is the text that was sent. Each is also the same read the other way round, the HTTP upload as an S3 object and the S3 object over HTTPS.
+
+`get_events`, given the `server_id` and the kind `login_judged`, answers one event per login with its `scheme`, `mechanism` and `account`. The HTTPS upload is `https`, `Basic`; the S3 put and listing are `s3`, `AWS4-HMAC-SHA256`, all for the same key ID. The `https` logins are the uploads still arriving the old way.
+
+What the app reads back changes. Over HTTP a `PUT` that makes a file is answered `201 Created` and one that replaces it `204 No Content` (<<rfc9110>>). Over S3 a put is `200` either way, so code that tests for `201` must change. Refusals change too. An HTTP `PUT` with no login is answered `401`. An S3 put with no signature is refused `403 AccessDenied` and one signed with the wrong secret `403 SignatureDoesNotMatch`, exit code `22` each, with the S3 error code in `standardError`; `read_file` of the refused upload{apos}s path is a tool error, since nothing was stored.
+
+The cutover is a server started with `--auth aws-sigv4`, which takes signed requests only. The old client{apos}s HTTPS `PUT` is answered `403`, the right password included, and nothing is stored. The new client{apos}s S3 put on the same server is answered `200` and lands in the store.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-uploads-to-s3>> and <<http-move-uploads-to-s3-in-csharp>> for the same move on the console and in C#.
+* <<s3-audit-a-bucket-after-a-sync>> for more on `list_files` and S3 from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc9110>>, <<rfc7617>>.

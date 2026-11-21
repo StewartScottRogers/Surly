@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-keep-a-queue-across-restarts-in-csharp]]
+=== Durable AMQP Queues in C#
+
+==== Problem
+
+Your jobs must survive a broker restart. You want a durable queue whose message is still there after the server stops and starts on the same directory, and a plain queue that empties, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts a server with a directory and a durable queue, queues three jobs, has a `CurlClient` take the first, disposes the server, starts another on the same folder and takes the next job:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for an `amqp://` listener on port `0`, so the system picks a free port, and `AllowAnonymous`, the option `--allow-anonymous`, which lets a client in with no login. It loosens the defaults, for a server that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). `Queues` holds the queue names, as `--queue` does: `jobs;durable` is a queue to keep, and `scratch` is a plain one. `DataDirectory` is `--directory`, the folder the server writes to; the program makes it with `Directory.CreateTempSubdirectory`, since it must exist before the server starts.
+
+The jobs are put on the queue from the server's side: `server.Messages`, a `SurlServerMessages`, has `EnqueueAsync`, which queues a message on a queue that exists. `Curl.Api` takes them. A `GET` of `<BoundUrl>%2F/jobs`, sent with `CurlClient.SendAsync` as a `CurlRequest`, takes one message, and the `CurlResponse`{apos}s `Body` is its text; `%2F` is the virtual host `/`, the only one `surl` serves (<<amqp091>>). An empty queue gives an empty body and no exception. This `Curl.Api` cannot publish over AMQP, so the console recipe's sends become `EnqueueAsync` here (<<amqp-keep-a-queue-across-restarts>>).
+
+A restart is a `DisposeAsync` of the server and a new `SurlServer.StartAsync` with the same `DataDirectory`; the new server has a new port, and the program reads `BoundUrl` again. What the durable queue held when the first server stopped is what the second holds: `job-1` was taken before the restart and does not come back, and `job-2` is the next. A job queued after the first restart, `job-4`, comes after `job-3`, a second restart keeps both, and after they are taken a third restart finds the queue empty. A message taken is gone for good.
+
+The index of the durable queue is a file under `.surl/bus/queues` in the folder, beside the lock file `.surl/lock`. The program prints whether each exists while the server runs and after it is disposed: both are there both times.
+
+`scratch` is not durable. It starts empty after the restart even though the server has a directory: its message `tmp` is gone and a receive gives an empty body. `jobs;durable` with no `DataDirectory` keeps nothing either. The last scenario leaves the directory out: while the server runs, `BrowseQueueAsync` counts two ready jobs after the worker took one, a `SurlQueuePage` read without taking anything, and after a restart it counts none. The name says what to keep and the directory says where, and the server starts without complaint when the second is missing, so a test that expects a job back has to check it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-keep-a-queue-across-restarts>> for the same task on the console.
+* <<amqp-keep-a-queue-across-restarts-from-an-agent>> for the same task from an agent.
+* <<amqp-seed-a-queue-and-browse-what-is-left>> for seeding a queue and browsing it.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>.

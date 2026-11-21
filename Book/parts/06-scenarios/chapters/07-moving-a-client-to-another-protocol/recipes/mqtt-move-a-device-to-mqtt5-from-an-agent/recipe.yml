@@ -1,0 +1,123 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: mqtt-move-a-device-to-mqtt5-from-an-agent
+title: Moving a Device to MQTT 5 from an Agent
+protocols: [mqtt, mqtt5]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_retained_message, wait_for_event]
+curl-options: [-s, -S, -d, -u]
+exit-codes: [0]
+references: [surl-readme, curl-readme, mqtt311, mqtt5, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A device on MQTT 3.1.1 publishes 68 through curl and a subscriber over MQTT 5 receives it, the payload alone; read_retained_message answers the same 68 with qos 0."
+    program: program.cs
+    args: ["old-to-new"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt publish 68: exit 0\ncurl mqtt5 subscribe: exit 0, 68\nplant/hall/temp: text 68, qos 0\n"
+
+  - id: new-to-old
+    claim: "A message published over MQTT 5 is received by an MQTT 3.1.1 subscriber, which is given the topic's length, 15, and the topic before the payload."
+    program: program.cs
+    args: ["new-to-old"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt5 publish 71: exit 0\ncurl mqtt subscribe: exit 0, length 15, topic plant/hall/temp, payload 71\n"
+
+  - id: one-message-per-topic
+    claim: "The bus keeps one retained message per topic; after the old device publishes 72 over the 71 the new one left, an MQTT 5 subscriber receives 72 alone."
+    program: program.cs
+    args: ["replaced"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt5 publish 71: exit 0\ncurl mqtt publish 72: exit 0\ncurl mqtt5 subscribe: exit 0, 72\n"
+
+  - id: empty-message-clears
+    claim: "An empty message from the MQTT 5 device clears the topic for the old device, which receives nothing, and read_retained_message answers that nothing is retained."
+    program: program.cs
+    args: ["clear"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt publish 71: exit 0\ncurl mqtt5 publish an empty message: exit 0\ncurl mqtt subscribe: exit 0, nothing\nplant/hall/temp: nothing retained\n"
+
+  - id: outside-the-filter
+    claim: "A publish outside the --topic filter is kept on neither listener: the old device's subscribe receives nothing and read_retained_message answers that nothing is retained."
+    program: program.cs
+    args: ["outside"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt5 publish 5: exit 0\ncurl mqtt subscribe: exit 0, nothing\ngarden/temp: nothing retained\n"
+
+  - id: same-login-both
+    claim: "One account serves both versions; the login that published over MQTT 3.1.1 reads the message back over MQTT 5."
+    program: program.cs
+    args: ["login"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt publish 21: exit 0\ncurl mqtt5 subscribe: exit 0, 21\n"
+
+  - id: wrong-password-mqtt3
+    claim: "A wrong password over MQTT 3.1.1 is code 4, curl exits 8 with Expected 0000 but got 0004, and nothing is kept."
+    program: program.cs
+    args: ["wrong-password", "mqtt"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt publish 1: exit 8 (curl: (8) Expected 0000 but got 0004)\nplant/lamp/temp: nothing retained\n"
+
+  - id: wrong-password-mqtt5
+    claim: "The same wrong password over MQTT 5 is reason code 0x86 and curl exits 67, not 8, so a check for exit 8 has to change with the device."
+    program: program.cs
+    args: ["wrong-password", "mqtt5"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt5 publish 1: exit 67 (curl: (67) MQTT 5 CONNACK reason code 0x86 BadUserNameOrPassword)\nplant/lamp/temp: nothing retained\n"
+
+  - id: no-login-mqtt3
+    claim: "A connection with no user name is code 5, not authorized, over MQTT 3.1.1, exit 8."
+    program: program.cs
+    args: ["no-login", "mqtt"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt publish 1: exit 8 (curl: (8) Expected 0000 but got 0005)\nplant/lamp/temp: nothing retained\n"
+
+  - id: no-login-mqtt5
+    claim: "It is reason code 0x87, not authorized, over MQTT 5, exit 67."
+    program: program.cs
+    args: ["no-login", "mqtt5"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt5 publish 1: exit 67 (curl: (67) MQTT 5 CONNACK reason code 0x87 NotAuthorized)\nplant/lamp/temp: nothing retained\n"
+
+  - id: clear-password-refused-mqtt3
+    claim: "Without --allow-plaintext-auth the right password is refused unchecked over MQTT 3.1.1, as not authorized, 0005, and nothing is kept."
+    program: program.cs
+    args: ["clear-password", "mqtt"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt publish 1: exit 8 (curl: (8) Expected 0000 but got 0005)\nplant/lamp/temp: nothing retained\n"
+
+  - id: clear-password-refused-mqtt5
+    claim: "It is refused the same way over MQTT 5, with 0x87."
+    program: program.cs
+    args: ["clear-password", "mqtt5"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl mqtt5 publish 1: exit 67 (curl: (67) MQTT 5 CONNACK reason code 0x87 NotAuthorized)\nplant/lamp/temp: nothing retained\n"

@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks the mistake the first start_server call makes.
+schema: 2
+key: surl-recover-from-a-refused-start-from-an-agent
+title: Recovering from a Refused Start
+protocols: [http, https]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, transfer]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An https listen URL with no certificate is refused as a tool error carrying exit code 58, CertificateProblem, and surl's message naming --self-signed; the agent adds --self-signed, starts again and fetches the file, 200.
+    program: program.cs
+    args: [no-certificate]
+    expect:
+      exit: 0
+      stdout: "start 1: refused, 58 CertificateProblem: (58) https://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\nfix: add --self-signed, a throwaway certificate for a test\nstart 2: listening\nfetched: 200 hello from surl\n"
+
+  - id: bad-option-value
+    claim: An option value surl cannot use is exit code 2, FailedInit, and the message names the option, so the agent can fix that one option and start again.
+    program: program.cs
+    args: [bad-option]
+    expect:
+      exit: 0
+      stdout: "start 1: refused, 2 FailedInit: option --max-time: expected a proper numerical parameter\nfix: give --max-time a number of seconds, 30\nstart 2: listening\nfetched: 200 hello from surl\n"
+
+  - id: missing-directory
+    claim: A --directory that does not exist is exit code 37, CouldNotReadFile, since surl creates no folder; serving the file from memory instead starts.
+    program: program.cs
+    args: [no-directory]
+    expect:
+      exit: 0
+      stdout: "start 1: refused, 37 CouldNotReadFile: (37) Could not open directory sites\nfix: drop --directory and serve the file from memory\nstart 2: listening\nfetched: 200 hello from surl\n"
+
+  - id: path-in-listen-url
+    claim: A listen URL with a path is exit code 3, MalformedUrl; the same URL without the path starts.
+    program: program.cs
+    args: [path-in-url]
+    expect:
+      exit: 0
+      stdout: "start 1: refused, 3 MalformedUrl: (3) URL rejected: A listen URL cannot have a path, query or fragment\nfix: write the listen URL with no path\nstart 2: listening\nfetched: 200 hello from surl\n"
+
+  - id: unknown-code-passed-on
+    claim: A scheme surl does not serve is exit code 1, UnsupportedProtocol, which this agent has no fix for, so it stops and passes the code on instead of guessing.
+    program: program.cs
+    args: [unknown-scheme]
+    expect:
+      exit: 1
+      stdout: "start 1: refused, 1 UnsupportedProtocol: (1) Protocol \"htp\" not supported\nno fix known for UnsupportedProtocol: passing exit 1 on\n"

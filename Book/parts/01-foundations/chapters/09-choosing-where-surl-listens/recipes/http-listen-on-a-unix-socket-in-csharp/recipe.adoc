@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-listen-on-a-unix-socket-in-csharp]]
+=== Listening on a Unix Socket in C#
+
+==== Problem
+
+Your C# test should open no Transmission Control Protocol (TCP) ports at all. You want `Surl.Api` to serve Hypertext Transfer Protocol (HTTP) on a Unix domain socket file and `Curl.Api` to fetch through it.
+
+==== Solution
+
+Give `SurlServerOptions` the option `--unix-socket` and a path in `AdditionalArguments`, and give each `CurlRequest` the same path in `CurlNetworkOptions.UnixSocketPath`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` has no property of its own for a Unix socket, so the program passes `surl`{apos}s option as `surl`{apos}s own words: `AdditionalArguments` holds `--unix-socket` and `surl.sock`, read after the properties. The path is relative to the program{apos}s working folder; keep it short, since a socket path may not be longer than 107 bytes on Linux and Windows or 103 on macOS (<<surl-readme>>). `ListenUrls` still holds one listen URL, but its host and port are only the names the server expects in requests. `SurlServer.StartAsync` returns once the socket file exists, and `BoundUrl` is the listen URL as given.
+
+`CurlNetworkOptions` is the connection part of a `CurlRequest`; `UnixSocketPath` is `curl --unix-socket`, `CURLOPT_UNIX_SOCKET_PATH` in the library underneath (<<libcurl-api>>). With it, `CurlClient.SendAsync` connects to the file and sends the request it would have sent to the URL. The URL{apos}s host only goes into the `Host` header, so `http://files.example/hello.txt` is answered `200` like any other name, and the `CurlResponse` reads as usual. Without `UnixSocketPath` the same request is a TCP connection to the listen URL{apos}s port, which nothing opened: `SendAsync` throws `CurlException` with `Code` `CouldntConnect`, `curl`{apos}s exit `7`. That is the proof the test opens no port. On macOS, with `surl` 1.0.0, the fetch through the socket fails and ends the process, a defect reported to Surl, so the cases that fetch through the socket run on Windows and Linux. The program stops the server in a `finally` block and gives each case a socket file of its own, so a case that fails leaves nothing in the next one{apos}s way.
+
+`surl` never deletes a file it did not make. A socket path where a file already exists makes `StartAsync` throw `SurlServerStartException` with `ExitCode` `BindFailed`, `surl`{apos}s exit `45`, and the file is left as it was: a stale socket and a file someone needs look alike, and the test, not the server, knows which it is. A second listen URL is a bad command line, `FailedInit`. `StopAsync` returns `Ok` and removes the socket file the server made, so the next test can use the same path.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-listen-on-a-unix-socket>> for the same task on the console.
+* <<http-listen-on-a-unix-socket-from-an-agent>> for an agent doing this through `surl-mcp` and `curl-mcp`.
+* <<http-serve-and-fetch-in-process>> for the in-process server and client over TCP.
+* <<surl-readme>>, <<curl-readme>>, <<libcurl-api>>.

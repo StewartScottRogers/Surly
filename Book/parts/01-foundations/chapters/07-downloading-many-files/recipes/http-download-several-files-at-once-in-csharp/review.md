@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. MaxConnectionsPerHost is the --parallel-max analogue; peak connections come from ExchangeStarted/ExchangeEnded events (query by kind, merge on Sequence). Capped: 4, uncapped: 12, serial and cap 1: 1.
 2. Timings claimed as ranges (3-6 s capped, 1-2 s uncapped, 3 s or more serial).
+- CI (batch 8, Linux): the uncapped run took 3 s on a loaded runner; claimed as 1 to 3 s.

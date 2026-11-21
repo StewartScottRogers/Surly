@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-download-in-parallel-segments
+title: Downloading in Parallel Segments
+protocols: [http]
+tier: advanced
+surl-options: [-v, --log-file, --directory, --fault]
+curl-options: [-I, -r, --parallel, --parallel-immediate, --next, -f, -s, -o, -w]
+exit-codes: [0, 22]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/.keep: ""
+  slow-site/.keep: ""
+  fetch-in-segments.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Fetches <url> as <n> byte ranges at once with one curl command, joins the segments in
+    # order into joined, and compares the result with <original>.
+    # Usage: sh fetch-in-segments.sh <url> <n> <original>
+    url=$1; n=$2; original=$3
+
+    # The size, from a HEAD request, and the segment length, rounded up.
+    size=$(curl -s -f -I -o /dev/null -w "%header{content-length}" "$url") || exit
+    seg=$(( (size + n - 1) / n ))
+
+    # One transfer per segment, separated by --next; the last segment stops at the last byte.
+    set --
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      first=$(( i * seg )); last=$(( first + seg - 1 ))
+      [ "$last" -lt "$size" ] || last=$(( size - 1 ))
+      [ "$i" -eq 0 ] || set -- "$@" --next
+      set -- "$@" -s -f -r "$first-$last" -o "segment$i" -w "%{http_code} %header{content-range}\n" "$url"
+      i=$(( i + 1 ))
+    done
+    curl --parallel --parallel-immediate "$@" > segments.txt || exit
+    sort -k3n segments.txt
+
+    # Join in segment order, not in the order the transfers ended, then compare byte for byte.
+    : > joined
+    i=0
+    while [ "$i" -lt "$n" ]; do cat "segment$i" >> joined; i=$(( i + 1 )); done
+    echo "joined: $(wc -c < joined | tr -d ' ') bytes"
+    if cmp -s joined "$original"; then echo "identical"; else echo "differs"; exit 1; fi
+  seen-by-server.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Reads a surl -v log: the Range headers surl received, the 206 answers it gave, and how
+    # many connections (exchange numbers) carried them.
+    # Usage: sh seen-by-server.sh <log>
+    grep '< Range: ' "$1" | sed -e 's/^#[0-9]* < //' -e 's/\\r\\n$//' | sort -t '=' -k2n
+    echo "answered 206: $(grep -c '\* GET /big.bin: 206' "$1")"
+    echo "connections: $(grep '\* GET /big.bin: 206' "$1" | cut -d' ' -f1 | sort -u | wc -l | tr -d ' ')"
+
+setup:
+  - head -c 1000000 /dev/urandom > site/big.bin
+  - cp site/big.bin slow-site/big.bin
+
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  slow:
+    command: surl -v --log-file slow.log --directory slow-site --fault "delay;stage=command;ms=1000" http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A 1,000,000-byte file fetched as four ranges at once comes back as four 206 Partial Content answers with the Content-Range asked for, and the segments joined in order are identical to the original.
+    run: sh fetch-in-segments.sh http://127.0.0.1:{{port}}/big.bin 4 site/big.bin
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "206 bytes 0-249999/1000000\n206 bytes 250000-499999/1000000\n206 bytes 500000-749999/1000000\n206 bytes 750000-999999/1000000\njoined: 1000000 bytes\nidentical\n"
+
+  - id: server-saw-the-ranges
+    claim: surl's verbose log shows each Range header it received and a 206 answer for each; over loopback the four can share one to four connections, depending on how fast each ends.
+    run: sh seen-by-server.sh surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^Range: bytes=0-249999\nRange: bytes=250000-499999\nRange: bytes=500000-749999\nRange: bytes=750000-999999\nanswered 206: 4\nconnections: [1-4]\n$'
+
+  - id: uneven-segments
+    claim: Three segments of a 1,000,000-byte file are 333,334 bytes each but the last, which stops at the last byte, and they join to the original too.
+    run: sh fetch-in-segments.sh http://127.0.0.1:{{port}}/big.bin 3 site/big.bin
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "206 bytes 0-333333/1000000\n206 bytes 333334-666667/1000000\n206 bytes 666668-999999/1000000\njoined: 1000000 bytes\nidentical\n"
+
+  - id: side-by-side
+    claim: Against a surl that holds every request for a second, the four segments are in flight together, so surl answers them on four connections.
+    run: sh fetch-in-segments.sh http://127.0.0.1:{{port2}}/big.bin 4 slow-site/big.bin && sh seen-by-server.sh slow.log
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\nidentical\nRange: bytes=0-249999\nRange: bytes=250000-499999\nRange: bytes=500000-749999\nRange: bytes=750000-999999\nanswered 206: 4\nconnections: 4\n$'
+
+  - id: past-the-end
+    claim: A range that starts past the end of the file is answered 416 Range Not Satisfiable, and with -f curl exits 22.
+    run: curl -s -f -r 2000000-2999999 -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 22
+      stdout: "416"

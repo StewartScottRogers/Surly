@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 1. Self-review against REVIEW.md. Same 11 claims as the console recipe; the log claims are shown through get_events and get_exchanges.
 2. The drop rule is added with add_fault after start, so nothing spends it first. Delivery is waited for with wait_for_event, after_sequence and a ten-second bound.
 3. exit 56 on a dropped connection is seen on Windows; Linux and macOS not yet seen.
+4. CI run 44898744862 (the twins): an accept-stage drop is exit 7 or 56 off Windows by timing; the greeting and twice cases accept either (drop-is-exit-56 became drop-fails-without-retry) and the Discussion says why; the DATA drop stays 56.

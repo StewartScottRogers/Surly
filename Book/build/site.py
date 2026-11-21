@@ -22,6 +22,7 @@ SITE, DIST, OUT = BOOK / "site", BOOK / "dist", BOOK / "out" / "site"
 # fold is opened, so the page stays small; SURLY_LAZY_AT overrides it (to test the lazy path).
 LAZY_AT = int(__import__("os").environ.get("SURLY_LAZY_AT", "300"))
 REPO = "https://github.com/StewartScottRogers/Surly"
+SITE_URL = "https://stewartscottrogers.github.io/Surly/"     # canonical URLs, social previews, structured data
 CURL = "https://github.com/StewartScottRogers/Curl"
 SURL = "https://github.com/StewartScottRogers/Surl"
 
@@ -76,16 +77,67 @@ def cited_references_only(body):
     return body[:start] + re.sub(r"<li>.*?</li>", keep, body[start:], flags=re.S)
 
 
-def page(values, page_title, description, body, root="", crumbs="", prevnext="", current=""):
-    """One book page in the site's frame (site/page.html)."""
+def cover_with_mark_inlined():
+    """images/cover.svg with the Gila monster drawn inside it. The cover is shown through <img>, and
+    an SVG shown that way may not load another file, so <image href="gila-monster.svg"> would leave
+    the animal out. The mark stays one file (images/gila-monster.svg); this nests it at build time."""
+    cover = (BOOK / "images" / "cover.svg").read_text(encoding="utf-8")
+    mark = (BOOK / "images" / "gila-monster.svg").read_text(encoding="utf-8")
+    m = re.search(r'<image href="gila-monster\.svg" x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)"/>', cover)
+    if not m:
+        return cover
+    x, y, w, h = m.groups()
+    inner = re.sub(r"^\s*<svg\b[^>]*>", "", mark.strip(), count=1)
+    inner = re.sub(r"</svg>\s*$", "", inner)
+    view_box = re.search(r'viewBox="([^"]+)"', mark).group(1)
+    nested = f'<svg x="{x}" y="{y}" width="{w}" height="{h}" viewBox="{view_box}">{inner}</svg>'
+    return cover[:m.start()] + nested + cover[m.end():]
+
+
+def meta_description(text, limit=160):
+    """A search-result snippet: one line, cut at a word boundary to about 160 characters."""
+    text = " ".join(str(text).split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit - 1].rsplit(" ", 1)[0].rstrip(",;:")
+    return cut + "\u2026"
+
+
+def json_ld(data):
+    """Structured data for a <script type="application/ld+json"> block, safe inside HTML."""
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+
+
+def page(values, page_title, description, body, root="", crumbs="", prevnext="", current="", path="",
+         og_type="website", ld=None):
+    """One book page in the site's frame (site/page.html). path is the page's address under the site
+    (contents.html, recipes/<key>.html), for its canonical URL; ld is its structured data."""
     out = (SITE / "page.html").read_text(encoding="utf-8")
-    fill = {**values, "page_title": html.escape(page_title), "description": html.escape(description), "body": body,
+    url = SITE_URL + path
+    ld = ld or {"@context": "https://schema.org", "@type": "WebPage", "name": page_title, "url": url,
+                "description": meta_description(description),
+                "isPartOf": {"@type": "Book", "name": values["title"], "url": SITE_URL}}
+    fill = {**values, "page_title": html.escape(page_title), "description": html.escape(meta_description(description)),
+            "body": body, "url": html.escape(url), "og_type": og_type, "jsonld": json_ld(ld),
             "root": root, "crumbs": crumbs, "prevnext": prevnext,
             "current_contents": ' aria-current="page"' if current == "contents" else "",
             "current_book": ' aria-current="page"' if current == "book" else ""}
     for k, v in fill.items():
         out = out.replace("{{" + k + "}}", str(v))
     return out
+
+
+def recipe_ld(values, r):
+    """A recipe page as a schema.org TechArticle, part of the book."""
+    surface = {"console": "the command line", "csharp": "C#", "mcp": "an AI agent (MCP)"}.get(r.get("surface"), "")
+    return {"@context": "https://schema.org", "@type": "TechArticle", "headline": r["title"],
+            "description": meta_description(r["problem"]), "url": f'{SITE_URL}recipes/{r["key"]}.html',
+            "inLanguage": "en", "author": {"@type": "Person", "name": values["author"]},
+            "keywords": ", ".join([*r.get("protocols", []), "surl", "curl", *([surface] if surface else [])]),
+            "proficiencyLevel": "Beginner" if r.get("tier") == "foundations" else "Expert"
+            if r.get("tier") in ("advanced", "scenarios") else "Intermediate",
+            "isPartOf": {"@type": "Book", "name": values["title"], "url": SITE_URL},
+            "image": SITE_URL + "cover.png"}
 
 
 def badges(r):
@@ -161,7 +213,8 @@ def write_book_pages(values, index, titles):
         body.append("</details>")
     (OUT / "contents.html").write_text(
         page(values, "Contents", "Every recipe in the book, by part and chapter, with a search.",
-             '<div class="contents">' + "\n".join(body) + "</div>", current="contents"), encoding="utf-8")
+             '<div class="contents">' + "\n".join(body) + "</div>", current="contents", path="contents.html"),
+        encoding="utf-8")
 
     # One page per recipe, its claims and references folded.
     bodies = {}
@@ -186,7 +239,8 @@ def write_book_pages(values, index, titles):
             links.append(f'<a class="next" href="{nxt["key"]}.html"><span>Next</span><b>{html.escape(nxt["title"])}</b></a>')
         prevnext = '<nav class="prevnext" aria-label="Recipe">' + "".join(links) + "</nav>"
         (OUT / "recipes" / f'{r["key"]}.html').write_text(
-            page(values, r["title"], r["problem"], content, root="../", crumbs=crumbs, prevnext=prevnext), encoding="utf-8")
+            page(values, r["title"], r["problem"], content, root="../", crumbs=crumbs, prevnext=prevnext,
+                 path=f'recipes/{r["key"]}.html', og_type="article", ld=recipe_ld(values, r)), encoding="utf-8")
 
     # The whole book on one page: front matter open, then parts > chapters > recipes folded, then
     # the appendix and the references once. A recipe's own heading becomes its fold's summary.
@@ -224,7 +278,8 @@ def write_book_pages(values, index, titles):
         book.append('<details class="fold part" id="appendix"><summary><h2>Recipes by protocol, and references</h2></summary>'
                     + tail + "</details>")
     (OUT / "book.html").write_text(
-        page(values, "The whole book", values["pitch_one_line"], "\n".join(book), current="book"), encoding="utf-8")
+        page(values, "The whole book", values["pitch_one_line"], "\n".join(book), current="book", path="book.html"),
+        encoding="utf-8")
 
 
 def status_and_parts(index, titles):
@@ -283,11 +338,11 @@ def main():
     ident = yaml.safe_load((BOOK / "book.yml").read_text(encoding="utf-8"))
     OUT.mkdir(parents=True, exist_ok=True)
     DIST.mkdir(exist_ok=True)
-    for name in ("cover.svg", "gila-monster.svg"):
-        shutil.copy(BOOK / "images" / name, OUT / name)
+    shutil.copy(BOOK / "images" / "gila-monster.svg", OUT / "gila-monster.svg")
+    (OUT / "cover.svg").write_text(cover_with_mark_inlined(), encoding="utf-8")
     today = datetime.date.today().isoformat()
-    pitch = ("A cookbook of network protocol recipes in which every example is a test that runs: a surl command that listens, "
-             "a curl command that talks to it, and the result printed beside the claim. Every claim is checked against "
+    pitch = ("A cookbook of network protocol recipes in which every example is a test that runs: a surl that listens, "
+             "a curl that talks to it, and the result printed beside the claim. Every claim is checked against "
              "the current builds of the open-source programs it describes, and the book is built to be read by people "
              "and by machines.")
     index = json.loads((BOOK / "generated" / "index.json").read_text(encoding="utf-8"))["recipes"]
@@ -295,7 +350,13 @@ def main():
     status_html, parts_html = status_and_parts(index, titles)
     values = {**ident, "pitch": pitch, "pitch_one_line": pitch.split(":")[0] + ".", "date": today,
               "repo": REPO, "curl": CURL, "surl": SURL, "first_recipe": index[0]["key"],
-              "status_html": status_html, "parts_html": parts_html}
+              "status_html": status_html, "parts_html": parts_html, "site_url": SITE_URL}
+    values["cover_jsonld"] = json_ld({
+        "@context": "https://schema.org", "@type": "Book", "name": f'{ident["title"]}: {ident["subtitle"]}',
+        "url": SITE_URL, "author": {"@type": "Person", "name": ident["author"]}, "inLanguage": "en",
+        "description": meta_description(values["pitch_one_line"]), "image": SITE_URL + "cover.png",
+        "genre": "Computer networking", "isAccessibleForFree": True,
+        "license": "https://creativecommons.org/licenses/by-nd/4.0/"})
     shutil.copy(SITE / "surly.css", OUT / "surly.css")
     shutil.copy(SITE / "surly.js", OUT / "surly.js")
     cover = (SITE / "template.html").read_text(encoding="utf-8")
@@ -321,7 +382,7 @@ def main():
 
 ## What it is
 
-Every recipe is two commands facing each other: a `surl` that listens and a `curl` that talks to it. [Surl]({SURL}) is the server-side mate of curl, built to answer every scheme curl can request; [Curl]({CURL}) is a drop-in replacement for the curl command-line tool. Both are open source, both written in C# on .NET 10 as a matched pair, so each recipe shows a protocol conversation from both ends.
+Every recipe puts a `surl` that listens face to face with a `curl` that talks to it, as two commands, as a C# program, or as an AI agent driving both. [Surl]({SURL}) is the server-side mate of curl, built to answer every scheme curl can request; [Curl]({CURL}) is a drop-in replacement for the curl command-line tool. Both are open source, both written in C# on .NET 10 as a matched pair, so each recipe shows a protocol conversation from both ends.
 
 - **Recipes that run.** A recipe is an executable specification. Every claim the text makes is a test case run against the two programs, and the book prints the result beside the claim.
 - **Simple to hard.** Ordered by difficulty, not by protocol. Open at any page; each recipe stands alone.

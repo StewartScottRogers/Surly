@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks the scenario.
+schema: 2
+key: http-explain-a-405-from-an-agent
+title: Explaining a 405
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, curl, read_file]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110, rfc7616]
+
+fixtures:
+  notes.txt: "a note\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A logged-in POST to a server with an account and no --allow-uploads is answered 405 Method Not Allowed with Allow GET, HEAD, and the agent reads that the server must be started with --allow-uploads and the file sent with PUT and a login.
+    program: program.cs
+    args: [post]
+    expect:
+      exit: 1
+      stdout: "POST with a login, uploads off: 405 Method Not Allowed\nAllow: GET, HEAD\nexplanation: this server takes no uploads: it must be started with --allow-uploads, and then the file sent with PUT and a login\n"
+
+  - id: post-with-uploads-on
+    claim: With --allow-uploads the same POST is still 405, but Allow names PUT, so the agent's answer is to send the file with PUT.
+    program: program.cs
+    args: [post-on]
+    expect:
+      exit: 1
+      stdout: "POST with a login, uploads on: 405 Method Not Allowed\nAllow: GET, HEAD, PUT\nexplanation: this server takes uploads, but not by POST: send the file with PUT\n"
+
+  - id: put-with-uploads-on
+    claim: A logged-in PUT to that server is 201 Created, and read_file finds the file in the server's store.
+    program: program.cs
+    args: [put-on]
+    expect:
+      exit: 0
+      stdout: "PUT with a login, uploads on: 201 Created\nAllow: (none)\nexplanation: uploaded\nstored: a note\n"
+
+  - id: put-with-uploads-off
+    claim: A logged-in PUT to the server without --allow-uploads is 405 with Allow GET, HEAD, so the right method alone does not help.
+    program: program.cs
+    args: [put-off]
+    expect:
+      exit: 1
+      stdout: "PUT with a login, uploads off: 405 Method Not Allowed\nAllow: GET, HEAD\nexplanation: this server takes no uploads: it must be started with --allow-uploads, and then the file sent with PUT and a login\n"
+
+  - id: no-login-is-401
+    claim: The same POST with no login is 401 Unauthorized with no Allow header, because surl judges the login before the method.
+    program: program.cs
+    args: [no-login]
+    expect:
+      exit: 1
+      stdout: "POST without a login, uploads off: 401 Unauthorized\nAllow: (none)\nexplanation: the server wants a login before it looks at the method: log in and send it again\n"

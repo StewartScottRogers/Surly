@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: mqtt-move-a-device-to-mqtt5
+title: Moving a Device to MQTT 5
+protocols: [mqtt, mqtt5]
+tier: scenarios
+surl-options: [--allow-anonymous, --mqtt5-disconnect-after-retained, --topic, --user, --allow-plaintext-auth]
+curl-options: [-d, --next, -s, -S, -u]
+exit-codes: [0, 8, 67]
+references: [surl-readme, curl-readme, mqtt311, mqtt5]
+
+fixtures: {}
+
+# main: one surl, an MQTT 3.1.1 listener and an MQTT 5 listener sharing one message bus. accounts: the
+# same two listeners with one account. Neither takes a clear password without --allow-plaintext-auth;
+# accounts is given it, so the login itself can be compared. closed is accounts without it.
+servers:
+  main:
+    command: surl --allow-anonymous --mqtt5-disconnect-after-retained --topic "plant/#;retain" mqtt://127.0.0.1:{{port}}/ mqtt5://127.0.0.1:{{port2}}/
+    ready: port
+  accounts:
+    command: surl --user lamp:s3cret --allow-plaintext-auth --mqtt5-disconnect-after-retained --topic "plant/#;retain" mqtt://127.0.0.1:{{port3}}/ mqtt5://127.0.0.1:{{port4}}/
+    ready: port
+  closed:
+    command: surl --user lamp:s3cret --mqtt5-disconnect-after-retained mqtt://127.0.0.1:{{port5}}/ mqtt5://127.0.0.1:{{port6}}/
+    ready: port
+
+# An MQTT 3.1.1 subscriber is written two bytes of topic length (big-endian), the topic, then the
+# payload; "plant/hall/temp" is 15 bytes, 0x00 0x0f. An MQTT 5 subscriber is written the payload alone.
+cases:
+  - id: solution
+    role: solution
+    claim: A device still on MQTT 3.1.1 publishes 68 and a device already on MQTT 5 subscribes to the same topic and receives it, the payload alone, exit 0.
+    run: curl -s -d 68 mqtt://127.0.0.1:{{port}}/plant/hall/temp --next -s mqtt5://127.0.0.1:{{port2}}/plant/hall/temp
+    expect:
+      exit: 0
+      stdout: "68"
+
+  - id: new-to-old
+    claim: The reverse holds. A publish over MQTT 5 is received by an MQTT 3.1.1 subscriber, which is written the topic's length and the topic before the payload.
+    run: curl -s -d 71 mqtt5://127.0.0.1:{{port2}}/plant/hall/temp --next -s mqtt://127.0.0.1:{{port}}/plant/hall/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x0fplant/hall/temp71\Z'
+
+  - id: one-message-per-topic
+    claim: Both listeners keep one retained message per topic; after the old device publishes 72 over the 71 the new device left, an MQTT 5 subscriber receives 72 alone.
+    run: curl -s -d 72 mqtt://127.0.0.1:{{port}}/plant/hall/temp --next -s mqtt5://127.0.0.1:{{port2}}/plant/hall/temp
+    expect:
+      exit: 0
+      stdout: "72"
+
+  - id: empty-message-clears
+    claim: An empty message from the MQTT 5 device clears the topic for the MQTT 3.1.1 device as well, which then receives nothing.
+    run: curl -s -d "" mqtt5://127.0.0.1:{{port2}}/plant/hall/temp --next -s mqtt://127.0.0.1:{{port}}/plant/hall/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: outside-the-filter
+    claim: A topic outside the --topic filter is kept on neither side, whichever version published it.
+    run: curl -s -d 5 mqtt5://127.0.0.1:{{port2}}/garden/temp --next -s mqtt://127.0.0.1:{{port}}/garden/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: same-login-both
+    claim: One account serves both versions; the same user name and password publish over MQTT 3.1.1 and are read back over MQTT 5.
+    run: curl -s -u lamp:s3cret -d 21 mqtt://127.0.0.1:{{port3}}/plant/lamp/temp --next -s -u lamp:s3cret mqtt5://127.0.0.1:{{port4}}/plant/lamp/temp
+    expect:
+      exit: 0
+      stdout: "21"
+
+  - id: wrong-password-mqtt3
+    claim: A wrong password over MQTT 3.1.1 is CONNACK return code 4, and curl exits 8.
+    run: curl -sS -u lamp:wrong -d 1 mqtt://127.0.0.1:{{port3}}/plant/lamp/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Expected 0000 but got 0004"
+
+  - id: wrong-password-mqtt5
+    claim: The same wrong password over MQTT 5 is reason code 0x86, bad user name or password, and curl exits 67, not 8, so a script that tests for exit 8 has to change with the device.
+    run: curl -sS -u lamp:wrong -d 1 mqtt5://127.0.0.1:{{port4}}/plant/lamp/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x86 BadUserNameOrPassword"
+
+  - id: no-login-mqtt3
+    claim: A connection with no user name is code 5, not authorized, over MQTT 3.1.1, exit 8.
+    run: curl -sS -d 1 mqtt://127.0.0.1:{{port3}}/plant/lamp/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Expected 0000 but got 0005"
+
+  - id: no-login-mqtt5
+    claim: It is reason code 0x87, not authorized, over MQTT 5, exit 67.
+    run: curl -sS -d 1 mqtt5://127.0.0.1:{{port4}}/plant/lamp/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x87 NotAuthorized"
+
+  - id: clear-password-refused-mqtt3
+    claim: Without --allow-plaintext-auth the right password is refused unchecked over MQTT 3.1.1, as not authorized, because it crosses the network in clear.
+    run: curl -sS -u lamp:s3cret -d 1 mqtt://127.0.0.1:{{port5}}/plant/lamp/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "Expected 0000 but got 0005"
+
+  - id: clear-password-refused-mqtt5
+    claim: It is refused the same way over MQTT 5, with 0x87.
+    run: curl -sS -u lamp:s3cret -d 1 mqtt5://127.0.0.1:{{port6}}/plant/lamp/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x87 NotAuthorized"

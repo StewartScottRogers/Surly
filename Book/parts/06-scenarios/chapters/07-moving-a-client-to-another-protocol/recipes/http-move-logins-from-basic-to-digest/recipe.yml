@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: http-move-logins-from-basic-to-digest
+title: Moving Logins from Basic to Digest
+protocols: [http]
+tier: scenarios
+surl-options: [--user, --allow-plaintext-auth, --directory, -v, --log-file]
+curl-options: [-u, --basic, --digest, --anyauth, -s, -S, -f, -i, -o, -w, --next]
+exit-codes: [0, 1, 22]
+references: [surl-readme, curl-readme, rfc7617, rfc7616, rfc9110]
+
+fixtures:
+  site/report.txt: "quarterly report\n"
+  site2/report.txt: "quarterly report\n"
+
+# move: both methods accepted. Basic over plain HTTP is refused unless --allow-plaintext-auth says
+# otherwise, so the move is the loosened server; -v --log-file records every login by account.
+# cutover: the same accounts with the loosening left out, which is surl's default: Digest only.
+# Each serves its own folder: one surl holds a folder at a time.
+servers:
+  move:
+    command: surl --user billing:b1lling --user search:s3arch --allow-plaintext-auth --directory site -v --log-file move.log http://127.0.0.1:{{port}}/
+    ready: port
+  cutover:
+    command: surl --user billing:b1lling --user search:s3arch --directory site2 -v --log-file cutover.log http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: During the move the old client, billing, logs in with Basic and the new client, search, with Digest, and both get 200 from the same server.
+    run: curl -s -o {{null}} -w "%{http_code}\n" --basic -u billing:b1lling http://127.0.0.1:{{port}}/report.txt --next -s -o {{null}} -w "%{http_code}\n" --digest -u search:s3arch http://127.0.0.1:{{port}}/report.txt
+    expect:
+      exit: 0
+      stdout: "200\n200\n"
+
+  - id: basic-client-found
+    claim: The server's log names the account of every Basic login, so the test finds billing as the client still sending Basic.
+    run: 'grep -o "Login accepted: Basic [a-z]*" move.log'
+    expect:
+      exit: 0
+      stdout: "Login accepted: Basic billing\n"
+
+  - id: digest-client-found
+    claim: The same log names search as the account that logged in with Digest.
+    run: 'grep -o "Login accepted: Digest [a-z]*" move.log'
+    expect:
+      exit: 0
+      stdout: "Login accepted: Digest search\n"
+
+  - id: password-not-logged
+    claim: The log masks the Basic Authorization header, so billing's password appears nowhere in it.
+    run: 'grep -c b1lling move.log'
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: both-offered
+    claim: During the move a request with no login is answered 401 with Digest challenges and a Basic one.
+    run: curl -s -i http://127.0.0.1:{{port}}/report.txt
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 401 Unauthorized(?=.*WWW-Authenticate: Digest realm="surl", qop="auth", algorithm=MD5)(?=.*WWW-Authenticate: Basic realm="surl")'
+
+  - id: wrong-basic-password
+    claim: A Basic login with the wrong password is checked and refused 401 during the move.
+    run: curl -s -o {{null}} -w "%{http_code}\n" --basic -u billing:wrong http://127.0.0.1:{{port}}/report.txt
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: refusal-logged
+    claim: The refused Basic login is in the log under the account it claimed.
+    run: 'grep -o "Login refused: Basic [a-z]*" move.log'
+    expect:
+      exit: 0
+      stdout: "Login refused: Basic billing\n"
+
+  - id: anyauth-picks-digest
+    claim: Given --anyauth, curl picks Digest from the challenge, and the log records billing's login as Digest.
+    run: 'curl -s -o {{null}} -w "%{http_code}\n" --anyauth -u billing:b1lling http://127.0.0.1:{{port}}/report.txt && grep -c "Login accepted: Digest billing" move.log'
+    expect:
+      exit: 0
+      stdout: "200\n1\n"
+
+  - id: cutover-refuses-basic
+    claim: Without --allow-plaintext-auth a Basic login over plain HTTP is answered 403 Forbidden, the right password included, and -f makes curl exit 22.
+    run: curl -sS -f -o {{null}} -w "%{http_code}\n" --basic -u billing:b1lling http://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 22
+      stdout: "403\n"
+
+  - id: cutover-no-challenge
+    claim: The 403 carries no WWW-Authenticate header, so nothing invites the client to send its password again.
+    run: curl -s -i --basic -u billing:b1lling http://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 403 Forbidden(?!.*WWW-Authenticate)'
+
+  - id: cutover-digest-only
+    claim: After the cutover a request with no login is answered 401 with Digest challenges and no Basic one.
+    run: curl -s -i http://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 401 Unauthorized(?=.*WWW-Authenticate: Digest realm="surl")(?!.*WWW-Authenticate: Basic)'
+
+  - id: cutover-serves-digest
+    claim: Both accounts log in with Digest after the cutover, and curl with --anyauth does too, so a client that picks from the challenge survives the move.
+    run: curl -s -o {{null}} -w "%{http_code}\n" --digest -u search:s3arch http://127.0.0.1:{{port2}}/report.txt --next -s -o {{null}} -w "%{http_code}\n" --anyauth -u billing:b1lling http://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "200\n200\n"
+
+  - id: cutover-still-finds-basic
+    claim: After the cutover the log still shows each request that arrived with Basic, its credentials masked and no account named, because the password was never checked.
+    run: 'grep -c "Authorization: Basic \*\*\*\*" cutover.log'
+    expect:
+      exit: 0
+      stdout: "2\n"

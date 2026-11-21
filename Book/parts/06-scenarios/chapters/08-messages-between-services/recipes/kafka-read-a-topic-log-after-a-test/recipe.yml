@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: kafka-read-a-topic-log-after-a-test
+title: Reading a Topic's Log After a Test
+protocols: [kafka]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlLogPage, SurlLogRecord, SurlReadRefusedException, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, kafka-protocol]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own broker through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the service wrote an event for each step of an order, ReadLogAsync gives the broker log, offsets 0 to 3, and the four values are the four events expected, in order.
+    program: check-log.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "offset 0: order-1001:created\noffset 1: order-1001:paid\noffset 2: order-1001:packed\noffset 3: order-1001:shipped\nthe log holds the 4 events expected, in order\n"
+
+  - id: key-and-timestamp
+    claim: Each record has its offset, its timestamp and a Key; the key is none for every record, because nothing here sets one, and the timestamps never go backwards.
+    program: check-log.cs
+    args: [fields]
+    expect:
+      exit: 0
+      stdout: "offset 0: key none, value order-1001:created\noffset 1: key none, value order-1001:paid\noffset 2: key none, value order-1001:packed\noffset 3: key none, value order-1001:shipped\ntimestamps in order: True\n"
+
+  - id: pages
+    claim: A limit of 2 gives the log two records at a time; the first page has NextOffset 2 and HasMore true, the second NextOffset 4 and HasMore false.
+    program: check-log.cs
+    args: [pages]
+    expect:
+      exit: 0
+      stdout: "page from 0: order-1001:created, order-1001:paid, next 2, more True\npage from 2: order-1001:packed, order-1001:shipped, next 4, more False\n"
+
+  - id: reading-takes-nothing
+    claim: Reading the log twice gives four records both times, and a consumer reading from offset 2 with Curl.Api afterwards still gets packed and shipped, and a third read still finds four; the log is read, not consumed.
+    program: check-log.cs
+    args: [kept]
+    expect:
+      exit: 0
+      stdout: "first read: 4 records\nsecond read: 4 records\nconsumer from offset 2: [order-1001:packed, order-1001:shipped]\nthird read: 4 records\n"
+
+  - id: dropped-event
+    claim: A service that skips an event leaves the log with three records; the test names the event missing, order-1001:packed, and exits 1.
+    program: check-log.cs
+    args: [dropped]
+    expect:
+      exit: 1
+      stdout: "offset 0: order-1001:created\noffset 1: order-1001:paid\noffset 2: order-1001:shipped\nmissing: order-1001:packed\nFAIL: the log is not what the service should have written\n"
+
+  - id: wrong-value
+    claim: A service that writes the wrong status is named twice, what is missing and what is unexpected with its offset, and the test exits 1.
+    program: check-log.cs
+    args: [wrong-value]
+    expect:
+      exit: 1
+      stdout: "offset 0: order-1001:created\noffset 1: order-1001:refunded\noffset 2: order-1001:packed\noffset 3: order-1001:shipped\nmissing: order-1001:paid\nunexpected: order-1001:refunded at offset 1\nFAIL: the log is not what the service should have written\n"
+
+  - id: past-the-end
+    claim: A read from an offset past the end, 9 for a log of four, throws SurlReadRefusedException saying the log holds 0 to 4; it is not an empty page.
+    program: check-log.cs
+    args: [past-the-end]
+    expect:
+      exit: 0
+      stdout: "read from 9: SurlReadRefusedException: Offset 9 is outside the log, which holds 0 to 4.\n"
+
+  - id: no-topic
+    claim: A read of a topic nobody wrote to throws SurlNotFoundException, No log for topic refunds, not an empty page.
+    program: check-log.cs
+    args: [no-topic]
+    expect:
+      exit: 0
+      stdout: "refunds: SurlNotFoundException: No log for topic refunds.\n"

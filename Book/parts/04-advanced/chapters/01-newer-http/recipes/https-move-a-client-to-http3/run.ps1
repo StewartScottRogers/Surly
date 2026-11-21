@@ -4,4 +4,4 @@ Set-Location $PSScriptRoot
 cmd /c 'openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"'
 $server0 = Start-Process surl -ArgumentList '--directory', 'site', '--cert', 'server.pem', '--key', 'server.key', '--http3', 'https://127.0.0.1:8080/' -PassThru -NoNewWindow
 Start-Sleep 1
-try { curl.exe --alt-svc alt-svc.txt --cacert server.pem -s -o NUL -w "first: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt && curl --alt-svc alt-svc.txt --happy-eyeballs-timeout-ms 4000 --cacert server.pem -s -o NUL -w "second: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt } finally { Stop-Process $server0 }
+try { curl.exe --alt-svc alt-svc.txt --cacert server.pem -s -o NUL -w "first: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt && curl --alt-svc alt-svc.txt --http3 --happy-eyeballs-timeout-ms 4000 --cacert server.pem -s -o NUL -w "second: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt } finally { Stop-Process $server0 }

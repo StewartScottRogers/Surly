@@ -1,0 +1,85 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-follow-links-inside-the-served-folder
+title: Following Symbolic Links Safely
+protocols: [http]
+tier: foundations
+surl-options: [--directory, --follow-symlinks, -v, --log-file]
+curl-options: [-s, -o, -w]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures:
+  site/docs/guide.txt: "the guide, inside the served folder\n"
+  plain/docs/guide.txt: "the guide, inside the served folder\n"
+  outside/secret.txt: "outside the served folder\n"
+  make-links.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Makes the same four symbolic links in site and in plain. MSYS asks Git Bash on Windows
+    # for real links; other systems ignore it.
+    export MSYS=winsymlinks:nativestrict
+    for root in site plain; do
+      ln -s docs/guide.txt "$root/latest.txt"          # a file link that stays inside
+      ln -s docs "$root/current"                        # a folder link that stays inside
+      ln -s ../outside/secret.txt "$root/leak.txt"      # a link that leaves the folder
+      ln -s leak.txt "$root/hop.txt"                    # a link inside to a link that leaves
+    done
+
+# The links are made before the servers start; a fixture file cannot be a link.
+setup:
+  - sh make-links.sh
+
+# links follows symbolic links; plain is the default. Two servers cannot share one folder, so each has its own copy.
+servers:
+  links:
+    command: surl -v --log-file links.log --follow-symlinks --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --directory plain http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --follow-symlinks, a symbolic link to a file inside the served folder is served as that file, 200 OK.
+    run: curl -s -w "%{http_code}\n" http://127.0.0.1:{{port}}/latest.txt
+    expect:
+      exit: 0
+      stdout: "the guide, inside the served folder\n200\n"
+
+  - id: folder-link
+    claim: A link to a folder inside the served folder is followed too, so a file under it is served at the link's path.
+    run: curl -s -w "%{http_code}\n" http://127.0.0.1:{{port}}/current/guide.txt
+    expect:
+      exit: 0
+      stdout: "the guide, inside the served folder\n200\n"
+
+  - id: off-by-default
+    claim: Without --follow-symlinks the same link is 404 Not Found, while the file it points to is served at its own path.
+    run: curl -s -w "%{http_code}\n" -o {{null}} http://127.0.0.1:{{port2}}/latest.txt -o {{null}} http://127.0.0.1:{{port2}}/docs/guide.txt
+    expect:
+      exit: 0
+      stdout: "404\n200\n"
+
+  - id: outside-refused
+    claim: With --follow-symlinks, a link that points outside the served folder is still 404 Not Found, and its target's bytes are not sent.
+    run: curl -s -w "%{http_code}\n" http://127.0.0.1:{{port}}/leak.txt
+    expect:
+      exit: 0
+      stdout: "404\n"
+
+  - id: chain-refused
+    claim: A link inside the folder that points to a link leaving it is judged by where the chain ends, and is 404 Not Found as well.
+    run: curl -s -w "%{http_code}\n" http://127.0.0.1:{{port}}/hop.txt
+    expect:
+      exit: 0
+      stdout: "404\n"
+
+  - id: log-tells-them-apart
+    claim: The client sees the same 404 for an escaping link and a missing file, but surl's verbose log names the escape as refused (ResolvesOutsideRoot) and the missing file as nothing exists.
+    run: 'curl -s -o {{null}} http://127.0.0.1:{{port}}/missing.txt && grep -o -e "GET /leak.txt: 404, the path was refused (ResolvesOutsideRoot)" -e "GET /missing.txt: 404, nothing exists" links.log'
+    expect:
+      exit: 0
+      stdout: "GET /leak.txt: 404, the path was refused (ResolvesOutsideRoot)\nGET /missing.txt: 404, nothing exists\n"

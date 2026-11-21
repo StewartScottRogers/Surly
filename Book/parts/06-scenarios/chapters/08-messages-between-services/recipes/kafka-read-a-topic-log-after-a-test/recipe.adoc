@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-read-a-topic-log-after-a-test]]
+=== Reading a Topic's Log After a Test
+
+==== Problem
+
+Your service produces records to Kafka. You want the test to read the topic's log afterwards and check each record's offset, key and value, from your own C# code with `Surl.Api`.
+
+==== Solution
+
+One program starts a Kafka broker and runs the service, which writes one event for each step of an order. The test then reads the log with `ReadLogAsync` and compares each value with the event it expects:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for a `kafka://` listener on port `0`, so the system picks a free port, and `AllowAnonymous`, the option `--allow-anonymous`, which accepts a client with no login. It loosens the defaults, for a broker that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). `SurlServer` is the running broker.
+
+The service stands in for the code under test. A real service would use a Kafka client; `Curl.Api` cannot produce to Kafka yet, so the events reach the log through `server.Messages`, a `SurlServerMessages`, whose `PublishAsync` appends a record to a topic the way a producer would. The test's half is the same either way, and it does not use the client at all: `ReadLogAsync` is the broker's own view of the topic (<<kafka-protocol>>). It takes the topic, the offset to start from, and a limit of one to a thousand records, and it moves no consumer's offset and publishes nothing.
+
+The answer is a `SurlLogPage`. Its `Records` are each a `SurlLogRecord` with the `Offset`, the `Timestamp`, a `Key` that is empty when the producer set none, and the `Payload`, the value as bytes. `NextOffset` is where the following read starts and `HasMore` says whether there is anything after the page. The program reads from offset 0 and compares the four values with the four events expected, in order: the log holds `created`, `paid`, `packed` and `shipped` at offsets 0 to 3. Every key is empty, because neither `PublishAsync` nor a `curl` producer sets one, so a test of a service that writes keys has to compare them as well, and this one shows only that none was written. The timestamps never go backwards. With a limit of 2 the log comes in pages, and the next read starts at `NextOffset` until `HasMore` is false.
+
+Reading takes nothing. The log is a log, not a queue: the program reads it twice and gets the same four records, a consumer that reads from offset 2 still gets the last two: a `CurlClient` sends a `CurlRequest`, a `GET` of `<BoundUrl>orders?offset=2`, and the `CurlResponse` has the values as its `Body`, and a third read still finds four. A test can read the log as often as it likes, before or after the consumers.
+
+The check names what went wrong. A service that skips an event leaves three records, and the test says which event is missing and exits `1`. A service that writes the wrong status shows twice: the value missing, and the value not expected, with its offset. Comparing the list in order is what catches a record out of place.
+
+A read that cannot be answered is an exception, not an empty page. An offset past the end, 9 for a log of four, throws `SurlReadRefusedException`, whose message says the log holds 0 to 4. A topic nobody wrote to throws `SurlNotFoundException`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-produce-and-consume>> for producing and consuming on the console.
+* <<kafka-replay-a-topic-from-an-offset-in-csharp>> for reading from an offset with `Curl.Api`.
+* <<kafka-check-a-consumer-saw-every-record>> for the same reading from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<kafka-protocol>>.

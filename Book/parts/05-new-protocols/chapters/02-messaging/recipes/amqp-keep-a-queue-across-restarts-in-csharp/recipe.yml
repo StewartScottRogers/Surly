@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: amqp-keep-a-queue-across-restarts-in-csharp
+title: Durable AMQP Queues in C#
+protocols: [amqp]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlQueuePage, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, curl-readme, amqp091]
+triplet: amqp-keep-a-queue-across-restarts
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the server with a DataDirectory is disposed and another is started on the same folder, a receive from the durable queue jobs gives job-2, the oldest message not taken before the restart; job-1, taken before it, is not back.
+    program: program.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout: "worker took: job-1\nafter the restart: job-2\n"
+
+  - id: scratch-is-empty
+    claim: A queue that is not durable starts empty after the restart even though the server has a directory; its message tmp is gone and a receive answers an empty body.
+    program: program.cs
+    args: [scratch]
+    expect:
+      exit: 0
+      stdout-matches: '\nscratch after the restart: \[\]\n$'
+
+  - id: on-disk
+    claim: The queue is stored in the folder the server was given, an index under .surl/bus/queues beside the lock file, while the server runs and after it is disposed.
+    program: program.cs
+    args: [disk]
+    expect:
+      exit: 0
+      stdout: "worker took: job-1\nrunning: lock True, index True\nstopped: lock True, index True\n"
+
+  - id: second-restart
+    claim: A second restart keeps what is left, in the order queued; the next two receives give job-3, from before the first restart, and job-4, queued after it.
+    program: program.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: '\nafter the second restart: job-3 then job-4\n'
+
+  - id: taken-stays-taken
+    claim: After the last receive a third restart finds the queue empty; a taken message does not come back.
+    program: program.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout-matches: '\nafter the third restart: \[\]\n$'
+
+  - id: memory-holds
+    claim: A server with a durable queue but no DataDirectory holds the jobs while it runs; after the worker takes job-1, BrowseQueueAsync counts two ready.
+    program: program.cs
+    args: [memory]
+    expect:
+      exit: 0
+      stdout-matches: '\nwhile it runs, jobs holds 2\n'
+
+  - id: memory-forgets
+    claim: Without a DataDirectory, durable keeps nothing; after a restart the queue jobs holds none.
+    program: program.cs
+    args: [memory]
+    expect:
+      exit: 0
+      stdout-matches: '\nafter a restart, jobs holds 0\n$'

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-logins-from-basic-to-digest]]
+=== Moving Logins from Basic to Digest
+
+==== Problem
+
+Your Hypertext Transfer Protocol (HTTP) clients log in with Basic authentication, which sends the password in a form anyone on the path can read. You want the server to accept both Basic and Digest while the clients move, then only Digest, and the test to find any client still sending Basic.
+
+==== Solution
+
+Run the move on a `surl` that accepts both methods and logs every login, log in once each way with `curl`, and read the log for the accounts that still use Basic:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Basic puts the user name and password in the `Authorization` header, encoded but not hidden (<<rfc7617>>). Digest sends a hash of the password and a one-time value the server chose, so the password itself never crosses the wire (<<rfc7616>>). Over plain HTTP `surl` will only take Digest: a Basic login is answered `403 Forbidden` without being checked. The move therefore needs a loosening, `--allow-plaintext-auth`, which lets Basic in clear be checked, and `surl` warns about it on start. That option is the whole difference between the two servers here.
+
+The `move` server holds two accounts, `--user billing:b1lling` for the old client and `--user search:s3arch` for the new one, and serves `site` with `--directory`. `-v` makes the log detailed and `--log-file move.log` writes it to a file the test can read, each login with its method and account. In `curl`, `-s` keeps the progress meter quiet and `-S` still shows an error, `-i` prints the response headers, `-u` gives the account, `--basic` and `--digest` pick the method, `-o` with the null device throws the body away and `-w "%{http_code}\n"` prints the status; `--next` starts a second transfer with its own options. Both clients get `200`. A request with no login is answered `401 Unauthorized`, and during the move its challenge offers Digest, with the algorithm `MD5` first, and Basic as well (<<rfc9110>>).
+
+Finding the clients that have not moved is a `grep` of the log. Each login is a line like `Login accepted: Basic billing`, so the Basic lines name exactly the accounts still to move, and the Digest lines the ones that have. A wrong Basic password is still checked during the move, answered `401`, and logged as `Login refused: Basic billing`. The log masks the `Authorization` header as `Basic ****`, and `billing`{apos}s password appears nowhere in it, so the log can be kept and shared. Giving each client its own account is what makes the log name the client.
+
+A client need not hard-code the method. With `--anyauth` `curl` asks first, reads the challenge and picks Digest from it, and the log records that login as `Digest billing`.
+
+The `cutover` server is the same command without `--allow-plaintext-auth`, which is `surl`{apos}s default. A Basic login there is answered `403`, the right password included, and `-f` turns that into `curl`{apos}s exit `22`. The 403 carries no `WWW-Authenticate` header: a 401 must offer a method, and offering Basic in clear would invite the password. A request with no login now gets only the Digest challenges. Both accounts log in with `--digest`, and the client that used `--anyauth` keeps working unchanged.
+
+Basic clients that were missed still show up after the cutover. The log has a line `Authorization: Basic ****` for each request that arrived with Basic, here the two the cases sent, followed by `the authentication policy forbade the request; answered 403`. It names no account, because the password was never checked.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-logins-from-basic-to-digest-in-csharp>> and <<http-move-logins-from-basic-to-digest-from-an-agent>> for the same move in C# and from an agent.
+* <<http-log-in-with-digest>> for Digest by itself.
+* <<http-refuse-a-password-in-clear>> for the refusal the cutover relies on.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc7616>>, <<rfc9110>>.

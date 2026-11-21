@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-find-what-an-upload-left-from-an-agent]]
+=== Finding What an Upload Left
+
+==== Problem
+
+An upload job pushed files to a `surl` server over File Transfer Protocol (FTP) and reported success. You want an artificial intelligence (AI) agent to list and read what actually landed in the server's store, and say what is missing or different.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). After the job, it calls `surl-mcp`{apos}s `list_files` on each target folder and `read_file` on each planned file, compares the bytes with the job's local files, and checks the store's own events:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program plays both parts. `start_server` starts an FTP server on a free port; its `arguments` are `surl`{apos}s options, `--allow-anonymous` to take `curl`{apos}s anonymous login and `--allow-uploads` to take writes. Both loosen `surl`{apos}s defaults, which refuse every login without an account and every upload (<<surl-readme>>). `files` puts `reports/README.txt` in the store, so `/reports` exists and `/archive` does not.
+
+The job is one call to `curl-mcp`{apos}s `curl` tool, the way a script would run it: three `-T <local> <url>` pairs, each an upload, `-s` quiet, `--max-time 20` bounding the run, and `-w "%{url.path} %{exitcode}\n"` printing a line per upload. The middle one goes to `/archive/weekly.csv`; the folder is not there, so `curl` exits `9` for it, the server having refused to change into the folder (<<rfc959>>). `curl` carries on with the next pair and exits with the last transfer's code, `0` (<<curl-readme>>). The per-file lines show the `9`; a job that checks only the exit code reports success.
+
+The agent trusts none of that and asks the store. `list_files` takes a `path` and answers `entries`, each with `name`, `kind` and `byte_count`: `/reports` holds `daily.csv` and `monthly.csv` beside the README, and for `/archive` it is a tool error, `No folder at /archive.` `read_file` takes a file's `path` and answers its `text` (or `base64` for bytes that are not UTF-8); the agent compares it with the local file, and two of the three are the same bytes. For `/archive/weekly.csv` it is a tool error, `No file at /archive/weekly.csv.` `get_events` with `kinds` `store_changed` is the store's own account: a `written` change for each file an upload stored, here exactly the two that landed. The agent's verdict, one of three missing, comes from the store, not from the job.
+
+With `--fail-early`, `curl` stops at the first failure and exits `9`, so the job would have failed loudly; but the third file was then never sent, and the store holds one file of three. Either way the store is the record of what happened, and it is where the agent should look before telling anyone an upload worked. Reading through `surl-mcp` needs no FTP login.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-create-folders-while-uploading>> for making the missing folder as part of the upload.
+* <<http-find-a-slow-path-from-an-agent>> for reading a server's record of a slow run.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

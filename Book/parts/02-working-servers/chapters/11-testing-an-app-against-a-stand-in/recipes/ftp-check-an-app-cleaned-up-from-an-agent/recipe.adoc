@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-check-an-app-cleaned-up-from-an-agent]]
+=== Checking an App Cleaned Up from an Agent
+
+==== Problem
+
+An app writes temporary files to a File Transfer Protocol (FTP) server and should delete them when it is done. You want an artificial intelligence (AI) agent to run the app against a stand-in, list what is left with `list_files`, and name each leftover, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP server, plays the app with `curl-mcp`{apos}s `curl` tool, and asks the server what is left with `list_files`. The argument picks the scenario; the first, `clean`, is an app that uploads two temporary files and deletes both:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, where it writes `scratch.txt`, the file the app uploads. `start_server` takes `listen_urls`, port `0` for a free one that `bound_urls` reports next to a `server_id`. `arguments` holds `surl`{apos}s own words: `--allow-anonymous` lets the client log in without an account, `--allow-uploads` takes uploads, which the server refuses by default, and `--list-directories` lets a client list a folder (<<surl-readme>>). `files` seeds `work/keep.txt`, a file the app must not remove.
+
+The app is the `curl` tool, which takes `curl`{apos}s arguments as a list with no shell. Two `-T` pairs upload both files in one call, `-l` lists the folder as the transfer the delete commands ride on, and `-sS` hides the progress meter but keeps the error text. Deleting is `-Q "-DELE a.tmp"`: the leading dash sends the command after the transfer, which is a listing of the folder, because a command needs a transfer to ride on (<<curl-readme>>, <<rfc959>>). The answer is text holding JSON, of which the program reads `exitCode` and the text of `standardError`; a refusal is an answer with a non-zero `exitCode`, not a failure of the call. A cleanup of a file the server does not have is exit `21`, `QUOT string not accepted`. The leaky app deletes only `a.tmp` and still exits `0`: nothing in the app{apos}s own result says it leaked.
+
+The check is what names the leftovers. `list_files` takes the `server_id` and a `path` and answers `entries`, each with a `name` and a `kind`; the agent keeps the names that end in `.tmp` and reports each. `keep.txt` is in the folder throughout and is not reported, because the check looks for `.tmp` only. `list_files` reads the server{apos}s store with no client and needs no `--list-directories`, so a check made this way cannot fail for want of the option, where `curl -l` without it exits `19`.
+
+A clean listing proves less than it seems. A folder the app never wrote to passes the check as well: without `--allow-uploads` the app{apos}s first upload is refused and `curl` exits `25`, and the check over the same folder still reports `clean`. An agent should also confirm that the app ran, by its own exit code or by what it leaves on purpose, as `keep.txt` stands for here.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-check-an-app-cleaned-up>> for the same task on the console.
+* <<ftp-check-an-app-cleaned-up-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<mcp-spec>>.

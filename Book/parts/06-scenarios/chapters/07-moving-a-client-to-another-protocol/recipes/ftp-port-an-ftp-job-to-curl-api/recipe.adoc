@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-port-an-ftp-job-to-curl-api]]
+=== Porting an FTP Job to Curl.Api
+
+==== Problem
+
+You have a nightly job that downloads a folder over the File Transfer Protocol (FTP), written with .NET{apos}s obsolete `FtpWebRequest`. You want it in `Curl.Api`, and a test against a stand-in server proving the same files arrive.
+
+==== Solution
+
+Keep the old job and the new one side by side, run both against one in-process `SurlServer`, and compare what each wrote with the server{apos}s own bytes:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The stand-in is a `SurlServer` started from `SurlServerOptions`, `surl`{apos}s command line as properties. `ListenUrls` holds one `ftp://` URL on port 0 for a free one, and `server.BoundUrl` says which. `Files` is the in-memory store: the night{apos}s three files under `out/`, two text files with Windows line ends and 5,000 bytes of random data, so that a copy with one byte changed or one line end rewritten cannot pass. `Accounts` holds the job{apos}s `SurlAccount`. FTP sends the password in clear, which `surl` refuses unless told it is acceptable: `AllowPlaintextAuthentication`, `--allow-plaintext-auth`, lets the job log in as it does against the real server. `ListDirectories` lets it list the folder, and `RecordExchanges` keeps what each control connection sent and received.
+
+The old job is two steps with `FtpWebRequest`, which `WebRequest.Create` makes for an `ftp://` URL. `ListDirectory` asks for the names in `out/`, then `DownloadFile` fetches each, with `NetworkCredential` for the account and the `FtpWebResponse` stream as the body. `UseBinary` and `UsePassive` are set as the job had them. The type is obsolete, so the program turns off that one warning around it.
+
+The new job is the same two steps with `Curl.Api`. A `CurlRequest` `GET` on the folder URL, ending in `/`, returns the long listing; `Curl.Api` has no names-only listing, so the job reads the last word of each line. A `GET` on each file{apos}s URL returns its bytes in the `CurlResponse` body. `CurlAuthenticationOptions` carries the user name and password, and one `CurlClient` sends every request. Both jobs find the same names in the same order and write the same three files, each byte for byte the server{apos}s.
+
+The port changes what a failure looks like, and the job{apos}s error handling must change with it. A missing file is a `WebException` whose `FtpWebResponse` has `StatusCode` `550` `ActionNotTakenFileUnavailable` for the old job, and a `CurlException` with `Code` `RemoteFileNotFound`, `curl`{apos}s exit `78`, for the new one. A wrong password is `530` `NotLoggedIn` for the old job and `LoginDenied`, `67`, for the new.
+
+The recorded exchanges, `server.Exchanges`, show how differently the two talk to the server, one `SurlExchangeRecord` per control connection with the bytes it `Received`. The old job opened a connection for each of its four requests; the new job sent all four over one, because a `CurlClient` keeps its connection for the next request. Both use passive mode, where the client opens the data connection: the old job asks with `PASV`, the new one with `EPSV`, its successor (<<rfc2428>>). The old job lists with `NLST`, names only, and the new one with `LIST`, the long form; both send `TYPE` to switch to binary before a transfer (<<rfc959>>).
+
+A stand-in left at its default, without `AllowPlaintextAuthentication`, refuses the password in clear, the right one included, and both jobs fail to log in: `530` for the old job and `LoginDenied` for the new. That is `surl` being careful with a password that anyone on the path could read, and it is why the stand-in needs the loosening at all.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-list-and-upload-in-csharp>> for FTP listings from `Curl.Api`.
+* <<ftp-move-a-client-to-sftp-in-csharp>> for moving the same kind of job to SFTP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc2428>>.

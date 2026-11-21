@@ -1,0 +1,128 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: gs-sign-with-an-hmac-key-from-an-agent
+title: Cloud Storage HMAC Logins from an Agent
+protocols: [gs]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, read_file, get_events]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, gcs-xml-api, rfc8446]
+
+fixtures:
+  note.txt: "a note
+"
+
+# A certificate for 127.0.0.1 and for Google's storage host, good for 30 days, signed by its own
+# key; never committed. Both hosts are confined to this folder.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:storage.googleapis.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'An agent that sends curl-mcp''s curl tool the HMAC key pair and then the OAuth token gets the object each time, exit code 0, the body in standard output.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^hmac: exit 0 hello from surl\nbearer: exit 0 hello from surl\n'
+
+  - id: hmac
+    claim: 'The HMAC key pair, sent as -u, gets the object, exit 0.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^hmac: exit 0 hello from surl\n'
+
+  - id: bearer
+    claim: 'The OAuth token, sent as --oauth2-bearer, gets the same object, exit 0.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbearer: exit 0 hello from surl\n'
+
+  - id: wrong-secret
+    claim: 'The right access key with the wrong secret is refused 403 SignatureDoesNotMatch, exit 22.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong secret: exit 22 403 SignatureDoesNotMatch\n'
+
+  - id: unknown-key
+    claim: 'An access key the server does not hold is refused 403 InvalidAccessKeyId, exit 22.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunknown key: exit 22 403 InvalidAccessKeyId\n'
+
+  - id: unknown-token
+    claim: 'A token the server does not hold is refused 401 InvalidAuthentication, exit 22, a different status and code from an unknown access key.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunknown token: exit 22 401 InvalidAuthentication\n'
+
+  - id: no-login
+    claim: 'A request with no login is refused 401 AuthenticationRequired, exit 22.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno login: exit 22 401 AuthenticationRequired\n'
+
+  - id: uploads-off-hmac
+    claim: 'Without --allow-uploads, a put signed with the right HMAC key is refused 403 AccessDenied, exit 22.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads off hmac: exit 22 403 AccessDenied\n'
+
+  - id: uploads-off-bearer
+    claim: 'Without --allow-uploads, a put with the right token is refused 403 AccessDenied too, exit 22.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads off bearer: exit 22 403 AccessDenied\n'
+
+  - id: uploads-on-hmac
+    claim: 'With --allow-uploads, the HMAC-signed put is accepted, exit 0, and read_file returns the bytes put.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads on hmac: exit 0 \nuploads on bearer: exit 0 \nstored writable /photos/note.txt: a note\n'
+
+  - id: uploads-on-bearer
+    claim: 'With --allow-uploads, a put with the token is accepted, exit 0, and read_file returns the object token.txt.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads on bearer: exit 0 \nstored writable /photos/note.txt: a note\nstored writable /photos/token.txt: a note\n'
+
+  - id: refused-put-stores-nothing
+    claim: 'The put refused on the server without --allow-uploads left no object there.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstored main /photos/note.txt: nothing\n'
+
+  - id: logins-judged
+    claim: 'get_events with the kind login_judged lists the first five logins the server judged in order, the HMAC pair accepted, the token accepted, the wrong secret refused, the unknown key refused and the unknown token refused, a token shown as the account "bearer token"; the request with no login is not among them.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin_judged: \[GOOGTESTKEY\] accepted\nlogin_judged: \[bearer token\] accepted\nlogin_judged: \[GOOGTESTKEY\] refused\nlogin_judged: \[GOOGOTHERKEY\] refused\nlogin_judged: \[bearer token\] refused\n'

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-uploads-to-s3-in-csharp]]
+=== Moving File Uploads to S3 in C#
+
+==== Problem
+
+In a C# test: your app uploads files with Hypertext Transfer Protocol (HTTP) `PUT` requests. You want to move it to the Amazon Simple Storage Service (S3) protocol and prove that the same files land under the same names in the same store.
+
+==== Solution
+
+Host one `SurlServer` with an S3 and an HTTPS listener on one store, upload once each way with `Curl.Api`, and read the store and the recorded logins back:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `s3://` and an `https://` URL, each on port 0 for a free one, and `server.BoundUrls` lists them in that order. Both serve the in-memory store, `Files`. Over S3 each top-level folder is a bucket and the path under it the key, so the HTTP path `/uploads/report.csv`, the object `s3://uploads/report.csv` and the store path `/uploads/report.csv` are one thing under three names; `Files["uploads/readme.txt"]` makes the bucket. That is what makes the move testable: the only thing that changes is the protocol.
+
+S3 is HTTPS from the first byte, so both listeners use `CertificateFile` and `KeyFile`, made in the setup with `openssl`. A `SurlAccount` holds one access key ID and its secret, which HTTP takes as a user name and password. `AllowUploads` lets clients write and `ListDirectories` lets a signed request list a bucket. `RecordExchanges` keeps every connection{apos}s bytes and the events with them, and `Log` takes a `TextWriter` for the lines `surl` would write, at `LogLevel.Verbose`, as `-v` does.
+
+Each upload is a `CurlRequest` `PUT` whose `Body` is the file{apos}s bytes, sent through one `CurlClient`. `CurlAuthenticationOptions` carries `UserName` and `Password`. On the `https://` URL they go as Basic authentication over the encrypted connection (<<rfc7617>>); on an `s3://` URL they sign the request with AWS Signature Version 4, so the secret never crosses the wire (<<aws-s3-api>>). `curl` sends an `s3://` request to the bucket{apos}s host name at Amazon, so `CurlNetworkOptions.ConnectTo` sends it to the server{apos}s S3 port, and the certificate names `*.s3.us-east-1.amazonaws.com`. `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is `server.pem` trusts it, as `--cacert` does. A `GET` on `s3://uploads/` lists the bucket, one name a line: both files beside the one already there. `server.Files.ReadAsync` reads each back from the store with the bytes that were sent, and each is the same read the other way round, the HTTP upload as an S3 object and the S3 object over HTTPS.
+
+The server{apos}s record tells the two clients apart. The verbose log has a line for each HTTP upload, `PUT /uploads/report.csv: 201`, so the test finds the uploads still arriving the old way. `server.FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.LoginJudged` returns a `LoginJudgedEvent` per login: the HTTPS upload has `Scheme` `https` and `Mechanism` `Basic`, the S3 put and listing `s3` and `AWS4-HMAC-SHA256`, all for the same key ID.
+
+What the app reads back changes. The `CurlResponse` `StatusCode` of an HTTP `PUT` that makes a file is `201`, and of one that replaces it `204` (<<rfc9110>>). Over S3 a put is `200` either way, so code that tests for `201` must change. Refusals change too. An HTTP `PUT` with no login is a `401` response, not an exception. An S3 put with no signature throws `CurlException` with `Code` `HttpReturnedError`, `curl`{apos}s exit `22`, and a message naming `403 AccessDenied`; one signed with the wrong secret names `SignatureDoesNotMatch`. None of the refused uploads is stored: `ReadAsync` throws `SurlNotFoundException`.
+
+The cutover is a server whose `AuthenticationMethods` is a list holding `aws-sigv4`, `--auth aws-sigv4`, so only signed requests are taken. The property is null by default, so the program assigns a new list. The old client{apos}s HTTPS `PUT` is answered `403`, the right password included, and nothing is stored. The new client{apos}s S3 put on the same server is answered `200` and lands in the store.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-uploads-to-s3>> and <<http-move-uploads-to-s3-from-an-agent>> for the same move on the console and from an agent.
+* <<s3-tell-the-refusals-apart-in-csharp>> for the S3 refusals in more detail.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc9110>>, <<rfc7617>>.

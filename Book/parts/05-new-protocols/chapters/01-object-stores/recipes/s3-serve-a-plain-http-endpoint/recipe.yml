@@ -1,0 +1,114 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: s3-serve-a-plain-http-endpoint
+title: Serving S3 over Plain HTTP
+protocols: [s3]
+tier: new-protocols
+surl-options: [--s3-plaintext, --directory, --user, --allow-uploads, -v, --log-file]
+curl-options: [--aws-sigv4, -u, --connect-to, -T, -s, -S, -f]
+exit-codes: [0, 22, 35, 58]
+references: [surl-readme, curl-protocols, aws-s3-api]
+
+fixtures:
+  up.txt: "uploaded over plain http\n"
+  store/photos/hello.txt: "hello from surl\n"
+  writable/photos/hello.txt: "hello from surl\n"
+
+# main serves S3 as plain HTTP with one account and logs to surl.log, which lives beside the folders,
+# not in one. writable adds --allow-uploads. Each serves its own folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl -v --log-file surl.log --s3-plaintext --directory store --user AKIAIOSFODNN7EXAMPLE:s3cret s3://127.0.0.1:{{port}}/
+    ready: port
+  writable:
+    command: surl --s3-plaintext --directory writable --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads s3://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'With --s3-plaintext, no certificate is needed, and curl signs a get of the object photos/hello.txt over http:// with the account''s access key and secret; it is served, exit 0.'
+    run: curl -sS --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret http://127.0.0.1:{{port}}/photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: warns-on-start
+    claim: 'The server wrote a warning on start that s3 is served as plain HTTP, here to its log file.'
+    run: 'grep -c "surl: warning: --s3-plaintext: s3 is served as plain HTTP, without TLS" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: needs-a-certificate
+    claim: 'Without --s3-plaintext, an s3 listen URL with no certificate stops the start with exit 58 and a message that says so.'
+    run: surl --user AKIAIOSFODNN7EXAMPLE:s3cret s3://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) s3://127\.0\.0\.1:0/ needs a certificate'
+
+  - id: virtual-host
+    claim: 'An SDK that puts the bucket in the host name, photos.s3.us-east-1.amazonaws.com over http://, is served too, once --connect-to sends the connection to surl.'
+    run: curl -sS --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret --connect-to ::127.0.0.1:{{port}} http://photos.s3.us-east-1.amazonaws.com/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: s3-url-is-tls
+    claim: 'curl''s s3:// URL is TLS from the first byte, so it cannot talk to the plain-HTTP listener, exit 35.'
+    run: curl -sS -u AKIAIOSFODNN7EXAMPLE:s3cret --connect-to ::127.0.0.1:{{port}} s3://photos/hello.txt 2>&1
+    expect:
+      exit: 35
+      stdout-matches: '^curl: \(35\)'
+
+  - id: unsigned
+    claim: 'An unsigned request is refused 403 AccessDenied, in an XML body; the check did not go away with the TLS.'
+    run: curl -sS http://127.0.0.1:{{port}}/photos/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '<Code>AccessDenied</Code>'
+
+  - id: wrong-secret
+    claim: 'The right access key with the wrong secret is refused 403 SignatureDoesNotMatch.'
+    run: curl -sS --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:wrong http://127.0.0.1:{{port}}/photos/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '<Code>SignatureDoesNotMatch</Code>'
+
+  - id: unknown-key
+    claim: 'An access key surl does not hold is refused 403 InvalidAccessKeyId.'
+    run: curl -sS --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAOTHEREXAMPLE:s3cret http://127.0.0.1:{{port}}/photos/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '<Code>InvalidAccessKeyId</Code>'
+
+  - id: refusal-status
+    claim: 'With -f, a refusal is curl exit 22, and the 403 is in the status line the server sent.'
+    run: curl -sS -f -w "%{http_code}\n" --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:wrong http://127.0.0.1:{{port}}/photos/hello.txt 2>&1
+    expect:
+      exit: 22
+      stdout-matches: 'returned error: 403'
+
+  - id: missing-object
+    claim: 'A signed get of a name with no object is 404 NoSuchKey.'
+    run: curl -sS --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret http://127.0.0.1:{{port}}/photos/missing.txt
+    expect:
+      exit: 0
+      stdout-matches: '<Code>NoSuchKey</Code>'
+
+  - id: uploads-off
+    claim: 'Without --allow-uploads, a correctly signed put is refused 403 AccessDenied.'
+    run: curl -sS --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret -T up.txt http://127.0.0.1:{{port}}/photos/up.txt
+    expect:
+      exit: 0
+      stdout-matches: '<Code>AccessDenied</Code>'
+
+  - id: uploads-on
+    claim: 'With --allow-uploads, the same signed put is accepted and the object is the file writable/photos/up.txt.'
+    run: curl -sS --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret -T up.txt http://127.0.0.1:{{port2}}/photos/up.txt
+    expect:
+      exit: 0
+      files:
+        writable/photos/up.txt: "uploaded over plain http\n"

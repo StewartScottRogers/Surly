@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-follow-links-inside-the-served-folder]]
+=== Following Symbolic Links Safely
+
+==== Problem
+
+The folder you serve over Hypertext Transfer Protocol (HTTP) holds symbolic links, such as `latest.txt` pointing at the current release notes, and `surl` answers them `404`. You want the links that stay inside the folder served, and a link that points outside it to stay `404`.
+
+==== Solution
+
+Start `surl` with `--follow-symlinks`, and fetch the link's path:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` serves the files under `site` at their relative paths. By default `surl` treats a symbolic link in that folder as if nothing were there: the server `plain`, started without the option, answers `latest.txt` with `404 Not Found` (<<rfc9110>>) while it serves `docs/guide.txt`, the file the link points to, at its own path. That is the surly default. A link can point anywhere on the disk, so following links is a choice for whoever starts the server, and `surl --aihelp security` lists `--follow-symlinks` among the options that widen what a peer may do (<<surl-readme>>). It writes no warning on start.
+
+`--follow-symlinks` follows a link only when it resolves to a place inside the served folder. A link to a file is served as that file, and a link to a folder, `current` pointing at `docs`, works as the folder: `current/guide.txt` is served too. A link that leaves the folder, `leak.txt` pointing at `../outside/secret.txt`, is still `404`, and none of the target's bytes are sent. `surl` judges a chain of links by where it ends, not by its first step: `hop.txt` points at `leak.txt`, which is inside, but `leak.txt` leaves, so `hop.txt` is `404` as well.
+
+To the client an escaping link and a missing file look the same, a `404` with an empty body; `-w "%{http_code}"` prints only the status, `-s` keeps `curl` quiet and `-o` sends the body to the null device. The server knows the difference. `-v` raises the log to verbose, and `--log-file links.log` appends the log to a file, where the event line for `leak.txt` reads `the path was refused (ResolvesOutsideRoot)` and the one for a missing file `nothing exists at` and the path on disk. That is where to look when a link you expected to work answers `404`.
+
+A fixture cannot be a link, so the recipe makes the links in `setup:` with `make-links.sh`, before the servers start. Git Bash on Windows copies a file for `ln -s` unless `MSYS=winsymlinks:nativestrict` asks it for a real link, which needs Developer Mode or an administrator; Linux and macOS ignore the setting. Two `surl` processes cannot serve one folder, so `plain` has its own copy of the tree:
+
+include::make-links.sh[]
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-a-directory>> for serving a folder without links.
+* <<surl-readme>>, <<rfc9110>>.

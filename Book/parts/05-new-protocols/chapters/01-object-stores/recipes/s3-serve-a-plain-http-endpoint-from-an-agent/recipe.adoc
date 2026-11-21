@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-serve-a-plain-http-endpoint-from-an-agent]]
+=== Plain-HTTP S3 Endpoints from an Agent
+
+==== Problem
+
+Your SDK points at a local S3 endpoint over http://, as with a MinIO container. You want your agent to start the S3 server on plain HTTP, make requests that are still signed and checked, and read the warning it gives, with `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+An agent starts an S3 server with `surl-mcp` and `--s3-plaintext`, with no certificate, and sends `curl-mcp` a signed get over `http://`. The server{apos}s own words on start, the warning among them, come back in the answer:
+
+include::.generated/solution.adoc[]
+
+A second server in the checked claims allows uploads, and the agent reads from `surl-mcp` what each server holds and which logins it judged.
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) is reached over Transport Layer Security (TLS) from the first byte, and so is `surl`{apos}s `s3` listener, which is why it needs a certificate and refuses to start without one. A local stand-in such as a MinIO container is usually reached over plain `http://`, and an SDK pointed at it with an `http://` endpoint does not speak TLS. `--s3-plaintext` serves every `s3` listen URL as plain Hypertext Transfer Protocol (HTTP) instead (<<surl-readme>>). It loosens security, for tests only: anyone who can watch the network reads every object as it is sent. The recipe <<s3-serve-a-plain-http-endpoint>> does the same with the two programs on a console.
+
+`start_server` of `surl-mcp` starts a server. `listen_urls` is `s3://127.0.0.1:0`, where port `0` takes a free port that `bound_urls` reports, and `arguments` are `surl`{apos}s own options: `--s3-plaintext`, `--user` for the account and, for the second server, `--allow-uploads`. `files` is the content in memory, where `photos/hello.txt` is the object `hello.txt` in the bucket `photos`. The answer carries a `server_id`, which later calls name, and `log_lines`, what `surl` wrote on start: the warning, `surl: warning: --s3-plaintext: s3 is served as plain HTTP, without TLS`, and the line `Listening on ...`. Without `--s3-plaintext`, the same call with no certificate is a tool error whose `exit_code` is `58`, and whose message says the listener needs a certificate.
+
+Plain HTTP removes the encryption and nothing else. Every request must still be signed with AWS Signature Version 4, the scheme S3 uses (<<aws-s3-api>>), by an account: `--user AKIAIOSFODNN7EXAMPLE:s3cret` gives `surl` an access key ID and its secret access key. `curl` of `curl-mcp` runs `curl`{apos}s own arguments in the folder `CURL_MCP_ROOT` names, and answers in text as JSON: `exitCode`, and `standardOutput` and `standardError`, each an object whose `content` is the text. `--aws-sigv4 aws:amz:us-east-1:s3` with `-u` and the pair signs a request to an ordinary `http://127.0.0.1:<port>/photos/hello.txt` in path style. An SDK that puts the bucket in the host name, `photos.s3.us-east-1.amazonaws.com`, is served too: `--connect-to ::127.0.0.1:<port>` sends the connection to the server while `curl` keeps that name in the request and in the signature.
+
+The refusals are the ones the TLS listener gives, as <<s3-tell-the-refusals-apart-from-an-agent>> shows. Over `http://` an S3 error is an ordinary response, so `curl` exits `0` and the XML body in `standardOutput` names the error in `Code`. A request with no signature is `403 AccessDenied`, an access key the server does not hold `403 InvalidAccessKeyId`, the right key with the wrong secret `403 SignatureDoesNotMatch`, and a name with no object `404 NoSuchKey`. Writes are a separate permission: without `--allow-uploads` a correctly signed put, `-T up.txt` from the agent{apos}s folder, is `403 AccessDenied` and `read_file` of `surl-mcp` finds no `/photos/up.txt`, a tool error; on the second server the same put is accepted and `read_file` returns the text put, `text` in the answer.
+
+`curl`{apos}s own `s3://` URL is a different thing. It means TLS from the first byte, so aimed at this listener it ends at the handshake, exit `35`. The `curl: (35)` wording differs by platform; the exit code does not. `get_events` of `surl-mcp`, with `kinds` set to `login_judged`, lists the logins the server judged, each with the `account` it named and whether it was accepted; the unsigned request names no account and is not among them. The claim reads the first four events only, since a refused put need not add one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-serve-a-plain-http-endpoint>> for the same task on the console.
+* <<s3-serve-a-plain-http-endpoint-in-csharp>> for the same task from a C# test.
+* <<s3-tell-the-refusals-apart-from-an-agent>> for the refusals in full.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

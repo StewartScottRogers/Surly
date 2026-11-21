@@ -1,0 +1,45 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-check-an-app-cleaned-up]]
+=== Checking an App Cleaned Up
+
+==== Problem
+
+Your app writes temporary files to a File Transfer Protocol (FTP) server and should delete them when it is done. You want a test that runs the app against a stand-in, lists the folder afterwards, and fails if any temporary file is left.
+
+==== Solution
+
+Run `surl` taking uploads and listings, run the app, then run a check that lists the folder. Here the app is a script that uploads two temporary files and deletes both, and the check is a second script that exits 1 when a `.tmp` file is left:
+
+include::.generated/solution.adoc[]
+
+The app:
+
+include::app.sh[]
+
+The check:
+
+include::check.sh[]
+
+They need a POSIX shell (Git Bash on Windows). Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` serves `site` (`--directory`) and takes uploads into it with `--allow-uploads`, which it refuses by default: a server that anyone can write to is a decision, not a default. `--allow-anonymous` lets `curl` log in without an account, and `--list-directories` lets a client list a folder, which `surl` also refuses unless asked (<<surl-readme>>).
+
+The app uploads with two `-T` pairs in one `curl` command, and deletes with `-Q "-DELE a.tmp"`. `-Q` sends a command to the server, and the leading minus sends it after the transfer, which is a listing of the folder here because a command needs a transfer to ride on; `-o` with the null device throws that listing away (<<curl-readme>>, <<rfc959>>). The leaky variant, given `leak`, deletes only `a.tmp`, and the app still exits `0`: nothing in the app{apos}s own result says it leaked. A cleanup that asks for a file the server does not have is refused and `curl` exits `21`, `QUOT string not accepted`.
+
+The check is what fails the test. `-l` lists names only, one a line, with the carriage return FTP ends lines with, which the script strips; `-s` hides the progress meter and `-S` keeps the error text, so a failed listing says why. The listing is kept in a variable before it is searched, not piped straight into `grep`, so that a failed listing is `curl`{apos}s own exit code and not an empty result: without `--list-directories` the folder cannot be listed, `curl` exits `19`, and the check exits `19` with it instead of printing `clean`. With a leftover the check names it, `leftover: b.tmp`, and exits `1`. A file the app was never meant to delete, `keep.txt`, is in the folder throughout and does not fail the check, because the check looks for `.tmp` only.
+
+A clean listing proves less than it seems. A folder the app never wrote to passes the check as well: with uploads off the app{apos}s first upload is refused and it exits `25`, and the check over the same folder still prints `clean`. A test should therefore also show that the app ran, by its own exit code or by what it left on purpose, as `keep.txt` stands for here.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-check-an-app-cleaned-up-in-csharp>> for the same task from C#.
+* <<ftp-check-an-app-cleaned-up-from-an-agent>> for the same task from an agent.
+* <<ftp-mirror-a-folder-with-a-script>> for another short script against an FTP stand-in.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

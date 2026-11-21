@@ -1,0 +1,119 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: gs-sign-with-an-hmac-key
+title: Signing Cloud Storage with HMAC
+protocols: [gs]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --allow-uploads]
+curl-options: [--cacert, --connect-to, -u, --oauth2-bearer, -T, -s, -S]
+exit-codes: [0, 22]
+references: [surl-readme, curl-protocols, gcs-xml-api, rfc8446]
+
+fixtures:
+  note.txt: "a note\n"
+  store/photos/hello.txt: "hello from surl\n"
+  writable/photos/hello.txt: "hello from surl\n"
+
+# A certificate for 127.0.0.1 and for Google's storage host, good for 30 days, signed by its own
+# key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:storage.googleapis.com"
+
+# main holds two accounts and nothing loosened: an HMAC key pair, and an empty name whose password
+# is an OAuth token. writable adds --allow-uploads. Each serves its own folder: one surl holds a
+# folder at a time.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user GOOGTESTKEY:s3cret --user :ya29.t0ken gs://127.0.0.1:{{port}}/
+    ready: port
+  writable:
+    command: surl --directory writable --cert server.pem --key server.key --user GOOGTESTKEY:s3cret --user :ya29.t0ken --allow-uploads gs://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'The same object is got once signed with the HMAC key pair and once with the OAuth token, each served, exit 0.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret gs://photos/hello.txt --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --oauth2-bearer ya29.t0ken gs://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\nhello from surl\n"
+
+  - id: hmac
+    claim: 'The HMAC key pair signs a get, which is served, exit 0.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret gs://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: bearer
+    claim: 'The OAuth token, sent as a Bearer login, gets the same object, exit 0.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --oauth2-bearer ya29.t0ken gs://photos/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: wrong-secret
+    claim: 'The right access key with the wrong secret is refused 403 SignatureDoesNotMatch; curl writes nothing and exits 22.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:wrong gs://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: SignatureDoesNotMatch"
+
+  - id: unknown-key
+    claim: 'An access key the server does not hold is refused 403 InvalidAccessKeyId, exit 22.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGOTHERKEY:s3cret gs://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: InvalidAccessKeyId"
+
+  - id: unknown-token
+    claim: 'A token the server does not hold is refused 401 InvalidAuthentication, a different code from an unknown access key, exit 22.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --oauth2-bearer ya29.other gs://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 401: InvalidAuthentication"
+
+  - id: no-login
+    claim: 'A request with no login is refused 401 AuthenticationRequired, exit 22.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} gs://photos/hello.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 401: AuthenticationRequired"
+
+  - id: uploads-off-hmac
+    claim: 'Without --allow-uploads, a put signed with the right HMAC key is refused 403 AccessDenied, exit 22.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret -T note.txt gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: AccessDenied"
+
+  - id: uploads-off-bearer
+    claim: 'Without --allow-uploads, a put with the right token is refused 403 AccessDenied too, exit 22.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --oauth2-bearer ya29.t0ken -T note.txt gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: AccessDenied"
+
+  - id: uploads-on-hmac
+    claim: 'With --allow-uploads, the HMAC-signed put is accepted and the object is the file writable/photos/note.txt.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u GOOGTESTKEY:s3cret -T note.txt gs://photos/note.txt
+    expect:
+      exit: 0
+      files:
+        writable/photos/note.txt: "a note\n"
+
+  - id: uploads-on-bearer
+    claim: 'With --allow-uploads, a put with the token is accepted and the object is the file writable/photos/token.txt.'
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} --oauth2-bearer ya29.t0ken -T note.txt gs://photos/token.txt
+    expect:
+      exit: 0
+      files:
+        writable/photos/token.txt: "a note\n"

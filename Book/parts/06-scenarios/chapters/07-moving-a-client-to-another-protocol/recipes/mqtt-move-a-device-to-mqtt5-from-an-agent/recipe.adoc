@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-move-a-device-to-mqtt5-from-an-agent]]
+=== Moving a Device to MQTT 5 from an Agent
+
+==== Problem
+
+You are moving devices from Message Queuing Telemetry Transport (MQTT) 3.1.1 to MQTT 5 one at a time. You want an artificial intelligence (AI) agent to stand up one broker that serves both versions over one message bus and play an old and a new device against it, with Model Context Protocol (MCP) tool calls and no shell, so it can say what changes for a device when it moves.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` with an `mqtt://` and an `mqtt5://` listener, plays the devices with `curl-mcp`{apos}s `curl` tool, and asks the broker what it kept with `read_retained_message`. The argument picks the scenario; the first, `old-to-new`, has the old device publish and a new one subscribe:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in. `start_server` takes `listen_urls` with one URL per protocol, port `0` for a free one, and `bound_urls` in the structured answer holds the real addresses in the order given, next to a `server_id` for later calls. Both listeners are views of one bus: a retained message belongs to the topic, not to the version that published it (<<mqtt311>>, <<mqtt5>>). The rest goes in `arguments`, in `surl`{apos}s own words: `--topic "plant/#;retain"` keeps what a device publishes under `plant`, and a publish outside it, `garden/temp`, is accepted and kept by neither listener; `--mqtt5-disconnect-after-retained` ends an MQTT 5 subscription once the retained messages are sent, so `curl` exits (<<surl-readme>>).
+
+A device is one call of the `curl` tool, which takes `curl`{apos}s arguments as a list with no shell: `-d` publishes, a URL alone subscribes, `-u` is the login, `-s` hides the progress meter and `-S` keeps the error text (<<curl-readme>>). The answer is text holding JSON, of which the program reads `exitCode`, `standardOutput.content` and `standardError.content`. A publish is not acknowledged, so `curl` can return before the broker has applied it. After every call the program calls `wait_for_event` for `exchange_ended`, after the last sequence it has seen and with a ten-second bound, and only then reads the store. `read_retained_message` takes the `server_id` and a topic and answers `topic`, `qos` and `text`, or `{"retained":false}`, which is a result and not a tool error.
+
+What a device sees is the same messages in different dress. The MQTT 5 subscriber is given the payload alone. The MQTT 3.1.1 subscriber is given two bytes of topic length, the topic, then the payload, which the program decodes: `plant/hall/temp` is 15 bytes. The bus keeps one message per topic, so the old device's `72` replaces the `71` before it, and an empty message clears the topic for both versions.
+
+The login is the second change. One account, `--user lamp:s3cret`, serves both versions, and a password in clear is refused on both unless `--allow-plaintext-auth` is given, which loosens security. MQTT 3.1.1 answers a refused login in its CONNACK packet with a return code, 4 for a wrong password and 5 for no login or an unchecked one, and `curl` exits `8` with `Expected 0000 but got 0004` or `0005`. MQTT 5 answers with a reason code, `0x86` for a wrong password and `0x87` for not authorized, and `curl` exits `67`. An agent that checks for exit `8` from the old device has to check for `67` from the new one. After every refusal the broker keeps nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-move-a-device-to-mqtt5>> for the same task on the console.
+* <<mqtt-move-a-device-to-mqtt5-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<mqtt5>>, <<mcp-spec>>.

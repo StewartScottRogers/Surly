@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs check-consumer.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: kafka-check-a-consumer-saw-every-record
+title: Checking a Consumer Saw Every Record
+protocols: [kafka]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, publish_message, read_log, curl]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, kafka-protocol]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Six records are produced, three by publish_message and three by the curl tool; the consumer, the curl tool reading from offset 0, reports all six, read_log holds six, and the comparison finds no record missed.
+    program: check-consumer.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "consumer reported: evt-1, evt-2, evt-3, evt-4, evt-5, evt-6\nthe log holds 6 records\nthe consumer saw every record\n"
+
+  - id: skipped-records
+    claim: A consumer that starts from offset 2, as one with a wrong saved offset would, reports four records; the comparison names the two it missed, offset 0 evt-1 and offset 1 evt-2, and the check fails, exit 1.
+    program: check-consumer.cs
+    args: [skipped]
+    expect:
+      exit: 1
+      stdout: "consumer reported: evt-3, evt-4, evt-5, evt-6\nthe log holds 6 records\nthe consumer missed offset 0 evt-1, offset 1 evt-2\n"
+
+  - id: late-records
+    claim: A consumer that ends after four records misses the two produced after it; the comparison names them, offset 4 evt-5 and offset 5 evt-6, and the check fails, exit 1.
+    program: check-consumer.cs
+    args: [late]
+    expect:
+      exit: 1
+      stdout: "consumer reported: evt-1, evt-2, evt-3, evt-4\nthe log holds 6 records\nthe consumer missed offset 4 evt-5, offset 5 evt-6\n"
+
+  - id: pages
+    claim: read_log with a limit of 3 gives the log three records at a time; the first page has next_offset 3 and has_more true, the second next_offset 6 and has_more false.
+    program: check-consumer.cs
+    args: [pages]
+    expect:
+      exit: 0
+      stdout: "page from 0: evt-1, evt-2, evt-3, next 3, more True\npage from 3: evt-4, evt-5, evt-6, next 6, more False\n"
+
+  - id: log-is-not-consumed
+    claim: Reading the log takes nothing from it, and neither does the consumer; the log holds six records before the consumer, the consumer reports six, and it still holds six after.
+    program: check-consumer.cs
+    args: [kept]
+    expect:
+      exit: 0
+      stdout: "before the consumer: 6 records\nthe consumer reported: 6 records\nafter the consumer: 6 records\n"
+
+  - id: past-the-end
+    claim: A read_log from an offset past the end, 9 for a log of six, is a tool error whose text says the log holds 0 to 6; it is not an empty page.
+    program: check-consumer.cs
+    args: [past-the-end]
+    expect:
+      exit: 0
+      stdout: "read_log orders from 9: tool error yes, Offset 9 is outside the log, which holds 0 to 6.\n"
+
+  - id: no-topic
+    claim: A read_log of a topic nobody wrote to is a tool error, No log for topic refunds.
+    program: check-consumer.cs
+    args: [no-topic]
+    expect:
+      exit: 0
+      stdout: "read_log refunds from 0: tool error yes, No log for topic refunds.\n"

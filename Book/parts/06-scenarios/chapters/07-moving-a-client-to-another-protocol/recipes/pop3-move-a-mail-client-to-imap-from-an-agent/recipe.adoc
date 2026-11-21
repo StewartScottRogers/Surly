@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-move-a-mail-client-to-imap-from-an-agent]]
+=== Moving a Mail Client to IMAP
+
+==== Problem
+
+As an agent: your mail client polls a mailbox over the Post Office Protocol version 3 (POP3), downloading each message and deleting it. You want to switch it to the Internet Message Access Protocol (IMAP), prove that it sees the same messages, and leave them on the server instead of deleting them.
+
+==== Solution
+
+Start one server through `surl-mcp` with a POP3 and an IMAP listener, seed two messages, read the first both ways through `curl-mcp`, and ask the server which logins it judged on each protocol:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` of `surl-mcp` takes `listen_urls`, here a `pop3://` and an `imap://` URL, each on port 0 for a free one, and `bound_urls` lists them in that order. Both serve one mail store, so the two clients read the same mailbox; that is what makes the move testable. `arguments` is `surl`{apos}s own words: `--mail-domain example.com` is the domain the server takes mail for, and `--mailbox ann@example.com:s3cret` makes a mailbox and the account that reads it, named by the whole address. `seed_mail`, given the `server_id`, the address `to` and the `message` text, puts each order straight into the store, as SMTP would.
+
+The `curl` tool of `curl-mcp` runs real `curl` options: `args` is the list of words, and the answer holds `exitCode` and `standardOutput` with its `content`. Each call is its own `curl` run, so its own session. `-s` keeps the progress meter away and `-u` gives the account. POP3 numbers the messages of a session, `pop3://.../1` (<<rfc1939>>); IMAP gives each a unique identifier (UID) in its folder, `imap://.../INBOX;UID=1` (<<rfc9051>>). Read both ways, the first message is the same text. The POP3 listing has one line per message with its size, and an IMAP search, `INBOX?ALL`, finds the same two. `-X UIDL` asks POP3 for each message{apos}s unique ID, and `surl`{apos}s ends in the IMAP UID after the dot, so a client that remembers which IDs it has seen can carry that record over.
+
+Leaving mail on the server needs a way to know what was read, and that is what IMAP flags are for. `curl`{apos}s IMAP fetch of UID 1 marks it seen, so a search for `UNSEEN` mail finds only message 2: the new client polls with that search instead of deleting. A POP3 retrieve sets no flag; message 2 is still unseen after it. `list_mailboxes` of `surl-mcp`, given an `owner`, reads the store without a protocol: its `INBOX` entry has a `message_count` of two and an `unseen_count` of two at the start and one at the end. Nothing was deleted.
+
+`get_events`, given the kind `login_judged` and a `scheme`, answers the logins the server judged through that protocol, each with its `account` and `is_accepted`: one on `pop3`, one on `imap`. Counting the `pop3` ones finds the clients still to move. A wrong password is exit code `67` over both protocols, so a check that tests for it survives the move.
+
+The old client must stop before the new one relies on mail staying. `-X "DELE 1"` on the POP3 URL deletes message 1 when that `curl` run ends. Both read one store, so `list_mailboxes` counts one and an IMAP fetch of UID 1 is exit code `78`.
+
+Turning POP3 off for the mailbox is the failure path. `;protocols=smtp,imap` after the password limits which protocols the account may log in on. POP3 refuses it, the right password included, exit code `67`; IMAP still reads both messages.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-move-a-mail-client-to-imap>> and <<pop3-move-a-mail-client-to-imap-in-csharp>> for the same move on the console and in C#.
+* <<pop3-retrieve-and-delete-from-an-agent>> for the old client from an agent.
+* <<imap-list-mailboxes-and-counts-from-an-agent>> for more on `list_mailboxes`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1939>>, <<rfc9051>>.

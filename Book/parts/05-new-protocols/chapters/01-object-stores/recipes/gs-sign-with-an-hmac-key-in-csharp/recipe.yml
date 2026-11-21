@@ -1,0 +1,110 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: gs-sign-with-an-hmac-key-in-csharp
+title: Cloud Storage HMAC Logins in C#
+protocols: [gs]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFileContents, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlNetworkOptions, CurlAuthenticationOptions, HttpAuthenticationMethods, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, gcs-xml-api, rfc8446]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for Google's storage host, good for 30 days, signed by its own
+# key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:storage.googleapis.com"
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'The same object is got signed with the HMAC key pair and with the OAuth token, each served with status 200 and nothing thrown.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^hmac: 200 hello from surl\nbearer: 200 hello from surl\n'
+
+  - id: hmac
+    claim: 'An HMAC key pair, UserName and Password on a gs:// request, gets the object, status 200.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^hmac: 200 hello from surl\n'
+
+  - id: bearer
+    claim: 'An OAuth token in XOAuth2Bearer on a gs:// request gets the same object, status 200.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbearer: 200 hello from surl\n'
+
+  - id: wrong-secret
+    claim: 'The right access key with the wrong secret throws CurlException with code 22 and the message names 403 SignatureDoesNotMatch.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong secret: HttpReturnedError 403 SignatureDoesNotMatch\n'
+
+  - id: unknown-key
+    claim: 'An access key the server does not hold throws CurlException, 403 InvalidAccessKeyId.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunknown key: HttpReturnedError 403 InvalidAccessKeyId\n'
+
+  - id: unknown-token
+    claim: 'A token the server does not hold throws CurlException, 401 InvalidAuthentication, a different status and code from an unknown access key.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunknown token: HttpReturnedError 401 InvalidAuthentication\n'
+
+  - id: no-login
+    claim: 'A request with no login throws CurlException, 401 AuthenticationRequired.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno login: HttpReturnedError 401 AuthenticationRequired\n'
+
+  - id: uploads-off-bearer
+    claim: 'On a server without AllowUploads, a put with the right token is refused 403 AccessDenied, as an ordinary response when sent over https://.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads off bearer: 403 AccessDenied\n'
+
+  - id: uploads-on-bearer
+    claim: 'On a server with AllowUploads, the same put is accepted, status 200.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads on bearer: 200 \n'
+
+  - id: stored-object
+    claim: 'The accepted put is an object in the server''s store, the bytes put, and the refused put on the other server left no object.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstored writable note.txt: a note\nstored main note.txt: nothing\n'
+
+  - id: unknown-token-put
+    claim: 'With AllowUploads on, a put with a token the server does not hold is still refused, 401 InvalidAuthentication, and stores nothing.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads on unknown token: 401 InvalidAuthentication\nstored writable note.txt: a note\nstored main note.txt: nothing\nstored writable other.txt: nothing\n'

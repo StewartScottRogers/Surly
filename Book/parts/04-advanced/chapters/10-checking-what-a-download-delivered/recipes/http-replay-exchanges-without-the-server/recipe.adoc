@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-replay-exchanges-without-the-server]]
+=== Replaying Exchanges without the Server
+
+==== Problem
+
+Your test fetches files over Hypertext Transfer Protocol (HTTP) and must also run offline, so you want `curl` to record what `surl` answered once, and replay those answers later with the server stopped.
+
+==== Solution
+
+Neither `curl` nor `surl` has a record-and-replay mode, so two short scripts make one from `curl`{apos}s own options. `record.sh` starts `surl`, saves each response's head and body, and stops the server:
+
+include::record.sh[]
+
+`replay.sh` fetches a recorded body with `curl` from a `file:` URL, which needs no server:
+
+include::replay.sh[]
+
+include::.generated/solution.adoc[]
+
+Both scripts need a POSIX shell (Git Bash on Windows).
+
+==== Discussion
+
+Recording is one `curl` per path. `-D rec/<name>.head` saves the status line and headers exactly as `surl` sent them, and `-o rec/<name>` the body; `-s` keeps the progress meter out of the way, and `--max-time` bounds every call so a stuck server fails the recording instead of hanging it. `-D` takes one file name per command, with no `#1` from a URL glob, which is why the script loops. The `surl` it starts serves `site` with `--directory site`, quietly with `-s`; the script waits until `surl` answers, records, stops the server it started by its process ID, and checks that the URL then refuses the connection, `curl` exit `7`. It stays refused for every replay after: `-w "%{http_code} %{exitcode}"` on that URL prints `000 7`.
+
+Replaying is `curl` again, pointed at the recording. A `file:` URL must hold an absolute path, so `replay.sh` builds one from the folder: in Git Bash `pwd -W` gives the Windows form, `C:/...`, and elsewhere `pwd` gives `/...`; a space is written `%20`. The replayed body is byte for byte what the server sent, so a test that fetches through `curl` can swap its base URL, `http://127.0.0.1:8080` online and the recording's `file:` URL offline, and read the same bytes.
+
+`file:` carries no status and no headers, so the head files are the record of those. The line `Content-Type: text/csv` is there for `report.csv`, and a `404 Not Found` (<<rfc9110>>) is recorded as faithfully as a `200`: without `-f`, `curl` saves the head and an empty body, so the replay of `missing.txt` prints nothing and its head still says `404`. A test that checks statuses offline reads them from the head files.
+
+A path that was never recorded does not quietly reach out to a server: `curl` exits `37`, `Could not open file`, and `-S` prints that message although `-s` silences the rest. That is the failure to want from an offline test whose recording has fallen behind the server: record again.
+
+This replays bodies, not the conversation. Timing, connection reuse and anything the server decides per request, such as a `Date` header or a fault, are not reproduced; a test that needs those wants a server, and `surl` started from a fixture folder is a small one (<<http-serve-a-directory>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-save-a-session-as-a-har-file>> for keeping the same exchanges as one HTTP Archive file.
+* <<http-serve-a-directory>> for the server the recording was made from.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

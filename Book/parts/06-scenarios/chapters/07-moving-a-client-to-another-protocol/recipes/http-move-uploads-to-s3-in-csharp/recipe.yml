@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-move-uploads-to-s3-in-csharp
+title: Moving File Uploads to S3 in C#
+protocols: [http, s3]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, LoginJudgedEvent, SurlNotFoundException, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlException, CurlAuthenticationOptions, CurlNetworkOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api, rfc9110, rfc7617]
+
+fixtures: {}
+
+# One certificate for 127.0.0.1 and for every bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The old client PUTs report.csv over HTTPS and the new client puts summary.csv over S3 into one in-process store; a signed listing of the bucket names both, the store holds both byte for byte, and the recorded logins tell the two clients apart; exit 0.
+    program: uploads.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "old client, HTTP PUT report.csv: 201\nnew client, S3 put summary.csv: 200\nreadme.txt\nreport.csv\nsummary.csv\nstore: report.csv identical, summary.csv identical\nHTTP uploads logged: /uploads/report.csv: 201\nlogin judged: https Basic AKIAIOSFODNN7EXAMPLE\nlogin judged: s3 AWS4-HMAC-SHA256 AKIAIOSFODNN7EXAMPLE\nlogin judged: s3 AWS4-HMAC-SHA256 AKIAIOSFODNN7EXAMPLE\n"
+
+  - id: http-upload-logged
+    claim: The server's verbose log names each upload that came over HTTP, with its path and status, so the test finds the uploads still to move.
+    program: uploads.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nHTTP uploads logged: /uploads/report\.csv: 201\n'
+
+  - id: methods-logged
+    claim: The LoginJudgedEvent of the HTTPS upload has Scheme https and Mechanism Basic; the S3 put and listing are s3 and AWS4-HMAC-SHA256, all for the same key ID.
+    program: uploads.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin judged: https Basic AKIAIOSFODNN7EXAMPLE\nlogin judged: s3 AWS4-HMAC-SHA256 AKIAIOSFODNN7EXAMPLE\nlogin judged: s3 AWS4-HMAC-SHA256 AKIAIOSFODNN7EXAMPLE\n$'
+
+  - id: same-store
+    claim: server.Files.ReadAsync finds both uploads under /uploads with the bytes that were sent.
+    program: uploads.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstore: report\.csv identical, summary\.csv identical\n'
+
+  - id: http-read-over-s3
+    claim: The file the old client uploaded over HTTPS is the object s3://uploads/report.csv, byte for byte.
+    program: uploads.cs
+    args: [across]
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP upload read over S3: identical\n'
+
+  - id: s3-read-over-http
+    claim: The object the new client put over S3 is served over HTTPS at /uploads/summary.csv, byte for byte.
+    program: uploads.cs
+    args: [across]
+    expect:
+      exit: 0
+      stdout-matches: '\nS3 upload read over HTTPS: identical\n$'
+
+  - id: http-status-codes
+    claim: Over HTTP a PUT that makes a file is answered 201 and one that replaces it 204.
+    program: uploads.cs
+    args: [codes]
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP PUT, new: 201\nHTTP PUT, replacing: 204\n'
+
+  - id: s3-status-codes
+    claim: Over S3 a put is answered 200 whether it makes the object or replaces it, so code that tests for 201 must change.
+    program: uploads.cs
+    args: [codes]
+    expect:
+      exit: 0
+      stdout-matches: '\nS3 put, new: 200\nS3 put, replacing: 200\n$'
+
+  - id: http-needs-login
+    claim: An HTTP PUT with no login is answered 401, as a response rather than an exception.
+    program: uploads.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP PUT, no login: 401\n'
+
+  - id: s3-unsigned
+    claim: An unsigned S3 put throws a CurlException with code HttpReturnedError, 22, whose message names 403 AccessDenied.
+    program: uploads.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout-matches: '\nS3 put, unsigned: 22 HttpReturnedError \(S3 returned error 403: AccessDenied: Access Denied\)\n'
+
+  - id: s3-wrong-secret
+    claim: A put signed with the wrong secret throws HttpReturnedError naming 403 SignatureDoesNotMatch, and none of the refused uploads is stored.
+    program: uploads.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout-matches: '\nS3 put, wrong secret: 22 HttpReturnedError \(S3 returned error 403: SignatureDoesNotMatch: [^\n]*\)\nstore: nobody\.csv absent\n$'
+
+  - id: cutover-refuses-http
+    claim: With AuthenticationMethods set to aws-sigv4 the old client's HTTPS PUT is answered 403, the right password included, and nothing is stored.
+    program: uploads.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '^old client, HTTP PUT report\.csv: 403\nstore: report\.csv absent\n'
+
+  - id: cutover-serves-s3
+    claim: On the same server the new client's S3 put is answered 200 and lands in the store.
+    program: uploads.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\nnew client, S3 put report\.csv: 200\nstore: report\.csv identical\n$'

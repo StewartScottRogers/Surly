@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-keep-a-queue-across-restarts-from-an-agent]]
+=== Durable AMQP Queues from an Agent
+
+==== Problem
+
+Your jobs must survive a broker restart. You want an artificial intelligence (AI) agent to check that a durable queue holds its message after the server stops and starts on the same directory, and that a plain queue empties, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a server with a folder and a durable queue, queues three jobs with the `curl` tool, takes the first, stops the server and starts another on the same folder, and takes the next job:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in. The queues go in a folder of their own under it, made for the scenario and removed at the end. The argument after `--` picks the scenario.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `amqp://127.0.0.1:0`, port 0 for a free port, and `arguments` has `--queue "jobs;durable"` for a queue to keep, `--queue scratch` for a plain one, `--directory` for the folder the server writes to, and `--allow-anonymous`, which lets a client in with no login; it loosens the defaults, for a server that holds nothing private, and `surl` warns on start while it is on (<<surl-readme>>). The answer's `server_id` names the server for the other `surl-mcp` tools, and `bound_urls` has the real port. A restart is `stop_server` and a new `start_server` with the same arguments: the new server has a new port, and the program reads `bound_urls` again.
+
+The `curl` tool runs `curl` in-process with the arguments the agent gives it. `-s` keeps the progress meter out and `-S` keeps the error message in. `-d job-1` on `amqp://host:port/%2F/jobs` sends a message to the queue, where `%2F` is the virtual host `/`, the only one `surl` serves; without `-d` the call takes one message and its `standardOutput.content` is the body (<<amqp091>>). An empty queue answers empty output with exit `0`. A send is asynchronous, so the program calls `wait_for_event` with `kinds` `store_changed` and `store` `bus` and goes on when the event's `change` is `enqueued`, with a bound of `timeout_ms` and no fixed pause.
+
+What the durable queue held when the first server stopped is what the second holds: `job-1` was taken before the restart and does not come back, and `job-2` is the next. A job queued after the first restart, `job-4`, comes after `job-3`, a second restart keeps both, and after they are taken a third restart finds the queue empty. A message taken is gone for good.
+
+The index of the durable queue is a file under `.surl/bus/queues` in the folder, beside the lock file `.surl/lock`. The program prints whether each exists while the server runs and after `stop_server`: both are there both times.
+
+`scratch` is not durable. It starts empty after the restart even though the server has a directory: its message `tmp` is gone and a receive answers empty output. `jobs;durable` with no `--directory` keeps nothing either. The last scenario leaves the directory out: while the server runs, `browse_queue`, which lists what is ready without taking it and answers a `ready_count`, counts two jobs after the worker took one, and after a restart it counts none. The name says what to keep and the directory says where, and the server starts without complaint when the second is missing, so a test that expects a job back has to check it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-keep-a-queue-across-restarts>> for the same task on the console.
+* <<amqp-keep-a-queue-across-restarts-in-csharp>> for the same task in a C# test.
+* <<amqp-check-what-a-queue-still-holds>> for browsing a queue from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>.

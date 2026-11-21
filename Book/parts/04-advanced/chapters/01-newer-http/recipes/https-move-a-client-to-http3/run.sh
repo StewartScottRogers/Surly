@@ -6,5 +6,5 @@ cd "$(dirname "$0")"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
 surl --directory site --cert server.pem --key server.key --http3 https://127.0.0.1:8080/ &
 sleep 1
-curl --alt-svc alt-svc.txt --cacert server.pem -s -o /dev/null -w "first: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt && curl --alt-svc alt-svc.txt --happy-eyeballs-timeout-ms 4000 --cacert server.pem -s -o /dev/null -w "second: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt
+curl --alt-svc alt-svc.txt --cacert server.pem -s -o /dev/null -w "first: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt && curl --alt-svc alt-svc.txt --http3 --happy-eyeballs-timeout-ms 4000 --cacert server.pem -s -o /dev/null -w "second: HTTP/%{http_version}\n" https://127.0.0.1:8080/hello.txt
 kill $(jobs -p)

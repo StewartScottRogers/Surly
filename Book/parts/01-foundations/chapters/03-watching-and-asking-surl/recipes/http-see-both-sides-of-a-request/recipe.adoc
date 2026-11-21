@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-see-both-sides-of-a-request]]
+=== Seeing Both Sides of a Request
+
+==== Problem
+
+An upload is answered `405 Method Not Allowed` and you want to see why: what `curl` sent and what it got back, beside what `surl` received and decided, from `--trace-ascii` on both.
+
+==== Solution
+
+Start `surl` with `--trace-ascii surl-trace.txt`, make the request with `curl --trace-ascii curl-trace.txt`, and read the two files:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server has one account, `--user alice:s3cret`, and serves `site` with `--directory`; it was not started with `--allow-uploads`. `-T notes.txt` makes `curl` upload the file with a `PUT` to the URL, `-u alice:s3cret` gives the account, and `--digest` logs in with it by Digest access authentication (<<rfc7616>>); `-s` keeps `curl` quiet, and `-w "%{http_code}\n"` prints the final status. The login is right and the answer is still `405`; the status alone does not say whose fault that is.
+
+`--trace-ascii <file>` is the same option on both programs, and writes every byte each one sent and received, as text, with offsets (<<curl-manual>>, <<surl-readme>>). `curl`{apos}s file is its side. It sent the `PUT` twice: Digest needs a challenge before it can answer it, so the first goes without credentials and is answered `401 Unauthorized` with the challenge, and the second carries `Authorization: Digest username="alice",...` in full. The second answer is `405 Method Not Allowed` with `Allow: GET, HEAD`, the methods this resource does take (<<rfc9110>>).
+
+`surl`{apos}s file is the other side, and it holds what `curl`{apos}s cannot: the decisions. Its event lines, marked `*` and led by the exchange number, say that the first `PUT` needed a login, that the login was accepted, and that the method is not served, so `surl` answered `405` and closed. The fault is the server{apos}s configuration, not the client{apos}s request. `surl` judges the login before the method, so the same upload with no login is answered `401`, never `405`: a `405` from `surl` means the login, if one was needed, was good (<<surl-readme>>). Uploads are off unless `--allow-uploads` is given, because a test server that accepts writes is a decision for whoever starts it. Against a second `surl` started with it, the same command is answered `201 Created`.
+
+The two traces differ in one more way. `surl` writes `Authorization: Digest ****` in place of what it received, so this trace can be kept with a failed run; `curl`{apos}s trace keeps the header as sent. Treat a client trace as holding credentials.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-see-both-sides-of-a-request-in-csharp>> for the same two sides from a C# test, from `RecordExchanges`.
+* <<http-see-both-sides-of-a-request-from-an-agent>> for an agent comparing `curl -v` with `get_exchanges`.
+* <<http-trace-every-byte>> for `surl --trace-ascii` on its own.
+* <<http-create-and-replace-a-file>> for uploads that are allowed.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>, <<rfc7616>>.

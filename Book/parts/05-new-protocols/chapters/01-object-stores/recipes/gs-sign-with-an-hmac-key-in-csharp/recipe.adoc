@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[gs-sign-with-an-hmac-key-in-csharp]]
+=== Cloud Storage HMAC Logins in C#
+
+==== Problem
+
+Your job reaches Cloud Storage with an HMAC key, and another with an OAuth token. You want both logins accepted, a wrong secret refused, and writes refused until uploads are allowed, from a C# test with Surl.Api and Curl.Api.
+
+==== Solution
+
+Start two Surl.Api servers with the same two accounts, an HMAC key pair and an OAuth token, and have Curl.Api get an object once with each. Both are served:
+
+include::.generated/solution.adoc[]
+
+The second server in the checked claims allows uploads, to show that writes are a separate permission from logging in.
+
+==== Discussion
+
+Google Cloud Storage takes two kinds of login on its Extensible Markup Language (XML) API (<<gcs-xml-api>>), and `surl` accepts both on a `gs` listen URL. A Hash-based Message Authentication Code (HMAC) key is a pair, an access key and a secret, and each request is signed with the secret, which proves it without sending it. An OAuth access token is one string, sent as a Bearer login. `SurlServerOptions.Accounts` holds both as `SurlAccount`, the pair `--user` makes: `new SurlAccount("GOOGTESTKEY", "s3cret")` is the HMAC pair, and `new SurlAccount("", "ya29.t0ken")`, an empty name, makes its password a token. The recipe <<gs-sign-with-an-hmac-key>> does the same with the two programs on a console.
+
+`SurlServer.StartAsync` starts the server a `SurlServerOptions` describes. `ListenUrls` holds `gs://127.0.0.1:0`, where port `0` takes a free port that `BoundUrl` reports. `CertificateFile` and `KeyFile` are `--cert` and `--key`: Cloud Storage is spoken over Transport Layer Security from the first byte (<<rfc8446>>), so the listener needs a certificate, which the `openssl` line makes for `127.0.0.1` and `storage.googleapis.com`. `Files["photos/hello.txt"]` is the object `hello.txt` in the bucket `photos`, in memory. `AllowUploads` is `--allow-uploads` (<<surl-readme>>).
+
+`CurlClient.Create()` makes the client and `SendAsync` sends one `CurlRequest`. For the pair, `CurlAuthenticationOptions` with `UserName` and `Password`, which are `-u`, makes Curl.Api sign the request; for the token, `XOAuth2Bearer` is `--oauth2-bearer`. `Tls`, a `CurlTlsOptions` whose `Origin` is a `CurlTlsPeerOptions`, holds the certificate as `CertificateAuthorityBlob`, which is `--cacert`. `Network`, a `CurlNetworkOptions`, holds `ConnectTo`, which is `--connect-to`: a `gs://` URL names the bucket as its host and Curl.Api would send the request to `storage.googleapis.com`, and `::127.0.0.1:` with the port sends the connection to the server instead, while the name stays in the request and in the certificate check. The `CurlResponse` has the `StatusCode` and a `Body` stream.
+
+A refusal of a `gs://` request is not a response. Where `curl` exits `22`, `SendAsync` throws `CurlException`, whose `Code` is `HttpReturnedError`, the number `22`, and whose `Message` carries the status and the error: `Cloud Storage returned error 403: SignatureDoesNotMatch`. The code is the same for every refusal, so the program reads the status and error name out of the message. The right access key with the wrong secret is `403 SignatureDoesNotMatch`: the account is known and the signature the server worked out for it is not the one sent. An access key the server does not hold is `403 InvalidAccessKeyId`. A token it does not hold is `401 InvalidAuthentication`, and a request with no login at all is `401 AuthenticationRequired`: a `403` found the account and failed the proof, and a `401` says the login was not usable.
+
+Logging in is not permission to write. The first server has no `AllowUploads`, so a put with the right token is `403 AccessDenied`, and the object is not stored; on the second, the same put is accepted and `server.Files.ReadAsync("/photos/note.txt")` returns the bytes put, as a `SurlFileContents`. A put with a token the server does not hold is still refused there, `401 InvalidAuthentication`, and stores nothing; `ReadAsync` throws `SurlNotFoundException` for a name with no object. The puts go over `https://storage.googleapis.com/photos/note.txt`, as any HTTP client sends them, and two things differ from a `gs://` get. A refusal over `https://` is an ordinary response, with the status and the error in its XML body, not an exception. And the token is sent only when `HttpAuthentication` is `HttpAuthenticationMethods.Bearer`, which a `gs://` URL does not need.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<gs-sign-with-an-hmac-key>> for the same task on the console.
+* <<gs-sign-with-an-hmac-key-from-an-agent>> for the same task with an agent.
+* <<s3-tell-the-refusals-apart-in-csharp>> for the S3 refusals from C#.
+* <<surl-readme>>, <<curl-readme>>, <<gcs-xml-api>>, <<rfc8446>>.

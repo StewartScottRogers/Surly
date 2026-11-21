@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-check-a-consumer-saw-every-record]]
+=== Checking a Consumer Saw Every Record
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to read a Kafka topic's log and compare it with what a consumer reported, naming any record the consumer missed, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a Kafka broker, produces six records, lets the consumer read the topic with the `curl` tool, reads the whole log with `read_log` and names every record the consumer did not report:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in. The argument after `--` picks the scenario.
+
+`start_server` starts a broker that answers as `surl` with the same options would: `listen_urls` is `kafka://127.0.0.1:0`, port 0 for a free port, and `arguments` is `["--allow-anonymous"]`, the option that accepts a client with no login. It loosens the defaults, for a broker that holds nothing private, and `surl` warns on start while it is on (<<surl-readme>>). The answer's `server_id` names the broker for the other `surl-mcp` tools, and `bound_urls` has the real port.
+
+A Kafka topic is a log: each record has an offset, 0 for the first (<<kafka-protocol>>). The program fills `orders` two ways, as two kinds of producer: `publish_message` appends a record to a topic of the broker, and `-d evt-4` on a `kafka:` URL, through the `curl` tool, produces one. The broker acknowledges a produce before it answers, so the log holds each record at once and the program needs no wait. The consumer is the `curl` tool without `-d`: it consumes from the offset in the URL, `?offset=0` from the start, and what it reports is its `standardOutput.content`, each value and a newline. `-s` keeps the progress meter out and `-S` keeps the error message in.
+
+`read_log` is the broker's own view of the topic, which the consumer cannot give: `server_id`, `topic`, `from_offset` and `limit`, the most records to return. It answers `records`, each with its `offset`, `timestamp` and `text`, then `next_offset` and `has_more`. With a `limit` of 3 the log of six comes in two pages: the first ends at `next_offset` 3 with `has_more` true, the second at 6 with `has_more` false. The program follows `next_offset` until `has_more` is false, so a long log is read whole. The comparison is by value: every record of the log that the consumer did not report is a record it missed, and the program prints it with its offset.
+
+A consumer that reads from offset 0 reports all six, and the check passes. A consumer that starts from offset 2, as one with a wrong saved offset would, reports four, and the check names the two it missed, `offset 0 evt-1` and `offset 1 evt-2`, and fails with exit `1`. A consumer that ended after four records misses the two produced after it, and the check names `offset 4 evt-5` and `offset 5 evt-6`. The log is the same either way: reading it takes nothing, and neither does the consumer, so six records before the consumer are six after it, and the check can be run again.
+
+A read that cannot be answered is a tool error, not an empty page. An offset past the end, 9 for a log of six, is answered with text saying the log holds 0 to 6, and a topic nobody wrote to is answered `No log for topic refunds`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-produce-and-consume>> for producing and consuming on the console.
+* <<kafka-replay-a-topic-from-an-offset-from-an-agent>> for reading from an offset and `read_log` from an agent.
+* <<kafka-read-a-topic-log-after-a-test>> for the same reading from a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<kafka-protocol>>.

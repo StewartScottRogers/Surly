@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-log-in-over-tls-in-csharp]]
+=== Logging In to Kafka over TLS in C#
+
+==== Problem
+
+Your producer logs in to Kafka with Simple Authentication and Security Layer (SASL) PLAIN, which sends the password as it is, and `surl` offers PLAIN only over Transport Layer Security (TLS). You want a test in your own .NET code to see the plain listener decline PLAIN and name the Salted Challenge Response Authentication Mechanism (SCRAM) it offers instead, and the TLS listener accept the login with no loosening option.
+
+==== Solution
+
+The program starts `SurlServer` in process with one account, holds one record in its log, and logs in with a `CurlClient` to consume it. The argument picks the listener and the login; the first, `tls`, is `kafkas` with the certificate trusted. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `ListenUrls` holds `kafkas://127.0.0.1:0`, port `0` for a free one that `server.BoundUrl` reports; `CertificateFile` and `KeyFile` are `--cert` and `--key`, and `Accounts` takes one `SurlAccount` per `--user`. The record comes from `server.Messages.PublishAsync`, because a `POST` through `Curl.Api` does not produce a Kafka record in this build; the client then consumes it with a `GET`. The client is a `CurlClient`, made with `CurlClientOptions` that carry the TLS settings, and `SendAsync` returns a `CurlResponse` whose body is the consumed records. The login is `CurlAuthenticationOptions` on the `CurlRequest`, which is `curl -u`, and `CertificateAuthorityFile` in a `CurlTlsPeerOptions` under `CurlTlsOptions.Origin` is `--cacert`, the certificate to trust (<<curl-readme>>, <<kafka-protocol>>, <<rfc8446>>).
+
+Over TLS the password cannot be read on the wire, so the server offers PLAIN as well as SCRAM and the client takes PLAIN when it is offered. A wrong password makes `SendAsync` throw `CurlException` with `Code` `LoginDenied`, number 67, and a message that names the mechanism used: `Kafka SASL PLAIN authentication failed`. A connection that sends no login is closed, `RecvError`, 56. Without `CertificateAuthorityFile` the client does not trust the certificate and sends no login: `PeerFailedVerification`, 60. The program prints a login refusal{apos}s message, which is the broker{apos}s, and only the code for the others, because a failed handshake{apos}s message is the TLS library{apos}s and differs by platform.
+
+On the plain `kafka://` listener the server offers SCRAM-SHA-256 and SCRAM-SHA-512, where the password is never sent, and not PLAIN. `Curl.Api` has no way to demand PLAIN either, so what a test shows is the other half: the client takes SCRAM-SHA-512 and the same login works, and a wrong password names it. `AuthenticationMethods` is `--auth`; it replaces the offer instead of adding to it. `["SCRAM-SHA-256"]` offers that one mechanism and the refusal names it, and `["PLAIN"]` over `kafka://` offers nothing the listener allows, so the client stops before it sends the password: `it offers no SASL mechanism`, code 67.
+
+`AllowPlaintextAuthentication` is `--allow-plaintext-auth`. It puts PLAIN back on the plain listener, loosens security and makes `surl` warn at start (<<surl-readme>>); the client takes PLAIN again and a wrong password names it. Over `kafkas://` it is not needed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-log-in-over-tls>> for the same task on the console.
+* <<kafka-log-in-over-tls-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<kafka-protocol>>, <<rfc8446>>.

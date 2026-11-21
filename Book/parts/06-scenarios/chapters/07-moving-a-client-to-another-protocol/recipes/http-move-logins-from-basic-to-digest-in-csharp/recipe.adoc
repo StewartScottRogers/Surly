@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-logins-from-basic-to-digest-in-csharp]]
+=== Moving Logins from Basic to Digest
+
+==== Problem
+
+In a C# test: your Hypertext Transfer Protocol (HTTP) clients log in with Basic authentication, which sends the password in a form anyone on the path can read. You want the server to accept both Basic and Digest while the clients move, then only Digest, and the test to find any client still sending Basic.
+
+==== Solution
+
+Host a `SurlServer` that accepts both methods and records every login, log in once each way with `Curl.Api`, and read the recorded logins for the accounts still on Basic:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Basic puts the user name and password in the `Authorization` header, encoded but not hidden (<<rfc7617>>). Digest sends a hash of the password and a one-time value the server chose, so the password itself never crosses the wire (<<rfc7616>>). Over plain HTTP `surl` takes only Digest: a Basic login is answered `403 Forbidden` without being checked. The move needs a loosening, and that one property is the whole difference between the two servers here.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `http://` URL on port 0, so the system picks a free port and `server.BoundUrl` says which. `Accounts` holds one `SurlAccount` per client, `billing` for the old one and `search` for the new, which is what lets the record name the client. `AllowPlaintextAuthentication`, `--allow-plaintext-auth`, lets Basic in clear be checked during the move. `RecordExchanges` keeps what each connection sent and received, and the events with it. `Log` takes a `TextWriter` for the lines `surl` would write, at `LogLevel.Verbose`, as `-v` does.
+
+Each login is a `CurlRequest` `GET` through a `CurlClient` of its own, so a connection of its own. `CurlAuthenticationOptions` carries `UserName`, `Password` and `HttpAuthentication`, a `HttpAuthenticationMethods` value: `Basic` is `curl --basic`, `Digest` is `--digest`. The `CurlResponse` gives the `StatusCode`, and both clients get `200`. A request with no login is answered `401` with three Digest challenges, then Basic and Bearer, read from the `WWW-Authenticate` entries of `Headers` (<<rfc9110>>).
+
+`server.FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.LoginJudged` returns one `LoginJudgedEvent` per login: its `Mechanism`, `Account` and `IsAccepted`. The accounts with an accepted `Basic` login are the clients still to move, here `billing`; the `Digest` ones have moved. A wrong Basic password is still checked during the move, answered `401`, and recorded with `IsAccepted` false under the account it claimed. The verbose log names the logins too, and holds neither password.
+
+A client need not hard-code the method. `HttpAuthenticationMethods.Any` is `curl --anyauth`: the client asks first, reads the challenge and picks Digest, and the login is recorded as `Digest billing`.
+
+The cutover is a server without `AllowPlaintextAuthentication`, which is `surl`{apos}s default. A Basic login there is answered `403`, the right password included. `SendAsync` returns it as a response, not a `CurlException`, so the code must test `StatusCode`. The 403 carries no `WWW-Authenticate` header: a 401 must offer a method, and offering Basic in clear would invite the password. A request with no login is now offered the Digest challenges alone. `search` logs in with Digest and `billing` with `Any`, so the client that picks from the challenge keeps working unchanged.
+
+Basic clients that were missed still show up after the cutover, though not as logins: no `LoginJudgedEvent` is raised, because the password was never checked. The recorded exchanges, `server.Exchanges`, still hold every request as it arrived, and one of them carries `Authorization: Basic`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-logins-from-basic-to-digest>> and <<http-move-logins-from-basic-to-digest-from-an-agent>> for the same move on the console and from an agent.
+* <<http-tell-clients-apart-by-account-in-csharp>> for more on the recorded logins and exchanges.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc7616>>, <<rfc9110>>.

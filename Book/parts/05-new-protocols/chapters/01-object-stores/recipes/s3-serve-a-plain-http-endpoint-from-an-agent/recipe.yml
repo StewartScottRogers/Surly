@@ -1,0 +1,114 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: s3-serve-a-plain-http-endpoint-from-an-agent
+title: Plain-HTTP S3 Endpoints from an Agent
+protocols: [s3]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, read_file, get_events]
+exit-codes: [0, 35]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures:
+  up.txt: "uploaded over plain http\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'An agent that sends curl-mcp''s curl tool a get of photos/hello.txt over http://, signed with --aws-sigv4 and the account''s key and secret, gets the object from a server with --s3-plaintext and no certificate, exit 0.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsigned: exit 0 hello from surl\n'
+
+  - id: warns-on-start
+    claim: 'start_server answers with the lines surl wrote on start, and the warning that s3 is served as plain HTTP is one of them.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^warning: surl: warning: --s3-plaintext: s3 is served as plain HTTP, without TLS\n'
+
+  - id: needs-a-certificate
+    claim: 'Without --s3-plaintext, start_server of an s3 listen URL with no certificate is a tool error with exit_code 58 and a message that says it needs a certificate.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno certificate: tool error True, exit 58, needs a certificate\n'
+
+  - id: virtual-host
+    claim: 'A URL that puts the bucket in the host name, photos.s3.us-east-1.amazonaws.com over http://, is served too, once --connect-to sends the connection to surl.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nvirtual host: exit 0 hello from surl\n'
+
+  - id: s3-url-is-tls
+    claim: 'curl''s s3:// URL is TLS from the first byte, so it cannot talk to the plain-HTTP listener, exit 35.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ns3 url: exit 35 curl: \(35\)\n'
+
+  - id: unsigned
+    claim: 'An unsigned request is refused 403 AccessDenied, in an XML body on standard output, curl exit 0.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunsigned: exit 0 AccessDenied\n'
+
+  - id: wrong-secret
+    claim: 'The right access key with the wrong secret is refused 403 SignatureDoesNotMatch.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong secret: exit 0 SignatureDoesNotMatch\n'
+
+  - id: unknown-key
+    claim: 'An access key surl does not hold is refused 403 InvalidAccessKeyId.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunknown key: exit 0 InvalidAccessKeyId\n'
+
+  - id: missing-object
+    claim: 'A signed get of a name with no object is 404 NoSuchKey.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmissing key: exit 0 NoSuchKey\n'
+
+  - id: uploads-off
+    claim: 'Without --allow-uploads, a correctly signed put is refused 403 AccessDenied, and read_file finds no object there.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads off: exit 0 AccessDenied\n(?s:.*)stored main /photos/up.txt: nothing\n'
+
+  - id: uploads-on
+    claim: 'With --allow-uploads, the same signed put is accepted, and read_file returns the bytes put.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads on: exit 0 \n(?s:.*)stored writable /photos/up.txt: uploaded over plain http\n'
+
+  - id: logins-judged
+    claim: 'get_events with the kind login_judged lists the first four logins the server judged in order, the right key accepted twice, then the wrong secret and the unknown key refused; the unsigned request names no account and is not among them.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin_judged: AKIAIOSFODNN7EXAMPLE accepted\nlogin_judged: AKIAIOSFODNN7EXAMPLE accepted\nlogin_judged: AKIAIOSFODNN7EXAMPLE refused\nlogin_judged: AKIAOTHEREXAMPLE refused\n'

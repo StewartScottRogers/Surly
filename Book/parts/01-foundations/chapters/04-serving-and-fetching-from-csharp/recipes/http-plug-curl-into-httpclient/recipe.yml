@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-plug-curl-into-httpclient
+title: Plugging Curl into HttpClient
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, CurlClient, CurlHttpMessageHandler, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The same HttpClient code gets the same answer on SocketsHttpHandler and on CurlHttpMessageHandler, 200 OK over HTTP/1.1 with Content-Type text/plain, 16 bytes, and the same body.
+    program: program.cs
+    args: [compare]
+    expect:
+      exit: 0
+      stdout: "sockets: 200 OK, HTTP/1.1, text/plain, 16 bytes, hello from surl\ncurl: 200 OK, HTTP/1.1, text/plain, 16 bytes, hello from surl\nsame answer: yes\n"
+
+  - id: missing
+    claim: A 404 is a response on both handlers, and EnsureSuccessStatusCode throws HttpRequestException with StatusCode 404 on both.
+    program: program.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "sockets: 404 Not Found, EnsureSuccessStatusCode threw HttpRequestException 404\ncurl: 404 Not Found, EnsureSuccessStatusCode threw HttpRequestException 404\nsame answer: yes\n"
+
+  - id: requests-differ
+    claim: The requests are not byte for byte the same; the server received Host alone from SocketsHttpHandler and Host then Accept from Curl's engine.
+    program: program.cs
+    args: [requests]
+    expect:
+      exit: 0
+      stdout: "sockets: GET /hello.txt HTTP/1.1 | Host\ncurl: GET /hello.txt HTTP/1.1 | Host, Accept\n"
+
+  - id: reuse
+    claim: Three GETs on one HttpClient travel over one connection with either handler.
+    program: program.cs
+    args: [reuse]
+    expect:
+      exit: 0
+      stdout: "sockets: 3 requests, 1 connection(s)\ncurl: 3 requests, 1 connection(s)\n"
+
+  - id: timeout
+    claim: HttpClient.Timeout of one second against a reply held for 5 s throws TaskCanceledException with an inner TimeoutException within 1 to 4 s, on both handlers.
+    program: program.cs
+    args: [timeout]
+    expect:
+      exit: 0
+      stdout: "sockets: TaskCanceledException after 1 to 4 s, inner TimeoutException\ncurl: TaskCanceledException after 1 to 4 s, inner TimeoutException\n"

@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-port-an-ftp-job-to-curl-api
+title: Porting an FTP Job to Curl.Api
+protocols: [ftp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse, CurlException, CurlAuthenticationOptions, FtpWebRequest, FtpWebResponse, WebException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, rfc2428]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own stand-in through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The old FtpWebRequest job and the new Curl.Api job each list /out on one in-process stand-in and download every file, and both write the same three files, byte for byte the server's; exit 0.
+    program: nightly.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "old job: 3 files, identical to the server's\nnew job: 3 files, identical to the server's\n"
+
+  - id: same-names
+    claim: Both jobs find the same names in the same order; the new job reads the last word of each line of the long listing a GET on the folder URL returns.
+    program: nightly.cs
+    args: [listing]
+    expect:
+      exit: 0
+      stdout: "old job lists: orders.csv refunds.csv scan.bin\nnew job lists: orders.csv refunds.csv scan.bin\n"
+
+  - id: missing-old
+    claim: A missing file makes FtpWebRequest throw a WebException whose FtpWebResponse has StatusCode 550 ActionNotTakenFileUnavailable.
+    program: nightly.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout-matches: '^old job: WebException, 550 ActionNotTakenFileUnavailable\n'
+
+  - id: missing-new
+    claim: The same file makes Curl.Api throw a CurlException with code RemoteFileNotFound, 78, so the job's handler must change with the port.
+    program: nightly.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout-matches: '\nnew job: CurlException, 78 RemoteFileNotFound\n$'
+
+  - id: password-old
+    claim: A wrong password is a WebException with StatusCode 530 NotLoggedIn for the old job.
+    program: nightly.cs
+    args: [password]
+    expect:
+      exit: 0
+      stdout-matches: '^old job: WebException, 530 NotLoggedIn\n'
+
+  - id: password-new
+    claim: The same wrong password is a CurlException with code LoginDenied, 67, for the new job.
+    program: nightly.cs
+    args: [password]
+    expect:
+      exit: 0
+      stdout-matches: '\nnew job: CurlException, 67 LoginDenied\n$'
+
+  - id: old-connections
+    claim: The server's recorded exchanges show the old job opened a control connection for each of its four requests.
+    program: nightly.cs
+    args: [commands]
+    expect:
+      exit: 0
+      stdout-matches: '^old job: 4 connection\(s\), '
+
+  - id: new-one-connection
+    claim: The new job, through one CurlClient, sent all four requests over one control connection.
+    program: nightly.cs
+    args: [commands]
+    expect:
+      exit: 0
+      stdout-matches: '\nnew job: 1 connection\(s\), '
+
+  - id: passive-commands
+    claim: Both jobs use passive mode, but the old job asks with PASV and the new one with EPSV.
+    program: nightly.cs
+    args: [commands]
+    expect:
+      exit: 0
+      stdout-matches: '^old job: [^\n]* PASV [^\n]*\nnew job: [^\n]* EPSV '
+
+  - id: listing-commands
+    claim: The old job lists names with NLST, the new one the long listing with LIST, and both switch to binary with TYPE before a transfer.
+    program: nightly.cs
+    args: [commands]
+    expect:
+      exit: 0
+      stdout-matches: '^old job: [^\n]* TYPE [^\n]*NLST [^\n]*\nnew job: [^\n]* TYPE LIST '
+
+  - id: plaintext-refused
+    claim: A stand-in left at its default, without AllowPlaintextAuthentication, refuses the password in clear, the right one included, for both jobs, 530 and LoginDenied.
+    program: nightly.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "old job: WebException, 530 NotLoggedIn\nnew job: CurlException, 67 LoginDenied\n"

@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-download-in-parallel-segments-in-csharp
+title: Downloading in Parallel Segments in C#
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Four Range requests sent at once on one CurlClient are each answered 206 with the Content-Range asked for, the parts copied to their offsets are identical to the original by SHA-256, and the server's record holds the four Range headers.
+    program: segments.cs
+    args: ["4"]
+    expect:
+      exit: 0
+      stdout-matches: '^206 bytes 0-249999/1000000, 250000 bytes\n206 bytes 250000-499999/1000000, 250000 bytes\n206 bytes 500000-749999/1000000, 250000 bytes\n206 bytes 750000-999999/1000000, 250000 bytes\njoined: 1000000 bytes, identical\nserver received Range: bytes=0-249999\nserver received Range: bytes=250000-499999\nserver received Range: bytes=500000-749999\nserver received Range: bytes=750000-999999\nconnections that carried a range: [1-4]\n$'
+
+  - id: uneven-segments
+    claim: Three segments are 333,334 bytes but the last, which stops at the last byte, 333,332, and they join to the original too.
+    program: segments.cs
+    args: ["3"]
+    expect:
+      exit: 0
+      stdout-matches: '^206 bytes 0-333333/1000000, 333334 bytes\n206 bytes 333334-666667/1000000, 333334 bytes\n206 bytes 666668-999999/1000000, 333332 bytes\njoined: 1000000 bytes, identical\n'
+
+  - id: side-by-side
+    claim: Against a server that holds every request for a second, the four requests are in flight together, so the server's record shows four connections, one range each.
+    program: segments.cs
+    args: ["4", slow]
+    expect:
+      exit: 0
+      stdout-matches: '\njoined: 1000000 bytes, identical\n(server received Range: [^\n]+\n){4}connections that carried a range: 4\n$'
+
+  - id: past-the-end
+    claim: A range that starts past the end of the file is answered 416 Range Not Satisfiable with Content-Range bytes */1000000, as an ordinary response; nothing throws.
+    program: segments.cs
+    args: ["4", past-the-end]
+    expect:
+      exit: 0
+      stdout: "416 Range Not Satisfiable, Content-Range bytes */1000000\n"

@@ -109,3 +109,19 @@ ftp-choose-passive-or-active-mode (+ -in-csharp, -from-an-agent), ftp-read-a-fil
 
 ## Refused login and retries (ftp-retry-after-a-refused-login + twins, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
 - `--fault "refuse-login;times=1"` with `--user app:s3cret --allow-plaintext-auth`: first login `530 Login incorrect` (exit 67), next accepted. curl `--retry` needs `--retry-all-errors` for a 530. A wrong password does not spend the rule. Curl.Api: `CurlException` `LoginDenied` per refused attempt; a new `CurlClient` per attempt. curl-mcp `transfer` with `ftp://user:pw@host/` logs in; a refusal is a tool error with `failure.exitCode` 67. Details in `faults.md`.
+
+## FtpWebRequest beside Curl.Api (ftp-port-an-ftp-job-to-curl-api, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
+- `System.Net.FtpWebRequest` (obsolete: `#pragma warning disable SYSLIB0014`) works against a Surl.Api FTP stand-in with `AllowPlaintextAuthentication`: `ListDirectory` (NLST) names, `DownloadFile` bytes identical. Without the option: `WebException`, `FtpWebResponse.StatusCode` 530 `NotLoggedIn` (Curl.Api `LoginDenied`). Missing file: 550 `ActionNotTakenFileUnavailable` (Curl.Api `RemoteFileNotFound` 78). Wrong password: 530.
+- Recorded exchanges: FtpWebRequest opened one control connection per request (4 for a list and three downloads), commands `USER PASS OPTS PWD CWD TYPE PASV NLST QUIT RETR`; one CurlClient used one connection, `USER PASS PWD CWD EPSV TYPE LIST SIZE RETR`.
+
+## Checking an app cleaned up (ftp-check-an-app-cleaned-up and twins; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
+- Cleanup is `curl -sS -o /dev/null -l -Q "-DELE a.tmp" -Q "-DELE b.tmp" url/work/` (post-transfer quote on a folder listing; needs `--list-directories`); a missing file is exit 21 `QUOT string not accepted: DELE gone.tmp`. Two `-T f url/a -T f url/b` pairs in one curl work. A dot-named file cannot be uploaded (exit 25) and `-l` never lists dot files.
+- A check that pipes `curl -l` into grep passes when the listing fails: capture `names=$(curl -sS -l url) || exit` first (exit 19 without `--list-directories`).
+- Curl.Api: `CurlFtpOptions.PostQuote = ["DELE a.tmp"]` on a GET of the folder: a refused command (missing file) is thrown (`QuoteError` 21) only once the response body has been read; without reading it the call returns normally. `Quote` throws at once. `server.Files.ListAsync("/work")` needs no `ListDirectories`; `Files["work/keep.txt"]` seeds the folder. A client listing without the option: `FtpCouldntRetrFile` 19.
+- surl-mcp `start_server(files: {"work/keep.txt": "kept
+"})`, `list_files(server_id, path "/work")` (no `--list-directories` needed); curl-mcp `curl -sS -l url` without the option: exit 19 `curl: (19) RETR response: 550`; uploads off: exit 25 `curl: (25) Failed FTP upload: 550` once per upload.
+
+## What an upload left (ftp-find-what-an-upload-left-from-an-agent, 2026-11-21)
+- curl-mcp `curl` with three `-T local url` pairs, the middle into a missing folder: `-w "%{url.path} %{exitcode}\n"` prints `9` for it, the call's `exitCode` is 0 (last transfer); `--fail-early`: exitCode 9 and the third never sent. surl-mcp `list_files` of the missing folder: tool error `No folder at /archive.`; `read_file` `No file at /x.`; `get_events kinds:["store_changed"]` has a `written` change for each stored upload and none for the failed ones.
+
+- Curl.Api `PostQuote` runs after the transfer, as libcurl's CURLOPT_POSTQUOTE does, so a refused post-quote command is reported after the body; use `Quote` (before the transfer) or a separate request to check first (Curl session, 2026-11-21).

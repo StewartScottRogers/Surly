@@ -44,8 +44,9 @@ var chunk = new byte[1024];
 string state;
 while (true)
 {
-    // Read until the server closes, or until it has said nothing for a second.
-    using var quiet = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+    // Read until the server closes, or until it has said nothing for five seconds: long enough
+    // for a close to arrive on a loaded machine, short enough to end a session that stays open.
+    using var quiet = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     try
     {
         int read = await body.ReadAsync(chunk, quiet.Token);

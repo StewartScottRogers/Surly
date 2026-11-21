@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-listen-on-a-unix-socket]]
+=== Listening on a Unix Socket
+
+==== Problem
+
+You want `surl` to serve Hypertext Transfer Protocol (HTTP) on a Unix domain socket file instead of a port, `curl` to reach it with `--unix-socket`, and to know what happens when the socket file is already there.
+
+==== Solution
+
+Start `surl` with `--unix-socket` and a path, wait for its `Listening on` line, and fetch with `curl --unix-socket` and the same path. The script below does the three steps and stops `surl` afterwards; it needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::on-a-socket.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--unix-socket surl.sock` makes `surl` listen on a socket file at that path, relative to where it runs, instead of on a Transmission Control Protocol (TCP) port. `--directory site` serves the files under `site` as usual. A Unix socket carries exactly one listen URL. Its scheme picks the protocol, and its host and port are only the names the server expects in requests; nothing is bound to them. The `Listening on` line names both: the listen URL, then `over unix://` and the socket path (<<surl-readme>>). The script waits for that line before it runs anything, because the socket file is not there until `surl` has bound it.
+
+On the client side `--unix-socket surl.sock` tells `curl` to connect to that file and to send the request it would have sent to the URL (<<curl-manual>>). The URL's host is never looked up: it only goes into the `Host` header, so `http://files.example/hello.txt` is answered `200` like any other name. Without `--unix-socket` the same URL is an ordinary TCP connection to the port in the listen URL, and nothing listens there; `curl` exits `7`, could not connect. `-s` keeps `curl` quiet, `-o` sends the body to nowhere, and `-w` prints the status or the exit code. On macOS, with `surl` 1.0.0, the server binds the socket file and prints its `Listening on` line, but a request through it fails and `curl` exits `55`, failed sending data. That is a defect, reported to Surl, so the cases that fetch through the socket run on Windows and Linux.
+
+`surl` never deletes a file it did not make. A path where any file exists, a socket or not, is refused with exit `45` before `surl` listens, and the file is left as it was. That is surly on purpose: a stale socket and a file someone needs look the same from outside, and only the person who started the server can tell which this one is. On Linux and macOS `surl` removes its own socket file when it is stopped with `SIGTERM`. A `surl` killed outright cannot clean up, and on Windows Git Bash{apos}s `kill` ends `surl` outright rather than signalling it, so the file stays behind and the next `surl` on that path exits `45` until it is deleted. A script that restarts a server on one path removes the file first, once it knows no server owns it.
+
+A second listen URL is refused as a bad command line, exit `2`, and so is a scheme that listens on the User Datagram Protocol (UDP), such as `tftp`: a socket file of this kind carries a stream, not datagrams.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-listen-on-a-unix-socket-in-csharp>> for the same server and client in one .NET program.
+* <<http-listen-on-a-unix-socket-from-an-agent>> for an agent doing this through `surl-mcp` and `curl-mcp`.
+* <<surl-find-the-port-it-chose>> for reading a TCP listener{apos}s port from the same `Listening on` line.
+* <<surl-readme>>, <<curl-manual>>.

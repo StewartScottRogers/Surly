@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-log-in-over-tls-from-an-agent]]
+=== Logging In to Kafka over TLS from an Agent
+
+==== Problem
+
+Your producer logs in to Kafka with Simple Authentication and Security Layer (SASL) PLAIN, which sends the password as it is, and `surl` offers PLAIN only over Transport Layer Security (TLS). You want an artificial intelligence (AI) agent to see the plain listener decline PLAIN and name the Salted Challenge Response Authentication Mechanism (SCRAM) it offers instead, and the TLS listener accept the login with no loosening option, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for a Kafka broker with one account, logs in with `curl-mcp`{apos}s `curl` tool, and reads the broker{apos}s log with `read_log`. The argument picks the listener and the login; the first, `tls`, is `kafkas` with the certificate trusted. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, which is where `server.pem` and `server.key` are. `start_server` takes `listen_urls`, `kafkas://127.0.0.1:0` here, port `0` for a free one that `bound_urls` reports next to a `server_id`. The rest goes in `arguments`, in `surl`{apos}s own words: `--user alice:s3cret` is the account, and `--cert` and `--key` are the certificate and its private key (<<surl-readme>>).
+
+The `curl` tool takes `curl`{apos}s arguments as a list with no shell: `-u` is the login, `--cacert server.pem` the certificate to trust, `-d` produces a record, and `-sS` hides the progress meter but keeps the error text (<<curl-readme>>). The answer is text holding JSON, of which the program reads `exitCode` and the `content` of `standardOutput` and `standardError`. A refused login is an answer with a non-zero `exitCode`, not a failure of the call. `read_log` takes the `server_id`, a `topic`, `from_offset` and `limit`, and answers the records the broker holds, which shows what the login let through (<<kafka-protocol>>, <<rfc8446>>).
+
+Over TLS the password cannot be read on the wire, so the server offers PLAIN as well as SCRAM and `curl` takes PLAIN when it is offered. A wrong password is refused with exit `67` and `Kafka SASL PLAIN authentication failed`, naming the mechanism used. A connection with no login is closed, exit `56`; without `--cacert` `curl` does not trust the certificate and sends no login, exit `60`. The program prints the text only for a login refusal, which is the broker{apos}s; a failed handshake{apos}s text is the TLS library{apos}s and differs by platform.
+
+On the plain `kafka://` listener the server offers SCRAM-SHA-256 and SCRAM-SHA-512, where the password is never sent, and not PLAIN. `curl` cannot be told to demand PLAIN either, so what the agent sees is the other half: `curl` takes SCRAM-SHA-512 and the same login works, and a wrong password names it. `--auth` replaces the offer instead of adding to it: `--auth SCRAM-SHA-256` offers that one mechanism and the refusal names it, and `--auth PLAIN` over `kafka://` offers nothing the listener allows, so `curl` stops before it sends the password with `it offers no SASL mechanism`, exit `67`.
+
+`--allow-plaintext-auth` puts PLAIN back on the plain listener. It loosens security and makes `surl` warn at start, because the password then crosses the network readable; `curl` takes PLAIN again and a wrong password names it. Over `kafkas://` it is not needed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-log-in-over-tls>> for the same task on the console.
+* <<kafka-log-in-over-tls-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-readme>>, <<kafka-protocol>>, <<rfc8446>>, <<mcp-spec>>.

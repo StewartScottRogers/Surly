@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: ws-receive-a-large-file-in-frames-from-an-agent
+title: Receiving Multi-frame Messages from an Agent
+protocols: [ws]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, curl, transfer, get_exchanges]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc6455]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'An agent that sends curl-mcp''s curl tool the large file with -o gets a copy in its folder that is identical to the 200,000 bytes the server holds, exit code 0.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^big\.bin: curl exit 0, identical: yes\n'
+
+  - id: whole-message
+    claim: 'curl-mcp''s transfer tool reports the upgrade 101, a binary body of 200,000 bytes, and the same bytes as the original.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbig\.bin: transfer 101, isBase64 true, 200000 bytes, identical: yes, framing \d+\n'
+
+  - id: framing
+    claim: 'What curl counted for the large file is 36 bytes more than the file, the frame headers, three of 10 bytes and one of 4, and the server''s 2-byte close.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbig\.bin: transfer 101, isBase64 true, 200000 bytes, identical: yes, framing 36\n'
+
+  - id: at-limit
+    claim: 'A file of exactly 65,536 bytes arrives whole with 12 bytes of framing, one 10-byte header and the close.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nat-limit\.bin: transfer 101, isBase64 true, 65536 bytes, identical: yes, framing 12\n'
+
+  - id: over-limit
+    claim: 'A file one byte longer arrives whole with 14 bytes of framing, a second frame of one byte with its 2-byte header added.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nover-limit\.bin: transfer 101, isBase64 true, 65537 bytes, identical: yes, framing 14\n'
+
+  - id: first-frame
+    claim: 'get_exchanges shows the first frame the server sent for the large file, opcode 2, binary, with the final bit clear and a length of 65,536, so the message goes on in later frames.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbig\.bin: first frame 0x02 0x7f, final: no, length 65536\n'
+
+  - id: at-limit-final
+    claim: 'The first frame for the 65,536-byte file has the final bit set: it is the whole message.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nat-limit\.bin: first frame 0x82 0x7f, final: yes, length 65536\n'
+
+  - id: over-limit-not-final
+    claim: 'The first frame for the 65,537-byte file has the final bit clear, one byte short of holding the message.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nover-limit\.bin: first frame 0x02 0x7f, final: no, length 65536\n'
+
+  - id: record-cut
+    claim: 'The exchange record counts more than the 200,000 bytes sent but shows the first 64 KiB, 65,536 bytes, and says it is cut.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbig\.bin: recorded more than the file: yes, shown 65536, cut: True\n'

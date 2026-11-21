@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs reuse.cs, a C# program on the official MCP SDK that
+# starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: http-reuse-one-connection-for-many-files-from-an-agent
+title: Reusing One Connection from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, get_exchanges, curl, transfer]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl tool call with a URL glob naming three files fetches them over one connection; num_connects is 1 for the first transfer and 0 for the two that reused it.
+    program: reuse.cs
+    args: [glob]
+    expect:
+      exit: 0
+      stdout-matches: '^exitCode: 0\n/a\.txt 1\n/b\.txt 0\n/c\.txt 0\n'
+
+  - id: one-exchange
+    claim: get_exchanges shows that call as one exchange that received all three requests.
+    program: reuse.cs
+    args: [glob]
+    expect:
+      exit: 0
+      stdout-matches: '\nexchanges: 1\nexchange 1: GET /a\.txt HTTP/1\.1, GET /b\.txt HTTP/1\.1, GET /c\.txt HTTP/1\.1\n$'
+
+  - id: three-urls
+    claim: Three URLs named one by one in one curl call are reused the same way, num_connects 1, 0, 0.
+    program: reuse.cs
+    args: [urls]
+    expect:
+      exit: 0
+      stdout-matches: '^exitCode: 0\n/a\.txt 1\n/b\.txt 0\n/c\.txt 0\nexchanges: 1\n'
+
+  - id: separate-calls
+    claim: A second curl tool call opens a connection of its own, num_connects 1, and the server records two exchanges.
+    program: reuse.cs
+    args: [two-calls]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\n/a.txt 1\nexitCode: 0\n/b.txt 1\nexchanges: 2\nexchange 1: GET /a.txt HTTP/1.1\nexchange 2: GET /b.txt HTTP/1.1\n"
+
+  - id: connection-close
+    claim: With a Connection close header on each request the glob call opens a connection per transfer, num_connects 1, 1, 1.
+    program: reuse.cs
+    args: [close]
+    expect:
+      exit: 0
+      stdout-matches: '^exitCode: 0\n/a\.txt 1\n/b\.txt 1\n/c\.txt 1\n'
+
+  - id: three-exchanges
+    claim: get_exchanges shows those three requests as three exchanges of one request each.
+    program: reuse.cs
+    args: [close]
+    expect:
+      exit: 0
+      stdout-matches: '\nexchanges: 3\nexchange 1: GET /a\.txt HTTP/1\.1\nexchange 2: GET /b\.txt HTTP/1\.1\nexchange 3: GET /c\.txt HTTP/1\.1\n$'
+
+  - id: http-1-0
+    claim: Over HTTP/1.0 (--http1.0) the server answers and closes, so nothing is reused, num_connects 1, 1.
+    program: reuse.cs
+    args: [http1.0]
+    expect:
+      exit: 0
+      stdout-matches: '^exitCode: 0\n/a\.txt 1\n/b\.txt 1\nexchanges: 2\n'
+
+  - id: idle-but-kept
+    claim: Two seconds between transfers (--rate 1/2s) is well inside surl's default idle timeout of 120 s, so the second transfer still reuses the connection.
+    program: reuse.cs
+    args: [rate]
+    expect:
+      exit: 0
+      stdout-matches: '^exitCode: 0\n/a\.txt 1\n/b\.txt 0\nexchanges: 1\n'
+
+  - id: idle-and-closed
+    claim: Against a server started with --idle-timeout 1 in arguments, the same two-second pause outlasts the timeout and the second transfer opens a new connection, without an error.
+    program: reuse.cs
+    args: [idle]
+    expect:
+      exit: 0
+      stdout-matches: '^exitCode: 0\n/a\.txt 1\n/b\.txt 1\nexchanges: 2\n'
+
+  - id: transfer-calls
+    claim: Three transfer tool calls share no connection; each is an exchange of its own.
+    program: reuse.cs
+    args: [transfers]
+    expect:
+      exit: 0
+      stdout: "exchanges: 3\nexchange 1: GET /a.txt HTTP/1.1\nexchange 2: GET /b.txt HTTP/1.1\nexchange 3: GET /c.txt HTTP/1.1\n"
