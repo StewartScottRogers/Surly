@@ -7,8 +7,8 @@
 //   info           the failing test, with the log at LogLevel.Info
 //   error          the failing test, with the log at LogLevel.Error
 //   strict         the failing test, without AllowAnonymous
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;

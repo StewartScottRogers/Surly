@@ -3,7 +3,7 @@
 // start HTTP and SMTP on free ports, report the bound URLs, run the tests, stop the server,
 // and exit with a code the job can act on.
 // Run: dotnet run run-in-ci.cs [-- pass|wrong-password|port-taken]
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Net;
 using System.Net.Sockets;

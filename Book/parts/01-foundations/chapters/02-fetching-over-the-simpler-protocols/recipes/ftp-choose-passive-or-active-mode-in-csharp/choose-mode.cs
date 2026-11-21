@@ -6,8 +6,8 @@
 //   other         active mode naming an address that is not the client's
 //   refused       the same fetch from a server that accepts no anonymous login
 //   log           the server's own log of a passive and an active fetch
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

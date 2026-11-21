@@ -5,8 +5,8 @@
 //   agent         the same with a User-Agent set on the client
 //   requests      two requests on one client, then how many exchanges were recorded
 //   off           recording left off, then what reading Exchanges does
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

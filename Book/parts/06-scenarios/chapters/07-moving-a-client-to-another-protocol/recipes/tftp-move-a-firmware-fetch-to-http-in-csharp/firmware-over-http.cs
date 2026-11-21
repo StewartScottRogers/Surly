@@ -7,8 +7,8 @@
 //   blksize   fetch over TFTP with a block size of 1024
 //   missing   ask both for an image that is not there
 //   write     send a file over TFTP and over HTTP
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Security.Cryptography;
 using Curl.Api;

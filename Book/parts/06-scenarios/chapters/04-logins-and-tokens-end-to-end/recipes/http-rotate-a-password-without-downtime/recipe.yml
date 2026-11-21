@@ -16,6 +16,7 @@ fixtures:
   token.txt: "control-token-0123456789abcdefghij\n"
   app-v2.json: "{\"user\":\"app-v2\",\"password\":\"new-secret\"}"
   app-changed.json: "{\"user\":\"app\",\"password\":\"new-secret\"}"
+  app-password.json: "{\"password\":\"new-secret\"}"
 
 # A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
 setup:
@@ -77,9 +78,16 @@ cases:
       exit: 0
       stdout-matches: '\* Login refused: Basic app-v1\n#\d+ \* Login refused: ftp app-v1\n#\d+ \* Login accepted: Basic app-v2\n#\d+ \* Login accepted: ftp app-v2\n$'
 
+  - id: duplicate-refused
+    claim: Posting the existing account app again, with a new password, is refused 409 Conflict, and the old password still logs in (200).
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" --json @app-changed.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port5}}/v1/accounts --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app:old-secret https://127.0.0.1:{{port4}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "http 409\nhttps 200\n"
+
   - id: in-place-change-cuts-off
-    claim: Posting a new password for the existing account app replaces it at once (204), so the next login with the old password is refused (401) and the new one is accepted (200); a client not yet moved fails from that moment.
-    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" --json @app-changed.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port5}}/v1/accounts --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app:old-secret https://127.0.0.1:{{port4}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app:new-secret https://127.0.0.1:{{port4}}/hello.txt'
+    claim: A PUT of a new password to /v1/accounts/app replaces it at once (204), so the next login with the old password is refused (401) and the new one is accepted (200); a client not yet moved fails from that moment.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" -X PUT --json @app-password.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port5}}/v1/accounts/app --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app:old-secret https://127.0.0.1:{{port4}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app:new-secret https://127.0.0.1:{{port4}}/hello.txt'
     expect:
       exit: 0
       stdout: "http 204\nhttps 401\nhttps 200\n"

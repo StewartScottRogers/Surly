@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Uploads go through the curl tool (curl -T with --digest -u), because transfer has no login field; -T files are fixtures in CURL_MCP_ROOT.
 2. read_file on a missing path is a tool error with text 'No file at /archive/report.txt.'.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 409 and 405 now carry a one-line body (BL-1444); the program splits the body from the -w status and prints both.

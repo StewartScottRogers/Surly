@@ -10,7 +10,7 @@
 //   no-login     a server with an account, and no login in the proxy URL
 //   in-clear     the same server and the right login in the proxy URL
 //   plaintext    the same, to a server started with --allow-plaintext-auth
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

@@ -8,7 +8,7 @@
 //   big        upload a 300,000-byte export to /incoming, which has 100,000 bytes of room
 //   last-night upload nothing; the next step reads last night's export
 //   http-put   upload the export to /archive over HTTP instead (curl -T to the http:// listener)
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -78,7 +78,7 @@ using (JsonDocument answer = JsonDocument.Parse(fetched.Content.OfType<TextConte
     JsonElement body = answer.RootElement.GetProperty("body");
     string content = body.ValueKind == JsonValueKind.Object ? body.GetProperty("content").GetString()! : "";
     string what = content.Length == 0 ? "no body"
-        : content == (which == "last-night" ? "id,total\n1,1180\n2,940\n" : File.ReadAllText(local)) ? "the export" : "something else";
+        : content == (which == "last-night" ? "id,total\n1,1180\n2,940\n" : File.ReadAllText(local)) ? "the export" : $"body \"{content.TrimEnd()}\"";
     Console.WriteLine($"next step: statusCode {answer.RootElement.GetProperty("statusCode")}, tool error {(fetched.IsError == true ? "yes" : "no")}, {what}");
 }
 

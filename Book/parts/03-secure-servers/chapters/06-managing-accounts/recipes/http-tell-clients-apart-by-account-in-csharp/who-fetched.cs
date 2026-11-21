@@ -5,8 +5,8 @@
 //   events        each service fetches its file, one guesses wrong; read who fetched what (the default)
 //   one-client    the same fetches, both made through one client and so one connection
 //   not-recorded  the same server with RecordExchanges left off
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

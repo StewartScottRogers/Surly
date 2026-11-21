@@ -8,8 +8,8 @@
 //   uploads-off   a server that accepts no uploads
 //   no-login      a server that accepts no anonymous login
 //   login         list the root and print the login the server received
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

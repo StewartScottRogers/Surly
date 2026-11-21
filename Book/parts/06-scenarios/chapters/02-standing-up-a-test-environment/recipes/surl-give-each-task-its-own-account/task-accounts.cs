@@ -7,7 +7,7 @@
 //   overlap      two tasks at once: what one can read of the other's
 //   no-standing  the server has no account of the agent's own
 //   imap         a task account over IMAP
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -80,11 +80,18 @@ switch (which)
         return 1;
 
     default:
+        // Each task account gets an INBOX of its own; mail seeded to task-1 is task-1's alone.
         await Surl("add_account", new() { ["user"] = "task-1", ["password"] = "task-1-secret" });
-        Console.WriteLine($"task-1 IMAP login, no mailbox named: curl exit {await CurlExit("-u", "task-1:task-1-secret", imap)}");
-        Console.WriteLine($"task-1 IMAP INBOX: curl exit {await CurlExit("-u", "task-1:task-1-secret", $"{imap}INBOX?ALL")}");
+        await Surl("add_account", new() { ["user"] = "task-2", ["password"] = "task-2-secret" });
+        await Surl("seed_mail", new() { ["to"] = "task-1@example.com", ["message"] = "Subject: job\r\n\r\nfor task-1\r\n" });
+        Console.WriteLine($"task-1 IMAP INBOX: {(await Curl("-u", "task-1:task-1-secret", $"{imap}INBOX?ALL")).TrimEnd()}");
+        Console.WriteLine($"task-2 IMAP INBOX: {(await Curl("-u", "task-2:task-2-secret", $"{imap}INBOX?ALL")).TrimEnd()}");
         await Surl("remove_account", new() { ["user"] = "task-1" });
         Console.WriteLine($"task-1 IMAP login after remove_account: curl exit {await CurlExit("-u", "task-1:task-1-secret", imap)}");
+
+        // The mailbox outlives the account: a new account of the same name finds the old mail.
+        await Surl("add_account", new() { ["user"] = "task-1", ["password"] = "new-secret" });
+        Console.WriteLine($"task-1 added again, IMAP INBOX: {(await Curl("-u", "task-1:new-secret", $"{imap}INBOX?ALL")).TrimEnd()}");
         JsonElement logins = await Surl("get_events", new() { ["kinds"] = new[] { "login_judged" }, ["account"] = "task-1" });
         Console.WriteLine("login_judged: " + string.Join(", ", logins.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("is_accepted").GetRawText())));
         return 1;

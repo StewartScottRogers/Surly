@@ -8,7 +8,7 @@
 //   commands      two uploads into another new folder, and the commands the server received
 //   uploads-off   a server started without --allow-uploads, with --ftp-create-dirs
 //   no-login      a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Finding for Curl: curl-mcp's `-v` lines in standardError end in CR CR LF on Windows (`> PUT /notes.txt HTTP/1.1\r\r\n`); expected one CR LF. The program trims.
 2. Finding for Curl: the Digest Authorization header differs between curl.exe (`username="alice",realm=...`, hex cnonce) and curl-mcp's curl tool (`username="alice", realm=...`, base64 cnonce, algorithm last) at the same Curl commit. Both are accepted; not claimed.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 401 and 405 refusals now carry a short text body (BL-1444); the curl call writes it to reply.txt with -o so standard output holds only the status.

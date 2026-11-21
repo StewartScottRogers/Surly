@@ -7,7 +7,7 @@
 //   hash        -o "reports/report-#1.csv" in place of -O and --output-dir
 //   outside     -o "../report-#1.csv", a name that leaves the folder
 //   transfer    the globbed URL given to transfer instead
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

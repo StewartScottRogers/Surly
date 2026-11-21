@@ -1,0 +1,18 @@
+#!/bin/sh
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Sets a key that lives two seconds, reads it, waits three seconds, and reads it again.
+# Usage: sh expire.sh <port>
+r=redis://127.0.0.1:$1
+curl -s -u alice:s3cret "$r/SET/session/abc/PX/2000" "$r/GET/session" "$r/PTTL/session" | {
+  read -r set; read -r value; read -r ttl
+  echo "set: $set"
+  echo "before: $value"
+  [ "$ttl" -gt 0 ] && echo "time to live: positive"
+}
+sleep 3
+curl -s -u alice:s3cret "$r/GET/session" "$r/PTTL/session" "$r/EXISTS/session" | {
+  read -r value; read -r ttl; read -r exists
+  echo "after: [$value]"
+  echo "time to live: $ttl"
+  echo "exists: $exists"
+}

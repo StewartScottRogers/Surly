@@ -3,7 +3,7 @@
 // reports the URLs they bound, and checks each answers. If one will not start, it stops the ones
 // it already started, so a half-built environment is never left running.
 // Run: dotnet run build-from-spec.cs -- <spec.json>
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

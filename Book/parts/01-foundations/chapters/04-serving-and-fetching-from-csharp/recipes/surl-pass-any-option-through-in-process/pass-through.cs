@@ -8,8 +8,8 @@
 //   override       AllowUploads = true, then --no-allow-uploads among the arguments
 //   host-option    --log-file, an option that belongs to a host
 //   bad-value      --max-request-head abc
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

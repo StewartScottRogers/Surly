@@ -6,8 +6,8 @@
 //   missing.csv    fetch a path the server does not have: 404
 //   busy.csv       fetch a path the server answers 503 Service Unavailable
 //   stopped        stop the server first, then fetch report.csv
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using Curl.Api;

@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 
 1. SurlServerOptions.UserFile adds to Accounts; a bad file is SurlServerStartException naming the line.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's HTTPS 401 now carries the body `401 Unauthorized` (BL-1444), which the program prints after the status.

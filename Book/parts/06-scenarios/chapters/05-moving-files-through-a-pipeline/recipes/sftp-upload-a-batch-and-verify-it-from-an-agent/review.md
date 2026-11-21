@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Program finding: curl-mcp's `curl` tool refuses a glob in `-T` (`failure.kind` PathRefused: names files with glob characters whose expanded paths cannot be checked), so the agent uploads with one call holding a `-T` pair for each file; case `glob-refused`.
 2. Truth: the comparison is checked twice, by curl's listing and by surl-mcp's `list_files` byte counts.
+3. Re-pinned to Surl a423807a5d / Curl 0680b97577: curl-mcp now accepts -T globs, checking each expansion: the glob-refused case became a glob upload case plus a PathRefused case for an expansion outside CURL_MCP_ROOT.

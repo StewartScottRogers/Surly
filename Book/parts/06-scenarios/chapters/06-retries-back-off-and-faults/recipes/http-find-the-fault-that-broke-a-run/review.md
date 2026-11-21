@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 1. Found: under a command-stage delay the server still writes its 200 OK after the client has given up (Windows); a server-side-only scan misses the timeout. The case accepts '200 OK' or nothing for other platforms.
 2. Matching is by request line in call order; one curl tool call per request gives one exchange each; an untimed warm-up transfer is exchange 1.
 3. SurlFaultRule item text percent-encodes path= (%2F) and omits times (also in surl-count-the-faults-that-fired).
+Re-pinned to Surl a423807a5d / Curl 0680b97577: SurlFaultRule.Item keeps / in path= (Surl BL-1539); finding 3 no longer holds for the path.

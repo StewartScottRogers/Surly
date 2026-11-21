@@ -10,7 +10,7 @@
 //   partial       a sync that names a file out/ does not have
 //   client-view   compare the store's listing with the listing a client gets over S3
 //   no-listing    a server started without --list-directories
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

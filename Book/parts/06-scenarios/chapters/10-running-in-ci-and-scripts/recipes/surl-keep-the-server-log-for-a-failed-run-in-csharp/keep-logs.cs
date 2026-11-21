@@ -3,8 +3,8 @@
 // test keeps the server's verbose log in ci-logs/surl.log for the job to upload, and fails. The
 // log already holds no password or token: the server writes **** in their place.
 // Run: dotnet run keep-logs.cs [-- <ftps password>]   (the right one, s3cret, by default)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

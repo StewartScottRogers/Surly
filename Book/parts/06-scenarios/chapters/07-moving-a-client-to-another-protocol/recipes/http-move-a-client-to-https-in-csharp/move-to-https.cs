@@ -11,8 +11,8 @@
 //   after-plain     after the move: a client still on the plain URL
 //   after-record    after the move: both clients, then the scheme of every exchange recorded
 //   no-certificate  an https listen URL with no certificate
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

@@ -3,8 +3,8 @@
 // so a failing test shows what the server saw. A small runner stands in for the test framework:
 // it keeps each test's output and prints it only when the test fails, as xUnit and NUnit do.
 // Run: dotnet run log-to-test-output.cs [-- verbose|info]
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

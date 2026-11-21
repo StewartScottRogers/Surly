@@ -7,7 +7,7 @@
 //   tunnel-outside  the same through a CONNECT tunnel, with the curl tool and -p
 //   allowed         the same from a proxy started with --proxy-allow-origin 192.0.2.1
 //   every-origin    start a proxy with --proxy-allow-origin * and show its log lines
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

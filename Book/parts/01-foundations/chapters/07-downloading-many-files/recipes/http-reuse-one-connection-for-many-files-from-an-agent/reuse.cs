@@ -10,7 +10,7 @@
 //   rate        one curl tool call for a.txt and b.txt, 2 s apart (--rate 1/2s)
 //   idle        the same, against a server started with --idle-timeout 1
 //   transfers   three transfer tool calls, one file each
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

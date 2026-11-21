@@ -2,8 +2,8 @@
 // A C# file-based app: `dotnet run upload.cs -- SCENARIO`.
 //   stored (the default), read-back, overwrite, several-blocks, several-blocks-read-back, no-subfolders,
 //   no-dot-files, uploads-off, uploads-off-error-two, uploads-off-nothing-kept, over-the-limit, over-the-limit-kept-nothing
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

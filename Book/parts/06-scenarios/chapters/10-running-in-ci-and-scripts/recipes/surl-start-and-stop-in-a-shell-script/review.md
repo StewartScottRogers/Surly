@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. kill -INT does nothing to surl on Windows (probed, not claimed); the script uses TERM only.
 3. The command runs in the background and the script waits, so a TERM to the script acts at once (case interrupted).
 4. Uses POSIX sh scripts shown with include::; the Solution says Git Bash is needed on Windows.
+Re-pinned to Surl 5da5b3eaf / Curl c84035f797: Surl.Console is unchanged since 9ad60d80c and the interrupted case passes by hand (15 of 15, 2-3 s); the 60 s timeout came under a loaded full run. interrupt.sh now gives up after 10 s if surl never listens and sends TERM a second after the Listening on line, so it never lands before the command has started.

@@ -10,7 +10,7 @@
 //   server-listing   the same server: list_files
 //   uploads-off      a server that takes no uploads: the app
 //   nothing-written  the same server: the check
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

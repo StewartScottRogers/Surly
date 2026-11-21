@@ -5,8 +5,8 @@
 //   (none)        fetch hello.txt six ways
 //   no-anonymous  the same server without AllowAnonymous
 //   replaced      replace hello.txt in the store after the start, then fetch it six ways
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

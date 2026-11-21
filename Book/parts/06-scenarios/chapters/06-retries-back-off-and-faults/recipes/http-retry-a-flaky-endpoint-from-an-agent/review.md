@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. transfer makes one attempt; the curl tool carries --retry. The 503 rule is added with add_fault after start.
 2. With -f and retries, the curl port writes 'curl: (22) ...' to stderr for each failed try, before and after the retry notice.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 503 now carries a one-line body (BL-1444), which the curl tool's standardOutput holds before the file; solution and the Discussion restated.

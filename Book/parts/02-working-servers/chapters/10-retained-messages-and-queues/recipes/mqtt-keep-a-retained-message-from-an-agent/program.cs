@@ -10,7 +10,7 @@
 //   no-filter  a broker with no --topic: the same
 //   clear      an empty message clears the topic
 //   closed     a broker with no --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

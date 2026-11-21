@@ -7,7 +7,7 @@
 //   refused    upload to a server that was not told to accept uploads
 //   too-big    upload to a server whose --max-filesize is smaller than the file
 //   no-login   upload to a server that was not told to accept anonymous logins
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text;

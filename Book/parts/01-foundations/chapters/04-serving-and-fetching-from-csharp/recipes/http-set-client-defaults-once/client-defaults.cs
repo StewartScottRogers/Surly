@@ -6,8 +6,8 @@
 //   override      the second request sets its own user agent
 //   bare          the same three requests through a client with no options
 //   timeout       a request to a path the server holds for 5 seconds
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using System.Text;

@@ -8,8 +8,8 @@
 //   missing    a file the server does not have
 //   dot        a dot file the server holds
 //   commands   the control connection's commands, as the server recorded them
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

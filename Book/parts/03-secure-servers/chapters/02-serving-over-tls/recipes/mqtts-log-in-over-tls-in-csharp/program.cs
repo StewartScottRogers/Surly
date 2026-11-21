@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // A C# file-based app: `dotnet run program.cs -- mqtts s3cret`. Package versions are the book's
 // pins in Book/build/packages.yml; build/pin.py rewrites these lines, and lint checks they match.
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

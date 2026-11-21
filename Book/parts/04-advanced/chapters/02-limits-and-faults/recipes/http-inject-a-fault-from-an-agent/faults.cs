@@ -7,7 +7,7 @@
 //   drop        a rule that cuts the connection
 //   events      the fault_applied event the server kept
 //   refused     a rule surl would refuse, and a rule that is not there
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

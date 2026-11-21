@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Nearest honest recipe: Curl.Api 0.2.0 sends no gRPC request message (POST body not sent, reply {}; facts/grpc.md), so the call uses an empty request; case no-request-message pins this and will break when Curl.Api sends bodies, at which point the solution should send {"message":"hello"}.
 2. Untrusted and wrong host name: CurlException PeerFailedVerification (60); Message is schannel wording on Windows, cases match the first line only.
 3. No certificate: SurlServerStartException ExitCode CertificateProblem (58).
+Re-pinned to Surl a423807a5d / Curl 0680b97577: Curl.Api now sends a gRPC request message from a POST body, so the solution sends {"message":"hello"} and gets it back (finding 1 is settled); case no-request-message became empty-request, a GET answered {}.

@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Program note: JsonSerializer.Serialize throws in a file-based app (reflection serialization off); the program escapes by hand.
 2. The claim that only curl writes to disk rests on transfer having no output field and on http-run-curl-from-an-agent for the root confinement.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: a 404 now has Content-Type text/plain and the body 404 Not Found (BL-1444), in transfer's body and in the curl tool's standardOutput.

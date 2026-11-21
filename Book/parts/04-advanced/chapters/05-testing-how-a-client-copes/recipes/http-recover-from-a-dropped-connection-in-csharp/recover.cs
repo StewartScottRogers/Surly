@@ -2,8 +2,8 @@
 // Serves a file with Surl.Api, dropping the first request for it, and fetches it with Curl.Api,
 // retrying once on a failure. Run: dotnet run recover.cs -- [retries]
 //   retries   how many retries the client may make (1 if not given; 0 for none)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Codes;

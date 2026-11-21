@@ -7,8 +7,8 @@
 //   flag-off       the test seeds the flag off: the app ships nothing
 //   no-extensions  AreExtensionsTurnedOn = false
 //   strict         without AllowPlaintextAuthentication
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

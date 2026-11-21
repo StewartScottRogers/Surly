@@ -8,8 +8,8 @@
 //   https-proxy  through the https proxy, trusting both certificates
 //   proxy-only   through the https proxy, trusting only the origin's certificate
 //   refused      through a proxy whose fault rule answers CONNECT with 503
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

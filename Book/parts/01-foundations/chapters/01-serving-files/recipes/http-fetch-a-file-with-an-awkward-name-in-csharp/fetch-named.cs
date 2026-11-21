@@ -4,8 +4,8 @@
 //   how    escape (the default): Uri.EscapeDataString on the name; raw: the name as typed;
 //          uri: new Uri(baseUri, name)
 //   name   one file name to ask for; with none, all three awkward names
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

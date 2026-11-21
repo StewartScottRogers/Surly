@@ -5,8 +5,8 @@
 //   (no argument)  the right password, and the token the login hands back
 //   <password>     log in with this password instead
 //   <token>        call the API with this token instead of the one handed back
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

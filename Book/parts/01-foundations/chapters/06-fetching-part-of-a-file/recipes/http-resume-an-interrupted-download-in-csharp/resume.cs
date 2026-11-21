@@ -5,8 +5,8 @@
 //          if-range: the same, with If-Range set to the Last-Modified date of a HEAD request
 //          if-range-old: the same, with If-Range set to an old date, as if the file had changed since
 //   file   the partial file (dl/records.txt by default); the program writes it back in full
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

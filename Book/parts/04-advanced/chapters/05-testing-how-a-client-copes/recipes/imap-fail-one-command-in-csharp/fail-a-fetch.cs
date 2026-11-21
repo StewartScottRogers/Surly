@@ -12,8 +12,8 @@
 //   count          how often the rule acted, from the rule and from the events
 //   late-rule      no rule at start; one is added during the test, then removed
 //   bad-shape      a rule whose reply is not in IMAP's shape
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using System.Text.RegularExpressions;

@@ -6,8 +6,8 @@
 //   <path>...     these paths, one connection each, such as notes/ notes, hello.txt, .secret or nowhere/
 //   off           the root of a server without ListDirectories
 //   log           the server's own account of the listing it sent
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

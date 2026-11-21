@@ -5,7 +5,7 @@
 //   curl-few   the curl tool with -f --retry 1
 //   health     the curl tool with --retry 2 on a path that is never busy
 //   transfer   transfer in a loop, with the agent's own one-second wait
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Diagnostics;
 using System.Text.Json;

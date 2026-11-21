@@ -3,7 +3,7 @@
 // with surl-mcp, and fetches with transfer only when scheme, host and port all match.
 // Run: dotnet run check-url.cs -- <url>
 //   PORT in the URL is replaced by the port the server bound, as if the user had typed it.
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

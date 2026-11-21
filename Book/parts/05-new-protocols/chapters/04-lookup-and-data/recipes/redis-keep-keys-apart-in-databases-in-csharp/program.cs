@@ -7,8 +7,8 @@
 //   range            database 16
 //   no-login         a client with no login
 //   no-plaintext     log in without AllowPlaintextAuthentication
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

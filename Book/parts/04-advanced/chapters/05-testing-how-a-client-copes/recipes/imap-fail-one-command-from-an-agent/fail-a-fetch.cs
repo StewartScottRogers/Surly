@@ -13,7 +13,7 @@
 //   count        list_faults after two fetches
 //   late-rule    no rule at start; add_fault during the test, then remove_fault
 //   bad-shape    a rule whose reply is not in IMAP's shape
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

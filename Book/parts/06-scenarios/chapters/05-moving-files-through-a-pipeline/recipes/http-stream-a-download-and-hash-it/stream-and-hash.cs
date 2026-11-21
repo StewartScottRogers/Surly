@@ -4,8 +4,8 @@
 // Run: dotnet run stream-and-hash.cs -- <case>
 //   whole    the server sends the whole file (the default)
 //   dropped  the server drops the connection after 1,000,000 bytes
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Security.Cryptography;
 using Curl.Api;

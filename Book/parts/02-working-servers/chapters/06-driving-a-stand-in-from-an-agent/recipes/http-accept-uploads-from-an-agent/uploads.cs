@@ -9,7 +9,7 @@
 //   no-account    uploads on and no account
 //   anonymous     uploads on and --allow-anonymous, no account
 //   events        the store change the upload made
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

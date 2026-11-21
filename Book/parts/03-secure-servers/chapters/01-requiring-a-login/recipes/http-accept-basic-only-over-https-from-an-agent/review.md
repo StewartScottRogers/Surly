@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 1. One program, seven fetches; the cases match lines of its output. The certificate comes from `setup:`; `--cert` and `--key` take names relative to `SURL_MCP_ROOT`, as does `--cacert` to `CURL_MCP_ROOT`.
 2. curl-mcp's `transfer` tool has no user or CA option (only `insecure`), so the logins go through the `curl` tool, with curl's own arguments.
 3. The start-up warning is cited to the README, not cased.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 401 and 403 now carry a one-line body (BL-1444); the program prints only a 200's body, and the Discussion says so.

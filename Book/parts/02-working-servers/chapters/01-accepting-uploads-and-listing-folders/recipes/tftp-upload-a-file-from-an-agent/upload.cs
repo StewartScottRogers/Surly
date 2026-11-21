@@ -3,7 +3,7 @@
 // Run: dotnet run upload.cs [-- SCENARIO]
 //   stored (the default), read-back, overwrite, several-blocks, several-blocks-read-back, no-subfolders,
 //   no-dot-files, uploads-off, uploads-off-error-two, uploads-off-nothing-kept, over-the-limit, over-the-limit-kept-nothing
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

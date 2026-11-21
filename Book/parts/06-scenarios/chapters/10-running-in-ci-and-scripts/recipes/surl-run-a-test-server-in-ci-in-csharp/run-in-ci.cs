@@ -2,8 +2,8 @@
 // A CI test run against an in-process server: start HTTP and SMTP on free ports, report the
 // bound URLs, run the tests, stop the server, and exit with a code the job can act on.
 // Run: dotnet run run-in-ci.cs [-- pass|wrong-password|port-taken]
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Net.Sockets;

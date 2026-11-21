@@ -4,7 +4,7 @@
 //   retry      the curl tool with --retry 1 --retry-all-errors (the default)
 //   retry-alone  the curl tool with --retry 1 only
 //   transfer   transfer twice: it makes no retry of its own
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

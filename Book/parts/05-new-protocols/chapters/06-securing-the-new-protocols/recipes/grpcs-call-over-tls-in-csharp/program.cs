@@ -1,11 +1,12 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Hosts gRPC over TLS with Surl.Api and calls it with Curl.Api: trusted, untrusted, the wrong host
-// name, the wrong password, and the same login over plain grpc.
+// name, the wrong password, the same login over plain grpc, and an empty request.
 // Run: dotnet run program.cs [-- case]   (case: trusted, the default, untrusted, wrong-name, wrong-password,
-//                                         in-clear, body, no-certificate)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+//                                         in-clear, empty, no-certificate)
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
+using System.Text.Json.Nodes;
 using Curl.Api;
 using Curl.Api.Errors;
 using Curl.Api.Options.Authentication;
@@ -50,9 +51,9 @@ await using (server)
     {
         Authentication = new CurlAuthenticationOptions { UserName = "alice", Password = which == "wrong-password" ? "wrong" : "s3cret" },
     };
-    if (which == "body")
+    if (which != "empty")
     {
-        // A POST with a request message: Curl.Api 0.2.0 does not send it (see the Discussion).
+        // A POST's body is the request message, as JSON; a GET sends the empty message.
         request = request with { Method = HttpMethod.Post, Body = "{\"message\":\"hello\"}"u8.ToArray() };
     }
 
@@ -60,7 +61,8 @@ await using (server)
     {
         CurlResponse response = await client.SendAsync(request, CancellationToken.None);
         await using Stream body = response.Body;
-        string reply = (await new StreamReader(body).ReadToEndAsync()).Replace("\n", "");
+        // The reply is JSON; ToJsonString writes it on one line.
+        string reply = JsonNode.Parse(await new StreamReader(body).ReadToEndAsync())!.ToJsonString();
         Console.WriteLine($"{server.BoundUrl.Scheme}: reply {reply}");
         return 0;
     }

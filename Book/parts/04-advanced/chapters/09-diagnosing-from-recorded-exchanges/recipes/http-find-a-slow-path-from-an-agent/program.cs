@@ -3,7 +3,7 @@
 // says which path took longest. Run: dotnet run program.cs [-- <case>]
 //   one-each        the test fetches each path with its own transfer call (the default)
 //   one-connection  the test fetches all three with one curl call, over one kept-alive connection
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

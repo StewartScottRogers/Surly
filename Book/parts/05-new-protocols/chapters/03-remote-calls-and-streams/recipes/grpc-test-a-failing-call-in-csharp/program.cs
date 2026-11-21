@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Makes a gRPC server fail calls with chosen statuses and reads the statuses back, with Surl.Api and the
 // framework's HttpClient, in one process. Run: dotnet run program.cs
-#:package Surl.Api@1.0.0
+#:package Surly.Surl.Api@*
 
 using System.Net;
 using System.Net.Http.Headers;

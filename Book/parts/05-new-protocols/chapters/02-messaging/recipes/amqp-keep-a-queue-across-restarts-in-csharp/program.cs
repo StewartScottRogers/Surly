@@ -8,8 +8,8 @@
 //   disk      the folder's files, while the server runs and after it stops
 //   twice     a job queued after the first restart, then a second and a third restart
 //   memory    the same test with no DataDirectory
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

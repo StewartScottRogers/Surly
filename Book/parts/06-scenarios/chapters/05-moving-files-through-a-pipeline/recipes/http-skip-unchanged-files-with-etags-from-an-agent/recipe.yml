@@ -2,10 +2,9 @@
 # Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
 # AI agent drives them (ADR-0008). Each case runs sync.cs, a C# program on the official MCP SDK
 # that starts both hosts from PATH; its argument picks the scenario.
-# The planned task was ETags; the pinned surl sends Last-Modified only, so this recipe syncs by date (see review.md).
 schema: 2
 key: http-skip-unchanged-files-with-etags-from-an-agent
-title: Skipping Unchanged Files by Date
+title: Skipping Unchanged Files with ETags
 protocols: [http]
 tier: scenarios
 surface: mcp
@@ -18,7 +17,7 @@ fixtures: {}
 cases:
   - id: solution
     role: solution
-    claim: The first run of curl -R -z fetches both files (200), the second takes no new copy (304 each), and after put_file rewrites a.txt more than a second later the third run fetches a.txt (200) and skips b.txt (304).
+    claim: The first run with --etag-save fetches both files (200), the second sends the saved tags with --etag-compare and gets 304 for each, and after put_file rewrites a.txt, with no wait, the third run fetches a.txt (200) and skips b.txt (304).
     program: sync.cs
     args: [changed]
     expect:
@@ -34,7 +33,7 @@ cases:
       stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nrun 2: a.txt 304 (exit 0), b.txt 304 (exit 0)\na.txt deleted\nrun 3: a.txt 404 (exit 22), b.txt 304 (exit 0)\nlocal a.txt: alpha\n"
 
   - id: written-to-disk
-    claim: The copies are files on disk inside CURL_MCP_ROOT; after the changed case local-changed/a.txt holds the revised text and local-changed/b.txt the first one.
+    claim: The copies and their tags are files on disk inside CURL_MCP_ROOT; after the changed case local-changed/a.txt holds the revised text, local-changed/b.txt the first one, and a .etag file sits beside each.
     program: sync.cs
     args: [changed]
     expect:
@@ -42,19 +41,21 @@ cases:
       files:
         local-changed/a.txt: "alpha, revised\n"
         local-changed/b.txt: "beta\n"
+        local-changed/a.txt.etag: null
+        local-changed/b.txt.etag: null
 
   - id: without-fail-clobbers
-    claim: Without -f, the fetch of the deleted a.txt still prints 404 but exits 0, and -o writes the empty 404 body over the local copy.
+    claim: Without -f, the fetch of the deleted a.txt still prints 404 but exits 0, and -o writes surl's short 404 body over the local copy.
     program: sync.cs
     args: [no-fail]
     expect:
       exit: 0
-      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nrun 2: a.txt 304 (exit 0), b.txt 304 (exit 0)\na.txt deleted\nrun 3: a.txt 404 (exit 0), b.txt 304 (exit 0)\nlocal a.txt: \n"
+      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nrun 2: a.txt 304 (exit 0), b.txt 304 (exit 0)\na.txt deleted\nrun 3: a.txt 404 (exit 0), b.txt 304 (exit 0)\nlocal a.txt: 404 Not Found\n"
 
-  - id: dates-compared
-    claim: An unchanged file's HEAD through transfer is answered 200, -R dated the saved copy with that Last-Modified, and curl -z sends it back as If-Modified-Since.
+  - id: tags-compared
+    claim: A HEAD through transfer is answered 200 with the ETag that --etag-save wrote; curl sends that tag back as If-None-Match, and the 304 is surl's own answer.
     program: sync.cs
-    args: [dates]
+    args: [tags]
     expect:
       exit: 0
-      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nHEAD a.txt: 200\nsaved a.txt dated as Last-Modified: yes\ncurl sent If-Modified-Since with that date: yes\n"
+      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nHEAD a.txt: 200\nsaved tag is the server's ETag: yes\ncurl sent If-None-Match with that tag: yes\nsurl answered 304 itself: yes\n"

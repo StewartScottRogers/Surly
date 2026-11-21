@@ -2,8 +2,8 @@
 // Downloads report-1.csv to report-N.csv in turn with one shared CurlClient, saves each one
 // that is there into reports/, and reports the numbers that were 404.
 // Run: dotnet run fetch-series.cs [-- last]   (the series ends at 12 by default)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

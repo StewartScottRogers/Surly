@@ -6,8 +6,8 @@
 //   twice         the caller adds the trace ID again, so it arrives twice
 //   empty         the API key is sent with an empty value
 //   no-accept     the request also removes the Accept header the client adds of its own
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

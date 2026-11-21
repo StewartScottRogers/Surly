@@ -6,8 +6,8 @@
 //   recorded  what the server recorded from the client after it closed
 //   no-close  the same, when the program disposes the socket without CloseAsync
 //   missing   a path the server does not have
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Security.Cryptography;
 using Curl.Api;

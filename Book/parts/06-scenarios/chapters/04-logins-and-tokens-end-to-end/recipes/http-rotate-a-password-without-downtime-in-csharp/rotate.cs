@@ -7,8 +7,8 @@
 //   in-place      Accounts.Add for a name that exists, then Remove and Add
 //   last          Accounts.Remove of the only account, then a GET with no login
 //   open-session  an FTP connection logged in as app-v1 before the removal, used after it
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

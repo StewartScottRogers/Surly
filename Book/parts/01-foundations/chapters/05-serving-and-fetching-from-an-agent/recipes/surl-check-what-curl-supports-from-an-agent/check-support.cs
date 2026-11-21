@@ -5,7 +5,7 @@
 //   version       the fields of the version tool's answer (the default)
 //   agree         the version tool against curl -V, run through the curl tool
 //   plan          for each scheme a plan needs, whether curl speaks it and whether surl serves it
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

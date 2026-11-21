@@ -4,7 +4,7 @@
 //   fetch         two listen URLs on port 0; fetch hello.txt from each bound URL (the default)
 //   list-servers  ask list_servers for the bound URLs again, as an agent that lost the answer would
 //   path          a listen URL with a path, which surl refuses
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

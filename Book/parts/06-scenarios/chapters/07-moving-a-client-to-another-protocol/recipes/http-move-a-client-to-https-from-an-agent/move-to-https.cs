@@ -11,7 +11,7 @@
 //   after-plain     after the move: a client still on the plain URL
 //   after-record    after the move: both clients, then the scheme of every exchange recorded
 //   no-certificate  an https listen URL with no certificate
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

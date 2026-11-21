@@ -5,7 +5,7 @@
 //   (no argument) the second request adds --http3
 //   none          the second request has no version option
 //   http1.1       the second request adds --http1.1
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

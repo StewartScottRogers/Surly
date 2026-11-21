@@ -7,7 +7,7 @@
 //   swallowed      curl --http3 against a TFTP listener on the same port number
 //   swallowed-only curl --http3-only --connect-timeout 2 against it
 //   h3             curl --http3 against a server started with --http3
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -6,8 +6,8 @@
 //   wrong-password  the app logs in with a wrong password
 //   untrusted       the CurlClient does not trust the server's certificate
 //   credentials     the handler's Credentials log in instead of the app's own header
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Net.Http.Headers;

@@ -2,8 +2,8 @@
 // Reads one slice of a file with a Range header and checks what came back.
 // Run: dotnet run read-slice.cs [-- first-last]   (the range defaults to 100-199)
 // Exits 0 for the slice asked for, 2 when the range lies past the end, 1 for anything else.
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

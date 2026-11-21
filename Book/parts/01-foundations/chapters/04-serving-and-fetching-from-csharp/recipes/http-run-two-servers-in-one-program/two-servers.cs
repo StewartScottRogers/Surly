@@ -4,8 +4,8 @@
 // Run: dotnet run two-servers.cs [-- same-port]
 //   (no argument) start both on port 0 and fetch from each
 //   same-port     start the second on the address and port the first one bound
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;
@@ -49,7 +49,8 @@ await using (CurlClient client = CurlClient.Create())
             CurlResponse response = await client.SendAsync(
                 new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}{path}"), CancellationToken.None);
             await using Stream body = response.Body;
-            string text = await new StreamReader(body).ReadToEndAsync();
+            // surl's 404 body, "404 Not Found", ends in a newline; trim it to keep one line a request.
+            string text = (await new StreamReader(body).ReadToEndAsync()).TrimEnd('\n');
             Console.WriteLine($"{name} /{path}: {response.StatusCode} {text}");
         }
     }

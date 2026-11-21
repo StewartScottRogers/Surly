@@ -6,8 +6,8 @@
 //   no-retry       the same server; the client tries once
 //   one-attempt    refuse one attempt; the client tries once
 //   wrong-password refuse two attempts; the client retries once with a wrong password
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Codes;

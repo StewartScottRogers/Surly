@@ -6,7 +6,7 @@
 //   pages           list the app's keys two at a time
 //   recorded        what the server recorded of the app's writes
 //   wrong-password  the app runs with the wrong password and leaves nothing
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

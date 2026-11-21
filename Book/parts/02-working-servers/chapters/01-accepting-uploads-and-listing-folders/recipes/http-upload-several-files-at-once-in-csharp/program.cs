@@ -6,8 +6,8 @@
 //   no-login        the same three at once with no login
 //   missing-folder  the same three at once into /nowhere/
 //   read-only       the same three at once to a server with uploads off
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

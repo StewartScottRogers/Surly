@@ -6,7 +6,7 @@
 //   restart    two jobs queued, the server stopped and started on the same folder, a worker takes them
 //   fails      three jobs, a worker that acknowledges two of them
 //   refused    a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

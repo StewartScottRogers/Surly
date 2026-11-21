@@ -2,7 +2,7 @@
 // An agent's side of the conversation, as a C# file-based app: `dotnet run program.cs -- trusted`
 // (also: untrusted, wrong-password, no-certificate, self-signed, self-signed-skip). It starts surl-mcp
 // and curl-mcp over standard input and output with the official MCP SDK and calls their tools.
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl comm
 2. `surl --aihelp content`'s example "Serve in memory, with listings" shows `surl --list-directories http://...` reached with `curl http://<port>/`, which suggests an HTTP listing the build does not give (program finding in the chapter report).
 3. The `dot-names-left-out` case repeats the solution's command; kept so the claim has an id of its own (rubric 12).
 4. Generated Solution block also starts the `no-listings` server (build finding, see http-accept-uploads).
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's HTTP 404 now carries the body `404 Not Found` (BL-1444); http-never-lists and the Discussion restated.

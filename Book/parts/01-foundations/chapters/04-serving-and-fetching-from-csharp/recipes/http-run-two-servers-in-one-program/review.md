@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The ports are not printed exactly (they vary); the program prints 'two ports' when they differ.
 2. The BindFailed case uses the first server's BoundUrl, the realistic collision; message text varies by platform, so only ExitCode is checked.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 404 now carries the body `404 Not Found` (BL-1444); the program trims its newline and the cases match it.

@@ -7,7 +7,7 @@
 //   plain  the client insists on PLAIN (--login-options AUTH=PLAIN)
 //   raw    a client that writes AUTH PLAIN and AUTH LOGIN whatever is offered (plain.smtp over telnet)
 //   loose  AUTH=PLAIN against a server started with --allow-plaintext-auth
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -6,8 +6,8 @@
 //   greedy         the worker takes three; the test expects three left and fails
 //   unknown-queue  the seed names a queue the server does not have
 //   no-plaintext   the server keeps its default: no password in clear without TLS
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

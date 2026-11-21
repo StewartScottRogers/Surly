@@ -5,8 +5,8 @@
 //   (no argument)  the app sends three order confirmations, to ann, bob and ann
 //   alias          the app sends one mail to team@example.com, an alias for ann and bob
 //   unknown        the app sends one mail to nobody@example.com, an address with no mailbox
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

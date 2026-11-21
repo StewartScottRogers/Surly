@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. SurlServerOptions has no property for --max-request-head; the program uses AdditionalArguments. Program note for the author: a MaxRequestHead property would match MaxFileSize.
 2. Same RFC 6585 gap as the console recipe.
 3. Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: no change. MaxRequestHeadBytes is decided in Surl's ADR-0099 amendment of 2026-11-20 (BL-1441) but not in this build's Surl.Api; the program keeps AdditionalArguments.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 431 now carries a 36-byte text body, `431 Request Header Fields Too Large` (BL-1444); the cases and the Discussion say so.

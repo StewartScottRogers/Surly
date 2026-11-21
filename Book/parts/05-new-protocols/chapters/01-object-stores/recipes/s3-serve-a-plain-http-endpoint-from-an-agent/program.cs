@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent serves S3 as plain HTTP with surl-mcp and reaches it over http:// with curl-mcp, signed, over the
 // official MCP SDK. Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

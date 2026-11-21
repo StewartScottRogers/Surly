@@ -7,7 +7,7 @@
 //   no-retry    the same rule; the sender gives up on the first refusal
 //   permanent   every RCPT is answered 550
 //   bad-reply   a rule whose reply is not an SMTP error
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

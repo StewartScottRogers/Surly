@@ -5,7 +5,7 @@
 //   logins      every login the server judged, then what each account fetched (the default)
 //   by-account  only the events get_events keeps for the account billing
 //   nobody      get_events for an account no request named
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

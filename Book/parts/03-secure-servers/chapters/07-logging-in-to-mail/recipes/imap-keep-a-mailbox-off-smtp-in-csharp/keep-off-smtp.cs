@@ -4,8 +4,8 @@
 // Run: dotnet run keep-off-smtp.cs [-- <case>]
 //   (no argument)  the viewer on IMAP, SMTP and POP3; app, which has no restriction, on all three
 //   wrong          the viewer's IMAP login with a wrong password
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

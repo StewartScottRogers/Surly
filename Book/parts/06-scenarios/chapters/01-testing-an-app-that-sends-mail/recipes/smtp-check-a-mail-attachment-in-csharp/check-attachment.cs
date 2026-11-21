@@ -7,8 +7,8 @@
 //   old-report     the app attaches last week's report
 //   no-attachment  the app forgets the attachment
 //   no-plaintext   the server keeps its default, no password in clear without TLS
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Net.Mail;

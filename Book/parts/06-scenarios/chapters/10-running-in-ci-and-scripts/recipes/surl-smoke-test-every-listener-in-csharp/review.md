@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Program finding: Curl.Api custom request NOOP over SMTP gives StatusCode 0 where curl -X NOOP -w %{response_code} prints 250 (expected 250, as curl). Recipe states 0 as observed.
 2. No-answer is CouldntConnect or OperationTimedOut; other CurlException codes (LoginDenied for FTP) count as an answer.
+3. Re-pinned to Surl a423807a5d / Curl 0680b97577: the SMTP NOOP's StatusCode is now its 250 reply, not 0.

@@ -5,8 +5,8 @@
 //   (no argument)  fetch report.csv as app with the right password: the assertion holds
 //   <path>         fetch this path instead
 //   <password>     log in with this password instead
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -60,13 +60,15 @@ foreach (string line in log.ToString().Split('\n').Where(l => l.StartsWith($"#{e
     Console.WriteLine($"  {line.TrimEnd('\r')}");
 }
 
-// The bytes in the order they crossed, each line marked > for the client's and < for the server's.
+// The bytes in the order they crossed, each line marked > for the client's and < for the server's,
+// bodies included: surl's refusals carry a one-line text body.
 foreach (SurlExchangeChunk chunk in exchange.Chunks)
 {
     string mark = chunk.Direction == SurlExchangeDirection.Received ? ">" : "<";
-    foreach (string line in Encoding.UTF8.GetString(chunk.Bytes.Span).Split("\r\n").SkipLast(1))
+    string[] lines = Encoding.UTF8.GetString(chunk.Bytes.Span).Split('\n');
+    foreach (string line in lines[^1].Length == 0 ? lines.SkipLast(1) : lines)
     {
-        Console.WriteLine($"{mark} {line}");
+        Console.WriteLine($"{mark} {line.TrimEnd('\r')}");
     }
 }
 

@@ -5,7 +5,7 @@
 //   small      a 600-byte cookie under the same limit
 //   default    the 1,200-byte cookie, with surl's own limit left in place
 //   recorded   the 1,200-byte cookie, then what the server says it sent back
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

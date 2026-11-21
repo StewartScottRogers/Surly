@@ -5,8 +5,8 @@
 //   (no argument)  seed, snapshot, let a client change things, restore, reset
 //   other-server   restore the snapshot into a second server
 //   on-disk        reset and snapshot a server whose files are on disk
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

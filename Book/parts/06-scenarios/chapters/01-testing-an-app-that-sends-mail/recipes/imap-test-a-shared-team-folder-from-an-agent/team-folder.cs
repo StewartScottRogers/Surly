@@ -6,7 +6,7 @@
 //   test        append as ann, flag as bob, search as ann, then read the store (the default)
 //   non-member  carol, who is not a member, tries to read the folder
 //   seed        the agent seeds mail for team@example.com
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

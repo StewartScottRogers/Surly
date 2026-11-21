@@ -4,8 +4,8 @@
 // Run: dotnet run fetch-menu.cs [-- off] <path>...
 //   <path>   a Gopher URL path: "" for the root menu, 0/hello.txt for a file, 1/notes for a sub-menu
 //   off      first argument: the server is started without ListDirectories
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;

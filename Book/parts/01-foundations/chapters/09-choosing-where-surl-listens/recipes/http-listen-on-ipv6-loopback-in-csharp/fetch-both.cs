@@ -5,8 +5,8 @@
 //   v6-only      listen on [::1] only, then fetch from 127.0.0.1 at the same port
 //   no-brackets  ask for a listen URL with the IPv6 address bare
 //   bare-client  fetch from an IPv6 URL written without brackets
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

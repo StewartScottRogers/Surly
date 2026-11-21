@@ -7,8 +7,8 @@
 //   swallowed      HttpVersion.Http3 against a TFTP listener on the same port number
 //   swallowed-only HttpVersion.Http3Only against it, with a 2 s connect timeout
 //   h3             HttpVersion.Http3 against a server with --http3
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;
@@ -26,26 +26,35 @@ if (mode == "h3")
 }
 
 options.Files["hello.txt"] = "hello from surl\n"u8.ToArray();
-SurlServer server = await SurlServer.StartAsync(options);
 
-// With swallowed, a TFTP server takes the same port number on UDP: QUIC packets then reach a
-// listener that does not speak QUIC. A UDP port can be taken when its TCP twin is free, so on
-// a refusal both servers start again on another port.
+// With swallowed, a TFTP server on UDP and the HTTPS server on TCP share one port number: QUIC
+// packets then reach a listener that does not speak QUIC. Free ports come in sequence, and Windows
+// reserves blocks of a hundred for one protocol only, so the program picks a number at random below
+// the free-port range and, if either side is refused, another, up to ten times.
 SurlServer? tftp = null;
-for (int attempt = 1; mode.StartsWith("swallowed") && tftp is null; attempt++)
+SurlServer? server = null;
+for (int attempt = 1; mode.StartsWith("swallowed") && server is null; attempt++)
 {
-    var tftpOptions = new SurlServerOptions { ListenUrls = { $"tftp://127.0.0.1:{server.BoundUrl.Port}" }, RecordExchanges = true };
+    int port = Random.Shared.Next(20000, 40000);
+    var tftpOptions = new SurlServerOptions { ListenUrls = { $"tftp://127.0.0.1:{port}" }, RecordExchanges = true };
     tftpOptions.Files["hello.txt"] = "hello from surl\n"u8.ToArray();
+    options.ListenUrls.Clear();
+    options.ListenUrls.Add($"https://127.0.0.1:{port}");
     try
     {
         tftp = await SurlServer.StartAsync(tftpOptions);
-    }
-    catch (SurlServerStartException) when (attempt < 5)
-    {
-        await server.DisposeAsync();
         server = await SurlServer.StartAsync(options);
     }
+    catch (SurlServerStartException) when (attempt < 10)
+    {
+        if (tftp is not null)
+        {
+            await tftp.DisposeAsync();
+            tftp = null;
+        }
+    }
 }
+server ??= await SurlServer.StartAsync(options);
 
 // The first Curl.Api request in a process pays a one-time set-up, and so does the first over QUIC;
 // pay them on a client of its own, so the request that counts neither waits nor finds a connection.

@@ -8,7 +8,7 @@
 //   address   a different address holds nothing; the message is still on orders
 //   wrong     a wrong password on each listener
 //   locked    a server started without --allow-plaintext-auth
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

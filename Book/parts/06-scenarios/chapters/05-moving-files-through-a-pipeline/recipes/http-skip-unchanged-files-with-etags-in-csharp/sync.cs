@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
-// A sync job in a test: fetches a file only when the server's Last-Modified differs from the one
-// saved with the local copy. The server runs on a clock the test moves.
+// A sync job in a test: each GET carries the entity tag saved with the local copy as If-None-Match,
+// and the server answers 304 Not Modified while the tag is current. The server runs on a clock the test moves.
 // Run: dotnet run sync.cs -- <case>
 //   changed      run, run again, rewrite a.txt five seconds later, run again (the default)
 //   same-second  the same, but a.txt is rewritten with the clock not moved
 //   deleted      run, delete b.txt on the server, run again
-//   older        run, run again, rewrite a.txt with the clock moved five seconds back, run again (with dates)
-//   dates        the changed case, printing each HEAD's status and Last-Modified beside the saved one
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+//   older        run, run again, rewrite a.txt with the clock moved five seconds back, run again
+//   tags         the changed case, printing each reply's status, ETag and Last-Modified beside the saved tag
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -16,7 +16,7 @@ using Surl.Api;
 
 string which = args.Length > 0 ? args[0] : "changed";
 
-// The server: two files in memory, and a clock of the test's own, so Last-Modified does not depend on when it runs.
+// The server: two files in memory, and a clock of the test's own, so file times do not depend on when it runs.
 var clock = new TestClock(new DateTimeOffset(2024, 1, 2, 15, 4, 5, TimeSpan.Zero));
 var options = new SurlServerOptions { ListenUrls = { "http://127.0.0.1:0" }, TimeProvider = clock, RecordExchanges = true };
 options.Files["a.txt"] = "alpha\n"u8.ToArray();
@@ -24,17 +24,17 @@ options.Files["b.txt"] = "beta\n"u8.ToArray();
 await using var server = await SurlServer.StartAsync(options);
 await using CurlClient client = CurlClient.Create();
 
-// The local side: each file's content and the Last-Modified it came with.
+// The local side: each file's content and the ETag it came with.
 // Each copy is also written to disk, under local-<case>/.
-var local = new Dictionary<string, (string Text, string LastModified)>();
+var local = new Dictionary<string, (string Text, string ETag)>();
 string folder = Directory.CreateDirectory($"local-{which}").FullName;
-bool showDates = which is "dates" or "older";
+bool showTags = which is "tags" or "older" or "same-second";
 
 await Sync(1);
 await Sync(2);
 switch (which)
 {
-    case "changed" or "dates":
+    case "changed" or "tags":
         clock.Advance(TimeSpan.FromSeconds(5));
         await server.Files.PutAsync("/a.txt", "alpha, revised\n"u8.ToArray());
         Console.WriteLine("a.txt rewritten 5 s later");
@@ -58,43 +58,45 @@ await Sync(3);
 Console.WriteLine($"local a.txt: {local["a.txt"].Text.TrimEnd()}");
 Console.WriteLine($"local b.txt: {local["b.txt"].Text.TrimEnd()}");
 
-// What the server saw: every request head is in the recorded exchanges.
-string seen = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Received)));
-Console.WriteLine($"server answered: {Count(seen, "HEAD /")} HEAD, {Count(seen, "GET /")} GET");
+// What the server sent: every reply head is in the recorded exchanges.
+string sent = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Sent)));
+string received = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Received)));
+Console.WriteLine($"server answered: {Count(received, "GET /")} GET, {Count(sent, " 200 OK")} with 200, {Count(sent, " 304 Not Modified")} with 304");
 return 0;
 
-// One run of the job: a HEAD for each file, and a GET only when its Last-Modified is not the saved one.
+// One run of the job: a GET for each file, with If-None-Match when a tag was saved.
 async Task Sync(int run)
 {
     var report = new List<string>();
     foreach (string name in new[] { "a.txt", "b.txt" })
     {
-        CurlResponse head = await client.SendAsync(new CurlRequest(HttpMethod.Head, $"{server.BoundUrl}{name}"), CancellationToken.None);
-        await using (head.Body) { }
-        if (head.StatusCode == 404)
+        bool had = local.TryGetValue(name, out var saved);
+        var request = new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}{name}")
         {
-            report.Add($"{name} gone, local copy kept");
-            continue;
+            Headers = had ? [new("If-None-Match", saved.ETag)] : [],
+        };
+        CurlResponse response = await client.SendAsync(request, CancellationToken.None);
+        await using Stream body = response.Body;
+        string Header(string key) => response.Headers.FirstOrDefault(h => h.Key == key).Value ?? "none";
+        if (showTags)
+        {
+            Console.WriteLine($"  {name}: {response.StatusCode}, ETag {Header("ETag")}, Last-Modified {Header("Last-Modified")}, saved {(had ? saved.ETag : "none")}");
         }
 
-        string lastModified = head.Headers.First(h => h.Key == "Last-Modified").Value;
-        if (showDates)
+        switch (response.StatusCode)
         {
-            string savedDate = local.TryGetValue(name, out var had) ? had.LastModified : "none";
-            Console.WriteLine($"  {name}: HEAD {head.StatusCode}, Last-Modified {lastModified}, saved {savedDate}");
+            case 304:
+                report.Add($"{name} unchanged");
+                break;
+            case 404:
+                report.Add($"{name} gone, local copy kept");
+                break;
+            default:
+                local[name] = (await new StreamReader(body).ReadToEndAsync(), Header("ETag"));
+                await File.WriteAllTextAsync(Path.Combine(folder, name), local[name].Text);
+                report.Add($"{name} fetched");
+                break;
         }
-
-        if (local.TryGetValue(name, out var saved) && saved.LastModified == lastModified)
-        {
-            report.Add($"{name} unchanged");
-            continue;
-        }
-
-        CurlResponse get = await client.SendAsync(new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}{name}"), CancellationToken.None);
-        await using Stream body = get.Body;
-        local[name] = (await new StreamReader(body).ReadToEndAsync(), lastModified);
-        await File.WriteAllTextAsync(Path.Combine(folder, name), local[name].Text);
-        report.Add($"{name} fetched");
     }
 
     Console.WriteLine($"run {run}: {string.Join(", ", report)}");

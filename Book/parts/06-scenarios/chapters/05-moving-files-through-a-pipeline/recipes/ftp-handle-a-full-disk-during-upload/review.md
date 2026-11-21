@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. Program finding: the log line for the out-of-space refusal is the size-limit one ("The upload grew past the limit of 100000 bytes; the partial upload was deleted") and names no fault rule; cased as it is.
 3. Past --max-filesize curl exits 70 or 55 by a race (data connection reset vs 552); the case checks only that the upload failed.
 4. Over HTTP the same rule answers PUT 413, not 507.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: a partway refusal is now always exit 70 (Curl BL-5663), so the race claim became exit 70; the fault refusal's log line now names rule f1 (Surl BL-1535), a new case shows it.

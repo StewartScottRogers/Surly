@@ -8,7 +8,7 @@
 //   not-a-number  an offset that is not a number
 //   read-log      the broker's own log, with offsets
 //   fresh-broker  the saved offset against a new, empty broker
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

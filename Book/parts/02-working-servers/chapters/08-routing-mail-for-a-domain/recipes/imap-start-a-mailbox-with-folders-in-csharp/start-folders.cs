@@ -5,8 +5,8 @@
 //   (no argument)  ann with Sent, Drafts and Archive; carol with none; dave and erin with odd names; a reset
 //   twice          a folders= list that names Sent twice
 //   empty          folders= with nothing after it
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

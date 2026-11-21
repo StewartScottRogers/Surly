@@ -11,8 +11,8 @@
 //   wrong-value   the service writes the wrong status; the test fails and names the offset
 //   past-the-end  a read from an offset past the end
 //   no-topic      a read of a topic nobody wrote to
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

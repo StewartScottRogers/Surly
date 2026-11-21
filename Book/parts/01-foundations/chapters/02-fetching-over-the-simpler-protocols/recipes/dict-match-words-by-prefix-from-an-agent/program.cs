@@ -2,7 +2,7 @@
 // An agent's side of the conversation, as a C# file-based app: `dotnet run program.cs -- m:ap:*:prefix`.
 // It starts surl-mcp and curl-mcp over standard input and output with the official MCP SDK, asks for the
 // headwords that match, picks the first, and defines it.
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

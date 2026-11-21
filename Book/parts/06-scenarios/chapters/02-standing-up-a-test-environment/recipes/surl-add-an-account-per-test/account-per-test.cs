@@ -6,8 +6,8 @@
 //   overlap        two tests' accounts at once: what one can read of the other's files
 //   imap           a test account over IMAP
 //   leftover       a test that never removed its account, and the next run that adds it again
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;
@@ -44,7 +44,13 @@ switch (mode)
         Console.WriteLine($"test-1 lists its IMAP mailboxes: {await Imap("test-1", "")}");
         Console.WriteLine($"test-1 reads its INBOX: {await Imap("test-1", "INBOX?ALL")}");
         server.Accounts.Remove("test-1");
-        Console.WriteLine($"test-1 logs in after Remove: {await Imap("test-1", "")}");
+        // The client's connection is still logged in as test-1 and keeps its login; a new one logs in afresh.
+        Console.WriteLine($"test-1 on its open connection after Remove: {await Imap("test-1", "")}");
+        await using (CurlClient fresh = CurlClient.Create())
+        {
+            Console.WriteLine($"test-1 logs in afresh after Remove: {await Imap("test-1", "", fresh)}");
+        }
+
         return 1;
 
     case "leftover":
@@ -100,11 +106,11 @@ async Task<string> Send(CurlRequest request)
 }
 
 // An IMAP request: "ok", or the CurlException code it threw.
-async Task<string> Imap(string user, string path)
+async Task<string> Imap(string user, string path, CurlClient? on = null)
 {
     try
     {
-        CurlResponse response = await client.SendAsync(new CurlRequest(HttpMethod.Get, $"{imap}{path}") { Authentication = new CurlAuthenticationOptions { UserName = user, Password = $"{user}-secret" } }, CancellationToken.None);
+        CurlResponse response = await (on ?? client).SendAsync(new CurlRequest(HttpMethod.Get, $"{imap}{path}") { Authentication = new CurlAuthenticationOptions { UserName = user, Password = $"{user}-secret" } }, CancellationToken.None);
         await response.Body.DisposeAsync();
         return "ok";
     }

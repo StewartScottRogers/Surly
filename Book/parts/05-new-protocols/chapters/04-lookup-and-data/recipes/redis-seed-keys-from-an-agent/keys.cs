@@ -10,7 +10,7 @@
 //   expires           set_key with expire_ms, wait past it, then read_key and curl GET
 //   no-such-key       read_key of a key nobody set
 //   no-redis-listener set_key on a server with only an HTTP listener
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -7,7 +7,7 @@
 //   no-directory    --directory naming a folder that does not exist
 //   path-in-url     a listen URL with a path
 //   unknown-scheme  a scheme surl does not serve, which the agent does not know how to fix
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

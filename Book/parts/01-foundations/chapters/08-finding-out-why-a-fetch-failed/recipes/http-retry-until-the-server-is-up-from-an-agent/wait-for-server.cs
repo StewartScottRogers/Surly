@@ -6,7 +6,7 @@
 //   curl    the curl tool with --retry 5 --retry-connrefused --retry-delay 1, the server started
 //           two seconds into it
 //   tries   how many transfers the agent may make in all (3 if not given)
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Net;
 using System.Net.Sockets;

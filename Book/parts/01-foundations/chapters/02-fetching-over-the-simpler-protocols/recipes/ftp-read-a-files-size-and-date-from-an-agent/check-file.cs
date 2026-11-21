@@ -6,7 +6,7 @@
 //   copy          download the file with -R and read the time of the local copy
 //   missing       curl -I on a file that is not there
 //   refused       curl -I on a server that accepts no anonymous login
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

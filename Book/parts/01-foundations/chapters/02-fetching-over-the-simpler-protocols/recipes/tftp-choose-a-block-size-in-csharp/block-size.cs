@@ -5,11 +5,11 @@
 //   (no argument) block size 1024
 //   default       no CurlTftpOptions at all
 //   max           the largest block size, 65464
-//   range         a block size of 70000, which CurlTftpOptions refuses
+//   range         block sizes of 70000, 4 and -1, out of range three ways
 //   none          NoOptions: no options in the request
 //   missing       a file the server does not have
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Security.Cryptography;
 using System.Text;
@@ -21,13 +21,16 @@ string which = args.Length > 0 ? args[0] : "1024";
 
 if (which == "range")
 {
+    // As curl --tftp-blksize does: too large is clamped, too small falls back to 512, negative throws.
+    Console.WriteLine($"70000 -> {new CurlTftpOptions { BlockSize = 70000 }.BlockSize}");
+    Console.WriteLine($"4 -> {new CurlTftpOptions { BlockSize = 4 }.BlockSize}");
     try
     {
-        _ = new CurlTftpOptions { BlockSize = 70000 };
+        _ = new CurlTftpOptions { BlockSize = -1 };
     }
-    catch (ArgumentOutOfRangeException refused)
+    catch (ArgumentOutOfRangeException)
     {
-        Console.WriteLine(refused.Message.Split(" (Parameter")[0]);
+        Console.WriteLine("-1 -> ArgumentOutOfRangeException");
     }
 
     return 0;

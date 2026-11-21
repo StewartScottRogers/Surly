@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. Resolved in Surl: `put_file` with a relative path (`reports/b.txt`) or a `..` segment (`/../x.txt`) was a JSON-RPC Internal error; it is now a tool error with a reason (`NotRooted`, `DotSegment`). Observed, not claimed. The message ends in .NET's `(Parameter 'requestPath')`, which is noise for an agent.
 4. The client refusal is still shown with `-X DELETE -s -w "%{http_code}"` and no `-o`, because curl-mcp refuses the null device (known Curl finding); honest only because the 401 body is empty.
 5. <<http-accept-uploads>> and <<http-reset-and-snapshot-from-an-agent>> are cross-references to Part 2 recipes.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: the client's 401 now carries the body 401 Unauthorized, shown before the status (BL-1444); finding 4's 'body is empty' no longer holds and the case shows the body.

@@ -2,7 +2,7 @@
 // An agent starts a surl-mcp server that takes AWS Signature Version 4 alone, and signs requests to
 // it through curl-mcp.
 // Run: dotnet run sign.cs [-- fetch|wrong|unknown|unsigned|password|scope|missing|events|default|default-wrong]
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

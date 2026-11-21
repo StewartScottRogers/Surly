@@ -5,7 +5,7 @@
 //   (no argument)  sensors/+/temp
 //   <filter>       any filter, written as a subscriber writes it: sensors/#, sensors/kitchen/+, ...
 //   <filter> raw   the same, with a # left as it is in the URL, not written %23
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

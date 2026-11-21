@@ -8,7 +8,7 @@
 //   wrong         a Basic login with the wrong password during the move
 //   any           a client that lets curl pick the method from the challenge
 //   cutover       a server that takes Digest only, which is surl's default over plain HTTP
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

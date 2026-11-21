@@ -8,7 +8,7 @@
 //   transfer    transfer in a loop, with the agent's own one-second wait
 //   strict      no rule, and a server not told to check a password sent in clear
 // A second argument, such as "retries", prints only the lines that start with it.
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

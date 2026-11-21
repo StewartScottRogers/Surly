@@ -12,8 +12,8 @@
 //   react          the callback itself delivers a reply into the sender's mailbox
 //   throws         a callback that throws: the delivery and the other callbacks are not affected
 //   unknown        mail to an address with no mailbox: no delivery, no event
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Collections.Concurrent;
 using System.Text;

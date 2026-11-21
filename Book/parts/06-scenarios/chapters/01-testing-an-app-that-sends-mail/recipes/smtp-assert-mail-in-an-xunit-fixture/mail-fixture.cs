@@ -6,8 +6,8 @@
 //   (no argument)  the app sends one welcome mail per sign-up; both tests pass
 //   sends-twice    the app has a bug and sends each welcome mail twice
 //   no-reset       the runner skips the reset between tests
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

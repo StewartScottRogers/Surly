@@ -12,7 +12,7 @@
 //   also-mailbox   an alias that is also a mailbox
 //   no-mailbox     an alias whose target is no mailbox
 //   outside        an alias whose target is outside the domain
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

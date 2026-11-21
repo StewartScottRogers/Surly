@@ -6,7 +6,7 @@
 //   binary    logo.bin, six bytes that are not text
 //   frame     hello.txt, then the first frame the server sent, from get_exchanges
 //   missing   a path the server does not have
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

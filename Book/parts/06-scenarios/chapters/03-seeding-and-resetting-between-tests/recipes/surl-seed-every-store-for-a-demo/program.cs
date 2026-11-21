@@ -6,7 +6,7 @@
 //   clients    seed, then fetch the page, the zone and the mail with curl-mcp, as the demo's clients would
 //   no-login   seed, then ask Redis, LDAP and MQTT with no login
 //   refused    two seeds the server refuses, and what they left behind
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

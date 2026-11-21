@@ -8,8 +8,8 @@
 //   vanished      a name that is listed no more
 //   hidden        the dot file, asked for by name
 //   sub           the subfolder, fetched by the same routine
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

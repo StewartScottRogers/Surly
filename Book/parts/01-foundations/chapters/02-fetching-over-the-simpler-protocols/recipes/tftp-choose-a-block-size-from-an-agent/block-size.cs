@@ -8,7 +8,7 @@
 //   large      a block size of 70000
 //   missing    a file the server does not have
 //   transfer   the transfer tool, which has no TFTP option
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text;

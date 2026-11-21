@@ -11,8 +11,8 @@
 //   allowfails     Fay and Carol, with MailRecipientAllowFails
 //   unknown        Gus and an address in the domain that is no mailbox
 //   twice          Hal twice and Ivy once
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Collections.Concurrent;
 using System.Text;

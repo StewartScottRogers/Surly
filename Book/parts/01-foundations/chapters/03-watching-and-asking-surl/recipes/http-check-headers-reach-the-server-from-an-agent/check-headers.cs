@@ -6,8 +6,9 @@
 //   agent       the same, with transfer's userAgent field set
 //   twice       the trace ID given twice
 //   empty       the API key with an empty value
+//   empty-sent  the API key with an empty value and sendEmpty
 //   no-accept   an Accept header with an empty value
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -39,8 +40,12 @@ string id = started.StructuredContent!.Value.GetProperty("server_id").GetString(
 string url = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
 
 // The request: headers is a list of name and value pairs, sent in that order.
-JsonObject Header(string name, string value) => new() { ["name"] = name, ["value"] = value };
-var headers = new JsonArray(Header("X-Api-Key", which == "empty" ? "" : "k123"), Header("X-Trace-Id", "7f3a9c"));
+// An empty value removes the header; sendEmpty true sends it with nothing after the colon.
+JsonObject Header(string name, string value, bool sendEmpty = false) =>
+    sendEmpty ? new() { ["name"] = name, ["value"] = value, ["sendEmpty"] = true } : new() { ["name"] = name, ["value"] = value };
+var headers = new JsonArray(
+    which switch { "empty" => Header("X-Api-Key", ""), "empty-sent" => Header("X-Api-Key", "", sendEmpty: true), _ => Header("X-Api-Key", "k123") },
+    Header("X-Trace-Id", "7f3a9c"));
 if (which == "twice") headers.Add((JsonNode)Header("X-Trace-Id", "again"));
 if (which == "no-accept") headers.Add((JsonNode)Header("Accept", ""));
 var request = new Dictionary<string, object?> { ["url"] = url + "hello.txt", ["headers"] = headers };

@@ -7,7 +7,7 @@
 //   message       a message with a percent sign, and a status number that is not one
 //   part-way      a stream that fails after its replies
 //   deadlines     a status the server chooses, and a client that stops waiting
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.RegularExpressions;
 using System.Text.Json;

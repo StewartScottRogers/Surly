@@ -6,7 +6,7 @@
 //   wrong-password   the same upload with the wrong password
 //   no-login         the same upload with no login
 //   allowed          log in with Digest; the server was started with --allow-uploads
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -43,7 +43,8 @@ string id = started.StructuredContent!.Value.GetProperty("server_id").GetString(
 string url = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
 
 // curl-mcp: the upload, with -v writing curl's side of the conversation to standard error.
-var line = new List<string> { "-s", "-v", "-T", "notes.txt", "-w", "%{http_code}" };
+// -o keeps the server's short text body (such as "405 Method Not Allowed") out of standard output.
+var line = new List<string> { "-s", "-v", "-T", "notes.txt", "-o", "reply.txt", "-w", "%{http_code}" };
 if (which != "no-login")
 {
     line.AddRange(["--digest", "-u", which == "wrong-password" ? "alice:wrong" : "alice:s3cret"]);

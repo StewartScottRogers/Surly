@@ -5,8 +5,8 @@
 //   (none)      the hop for out/report.csv (the default)
 //   missing     the hop for a report the FTP server does not have
 //   plain       the hop with the FTP login sent to the plain ftp:// listener
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

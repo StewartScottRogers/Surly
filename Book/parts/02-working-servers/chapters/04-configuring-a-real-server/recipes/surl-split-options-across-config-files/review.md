@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Truth: every claim is about the last-read option winning, tried with limits and uploads over HTTP (413, 201, 405) and FTP (70) so that the server's behaviour shows which setting was in force.
 2. Fixed: each server has its own directory (two surls cannot share one), the command-line `--directory` giving that is itself the claim `command-line-directory`; upload names are distinct per case, since an existing name answers 204, not 201.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 413 and 405 refusals now carry a short text body (BL-1444); the three refusal cases send the body to the null device with -o.

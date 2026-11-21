@@ -5,7 +5,7 @@
 //   apop     a server started with --auth apop (the default argument)
 //   default  the default server: no timestamp, APOP refused, curl logs in with CRAM-MD5
 //   both     --auth apop,cram-md5
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text;

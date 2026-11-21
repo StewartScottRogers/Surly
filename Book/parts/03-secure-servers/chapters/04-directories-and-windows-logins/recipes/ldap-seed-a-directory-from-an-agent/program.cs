@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent seeds the directory of a running surl-mcp server in steps, reads it back with read_directory,
 // and searches it with curl-mcp, over the official MCP SDK. Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -71,7 +71,7 @@ Console.WriteLine($"after the second batch: {await Search(url, People)}");
 
 Console.WriteLine($"mixed batch: {await Seed(server, Mixed)}");
 Console.WriteLine($"carol after it: {await Search(url, "dc=example,dc=com?cn?sub?(cn=carol)")}");
-Console.WriteLine($"alice again: {await Seed(server, First.Split("\n\n")[2])}");
+Console.WriteLine($"alice again: {await Seed(server, First[First.IndexOf("dn: cn=alice")..])}");
 Console.WriteLine($"not LDIF: {await Seed(server, "this is not LDIF")}");
 
 // read_directory answers the directory as LDIF, without going over LDAP.

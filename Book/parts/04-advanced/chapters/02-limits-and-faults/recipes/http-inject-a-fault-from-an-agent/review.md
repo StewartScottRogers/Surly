@@ -12,3 +12,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. `get_events` is in `mcp-tools` and the Discussion for the `events` claim, which is how an agent checks the fault it planned is the one the client met.
 4. The `item` that `list_faults` answers is `surl`'s own spelling, keys reordered and percent-encoded; the claims match it exactly.
 5. Removed in drafting: "there is no tool that clears every rule" is in the Surl.Mcp README (ADR-0161), not the repository README the bibliography's `surl-readme` names, and no case can prove a tool's absence.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: list_faults no longer percent-encodes spaces and slashes in an item, so spent and from-start show the items as given.

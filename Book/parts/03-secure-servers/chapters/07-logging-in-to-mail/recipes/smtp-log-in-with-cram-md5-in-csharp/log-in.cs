@@ -7,8 +7,8 @@
 //   plain          the client insists on PLAIN (LoginOptions AUTH=PLAIN)
 //   raw            a client that sends AUTH PLAIN and AUTH LOGIN whatever the server offers
 //   loose          AUTH=PLAIN against a server with AllowPlaintextAuthentication
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net.Sockets;
 using System.Text;

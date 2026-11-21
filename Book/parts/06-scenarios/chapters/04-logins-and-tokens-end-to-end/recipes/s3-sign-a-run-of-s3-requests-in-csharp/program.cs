@@ -3,10 +3,10 @@
 // with a wrong secret, against an in-process Surl.Api server. server.pem and server.key are in the folder.
 // Run: dotnet run program.cs [-- <case>]
 //   (none)           the run with the right secret, then each step with the wrong one (the default)
-//   s3-delete        a DELETE on an s3:// URL
+//   s3-delete        a DELETE on an s3:// URL, with the wrong secret and the right one
 //   read-only        the run against a server with uploads off
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using System.Text.RegularExpressions;
@@ -37,7 +37,10 @@ const string Bucket = "https://reports.s3.us-east-1.amazonaws.com/";
 
 if (which == "s3-delete")
 {
+    await Step("delete over s3://, wrong secret", HttpMethod.Delete, "s3://reports/2026-q2.csv", "wrong");
     await Step("delete over s3://", HttpMethod.Delete, "s3://reports/2026-q2.csv", "s3cret");
+    SurlFolderPage left = await server.Files.ListAsync("/reports");
+    Console.WriteLine($"store: {left.Entries.Count} objects");
     return 0;
 }
 

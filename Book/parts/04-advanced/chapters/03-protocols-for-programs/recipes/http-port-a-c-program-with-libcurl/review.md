@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 4. The C program's `CURLOPT_WRITEDATA` line has no C# counterpart: the lambda captures standard output. The Discussion says why.
 5. `EasyInit` never returns null, so the C null check is not ported; stated in the Discussion.
 6. Case nothing-listening assumes nothing listens on 127.0.0.1 port 1.
+7. Re-pinned to Surl a423807a5d / Curl 0680b97577: the 404 body, 404 Not Found, now reaches the write callback (BL-1444).

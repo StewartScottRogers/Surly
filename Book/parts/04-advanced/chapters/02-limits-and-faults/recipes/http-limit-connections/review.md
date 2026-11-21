@@ -12,3 +12,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. `--fault` is in the recipe only to hold a connection; the Discussion says so and points to <<http-inject-a-fault>>.
 4. Defaults (1024, 100, 0 for none) are a case on `surl --aihelp limits`, not a citation: the Surl README does not state them.
 5. The refusal's header block is matched whole (Server, Content-Length 0, Connection close), so "empty body" is proven by Content-Length 0.
+6. Re-pinned to Surl a423807a5d / Curl 0680b97577: the 503 refusal now carries Content-Type text/plain and a 24-byte body (BL-1444).

@@ -6,8 +6,8 @@
 //   no-plaintext  the same, with --no-allow-plaintext-auth added after the file
 //   <file>        another config file in place of test-env.conf, such as broken.conf
 //   urls-in-file  with-urls.conf, which names its own listen URLs, and none in code
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;
@@ -50,6 +50,14 @@ catch (ArgumentException misused)
 await using (server)
 await using (CurlClient client = CurlClient.Create())
 {
+    if (mode == "urls-in-file")
+    {
+        // The file's url line is the only listen URL; it names no account, so no login is needed.
+        Console.WriteLine($"listening on {server.BoundUrls.Count} URL from the file, {server.BoundUrls[0].Scheme}");
+        Console.WriteLine($"HTTP: {await Fetch(client, $"{server.BoundUrls[0]}hello.txt", null)}");
+        return 0;
+    }
+
     var tester = new CurlAuthenticationOptions { UserName = "tester", Password = "secret" };
     int before;
     try
@@ -84,7 +92,7 @@ await using (CurlClient client = CurlClient.Create())
 return 0;
 
 // One GET: the body, or the status when it is an HTTP error.
-static async Task<string> Fetch(CurlClient client, string url, CurlAuthenticationOptions login)
+static async Task<string> Fetch(CurlClient client, string url, CurlAuthenticationOptions? login)
 {
     CurlResponse response = await client.SendAsync(new CurlRequest(HttpMethod.Get, url) { Authentication = login }, CancellationToken.None);
     await using Stream body = response.Body;

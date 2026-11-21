@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Starts an in-process server on port 0 and builds every client URL from the URLs it bound.
 // Run: dotnet run bound-urls.cs [-- listen-url ...]   (default: http://127.0.0.1:0 http://localhost:0)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;

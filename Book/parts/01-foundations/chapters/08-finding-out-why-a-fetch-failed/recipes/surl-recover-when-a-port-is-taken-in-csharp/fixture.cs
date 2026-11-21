@@ -4,8 +4,8 @@
 //   taken   another listener holds the port first (the default)
 //   free    nothing holds it
 //   bad     the port is 70000, which is no port at all
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Net.Sockets;

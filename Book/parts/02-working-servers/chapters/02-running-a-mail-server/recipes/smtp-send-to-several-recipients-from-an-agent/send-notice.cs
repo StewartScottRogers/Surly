@@ -11,7 +11,7 @@
 //   allowfails    Fay and Carol, with --mail-rcpt-allowfails
 //   unknown       Gus and an address in the domain that is no mailbox
 //   twice         Hal twice and Ivy once
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

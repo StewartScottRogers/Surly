@@ -10,8 +10,8 @@
 //   allowfails     the same send with MailRecipientAllowFails (the second answer): bob alone gets it
 //   spent          then a plain send to ann, the rule spent
 //   bad-reply      a rule whose reply is a code with no text
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Collections.Concurrent;
 using System.Text;

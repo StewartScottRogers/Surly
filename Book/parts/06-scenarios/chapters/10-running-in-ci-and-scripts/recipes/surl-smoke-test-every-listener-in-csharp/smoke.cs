@@ -5,8 +5,8 @@
 //   all   every listener of the environment (the default)
 //   hung  HTTP, then a listener that accepts but never answers, then IMAP
 //   gone  a URL whose server has stopped, then FTP
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Codes;

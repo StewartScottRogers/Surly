@@ -3,9 +3,10 @@
 
 Verdict: accept with minor findings (author's draft; self-review against REVIEW.md)
 
-Checked against surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167fa10a), local builds, 2026-11-20, windows: 5 of 5 cases pass.
+Checked against surl 1.0.0 (Surl commit a423807a5d), Curl port (Curl commit 0680b97577), local builds, 2026-11-21, windows: 5 of 5 cases pass.
 
 ## Findings
 
-1. Same retitling. Uses the curl tool with -R -z; waits 1.1 s before put_file because Last-Modified counts whole seconds.
-2. No same-second or older-date case: put_file cannot set a date.
+1. Re-pinned to Surl a423807a5d / Curl 0680b97577: the curl tool now runs --etag-compare/--etag-save and surl answers 304 itself (BL-1449); the 1.1 s wait before put_file is gone; title restored to 'Skipping Unchanged Files with ETags' (and the plan row). The dates case became a tags case.
+2. Without -f, a 404 now writes surl's short body (`404 Not Found`, BL-1444) over the local copy.
+3. No older-date case: put_file cannot set a date.

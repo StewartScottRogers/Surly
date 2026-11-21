@@ -5,8 +5,8 @@
 //   (no argument)  a server that names APOP with AuthenticationMethods: login, digest, wrong password, USER and PASS
 //   default        the default server: no timestamp, APOP refused, Curl.Api logs in with CRAM-MD5
 //   both           APOP and CRAM-MD5 named together
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net.Sockets;
 using System.Security.Cryptography;

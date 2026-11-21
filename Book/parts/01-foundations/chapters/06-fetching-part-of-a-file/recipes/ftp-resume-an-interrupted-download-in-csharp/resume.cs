@@ -8,8 +8,8 @@
 //   offset        REST 100000, whatever is on disk
 //   wrong         a partial copy of 65,536 zeros
 //   checked       the resume without IgnoreContentLength
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

@@ -6,8 +6,8 @@
 //   separate      PipeWait off: a request that finds no connection ready opens its own
 //   slow          the server holds every request 2 s, not 1 s; prints how long the five took
 //   http1.1       PipeWait on, but HTTP/1.1, which cannot share a connection
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using Curl.Api;

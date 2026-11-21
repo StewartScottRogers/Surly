@@ -6,8 +6,8 @@
 //   requests   what the server received from each handler, header names only
 //   reuse      three GETs on one HttpClient: how many connections each handler opened
 //   timeout    GET a path the server holds for 5 s, with HttpClient.Timeout at 1 s
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using System.Text;

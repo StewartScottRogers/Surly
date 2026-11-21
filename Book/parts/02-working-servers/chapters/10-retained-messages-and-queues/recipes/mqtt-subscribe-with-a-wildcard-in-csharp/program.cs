@@ -5,8 +5,8 @@
 //   (no argument)  sensors/+/temp
 //   <filter>       any filter, written as a subscriber writes it: sensors/#, sensors/kitchen/+, ...
 //   <filter> raw   the same, with a # left as it is in the URL, not written %23
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

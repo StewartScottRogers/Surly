@@ -5,7 +5,7 @@
 //   1.3     the server takes TLS 1.3 only (the default)
 //   1.2     the server keeps surl's default range, TLS 1.2 and 1.3
 //   empty   the server is asked for nothing below 1.3 and nothing above 1.2
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

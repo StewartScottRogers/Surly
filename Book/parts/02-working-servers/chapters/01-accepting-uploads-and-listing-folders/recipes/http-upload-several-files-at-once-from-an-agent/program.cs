@@ -6,7 +6,8 @@
 //   missing-file    the middle file is not in the folder
 //   outside-root    the middle file is outside CURL_MCP_ROOT
 //   glob            one -T "{a,b,c}.txt", as on the console
-#:package ModelContextProtocol.Core@2.2.0
+//   glob-outside    one -T "{a,../b}.txt", a glob with a name outside CURL_MCP_ROOT
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -44,6 +45,7 @@ string[] files = which switch
     "missing-file" => ["a.txt", "missing.txt", "c.txt"],
     "outside-root" => ["a.txt", "../b.txt", "c.txt"],
     "glob" => ["{a,b,c}.txt"],
+    "glob-outside" => ["{a,../b}.txt"],
     _ => ["a.txt", "b.txt", "c.txt"],
 };
 var argv = new List<string> { "-s", "-w", "%{http_code} %{url.path}\n" };

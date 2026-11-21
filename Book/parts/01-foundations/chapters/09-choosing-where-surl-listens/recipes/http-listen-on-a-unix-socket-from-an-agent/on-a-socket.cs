@@ -6,7 +6,7 @@
 //   file-exists    start a server on a path where a file already is
 //   outside-root   start a server on a socket path outside SURL_MCP_ROOT
 //   curl-outside   ask the curl tool for a socket path outside CURL_MCP_ROOT
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

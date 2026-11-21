@@ -7,8 +7,8 @@
 //   tunnel-outside the same through a CONNECT tunnel
 //   allowed        the same from a proxy started with --proxy-allow-origin 192.0.2.1
 //   every-origin   start a proxy with --proxy-allow-origin * and print its log
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

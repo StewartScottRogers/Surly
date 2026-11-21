@@ -10,8 +10,8 @@
 //   scram-256      kafka offering SCRAM-SHA-256 only, a wrong password
 //   only-plain     kafka told to offer PLAIN only, the right password
 //   loosened       kafka with AllowPlaintextAuthentication, a wrong password
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

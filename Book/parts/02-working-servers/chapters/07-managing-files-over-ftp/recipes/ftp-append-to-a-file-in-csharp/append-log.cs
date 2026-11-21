@@ -8,8 +8,8 @@
 //   uploads-off   a server that accepts no uploads
 //   too-big       a server whose size limit the appended file would pass
 //   no-login      a server that accepts no anonymous login
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

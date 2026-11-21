@@ -10,3 +10,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Nearest honest recipe: neither surl nor curl writes HAR (no `--har`, no MCP tool). A sh script builds HAR 1.2 from curl `-v`, `-D`, `-o`, `-w`.
 2. Well-formedness is checked with Python's json module (`python3` in the case); not loaded into a browser. Request bodies, cookies and header sizes are left out, stated.
 3. Bibliography has no HAR 1.2 entry (W3C Web Performance draft); the recipe cites none for the format.
+4. Re-pinned to Surl a423807a5d / Curl 0680b97577: the 200 now lists ETag after Server; the 404 entry holds surl's 14-byte text/plain body (BL-1444, BL-1449).

@@ -5,8 +5,8 @@
 //   (no argument)  the app mails, uploads and publishes as it should; the test passes
 //   wrong-topic    the app publishes on invoices/7 instead of orders/7
 //   strict         the server keeps its default and refuses passwords sent in clear
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

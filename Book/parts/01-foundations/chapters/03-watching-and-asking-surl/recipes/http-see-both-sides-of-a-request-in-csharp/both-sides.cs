@@ -5,8 +5,8 @@
 //   refused    log in with Digest; the server was not given AllowUploads (the default)
 //   no-login   the same upload with no login
 //   allowed    log in with Digest; the server allows uploads
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

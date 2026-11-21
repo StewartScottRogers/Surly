@@ -9,8 +9,8 @@
 //   wrong-password a wrong password
 //   no-plaintext   a right password, with no AllowPlaintextAuthentication
 //   bad-grant      three grants that name no account or group
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

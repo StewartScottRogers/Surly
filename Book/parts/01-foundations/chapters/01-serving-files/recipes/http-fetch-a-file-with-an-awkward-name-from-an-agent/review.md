@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. build_url does not encode by itself: without the UrlEncode flag it keeps a space and a # as given, so the URL it returns is invalid or points at the wrong file. It encodes with the flag; the recipe says so.
 2. build_url answers text JSON {url, failure, isError}; flags are libcurl CURLU names without the prefix.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: the 404 cases now show the body 404 Not Found (BL-1444).

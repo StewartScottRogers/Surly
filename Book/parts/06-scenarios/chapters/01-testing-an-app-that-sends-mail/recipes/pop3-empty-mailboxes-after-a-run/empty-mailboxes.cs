@@ -5,7 +5,7 @@
 //   empty           delete everything over POP3 (the default)
 //   wrong-password  delete ann's mail with the wrong password
 //   reset           reset_server instead of POP3
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

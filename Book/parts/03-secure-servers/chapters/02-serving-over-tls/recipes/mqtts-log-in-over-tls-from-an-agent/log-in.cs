@@ -6,7 +6,7 @@
 //   mqtts wrong    TLS and a wrong password
 //   mqtts none     TLS and no user name
 //   mqtt s3cret    no TLS, the right password
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

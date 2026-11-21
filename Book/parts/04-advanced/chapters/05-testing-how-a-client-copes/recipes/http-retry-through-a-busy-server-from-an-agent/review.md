@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Warm-up transfer to /health.txt before the clock; the timing claim is a range. Request counts come from the received chunks of get_exchanges.
 2. surl-mcp and curl-mcp are not on PATH outside verify, so the program only runs under verify.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: each 503 now carries the body 503 Service Unavailable in standardOutput (BL-1444).

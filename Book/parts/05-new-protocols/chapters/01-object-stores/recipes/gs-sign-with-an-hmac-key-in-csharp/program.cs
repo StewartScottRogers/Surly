@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Logs in to Cloud Storage with an HMAC key and with an OAuth token, refuses the wrong ones, and shows that
 // writes need AllowUploads, with Curl.Api against two Surl.Api servers in one process. Run: dotnet run program.cs
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text.RegularExpressions;
 using Curl.Api;

@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. The server-side check is surl's verbose log in a file (-v --log-file surl.log) read with grep -c, which verify runs under cmd.exe through Git's grep on Windows.
 3. The curl port's retry notice reads 'Retrying in 1 second.'; upstream curl's wording may differ ('Will retry in'). Claims match the port's text.
 4. No Retry-After header on surl's 503, so curl's own back-off (1 s, 2 s) is what the stderr lines show.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 503 and 404 now carry a one-line body (BL-1444), which curl writes before each retry; four cases and the Discussion restated.

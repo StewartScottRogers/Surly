@@ -4,8 +4,8 @@
 //   folder        where the files land (default: downloads)
 //   --no-create   skip creating the folders first
 //   path ...      what to fetch (default: docs/guide.txt reports/2026/summary.txt)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;

@@ -5,8 +5,8 @@
 //   (no argument) the second request asks for HttpVersion.Http3
 //   none          the second request has no version option (HttpVersion.None)
 //   http1.1       the second request asks for HttpVersion.Http11
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Http;

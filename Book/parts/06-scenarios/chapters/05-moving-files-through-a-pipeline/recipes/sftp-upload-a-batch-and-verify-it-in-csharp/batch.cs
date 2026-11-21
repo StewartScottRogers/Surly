@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // A C# file-based app: `dotnet run batch.cs -- SCENARIO`. host_key and host_key.pub come from setup: in recipe.yml.
 //   all (the default), wrong-pin, missing, short, repaired, uploads-off, no-listing
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Security.Cryptography;
 using Curl.Api;

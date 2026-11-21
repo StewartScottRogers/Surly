@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. With -f over a glob curl exits with the last transfer's result (0 here despite two 404s); matches upstream curl, and the recipe's main warning.
 2. No case shows that -f leaves no file for a 404 (verify cannot check absence); the agent twin shows it by counting files, and this recipe does not claim it.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 404 now carries the body `404 Not Found` (BL-1444); without -f, report-4.csv holds it, so empty-file-without-f and the Discussion say so.

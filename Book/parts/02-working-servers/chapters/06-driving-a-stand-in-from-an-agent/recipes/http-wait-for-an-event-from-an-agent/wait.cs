@@ -10,7 +10,7 @@
 //   a-page-at-a-time      upload, then get_events with max_events 1
 //   timeout-bounds        wait_for_event with timeout_ms 70000
 //   no-password-in-clear  the upload with Basic authentication instead of Digest
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -86,11 +86,12 @@ switch (which)
 return 0;
 
 // The curl tool runs curl's own arguments: -T uploads report.txt, a file in this folder, with a PUT.
+// -o writes the reply's body to reply.txt, so standard output holds only the -w status.
 async Task Upload(params string[] how)
 {
     CallToolResult result = await curl.CallToolAsync("curl", new Dictionary<string, object?>
     {
-        ["args"] = new[] { "-s" }.Concat(how).Concat(new[] { "-u", "alice:secret", "-T", "report.txt", "-w", "%{http_code}", url + "uploads/report.txt" }).ToArray(),
+        ["args"] = new[] { "-s" }.Concat(how).Concat(new[] { "-u", "alice:secret", "-T", "report.txt", "-o", "reply.txt", "-w", "%{http_code}", url + "uploads/report.txt" }).ToArray(),
     });
     using JsonDocument answer = JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text);
     Console.WriteLine($"curl exit {answer.RootElement.GetProperty("exitCode")}, status {answer.RootElement.GetProperty("standardOutput").GetProperty("content").GetString()}");

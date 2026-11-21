@@ -8,7 +8,7 @@
 //   missing    a file the server does not have
 //   dot-file   a file whose name begins with a dot
 //   transfer   the transfer tool against the refusing and the allowing server
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

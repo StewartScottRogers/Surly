@@ -8,7 +8,7 @@
 //   twice      the first two connections are dropped: a send with no retry, then one with one retry
 //   data       the first DATA command drops the connection, before the message is accepted
 //   quit       the first QUIT drops the connection, after the message was accepted
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

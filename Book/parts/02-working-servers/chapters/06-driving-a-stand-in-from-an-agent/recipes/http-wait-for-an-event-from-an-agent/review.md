@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. Events are printed as `name=value` without `sequence`, `at`, `client` and the byte counts, which vary per run; `listen_url` prints as `url` when it equals the server's bound URL. `the-whole-story` now matches the four events exactly, not a subset.
 4. Paging with `after_sequence` is now possible (a variable, not a string substitution) but is not added; `max_events` shows the page.
 5. Observed, not claimed: sequence numbers have gaps (1, 5, 7, 9); `login_judged` also answers `is_refused_by_fault` false. The Discussion says only "numbered", never "consecutive".
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 403 refusal now carries a short text body (BL-1444); the upload writes the body to reply.txt with -o so standard output holds only the status.

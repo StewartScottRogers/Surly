@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 1. Codes checked against upstream headers.c: NOHEADERS 3 before a transfer, MISSING 2, BADINDEX 1, NOREQUEST 4; the port matches.
 2. The walk prints only the names of Date and Last-Modified, whose values change per run; stated in the Discussion.
 3. The C listing is not compiled by verify.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl now sends ETag (its value changes with the file, so the walk prints only its name) and a 404 carries a text body (BL-1444); missing-header asks for Set-Cookie, not-found asks for ETag and walks Content-Type and Content-Length 14.

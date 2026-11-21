@@ -7,8 +7,8 @@
 //   commands      two uploads into another new folder, and the commands the server received
 //   uploads-off   a server that accepts no uploads, with folder creation on
 //   no-login      a server that accepts no anonymous login
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

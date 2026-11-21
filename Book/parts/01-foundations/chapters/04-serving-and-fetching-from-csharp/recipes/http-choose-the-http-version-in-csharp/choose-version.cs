@@ -4,8 +4,8 @@
 // Run: dotnet run choose-version.cs [-- upgrade]
 //   (no argument) HTTP/1.0, HTTP/1.1 and HTTP/2 with prior knowledge
 //   upgrade       HTTP/2 without prior knowledge: an HTTP/1.1 request offering to upgrade
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

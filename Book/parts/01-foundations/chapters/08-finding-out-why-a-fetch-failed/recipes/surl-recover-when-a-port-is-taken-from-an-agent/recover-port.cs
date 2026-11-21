@@ -4,7 +4,7 @@
 //   taken   another listener holds the port first (the default)
 //   free    nothing holds it
 //   bad     the port is 70000, which is no port at all
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Net;
 using System.Net.Sockets;

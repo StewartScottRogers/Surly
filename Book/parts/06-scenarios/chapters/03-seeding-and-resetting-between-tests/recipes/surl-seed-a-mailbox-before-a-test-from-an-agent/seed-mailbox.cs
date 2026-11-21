@@ -4,7 +4,7 @@
 // Run: dotnet run seed-mailbox.cs -- [<address>]
 //   (no argument)  seed ann@example.com and run the client (the default)
 //   <address>      seed another address instead, such as bob@example.com
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

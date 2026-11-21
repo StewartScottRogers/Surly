@@ -2,7 +2,7 @@
 // fetch.c, the classic libcurl easy-handle program, ported call for call to C# with Libcurl,
 // the libcurl API for C#. Each line names the C call it stands for.
 // Run: dotnet run fetch.cs -- <url>
-#:package Libcurl@0.2.0
+#:package Surly.Libcurl@*
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;
