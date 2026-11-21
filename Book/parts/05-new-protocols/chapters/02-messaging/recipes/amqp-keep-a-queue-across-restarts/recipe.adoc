@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-keep-a-queue-across-restarts]]
+=== Keeping a Queue across Restarts
+
+==== Problem
+
+Your jobs must survive a broker restart. You want a durable queue whose message is still there after `surl` stops and starts on the same directory, and a plain queue that empties.
+
+==== Solution
+
+Start `surl` with `--directory data` and `--queue "jobs;durable"`. Three jobs are queued, the worker takes `job-1`, and the server is stopped and started again with the same command. The next receive returns `job-2`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--queue jobs` makes a queue that exists from the start, and `;durable` marks it as one to keep (<<surl-readme>>). Keeping needs a place: `--directory data` is the folder `surl` writes to. The queue lives in `data/.surl/bus/queues`, an index beside the lock file `data/.surl/lock`.
+
+A restart here is a stop and a start of the same command on the same ports. What the durable queue holds when `surl` stops is what it holds when `surl` starts: `job-1` was taken before the restart and does not come back, and `job-2` and `job-3` are there, oldest first. A message put on the queue after the first restart, `job-4`, is behind them, and a second restart keeps all of that. A message taken is gone for good: after the last receive a third restart finds the queue empty.
+
+`--queue scratch` is not durable. It starts empty after the restart: its message `tmp` is gone, and a receive writes nothing, exit `0`. A plain queue is the right one for work that need not outlive the broker.
+
+`;durable` with no `--directory` keeps nothing. The second server has the same durable queue and no folder: while it runs it holds `job-1`, and after a restart it is empty. The word says what to keep, the directory says where, and `surl` starts without complaint when the second is missing, so a test that expects a message back after a restart has to check it.
+
+A receive with no `-d` takes one message, and `curl` writes its body with no newline added. `-s` keeps the progress meter out and `-S` keeps the error message of a failed transfer in, `--next` starts the next transfer of one command with its own options, `-o` sends a body to a file, which the setup uses to throw away the job the worker takes, and `--allow-anonymous` lets `curl` in with no login; `surl` writes a `surl: warning:` line on start while it is on, so use it only for a test broker (<<surl-readme>>, <<amqp091>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-send-and-receive>> for sending, receiving and the login rules.
+* <<amqp-keep-a-queue-across-restarts-in-csharp>> for the same task in a C# test.
+* <<amqp-keep-a-queue-across-restarts-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>.

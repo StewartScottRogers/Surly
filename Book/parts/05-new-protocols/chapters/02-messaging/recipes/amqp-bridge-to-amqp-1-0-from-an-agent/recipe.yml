@@ -1,0 +1,99 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs program.cs, a C# program on the official MCP SDK that
+# starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: amqp-bridge-to-amqp-1-0-from-an-agent
+title: Bridging AMQP Versions from an Agent
+protocols: [amqp, amqp1]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, wait_for_event, browse_queue, curl]
+curl-options: [-s, -S, -d, -m, -u]
+exit-codes: [0, 28, 67]
+references: [surl-readme, curl-readme, amqp091, amqp10]
+triplet: amqp-bridge-to-amqp-1-0
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A message the curl tool sends with -d over AMQP 0-9-1 to the queue orders is received by the curl tool over AMQP 1.0 at the address orders, exit 0, and its body is the message.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '^over 1\.0: exit 0, tool error no, output \[hello\]\n'
+
+  - id: one-copy
+    claim: The two listeners share one queue; once the message is taken over AMQP 1.0, a receive over AMQP 0-9-1 answers exit 0 with empty output, and browse_queue counts nothing ready and nothing in flight.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nover 0-9-1 after: exit 0, tool error no, output \[\]\nqueue orders: ready 0, in flight 0\n$'
+
+  - id: reverse
+    claim: The reverse holds; a message sent over AMQP 1.0 is received over AMQP 0-9-1.
+    program: program.cs
+    args: [reverse]
+    expect:
+      exit: 0
+      stdout: "over 0-9-1: exit 0, tool error no, output [back]\n"
+
+  - id: mixed-order
+    claim: One message sent over each version, 0-9-1 first, is received over AMQP 0-9-1 in the order sent, one and then two, whichever version sent it.
+    program: program.cs
+    args: [order]
+    expect:
+      exit: 0
+      stdout: "first over 0-9-1: exit 0, tool error no, output [one]\nsecond over 0-9-1: exit 0, tool error no, output [two]\n"
+
+  - id: name-is-the-address
+    claim: The message on orders is not at the address refunds; an AMQP 1.0 receive there waits for a message that never comes, and -m 2 ends it with exit 28, a tool error, and nothing received.
+    program: program.cs
+    args: [address]
+    expect:
+      exit: 0
+      stdout-matches: '^refunds over 1\.0: exit 28, tool error yes, output \[\], error curl: \(28\) Operation timed out after \d+ milliseconds with 0 bytes received\n'
+
+  - id: still-on-orders
+    claim: The message is still on orders after the wait at refunds, and an AMQP 1.0 receive of orders takes it.
+    program: program.cs
+    args: [address]
+    expect:
+      exit: 0
+      stdout-matches: '\norders over 1\.0: exit 0, tool error no, output \[only-orders\]\n$'
+
+  - id: wrong-password-amqp-1
+    claim: With --allow-plaintext-auth the password is still checked; a wrong one over AMQP 1.0 is exit 67, a tool error, naming SASL outcome code 1.
+    program: program.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout-matches: '^1\.0: exit 67, tool error yes, output \[\], error curl: \(67\) AMQP 1\.0 SASL authentication failed with outcome code 1\n'
+
+  - id: wrong-password-091
+    claim: The same wrong password over AMQP 0-9-1 is exit 67 too, with connection.close 403, ACCESS_REFUSED.
+    program: program.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout-matches: '\n0-9-1: exit 67, tool error yes, output \[\], error curl: \(67\) AMQP server sent connection\.close: reply code 403, ACCESS_REFUSED - login refused\n$'
+
+  - id: locked-amqp-1
+    claim: Without --allow-plaintext-auth the AMQP 1.0 listener does not offer SASL PLAIN, and curl stops before it sends the password, exit 67.
+    program: program.cs
+    args: [locked]
+    expect:
+      exit: 0
+      stdout-matches: '^1\.0: exit 67, tool error yes, output \[\], error curl: \(67\) AMQP 1\.0 server does not offer the SASL PLAIN mechanism\n'
+
+  - id: locked-091
+    claim: Without it the AMQP 0-9-1 listener offers only CRAM-MD5, which curl does not use, so curl stops there too, exit 67.
+    program: program.cs
+    args: [locked]
+    expect:
+      exit: 0
+      stdout-matches: '\n0-9-1: exit 67, tool error yes, output \[\], error curl: \(67\) AMQP server offers no mechanism this client can use \(it offers "CRAM-MD5"\)\n$'

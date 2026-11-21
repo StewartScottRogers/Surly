@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-reuse-one-connection-for-many-files-in-csharp
+title: Reusing One Connection in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse, CurlHttpOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three requests awaited one after another on one shared CurlClient go over one connection; NumConnects is 1 then 0, 0, and the server records one exchange.
+    program: reuse.cs
+    args: [shared]
+    expect:
+      exit: 0
+      stdout: "a.txt: 200, NumConnects 1\nb.txt: 200, NumConnects 0\nc.txt: 200, NumConnects 0\nexchanges the server saw: 1\n"
+
+  - id: fresh-clients
+    claim: A new CurlClient for each request shares nothing; each opens a connection and the server records three exchanges.
+    program: reuse.cs
+    args: [fresh]
+    expect:
+      exit: 0
+      stdout: "a.txt: 200, NumConnects 1\nb.txt: 200, NumConnects 1\nc.txt: 200, NumConnects 1\nexchanges the server saw: 3\n"
+
+  - id: connection-close
+    claim: A Connection close header on each request makes the server close after each answer, so one shared client still opens three connections.
+    program: reuse.cs
+    args: [close]
+    expect:
+      exit: 0
+      stdout: "a.txt: 200, NumConnects 1\nb.txt: 200, NumConnects 1\nc.txt: 200, NumConnects 1\nexchanges the server saw: 3\n"
+
+  - id: http-1-0
+    claim: HttpVersion.Http10 requests are each answered and closed, three connections.
+    program: reuse.cs
+    args: [http1.0]
+    expect:
+      exit: 0
+      stdout: "a.txt: 200, NumConnects 1\nb.txt: 200, NumConnects 1\nc.txt: 200, NumConnects 1\nexchanges the server saw: 3\n"
+
+  - id: pause-inside-idle-timeout
+    claim: Two seconds between requests is well inside the server's default idle timeout of 120 s, so the connection is still reused.
+    program: reuse.cs
+    args: [pause]
+    expect:
+      exit: 0
+      stdout: "a.txt: 200, NumConnects 1\nb.txt: 200, NumConnects 0\nc.txt: 200, NumConnects 0\nexchanges the server saw: 1\n"
+
+  - id: pause-past-idle-timeout
+    claim: Against a server with IdleTimeout of 1 s, each two-second pause outlasts it; the server closes the idle connection and the client opens a new one for every request, without an error.
+    program: reuse.cs
+    args: [idle]
+    expect:
+      exit: 0
+      stdout: "a.txt: 200, NumConnects 1\nb.txt: 200, NumConnects 1\nc.txt: 200, NumConnects 1\nexchanges the server saw: 3\n"

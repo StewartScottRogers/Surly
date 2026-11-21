@@ -348,3 +348,11 @@ smtp-forward-mail-with-an-alias, smtp-keep-mail-across-restarts, smtp-send-to-se
 - Cases of one program (C# and MCP recipes) repeat per claim with `stdout-matches` regexes; write them with json.dumps so YAML escapes survive (a regex dot is
   `\.` in a double-quoted YAML string, i.e. two backslashes in the file). To match a flag `Seen` preceded by a backslash use `.Seen`. A regex lookahead pair `^(?=.*a)(?=.*\nb)` checks two lines whose order is not fixed (two callbacks).
 smtp-answer-try-later, smtp-resend-after-a-dropped-connection (both with twins), smtp-fail-delivery-for-one-recipient, smtp-collect-mail-with-an-event-callback, imap-list-mailboxes-and-counts-from-an-agent, pop3-retrieve-and-delete-from-an-agent (batch-08).
+
+- `StoreChangedEvent.Account` is set only for the accounts store (Surl ADR-0171); find a delivery's owner through `DeliveredFor` or the `<owner>/INBOX/;UID=n` name.
+
+## POP3 to IMAP on one mailbox (pop3-move-a-mail-client-to-imap + twins, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
+- `-v` log: each POP3 login is followed by `#N * Maildrop opened: <n> messages, <octets> octets` (count POP3 sessions with it); IMAP has no such line. List smtp first so verify's readiness probe is not a POP3 session, and wait for delivery over IMAP (`-X "FETCH 2 FLAGS" ... INBOX` with `--retry 10 --retry-all-errors --retry-delay 1`).
+- POP3 RETR and IMAP `INBOX;UID=1` give the same bytes (cmp). UIDL `n <uidvalidity>.<uid>`. After a POP3 `DELE 1` the IMAP `INBOX?ALL` answers `* SEARCH 1` (sequence numbers renumber), so check with STATUS (MESSAGES 1) or UID 1 (exit 78).
+- `--mailbox "ann@example.com:pw;protocols=smtp,imap"`: POP3 login 67 `Login denied` (Curl.Api `LoginDenied`, curl-mcp exitCode 67), IMAP fine, SMTP still delivers.
+- Curl.Api: `new HttpMethod("UIDL")` on the POP3 root URL works (lists IDs); `new HttpMethod("DELE")` on `pop3://h:p/1` deletes when the client is disposed. `LoginJudgedEvent.Scheme` `pop3`/`imap`; MCP `get_events(kinds:["login_judged"], scheme:"pop3")`. Mail.DeliverAsync / seed_mail add no Received line, so sizes are fixed there; over SMTP the dated Received line can change them.

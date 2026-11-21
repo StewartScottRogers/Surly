@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-reuse-one-connection-for-many-files
+title: Reusing One Connection
+protocols: [http]
+tier: foundations
+surl-options: [-v, --log-file, --directory, --idle-timeout]
+curl-options: [-s, -o, -w, -H, --http1.0, --rate]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/a.txt: "file a\n"
+  site/b.txt: "file b\n"
+  site/c.txt: "file c\n"
+  site/d.txt: "file d\n"
+  site/e.txt: "file e\n"
+  site/f.txt: "file f\n"
+  quick-site/a.txt: "file a\n"
+  quick-site/b.txt: "file b\n"
+
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  quick:
+    command: surl --idle-timeout 1 --directory quick-site http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three URLs on one curl command line are fetched over one connection; num_connects is 1 for the first transfer and 0 for the two that reused it.
+    run: curl -s -w "%{http_code} %{num_connects}\n" -o {{null}} -o {{null}} -o {{null}} http://127.0.0.1:{{port}}/a.txt http://127.0.0.1:{{port}}/b.txt http://127.0.0.1:{{port}}/c.txt
+    expect:
+      exit: 0
+      stdout: "200 1\n200 0\n200 0\n"
+
+  - id: one-exchange-in-the-log
+    claim: surl's verbose log files all three requests under one exchange number, one connection from accept to close.
+    run: grep "* GET /[abc].txt:" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^#(\d+) \* GET /a\.txt: 200[^\n]*\n#\1 \* GET /b\.txt: 200[^\n]*\n#\1 \* GET /c\.txt: 200[^\n]*\n$'
+
+  - id: glob-too
+    claim: A URL glob naming the three files is fetched the same way, over one connection, num_connects 1, 0, 0.
+    run: curl -s -w "%{num_connects}\n" -o {{null}} "http://127.0.0.1:{{port}}/{a,b,c}.txt"
+    expect:
+      exit: 0
+      stdout: "1\n0\n0\n"
+
+  - id: separate-commands
+    claim: A second curl command opens a connection of its own, num_connects 1, since the pool ended with the first.
+    run: curl -s -w "%{num_connects}\n" -o {{null}} http://127.0.0.1:{{port}}/a.txt
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: connection-close
+    claim: 'With -H "Connection: close" every request asks the server to close after answering, so each of three transfers opens a connection of its own.'
+    run: 'curl -s -H "Connection: close" -w "%{http_code} %{num_connects}\n" -o {{null}} -o {{null}} -o {{null}} http://127.0.0.1:{{port}}/d.txt http://127.0.0.1:{{port}}/e.txt http://127.0.0.1:{{port}}/f.txt'
+    expect:
+      exit: 0
+      stdout: "200 1\n200 1\n200 1\n"
+
+  - id: three-exchanges-in-the-log
+    claim: surl's log files those three requests under three different exchange numbers.
+    run: grep "* GET /[def].txt:" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^#(\d+) \* GET /d\.txt: 200[^\n]*\n#(?!\1 )(\d+) \* GET /e\.txt: 200[^\n]*\n#(?!\1 |\2 )\d+ \* GET /f\.txt: 200[^\n]*\n$'
+
+  - id: http-1-0
+    claim: An HTTP/1.0 request is answered and closed, so with --http1.0 nothing is reused either.
+    run: curl -s --http1.0 -w "%{http_code} %{num_connects}\n" -o {{null}} -o {{null}} http://127.0.0.1:{{port}}/a.txt http://127.0.0.1:{{port}}/b.txt
+    expect:
+      exit: 0
+      stdout: "200 1\n200 1\n"
+
+  - id: idle-but-kept
+    claim: Two seconds between transfers (--rate 1/2s) is well inside surl's default idle timeout of 120 s, so the second transfer still reuses the connection.
+    run: curl -s --rate 1/2s -w "%{http_code} %{num_connects}\n" -o {{null}} -o {{null}} http://127.0.0.1:{{port}}/a.txt http://127.0.0.1:{{port}}/b.txt
+    expect:
+      exit: 0
+      stdout: "200 1\n200 0\n"
+
+  - id: idle-and-closed
+    claim: Against a surl started with --idle-timeout 1, the same two-second pause outlasts the timeout; surl has closed the connection, and curl opens a new one for the second transfer.
+    run: curl -s --rate 1/2s -w "%{http_code} %{num_connects}\n" -o {{null}} -o {{null}} http://127.0.0.1:{{port2}}/a.txt http://127.0.0.1:{{port2}}/b.txt
+    expect:
+      exit: 0
+      stdout: "200 1\n200 1\n"

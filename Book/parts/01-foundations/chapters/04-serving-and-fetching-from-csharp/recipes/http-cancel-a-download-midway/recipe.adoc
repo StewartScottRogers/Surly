@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-cancel-a-download-midway]]
+=== Cancelling a Download Midway
+
+==== Problem
+
+Your C# program downloads a large file but needs only its beginning, such as a header in the first megabyte. You want it to stop the transfer once it has that, with a `CancellationToken`, and to see the transfer really stop rather than run on in the background.
+
+==== Solution
+
+Pass a `CancellationToken` to `SendAsync`, read the body until you have enough, and cancel; the next read throws and the transfer ends:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server is `surl` in-process (<<surl-readme>>). `SurlServerOptions` puts `big.bin`, 64 mebibytes (MiB) of zeros, and `hello.txt` in its in-memory `Files`, on a free port. `RecordExchanges` keeps the server's record of each connection, which is what the program reads afterwards.
+
+`CurlClient.SendAsync` sends a `CurlRequest`, the method and URL, and returns the `CurlResponse` as soon as the status line and headers have arrived: `200 OK` and `Content-Length: 67108864` here, with `Body` a stream still arriving. The token given to `SendAsync` covers the body too, not only the wait for the headers. The program reads 64 kibibyte (KiB) pieces until it has 1 MiB, then calls `Cancel`; the next `ReadAsync` throws `OperationCanceledException`, within 2 seconds. Curl's engine aborts the transfer and closes the connection, which is what "stop" means here. The program disposes the body afterwards, as it should any body.
+
+The server agrees. The program waits, five seconds at most, for an `ExchangeEndedEvent`, found with `server.FindEvents` and a `SurlEventQuery` for `SurlEventKind.ExchangeEnded`; its `SentByteCount` is under 16 MiB of the 64. The few MiB more than the program read are what the network buffers held when it stopped: Curl.Api buffers only so much of a body nobody is reading before it pauses the transfer (<<curl-readme>>), so the server cannot run far ahead.
+
+Disposing the body stream does the same without a token: the transfer stops, and the server's exchange ends having sent under 16 MiB. A token is the better fit when the decision to stop is made elsewhere, by a caller or a timer (`CancelAfter`); disposing fits code that reads the stream itself and is done.
+
+Either way the client goes on working. The aborted connection cannot be reused, so the next request on the same `CurlClient`, `hello.txt`, opens a new one (`Info.NumConnects` is 1) and is answered `200`. `CurlClientOptions.Timeout` of 30 seconds bounds every transfer, body included, so a run that goes wrong fails instead of hanging. The first request in a process sets the engine up, which takes a few seconds, so the program makes one before the download is timed. For a request the server holds before sending anything, see <<http-cancel-a-stuck-transfer>>; the statuses are those of <<rfc9110>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-cancel-a-stuck-transfer>> for cancelling a request that never gets an answer.
+* <<http-stream-a-large-download-to-disk>> for reading the whole body as it streams.
+* <<http-report-download-progress>> for watching the bytes arrive.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

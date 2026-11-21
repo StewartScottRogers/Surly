@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-see-both-sides-of-a-request
+title: Seeing Both Sides of a Request
+protocols: [http]
+tier: foundations
+surl-options: [--user, --trace-ascii, --directory, --allow-uploads]
+curl-options: [--trace-ascii, --digest, -u, -T, -s, -w]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110, rfc7616]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  upload-site/.keep: ""
+  notes.txt: "my notes\n"
+
+servers:
+  main:
+    command: surl --user alice:s3cret --trace-ascii surl-trace.txt --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  uploads:
+    command: surl --user alice:s3cret --allow-uploads --directory upload-site http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: An upload with a correct Digest login to a surl started without --allow-uploads is answered 405 Method Not Allowed, and curl --trace-ascii writes its side of the exchange to a file.
+    run: curl -s --digest -u alice:s3cret -T notes.txt --trace-ascii curl-trace.txt -w "%{http_code}\n" http://127.0.0.1:{{port}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "405\n"
+
+  - id: curl-sent
+    claim: curl's trace shows the PUT sent twice, the second time with the Authorization header in full.
+    run: 'grep -e "PUT /notes.txt" -e "Authorization: " curl-trace.txt'
+    expect:
+      exit: 0
+      stdout-matches: '^0000: PUT /notes\.txt HTTP/1\.1\n0000: PUT /notes\.txt HTTP/1\.1\n[0-9a-f]{4}: Authorization: Digest username="alice",[^\n]+\n$'
+
+  - id: curl-received
+    claim: curl's trace shows the two answers, 401 Unauthorized and then 405 Method Not Allowed with Allow GET, HEAD.
+    run: 'grep -e "0000: HTTP/1.1" -e "Allow: " curl-trace.txt'
+    expect:
+      exit: 0
+      stdout: "0000: HTTP/1.1 401 Unauthorized\n0000: HTTP/1.1 405 Method Not Allowed\n0000: Allow: GET, HEAD\n"
+
+  - id: surl-says-why
+    claim: surl's trace says why, in one exchange; the first PUT needed a login, the login was accepted, and then the method was not served, so surl answered 405 and closed.
+    run: grep -e "PUT /notes.txt:" -e "Login accepted" surl-trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '^#(\d+) \* PUT /notes\.txt: 401, a login is needed\n#\1 \* Login accepted: Digest alice\n#\1 \* PUT /notes\.txt: the method is not served; answered 405 and closed\.\n$'
+
+  - id: surl-withholds-the-credential
+    claim: surl's trace replaces the Authorization value it received with ****, where curl's own trace keeps it.
+    run: 'grep "Authorization: " surl-trace.txt'
+    expect:
+      exit: 0
+      stdout-matches: '^[0-9a-f]{4}: Authorization: Digest \*\*\*\*\n$'
+
+  - id: no-login
+    claim: Without a login the same upload is answered 401, because surl judges the login before the method.
+    run: curl -s -T notes.txt -w "%{http_code}\n" http://127.0.0.1:{{port}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: uploads-allowed
+    claim: The same upload to a surl started with --allow-uploads is answered 201 Created.
+    run: curl -s --digest -u alice:s3cret -T notes.txt -w "%{http_code}\n" http://127.0.0.1:{{port2}}/notes.txt
+    expect:
+      exit: 0
+      stdout: "201\n"

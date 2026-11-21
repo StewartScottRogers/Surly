@@ -1,0 +1,60 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-listen-on-a-unix-socket-in-csharp
+title: Listening on a Unix Socket in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, CurlClient, CurlRequest, CurlNetworkOptions, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, libcurl-api]
+
+fixtures:
+  taken.sock: "not a socket\n"
+
+# No servers: block. The program hosts its own server through Surl.Api. {{port}} is a free port
+# that the listen URL names and nothing opens.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Surl.Api started with --unix-socket in AdditionalArguments makes the socket file, Curl.Api with UnixSocketPath fetches a file through it with 200, and StopAsync returns Ok and removes the file.
+    program: on-a-socket.cs
+    args: [fetch, "{{port}}"]
+    expect:
+      exit: 0
+      stdout-matches: '^listening on http://localhost:\d+/, socket file there: True\n200 hello over a socket\nstopped: Ok, socket file there: False\n$'
+
+  - id: host-is-only-a-name
+    claim: Through the socket the URL's host is never looked up; a host that does not exist is answered 200 all the same.
+    program: on-a-socket.cs
+    args: [any-host, "{{port}}"]
+    expect:
+      exit: 0
+      stdout-matches: '\n200 hello over a socket\n'
+
+  - id: no-tcp-port
+    claim: The listen URL's port is not opened; the same request without UnixSocketPath throws CurlException CouldntConnect.
+    program: on-a-socket.cs
+    args: [no-tcp, "{{port}}"]
+    expect:
+      exit: 0
+      stdout-matches: '\nCouldntConnect: Failed to connect to localhost:\d+ after \d+ ms: Could not connect to server\n'
+
+  - id: file-exists
+    claim: A socket path where a file already exists makes StartAsync throw SurlServerStartException BindFailed (45), and the file is left as it was.
+    program: on-a-socket.cs
+    args: [file-exists, "{{port}}"]
+    expect:
+      exit: 1
+      stdout-matches: '^refused: BindFailed \(45\) Could not bind http://localhost:\d+/: [^\n]+\ntaken\.sock still holds: not a socket\n$'
+
+  - id: one-listen-url
+    claim: Two listen URLs on one socket make StartAsync throw SurlServerStartException FailedInit, surl's exit 2 for a bad command line.
+    program: on-a-socket.cs
+    args: [two-urls, "{{port}}"]
+    expect:
+      exit: 1
+      stdout-matches: '^refused: FailedInit option --unix-socket: serves one listen URL, and 2 were given\n'

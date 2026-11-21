@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs on-a-socket.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH; its first argument picks the scenario, the second is a free port
+# that the listen URL names and nothing opens.
+schema: 2
+key: http-listen-on-a-unix-socket-from-an-agent
+title: Serving on Unix Sockets from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, get_exchanges, stop_server, curl, transfer]
+exit-codes: [0, 1, 45]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  taken.sock: "not a socket\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: start_server with --unix-socket in arguments listens on the socket file, curl-mcp's curl tool with --unix-socket fetches through it with 200, get_exchanges shows a unix peer as the client, and stop_server removes the file.
+    program: on-a-socket.cs
+    args: [fetch, "{{port}}"]
+    expect:
+      exit: 0
+      stdout-matches: '^Listening on http://localhost:(\d+)/ over unix://surl\.sock\nhello over a socket\n200\nclient: unix peer\nHost: localhost:\1\nstopped: Ok, socket file there: False\ntool error: no\n$'
+
+  - id: transfer-has-no-socket
+    claim: The transfer tool has no socket field, so it connects to the listen URL's port over TCP, where nothing listens, and fails with curl's exit 7.
+    program: on-a-socket.cs
+    args: [transfer, "{{port}}"]
+    expect:
+      exit: 1
+      stdout-matches: '\nfailure: CurlExit 7\ntool error: yes\n$'
+
+  - id: file-exists
+    claim: A socket path where a file already exists is a tool error carrying surl's exit code 45, BindFailed, and the file is left as it was.
+    program: on-a-socket.cs
+    args: [file-exists, "{{port}}"]
+    expect:
+      exit: 1
+      stdout-matches: '^exit_code: 45 \(BindFailed\)\nsurl: \(45\) Could not bind http://localhost:\d+/: [^\n]+\ntaken\.sock still holds: not a socket\ntool error: yes\n$'
+
+  - id: server-socket-inside-root
+    claim: surl-mcp refuses a socket path outside SURL_MCP_ROOT before starting anything.
+    program: on-a-socket.cs
+    args: [outside-root, "{{port}}"]
+    expect:
+      exit: 1
+      stdout: "refused: a Unix domain socket listen URL names ../surl.sock, which is not inside the root\ntool error: yes\n"
+
+  - id: client-socket-inside-root
+    claim: curl-mcp's curl tool refuses a --unix-socket path outside CURL_MCP_ROOT as PathRefused, before curl runs.
+    program: on-a-socket.cs
+    args: [curl-outside, "{{port}}"]
+    expect:
+      exit: 1
+      stdout-matches: '\nfailure: PathRefused\ntool error: yes\n$'

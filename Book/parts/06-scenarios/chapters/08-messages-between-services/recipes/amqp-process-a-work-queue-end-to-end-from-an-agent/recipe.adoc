@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-process-a-work-queue-end-to-end-from-an-agent]]
+=== Processing a Work Queue End to End
+
+==== Problem
+
+As an artificial intelligence (AI) agent you want jobs put in a durable queue, a worker to consume and acknowledge them, and the test to check the queue is empty afterwards, and what the server recorded, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts one server with an Advanced Message Queuing Protocol (AMQP) listener, a Simple Text Oriented Messaging Protocol (STOMP) listener, a durable queue and a folder, queues three jobs with the `curl` tool, runs a STOMP worker, and checks the queue and the bus record:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in. The durable queue goes in a folder of its own under it, made for the scenario and removed at the end. The argument after `--` picks the scenario.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` has an `amqp://` and a `stomp://` listener on port `0`, and `arguments` has `--queue "jobs;durable"` for a queue to keep, `--directory` for the folder it is kept in, and `--allow-anonymous`, which lets the app and the worker in with no login; it loosens the defaults, and `surl` warns on start while it is on, so it is for a test server (<<surl-readme>>). Both listeners sit on one message bus, so the queue `jobs` of AMQP 0-9-1 is the destination `/queue/jobs` of STOMP. The answer's `server_id` names the server for the other `surl-mcp` tools, and `bound_urls` has the real URLs.
+
+The app is the `curl` tool: `-d job-1` on `amqp://host:port/%2F/jobs` queues one message, where `%2F` is the virtual host `/`, the only one `surl` serves (<<amqp091>>). `-s` keeps the progress meter out and `-S` keeps the error message in, and `-m` is curl's time limit in seconds. The answer is text, as JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`, each with its `content`. A send is asynchronous, so the program calls `wait_for_event` with `kinds` `store_changed` and `store` `bus` after each and goes on when the event's `change` is `enqueued`, with a bound of `timeout_ms` and no fixed pause.
+
+The worker is a STOMP client, because STOMP lets a subscriber hold a job and acknowledge it later. `-T worker.stomp` on a `telnet://` URL sends a file of frames, from the folder the host is confined to, and writes what the server answers. Each frame ends in a NUL byte (<<stomp12>>). The session is `CONNECT`, `SUBSCRIBE` to `/queue/jobs` with `ack:client-individual`, an `ACK` for each message the worker acknowledges, and `DISCONNECT` with a receipt, so the session ends. The server numbers a connection's messages 1, 2 and 3, and the frames name them. The answer holds the three `MESSAGE` frames in the order queued and then the `RECEIPT`.
+
+The check is `browse_queue`, which answers `ready_count`, `in_flight_count` and the ready messages, without taking any. After a worker that acknowledged every job, none is ready and none in flight. The record is `get_events` for `store_changed` on the `bus`: each event's `change` is `enqueued`, `delivered` or `acknowledged`, and three jobs make three of each. The record is written as the server works, so the program polls `get_events`, with a bound, until the last acknowledgement is in.
+
+The queue is durable and the server has a folder, so the jobs wait through a restart. The `restart` scenario queues `job-4` and `job-5`, calls `stop_server`, starts another server with the same `--directory`, and the worker receives both, in order; then the queue is empty. The new server keeps a record of its own, so it saw no enqueued event, the jobs having come from disk, and two delivered and two acknowledged.
+
+A message with no acknowledgement is not gone. The `fails` scenario queues three jobs and runs `two.stomp`, a worker that acknowledges only the first two, as one that fails on the third would, and then disconnects. The worker received `job-8`, but the server never heard it was done, so `job-8` is ready again: `browse_queue` counts one ready and none in flight. A receive with the `curl` tool takes it, and the queue is empty again. The record shows the story: three enqueued, four delivered because `job-8` went out twice, and three acknowledged, two by the worker and one by the receive.
+
+Without `--allow-anonymous` the `refused` scenario starts the same server and the app's receive is exit `67`, a tool error: the AMQP listener offers only CRAM-MD5, which `curl` does not use. The STOMP worker is answered an `ERROR` frame.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-process-a-work-queue-end-to-end>> for the same task on the console.
+* <<amqp-process-a-work-queue-end-to-end-in-csharp>> for the same task in a C# test.
+* <<amqp-check-what-a-queue-still-holds>> for browsing a queue and holding a job in flight.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>, <<stomp12>>.

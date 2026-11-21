@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-in-parallel-segments]]
+=== Downloading in Parallel Segments
+
+==== Problem
+
+Your client fetches large files as several byte ranges at once. You want to fetch a file that way, prove the joined result is the original byte for byte, and see the ranges as the server received them.
+
+==== Solution
+
+Serve the file with `surl -v --log-file`, fetch it with a script that splits it into segments and runs one `curl` command with a transfer per segment, then read the ranges back from `surl`{apos}s log. The scripts need a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::fetch-in-segments.sh[]
+----
+
+[source,sh]
+----
+include::seen-by-server.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` with `--directory site` serves `site/big.bin`, 1,000,000 random bytes, and `-v` with `--log-file surl.log` appends every event and protocol line to a log file. It answers ranges without being asked to: a `GET` with a `Range` header is answered `206 Partial Content`, with a `Content-Range` naming the bytes sent and the whole length (<<rfc9110>>, <<surl-readme>>). A range that starts past the end is answered `416 Range Not Satisfiable`; with `-f`, `curl` exits `22`.
+
+`fetch-in-segments.sh` asks for the size first: `-I` sends a `HEAD` request, `-o /dev/null` drops the headers, and `-w "%header{content-length}"` prints the one it needs. It divides the size by the number of segments, rounding up, so three segments of 1,000,000 bytes are 333,334 bytes each and the last stops at the last byte. `-r first-last` is `curl`{apos}s spelling of `Range: bytes=first-last`, both ends counted. The script builds one `curl` command line in the shell{apos}s argument list, with `--next` between segments, because `-r`, `-o`, `-w`, `-s` and `-f` do not carry past it (<<curl-manual>>). `--parallel` runs the transfers at once and `--parallel-immediate` lets each open a connection straight away, rather than wait to see whether the first could carry them all, which over Hypertext Transfer Protocol (HTTP) version 1.1 it cannot. `-w` prints each status and `Content-Range` as its transfer ends, so the lines come out in finishing order; the script sorts them by the first byte.
+
+The check is the point. The segments are joined in segment order, never in the order they finished, and `cmp -s` compares the result with the original; it prints nothing and only sets its exit code. A size that matches proves little; <<http-download-a-file-in-parallel-ranges>> joins one part twice in place of its neighbour and gets the right size and the wrong file.
+
+`seen-by-server.sh` reads the other side. At `-v`, `surl` logs every request header it receives, marked `<`, and an event line for each answer, marked `*` (<<surl-readme>>). Each line starts with `#N`, the exchange number, and for HTTP an exchange is one connection. The four `Range` headers are the four the script sent, and each was answered `206`. How many connections carried them depends on timing: over loopback a 250,000-byte segment can be done before the next transfer starts, and then the next one reuses its connection, so the count is anything from one to four. Against a second `surl` started with `--fault "delay;stage=command;ms=1000"`, which holds every request a second as a slow server would, the four are in flight together and arrive on four connections. `--fault` makes `surl` misbehave on purpose, which is why nothing like it is on by default.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-in-parallel-segments-in-csharp>> for the same download from C#.
+* <<http-download-in-parallel-segments-from-an-agent>> for an agent doing it with `transfer` calls side by side.
+* <<http-download-a-file-in-parallel-ranges>> for the same idea as one step of a pipeline, and what a doubled or missing part looks like.
+* <<http-download-a-byte-range>> for one range on its own.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

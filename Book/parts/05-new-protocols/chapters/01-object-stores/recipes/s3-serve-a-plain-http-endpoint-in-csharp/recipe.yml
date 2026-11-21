@@ -1,0 +1,113 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: s3-serve-a-plain-http-endpoint-in-csharp
+title: Plain-HTTP S3 Endpoints in C#
+protocols: [s3]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFileContents, SurlServerStartException, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlNetworkOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'With --s3-plaintext in AdditionalArguments and no certificate, Curl.Api gets the object photos/hello.txt over http:// signed with AwsSigV4 and the account''s key and secret, status 200.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsigned: 200 hello from surl\n'
+
+  - id: warns-on-start
+    claim: 'The server wrote a warning on start that s3 is served as plain HTTP, to the Log writer, in surl''s own words.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^warning: surl: warning: --s3-plaintext: s3 is served as plain HTTP, without TLS\n'
+
+  - id: needs-a-certificate
+    claim: 'Without --s3-plaintext, an s3 listen URL with no certificate refuses the start with SurlServerStartException with exit code 58 and a line that says it needs a certificate.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno certificate: exit 58, \(58\) s3://127\.0\.0\.1:0/ needs a certificate\n'
+
+  - id: virtual-host
+    claim: 'A URL that puts the bucket in the host name, photos.s3.us-east-1.amazonaws.com over http://, is served too, once ConnectTo sends the connection to the server.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nvirtual host: 200 hello from surl\n'
+
+  - id: s3-url-is-tls
+    claim: 'Curl.Api''s s3:// URL is TLS from the first byte, so it cannot talk to the plain-HTTP listener, and throws CurlException with SslConnectError.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ns3 url: SslConnectError\n'
+
+  - id: unsigned
+    claim: 'An unsigned request is a response with status 403 and the error AccessDenied.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunsigned: 403 AccessDenied\n'
+
+  - id: wrong-secret
+    claim: 'The right access key with the wrong secret is 403 SignatureDoesNotMatch.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong secret: 403 SignatureDoesNotMatch\n'
+
+  - id: unknown-key
+    claim: 'An access key the server does not hold is 403 InvalidAccessKeyId.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nunknown key: 403 InvalidAccessKeyId\n'
+
+  - id: missing-object
+    claim: 'A signed get of a name with no object is 404 NoSuchKey.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmissing key: 404 NoSuchKey\n'
+
+  - id: uploads-off
+    claim: 'On a server without AllowUploads, a correctly signed put is 403 AccessDenied.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads off: 403 AccessDenied\n'
+
+  - id: uploads-on
+    claim: 'With AllowUploads, the same signed put is accepted, status 200.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nuploads on: 200 \n'
+
+  - id: stored-object
+    claim: 'The accepted put is an object in the server''s store, and Files.ReadAsync returns the bytes put.'
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstored: uploaded over plain http\n'

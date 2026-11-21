@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-receive-a-large-file-in-frames-in-csharp]]
+=== Receiving Multi-frame Messages in C#
+
+==== Problem
+
+Your C# client must reassemble WebSocket messages that span frames. You want to receive a large file from Surl.Api with Curl.Api and compare it with the original.
+
+==== Solution
+
+Start a Surl.Api server that holds a file of 200,000 random bytes, connect to it with Curl.Api, receive the message with one call and compare it with the bytes the server holds:
+
+include::.generated/solution.adoc[]
+
+The same program receives two more files, one at the 64 KiB frame size and one a byte over it, and reads the server{apos}s log for how many frames each crossed in.
+
+==== Discussion
+
+A WebSocket message travels in one or more _frames_ (<<rfc6455>>). A server may cut a large message into several, marking each but the last as unfinished, and a client puts them back together before it hands the message over. `surl` sends a file as one message and cuts it into frames of at most 64 KiB, 65,536 bytes, so a file of 200,000 bytes goes as four frames. Curl.Api joins them: `CurlWebSocket.ReceiveAsync` returns a `CurlWebSocketMessage` only when the message is complete, with its `Type`, `Binary` for a file, and its `Data`, all 200,000 bytes, so a program never sees a frame (<<curl-readme>>). The program compares `Data` with the bytes it gave the server by `SequenceEqual`, which is the check that no byte was lost or reordered at a frame boundary. The files are random bytes, so a repeated or dropped part cannot hide in repetition. The recipe <<ws-receive-a-large-file-in-frames>> does the same with the two programs on a console.
+
+`SurlServer.StartAsync` starts the server a `SurlServerOptions` describes. `ListenUrls` holds `ws://127.0.0.1:0`, where port `0` takes a free port that `BoundUrl` reports, and `Files` is the content in memory, so the key `big.bin` is the path `/big.bin` (<<surl-readme>>). `CurlClient.Create()` makes the client and `ConnectWebSocketAsync` opens the connection to a `ws://` URL. After the file, the next `ReceiveAsync` returns the server{apos}s close, `Type` of `Close`, which shows the file was the whole of what the server sent and not the first message of several. A `CancellationTokenSource` with a time limit bounds every call, so a server that never answers fails the program instead of hanging it.
+
+The server says how many frames it used. `Log`, a `TextWriter`, receives the server{apos}s log byte for byte at the `LogLevel` set, here `Verbose`, and the line for each file reads `Sent 200000 bytes of /big.bin as a binary message in 4 frames`. The server writes it as it finishes the file, so the program waits for the last line, 5 seconds at most, before it reads them. The cut falls at 64 KiB exactly: a file of 65,536 bytes goes in one frame, and 65,537 bytes, one more, in two. A program reading either gets the same one message through the same call.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-receive-a-large-file-in-frames>> for the same task on the console.
+* <<ws-receive-a-large-file-in-frames-from-an-agent>> for the same task with an agent.
+* <<ws-receive-a-message-with-curl-api>> for the close handshake.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>.

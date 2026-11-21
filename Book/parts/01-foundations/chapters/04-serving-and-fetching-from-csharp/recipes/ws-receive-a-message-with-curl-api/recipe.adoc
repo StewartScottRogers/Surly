@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-receive-a-message-with-curl-api]]
+=== Receiving a WebSocket Message from C#
+
+==== Problem
+
+A server sends your program a file over WebSocket as one message, and you want C# code that opens the socket with Curl.Api, receives the whole message, and closes the connection cleanly rather than dropping it.
+
+==== Solution
+
+Open the socket with `ConnectWebSocketAsync`, call `ReceiveAsync` for the file and again for the server's close, then answer with `CloseAsync`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server is `surl` in-process: `SurlServer.StartAsync` takes a `SurlServerOptions` whose `ListenUrls` holds `ws://127.0.0.1:0`, a WebSocket listener on a free port, and whose `Files` holds `report.bin`, 100,000 random bytes. `surl` sends a file as one binary message to whoever opens a WebSocket on its path, then closes (<<surl-readme>>).
+
+`CurlClient.ConnectWebSocketAsync` makes the HTTP upgrade request and returns a `CurlWebSocket` once the server has answered `101 Switching Protocols` (<<rfc6455>>). `ReceiveAsync` returns the next whole message as a `CurlWebSocketMessage`: if the sender split the message into several frames, the frames are joined, so `Data` here is all 100,000 bytes, and their SHA-256 matches the file's. `Type` is `Binary`, because `surl` sends a file's bytes as they are, whatever its name; `Text` would decode them as UTF-8. The next `ReceiveAsync` gives the server's close frame, `Type` `Close`. `CloseStatus` is null because `surl`{apos}s close frame carries no payload, so no status code.
+
+The closing handshake takes both sides. `CloseAsync(1000, "done")` sends the client's close frame, status `1000` for a normal closure and a reason; `SurlServerOptions.RecordExchanges` keeps what the server received, and after the close the last thing in that `SurlExchangeRecord` is a close frame, its first byte `0x88` and its mask bit set, as a client's frames must be. `await using` then disposes the socket, closing the connection. Disposing alone, without `CloseAsync`, closes the connection too, but sends no close frame: the server sees the connection end mid-conversation. The program waits for the server's `ExchangeEnded` event, found with a `SurlEventQuery`, before it reads the record.
+
+`ReadMessagesAsync` is the loop written for you: an `await foreach` over it gives the file message, then the server's close, and the enumeration ends there by itself. It does not send the client's close; call `CloseAsync` after the loop for that.
+
+A path the server does not have is refused at the upgrade, `404`, and `ConnectWebSocketAsync` throws a `CurlException` (<<curl-readme>>) whose `Code` is `HttpReturnedError`, 22, the exit code `curl` gives for a refused upgrade; no message is received. Every call takes one `CancellationToken` cancelled after 30 seconds, so a server that never answers fails the program instead of hanging it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-receive-a-file-as-a-message>> for the same server on the console.
+* <<ws-list-a-folder-over-websocket-in-csharp>> for a folder listing as a text message.
+* <<ws-receive-a-large-file-in-frames-in-csharp>> for reading a message frame by frame.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>.

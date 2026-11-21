@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-plug-curl-into-httpclient]]
+=== Plugging Curl into HttpClient
+
+==== Problem
+
+Your C# code is written against `HttpClient`, and you want it to send its Hypertext Transfer Protocol (HTTP) requests through Curl's engine instead of .NET's own, without rewriting it, and to check that it gets the same answers.
+
+==== Solution
+
+Give the `HttpClient` a `CurlHttpMessageHandler` over a `CurlClient`, and run the same code once on each handler against an in-process `surl`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`CurlHttpMessageHandler` is an `HttpMessageHandler`, the piece under `HttpClient` that does the sending. `new HttpClient(new CurlHttpMessageHandler(curl))` keeps every `HttpClient` call the code makes, `GetAsync`, `ReadAsStringAsync`, `EnsureSuccessStatusCode`, and hands each request to the `CurlClient` as a `CurlRequest`: the method, the absolute URL, the headers and the body. The `CurlResponse` comes back as an `HttpResponseMessage` with its status, reason, version and headers, content headers such as `Content-Type` on the content, and a body that streams. The handler does not dispose the client, so one `CurlClient` can sit under several handlers; the program disposes it at the end with `await using`.
+
+The function under test, `FetchAsync`, knows only `HttpClient`. The program runs it on `SocketsHttpHandler`, .NET's default, and on the Curl handler, and the answers are the same down to the string: `200 OK`, HTTP/1.1, `text/plain`, 16 bytes, the same body. A `404 Not Found` (<<rfc9110>>) is an answer on both, not an exception, and `EnsureSuccessStatusCode` throws `HttpRequestException` with `StatusCode` 404 on both, so code that relies on that keeps working. `HttpClient.Timeout` belongs to `HttpClient`, above either handler: against a reply the server holds for 5 seconds, a 1-second timeout throws `TaskCanceledException` with an inner `TimeoutException` on both, in 1 to 4 seconds. Three requests on one `HttpClient` share one connection with either handler, counted from the exchanges the server recorded.
+
+What differs is what goes on the wire. `SurlServerOptions.RecordExchanges` keeps every byte the server received, and the request heads are not the same: `SocketsHttpHandler` sent `Host` alone, Curl's engine `Host` and then `Accept: */*`, as `curl` does. A test that compares requests byte for byte, or a server that cares about `Accept`, will see that. The answers matched here because `surl` answers both the same way.
+
+The server is `surl` in-process. `SurlServerOptions` holds the listen URL on port 0 and two files in `Files`; `SurlFault.Delay` holds `/slow.txt` for 5 seconds at the command stage, the `--fault "delay;stage=command;path=/slow.txt;ms=5000"` of the command line. The first Curl.Api request in a process sets the engine up, which takes a few seconds, so the program makes it first on a `CurlClient` of its own, before anything is timed or counted.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-and-fetch-in-process>> for `CurlClient` without `HttpClient`.
+* <<http-test-an-httpclient-app-against-surl>> for an `HttpClient` app that logs in through this handler.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

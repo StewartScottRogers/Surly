@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-receive-a-large-file-in-frames-from-an-agent]]
+=== Receiving Multi-frame Messages from an Agent
+
+==== Problem
+
+You want an agent to fetch a large file over WebSocket and confirm with `get_exchanges` that it crossed in several frames yet arrived whole.
+
+==== Solution
+
+An agent starts a WebSocket server with `surl-mcp` that holds a file of 200,000 random bytes, has `curl-mcp` write it to a file with `-o`, and compares the copy with the bytes it gave the server:
+
+include::.generated/solution.adoc[]
+
+The rest of the same program asks `curl-mcp` what it counted and `surl-mcp` how the server framed each file.
+
+==== Discussion
+
+A WebSocket message travels in one or more _frames_ (<<rfc6455>>). A server may cut a large message into several, marking each but the last as unfinished, and a client puts them back together before it hands the message over. `surl` sends a file as one message and cuts it into frames of at most 64 KiB, 65,536 bytes, so a file of 200,000 bytes goes as four frames. The recipe <<ws-receive-a-large-file-in-frames>> does the same with the two programs on a console.
+
+`start_server` of `surl-mcp` starts a server. `listen_urls` is `ws://127.0.0.1:0`, where port `0` takes a free port that `bound_urls` reports, and `files_base64` holds content in memory as base64, because the files are random bytes and not text. The answer carries a `server_id`, which later calls name. `curl` of `curl-mcp` runs `curl`{apos}s own arguments in the folder `CURL_MCP_ROOT` names, and `-o got.bin` writes the message there, byte for byte; the agent reads the file and compares it with what it sent (<<curl-readme>>).
+
+`transfer` of `curl-mcp` takes a `url` and answers the `statusCode`, `101` for an accepted upgrade, the `body`, and `info`, what `curl` counted. The body is `isBase64` for a binary message, and its `content` decodes to the 200,000 bytes. `info.sizeDownload` is larger than the message: it counts everything that crossed after the `101`, the frame headers and the server{apos}s close frame of 2 bytes included. The difference is the framing, and it follows from how the file is cut. A full 64 KiB frame has a 10-byte header, two bytes and an 8-byte length, and the last frame{apos}s header is shorter when its length is smaller: for the 200,000-byte file it is three frames of 10 bytes, a last one of 3,392 bytes with a 4-byte header, and the close, 3 x 10 + 4 + 2 = 36. A file of exactly 65,536 bytes has one frame and one close, 10 + 2 = 12. One byte more gives a second frame whose one byte of payload has a 2-byte header, 10 + 2 + 2 = 14 bytes over the file. Each total is a different sum, so the agent can tell how the file was framed from the number alone.
+
+`get_exchanges` of `surl-mcp` shows the exchange itself: the request head, the `101` head and the bytes the server sent, as `base64` chunks. The first frame is there to read. For the large file it starts `0x02 0x7f`: `0x02` is opcode 2, a binary message, with the high bit, the final bit, clear, so the message is not over; `0x7f` says the length follows in 8 bytes, and they read 65,536. A frame that is not final means the message goes on, which is the several frames. For the file of 65,536 bytes the first byte is `0x82`, final bit set: one frame is all of it, while one byte more starts again with `0x02`. The record is cut: `recorded_bytes` counts everything the exchange carried, more than the 200,000 bytes, but `shown_bytes` is 65,536 and `is_cut` is true, so the agent sees the first frame and no more, and reads the rest from what `curl` counted.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-receive-a-large-file-in-frames>> for the same task on the console.
+* <<ws-receive-a-large-file-in-frames-in-csharp>> for the same task from a C# test.
+* <<ws-receive-a-file-from-an-agent>> for a small file and the first frame.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>.

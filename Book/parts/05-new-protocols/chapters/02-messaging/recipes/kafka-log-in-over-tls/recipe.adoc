@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-log-in-over-tls]]
+=== Logging In to Kafka over TLS
+
+==== Problem
+
+Your producer logs in to Kafka with Simple Authentication and Security Layer (SASL) PLAIN, which sends the password as it is, and `surl` offers PLAIN only over Transport Layer Security (TLS). You want to see the plain listener decline PLAIN and name the Salted Challenge Response Authentication Mechanism (SCRAM) it offers instead, and the TLS listener accept the login with no loosening option.
+
+==== Solution
+
+Give `surl` an account, a certificate and its key, serve `kafkas://`, and have `curl` trust the certificate and log in with `-u`. Here `curl` produces one record and consumes it back:
+
+include::.generated/solution.adoc[]
+
+The certificate and key come from the `openssl` line, run first. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`kafkas://` is TLS from the first byte, so the listener needs `--cert` and `--key` and, with `--user alice:s3cret`, one account; `curl` logs in with `-u`, produces with `-d`, chains the consume after the produce with `--next`, hides the progress meter with `-s` and keeps the error text with `-S`, and needs `--cacert server.pem` to trust a certificate that is its own authority; without it `curl` sends no login and exits `60`. Over TLS the password cannot be read on the wire, so `surl` offers PLAIN there as well as SCRAM, and `curl` takes PLAIN when it is offered. That is why a wrong password is refused with exit `67` and `Kafka SASL PLAIN authentication failed`: the message names the mechanism `curl` used. A connection that sends no login is simply closed, exit `56`, because `surl` is secure by default and wants an account or `--allow-anonymous` (<<surl-readme>>, <<kafka-protocol>>, <<rfc8446>>).
+
+On the plain `kafka://` listener the same account works, with different machinery. `surl` offers SCRAM-SHA-256 and SCRAM-SHA-512 there, where the password is never sent, and not PLAIN. `curl` cannot be told to insist on PLAIN, so a producer that does insist is a program of your own; what `curl` shows is the other half: it takes SCRAM-SHA-512 and logs in, and a wrong password names it, `Kafka SASL SCRAM-SHA-512 authentication failed`. `--auth SCRAM-SHA-256` makes `surl` offer that one mechanism, and the refusal names it. `--auth` replaces the offer instead of adding to it, so `--auth PLAIN` over `kafka://` offers nothing the listener allows, and `curl` stops before it sends the password with `it offers no SASL mechanism`, exit `67` (<<curl-readme>>).
+
+`--allow-plaintext-auth` puts PLAIN back on the plain listener. It loosens security and `surl` warns at start, because the password then crosses the network readable. Here `curl` takes PLAIN again and a wrong password names it. Over `kafkas://` neither it nor `--allow-anonymous` is needed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-log-in-over-tls-in-csharp>> for the same task from C#.
+* <<kafka-log-in-over-tls-from-an-agent>> for the same task from an agent.
+* <<kafka-produce-and-consume>> for producing and consuming without TLS.
+* <<surl-readme>>, <<curl-readme>>, <<kafka-protocol>>, <<rfc8446>>.

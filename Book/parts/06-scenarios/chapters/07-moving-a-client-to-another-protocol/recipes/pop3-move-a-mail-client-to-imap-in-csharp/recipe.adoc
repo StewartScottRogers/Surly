@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-move-a-mail-client-to-imap-in-csharp]]
+=== Moving a Mail Client to IMAP
+
+==== Problem
+
+In a C# test: your mail client polls a mailbox over the Post Office Protocol version 3 (POP3), downloading each message and deleting it. You want to switch it to the Internet Message Access Protocol (IMAP), prove that it sees the same messages, and leave them on the server instead of deleting them.
+
+==== Solution
+
+Host one `SurlServer` with a POP3 and an IMAP listener on one mailbox, deliver two messages into its store, read the first both ways with `Curl.Api`, and compare:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds a `pop3://` and an `imap://` URL, each on port 0 for a free one, and `server.BoundUrls` lists them in that order. Both serve one mail store, so the POP3 and the IMAP client read the same mailbox; that is what makes the move testable. `MailDomains` holds `example.com`, the domain the server takes mail for, and `Mailboxes` holds `ann@example.com:s3cret`, a mailbox and the account that reads it, named by the whole address. `RecordExchanges` keeps every connection{apos}s bytes and the events with them. `server.Mail.DeliverAsync` puts the two orders straight into the store, as SMTP would.
+
+Each read is a `CurlRequest` through a `CurlClient` of its own, disposed at the end, with `CurlAuthenticationOptions` for the account. A fresh client matters here: a `CurlClient` keeps its connection, and an IMAP connection that stays open does not see mail that arrives later. POP3 numbers the messages of a session, `pop3://.../1` (<<rfc1939>>); IMAP gives each a unique identifier (UID) in its folder, `imap://.../INBOX;UID=1` (<<rfc9051>>). The `CurlResponse` body of each is the same text. A `GET` on the POP3 root lists the messages with their sizes, and an IMAP search, `INBOX?ALL`, finds the same two. `new HttpMethod("UIDL")` sends the POP3 command of that name, which lists each message{apos}s unique ID, and `surl`{apos}s ends in the IMAP UID after the dot, so a client that remembers which IDs it has seen can carry that record over.
+
+Leaving mail on the server needs a way to know what was read, and that is what IMAP flags are for. The IMAP fetch of UID 1 marks it seen, so a search for `UNSEEN` mail finds only message 2: the new client polls with that search instead of deleting. A POP3 retrieve sets no flag; message 2 is still unseen after it. `server.Mail.ListMailboxesAsync` reads the store without a protocol: its `SurlMailboxInfo` for `INBOX` counts two messages, two unseen at the start and one at the end. Nothing was deleted.
+
+The server{apos}s record shows which client still uses the old protocol. `server.FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.LoginJudged` returns a `LoginJudgedEvent` per login, with its `Scheme`: one `pop3`, one `imap`. Counting the `pop3` ones finds the clients still to move. A wrong password throws `CurlException` with `Code` `LoginDenied`, `67`, over both protocols, so a handler that catches it survives the move.
+
+The old client must stop before the new one relies on mail staying. `new HttpMethod("DELE")` on `pop3://.../1` deletes message 1 when the session ends, which is when its client is disposed. Both read one store, so the count drops to one and an IMAP fetch of UID 1 throws `RemoteFileNotFound`, `78`.
+
+Turning POP3 off for the mailbox is the failure path. `;protocols=smtp,imap` after the password limits which protocols the account may log in on. POP3 refuses it, the right password included, with `LoginDenied`; IMAP still reads both messages.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-move-a-mail-client-to-imap>> and <<pop3-move-a-mail-client-to-imap-from-an-agent>> for the same move on the console and from an agent.
+* <<imap-check-unread-counts-in-csharp>> for the unseen counts.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1939>>, <<rfc9051>>.

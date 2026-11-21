@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[gs-sign-with-an-hmac-key-from-an-agent]]
+=== Cloud Storage HMAC Logins from an Agent
+
+==== Problem
+
+Your job reaches Cloud Storage with an HMAC key, and another with an OAuth token. You want your agent to log in both ways, see a wrong secret refused, and see writes refused until uploads are allowed, with `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+An agent starts a Cloud Storage server with `surl-mcp`, holding an HMAC key pair and an OAuth token, and sends `curl-mcp` a get signed with the pair and a get with the token. Both are served:
+
+include::.generated/solution.adoc[]
+
+A second server in the checked claims allows uploads, and the agent reads from `surl-mcp` what each server holds and which logins it judged.
+
+==== Discussion
+
+Google Cloud Storage takes two kinds of login on its Extensible Markup Language (XML) API (<<gcs-xml-api>>), and `surl` accepts both on a `gs` listen URL. A Hash-based Message Authentication Code (HMAC) key is a pair, an access key and a secret, and each request is signed with the secret, which proves it without sending it. An OAuth access token is one string, sent as a Bearer login. In `start_server`, `--user GOOGTESTKEY:s3cret` is the HMAC pair, and `--user :ya29.t0ken`, with an empty name, makes its password a token. The recipe <<gs-sign-with-an-hmac-key>> does the same on a console.
+
+`start_server` of `surl-mcp` starts a server. `listen_urls` is `gs://127.0.0.1:0`, where port `0` takes a free port that `bound_urls` reports, and `arguments` are `surl`{apos}s own options: `--cert server.pem` and `--key server.key`, because Cloud Storage is spoken over Transport Layer Security from the first byte (<<rfc8446>>) and the listener needs a certificate, `--user` for each account, and for the second server `--allow-uploads` (<<surl-readme>>). Both files are in the folder `SURL_MCP_ROOT` names, which the `openssl` line filled. `files` is the content in memory, where `photos/hello.txt` is the object `hello.txt` in the bucket `photos`. The answer carries a `server_id`, which later calls name.
+
+`curl` of `curl-mcp` runs `curl`{apos}s own arguments, in the folder `CURL_MCP_ROOT` names, and answers in text as JSON: `exitCode`, and `standardOutput` and `standardError`, each an object whose `content` is the text. `-u GOOGTESTKEY:s3cret` signs with the pair and `--oauth2-bearer ya29.t0ken` sends the token. A `gs://` URL names the bucket as its host and the object as its path, and `--connect-to ::127.0.0.1:<port>` sends the connection to the server instead of to Google{apos}s `storage.googleapis.com`, while `--cacert server.pem` trusts the certificate. An error is exit `22` with `Cloud Storage returned error 403: SignatureDoesNotMatch: ...` in `standardError`, and the agent reads the status and the error name out of it.
+
+Each wrong login has its own answer. The right access key with the wrong secret is `403 SignatureDoesNotMatch`: the account is known and the signature the server worked out is not the one sent. An access key the server does not hold is `403 InvalidAccessKeyId`. A token it does not hold is `401 InvalidAuthentication`, and a request with no login at all is `401 AuthenticationRequired`: a `403` found the account and failed the proof, and a `401` says the login was not usable.
+
+Logging in is not permission to write. The first server has no `--allow-uploads`, so a put with `-T note.txt`, from the agent{apos}s folder, is `403 AccessDenied` for the HMAC pair and for the token alike, and `read_file` of `surl-mcp` finds no `/photos/note.txt` there, a tool error. On the second server the same two puts are accepted, exit `0`, and `read_file` returns the text of each object, `text` in the answer.
+
+`get_events` of `surl-mcp`, with `kinds` set to `login_judged`, lists the logins the server judged, each with the `account` it named and whether it was accepted. An HMAC login is judged against its access key; a token is judged as the account `bearer token`, whatever its text, so the unknown token is a refusal of that account. The request with no login named no account to judge and is not among them. The claim reads the first five events only: a put the server refuses before it judges a login may leave no event, and the list is not a count of requests.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<gs-sign-with-an-hmac-key>> for the same task on the console.
+* <<gs-sign-with-an-hmac-key-in-csharp>> for the same task from a C# test.
+* <<s3-tell-the-refusals-apart-from-an-agent>> for the S3 refusals with an agent.
+* <<surl-readme>>, <<curl-readme>>, <<gcs-xml-api>>, <<rfc8446>>.

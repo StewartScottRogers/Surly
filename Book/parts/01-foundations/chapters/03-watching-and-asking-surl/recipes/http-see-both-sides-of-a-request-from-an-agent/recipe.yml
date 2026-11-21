@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs both-sides.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: http-see-both-sides-of-a-request-from-an-agent
+title: Seeing Both Sides from an Agent
+protocols: [http]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, get_exchanges, get_events, curl]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110, rfc7616]
+
+fixtures:
+  notes.txt: "my notes\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Digest upload to a server without --allow-uploads is answered 405; curl -v shows the PUT sent twice and the 401 then 405 with Allow GET, HEAD, get_exchanges shows the same heads from the server's side, and get_events shows the login was accepted.
+    program: both-sides.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "http_code: 405\ncurl sent: > PUT /notes.txt HTTP/1.1\ncurl got: < HTTP/1.1 401 Unauthorized\ncurl sent: > PUT /notes.txt HTTP/1.1\ncurl got: < HTTP/1.1 405 Method Not Allowed\ncurl got: < Allow: GET, HEAD\nserver received: PUT /notes.txt HTTP/1.1\nserver sent: HTTP/1.1 401 Unauthorized\nserver received: PUT /notes.txt HTTP/1.1 | Authorization: Digest username=\"alice\"\nserver sent: HTTP/1.1 405 Method Not Allowed | Allow: GET, HEAD\nlogin_judged events: 1\n  alice Digest: accepted\ntool error: no\n"
+
+  - id: wrong-password
+    claim: With the wrong password both answers are 401 and get_events shows the login refused, which is how an agent tells a bad login from a refused method.
+    program: both-sides.cs
+    args: [wrong-password]
+    expect:
+      exit: 0
+      stdout-matches: '^http_code: 401\n.*\nserver sent: HTTP/1\.1 401 Unauthorized\nlogin_judged events: 1\n  alice Digest: refused\ntool error: no\n$'
+
+  - id: no-login
+    claim: With no login the upload is answered 401 once and no login is judged at all, since curl sent no credentials.
+    program: both-sides.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "http_code: 401\ncurl sent: > PUT /notes.txt HTTP/1.1\ncurl got: < HTTP/1.1 401 Unauthorized\nserver received: PUT /notes.txt HTTP/1.1\nserver sent: HTTP/1.1 401 Unauthorized\nlogin_judged events: 0\ntool error: no\n"
+
+  - id: uploads-allowed
+    claim: Against a server started with --allow-uploads the same upload is answered 201 Created.
+    program: both-sides.cs
+    args: [allowed]
+    expect:
+      exit: 0
+      stdout-matches: '^http_code: 201\n.*\nserver sent: HTTP/1\.1 201 Created\nlogin_judged events: 1\n  alice Digest: accepted\ntool error: no\n$'

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-serve-a-plain-http-endpoint]]
+=== Serving S3 over Plain HTTP
+
+==== Problem
+
+Your SDK points at a local S3 endpoint over http://, as with a MinIO container. You want the S3 server on plain HTTP, requests still signed and checked, and the warning it gives.
+
+==== Solution
+
+Start `surl` with `--s3-plaintext`, a folder and an account on an `s3` listen URL, and get an object with `curl` over `http://`, signing with `--aws-sigv4` and the account{apos}s access key and secret:
+
+include::.generated/solution.adoc[]
+
+The second server in the checked claims, with `--allow-uploads`, shows the put. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) is reached over Transport Layer Security (TLS) from the first byte, and so is `surl`{apos}s `s3` listener, which is why it needs a certificate and exits `58` without one. A local stand-in such as a MinIO container is usually reached over plain `http://`, and an SDK pointed at it with an `http://` endpoint does not speak TLS. `--s3-plaintext` serves every `s3` listen URL as plain Hypertext Transfer Protocol (HTTP) instead, so it needs no `--cert` (<<surl-readme>>). It loosens security, for tests only: anyone who can watch the network reads every object as it is sent, so `surl` warns on every start while it is on, `surl: warning: --s3-plaintext: s3 is served as plain HTTP, without TLS`. The first server writes its log with `--log-file surl.log`, at the verbose level `-v` gives, and the claims read the warning there. In the claims, `-s` silences `curl`{apos}s progress meter and `-S` puts the error message back.
+
+Plain HTTP removes the encryption and nothing else. Every request must still be signed with AWS Signature Version 4, the scheme S3 uses (<<aws-s3-api>>), by an account: `--user AKIAIOSFODNN7EXAMPLE:s3cret` gives `surl` an access key ID and its secret access key. `curl` signs a request to an ordinary URL when it is given `--aws-sigv4 aws:amz:us-east-1:s3`, the provider, the region and the service, with `-u` for the pair, and the signature proves the secret without sending it. `--directory store` is the store: each top-level folder is a bucket and the path under it the key, so the object `hello.txt` in `photos` is `http://127.0.0.1:8080/photos/hello.txt` in path style. An SDK that puts the bucket in the host name, `photos.s3.us-east-1.amazonaws.com`, is served too: `--connect-to ::127.0.0.1:8080` sends the connection to `surl` while `curl` keeps that name in the request and in the signature.
+
+The refusals are the ones the TLS listener gives, as the recipe <<s3-tell-the-refusals-apart>> shows. Over HTTP an S3 error is a `403` or `404` with an XML body whose `Code` says why, and `curl` exits `0` with the body on standard output unless it is given `-f`, which makes it exit `22` for any error status. A request with no signature is `403 AccessDenied`, an access key `surl` does not hold `403 InvalidAccessKeyId`, the right key with the wrong secret `403 SignatureDoesNotMatch`, and a name with no object `404 NoSuchKey`. Writes are a separate permission: without `--allow-uploads` a correctly signed put is `403 AccessDenied`, and with it, on the second server, the same put is accepted and the object is the file `writable/photos/up.txt`. `-T up.txt` puts the local file `up.txt`.
+
+`curl`{apos}s own `s3://` URL is a different thing. It means TLS from the first byte, and the bucket as the host, so aimed at this listener it ends at the handshake, exit `35`. The `curl: (35)` wording differs by platform; the exit code does not. Reach a plain-HTTP S3 endpoint with an `http://` URL, as above (<<curl-protocols>>). Where the URL says `s3://` and you want TLS, leave `--s3-plaintext` off and give `surl` a certificate.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-serve-a-plain-http-endpoint-in-csharp>> for the same task from a C# test.
+* <<s3-serve-a-plain-http-endpoint-from-an-agent>> for the same task with an agent.
+* <<s3-put-and-get-an-object>> for the TLS listener, the certificate and the signing.
+* <<s3-tell-the-refusals-apart>> for the refusals in full.
+* <<surl-readme>>, <<curl-protocols>>, <<aws-s3-api>>.

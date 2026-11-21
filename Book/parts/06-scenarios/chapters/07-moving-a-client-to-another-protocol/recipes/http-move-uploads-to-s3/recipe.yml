@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: http-move-uploads-to-s3
+title: Moving File Uploads to S3
+protocols: [http, s3]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --user, --allow-uploads, --list-directories, --auth, -v, --log-file]
+curl-options: [--cacert, --connect-to, -u, -T, -o, -w, -s, -S, --next]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, aws-s3-api, rfc9110, rfc7617]
+
+fixtures:
+  report.csv: "region,total\nnorth,1200\nsouth,950\n"
+  summary.csv: "total\n2150\n"
+  store/uploads/readme.txt: "uploads land here\n"
+  store2/uploads/readme.txt: "uploads land here\n"
+
+# One certificate for 127.0.0.1 and for every bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# move: one store, an s3 listener for the new client and an https listener for the old one, one key
+# pair for both, uploads on; -v --log-file records each login with its method.
+# cutover: the same with --auth aws-sigv4, so only signed requests are taken. Its own folder, since
+# one surl holds a folder at a time.
+servers:
+  move:
+    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads --list-directories -v --log-file surl.log s3://127.0.0.1:{{port}}/ https://127.0.0.1:{{port2}}/
+    ready: port
+  cutover:
+    command: surl --directory store2 --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads --auth aws-sigv4 s3://127.0.0.1:{{port3}}/ https://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The old client PUTs report.csv over HTTPS to /uploads/report.csv and the new client puts summary.csv over S3 as s3://uploads/summary.csv; one signed listing of the bucket names both, and both are files under store/uploads.
+    run: curl -sS --cacert server.pem -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv https://127.0.0.1:{{port2}}/uploads/report.csv --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T summary.csv s3://uploads/summary.csv --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://uploads/
+    expect:
+      exit: 0
+      stdout: "readme.txt\nreport.csv\nsummary.csv\n"
+      files:
+        store/uploads/report.csv: "region,total\nnorth,1200\nsouth,950\n"
+        store/uploads/summary.csv: "total\n2150\n"
+
+  - id: http-upload-logged
+    claim: The server's log names each upload that came over HTTP, with its path and status, so the test finds the uploads still to move.
+    run: 'grep -o "PUT /uploads/[a-z.]*: 20[14]" surl.log'
+    expect:
+      exit: 0
+      stdout: "PUT /uploads/report.csv: 201\n"
+
+  - id: methods-logged
+    claim: The log records the HTTP login as Basic and each S3 request as AWS4-HMAC-SHA256 for the same key ID, so the method tells the old client from the new.
+    run: 'grep -o "Login accepted: [A-Za-z0-9-]* AKIAIOSFODNN7EXAMPLE" surl.log'
+    expect:
+      exit: 0
+      stdout: "Login accepted: Basic AKIAIOSFODNN7EXAMPLE\nLogin accepted: AWS4-HMAC-SHA256 AKIAIOSFODNN7EXAMPLE\nLogin accepted: AWS4-HMAC-SHA256 AKIAIOSFODNN7EXAMPLE\n"
+
+  - id: http-read-over-s3
+    claim: The file the old client uploaded over HTTPS is the object s3://uploads/report.csv, byte for byte.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -o back.csv s3://uploads/report.csv && cmp back.csv report.csv && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: s3-read-over-http
+    claim: The object the new client put over S3 is served over HTTPS at /uploads/summary.csv, byte for byte.
+    run: curl -sS --cacert server.pem -u AKIAIOSFODNN7EXAMPLE:s3cret -o back2.csv https://127.0.0.1:{{port2}}/uploads/summary.csv && cmp back2.csv summary.csv && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: http-status-codes
+    claim: Over HTTP a PUT that makes a file is answered 201 Created and one that replaces it 204 No Content.
+    run: curl -sS --cacert server.pem -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv -w "%{http_code}\n" https://127.0.0.1:{{port2}}/uploads/again.csv --next -sS --cacert server.pem -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv -w "%{http_code}\n" https://127.0.0.1:{{port2}}/uploads/again.csv
+    expect:
+      exit: 0
+      stdout: "201\n204\n"
+
+  - id: s3-status-codes
+    claim: Over S3 a put is answered 200 whether it makes the object or replaces it, so code that tests for 201 must change.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T summary.csv -w "%{http_code}\n" s3://uploads/twice.csv --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T summary.csv -w "%{http_code}\n" s3://uploads/twice.csv
+    expect:
+      exit: 0
+      stdout: "200\n200\n"
+
+  - id: http-needs-login
+    claim: An HTTP PUT with no login is answered 401, and curl exits 0 without -f.
+    run: curl -sS --cacert server.pem -T report.csv -w "%{http_code}\n" https://127.0.0.1:{{port2}}/uploads/nobody.csv
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: s3-unsigned
+    claim: An unsigned S3 put is refused 403 AccessDenied; curl writes nothing and exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -T summary.csv s3://uploads/nobody.csv
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied"
+
+  - id: s3-wrong-secret
+    claim: A put signed with the wrong secret is refused 403 SignatureDoesNotMatch, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:wrong -T summary.csv s3://uploads/nobody.csv
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: SignatureDoesNotMatch"
+
+  - id: cutover-refuses-http
+    claim: With --auth aws-sigv4 the old client's HTTPS PUT is answered 403, the right password included, and nothing is stored.
+    run: curl -sS --cacert server.pem -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv -w "%{http_code}\n" https://127.0.0.1:{{port4}}/uploads/report.csv && test ! -e store2/uploads/report.csv && echo absent
+    expect:
+      exit: 0
+      stdout: "403\nabsent\n"
+
+  - id: cutover-serves-s3
+    claim: On the same server the new client's S3 put is answered 200 and lands in the store.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv -w "%{http_code}\n" s3://uploads/report.csv
+    expect:
+      exit: 0
+      stdout: "200\n"
+      files:
+        store2/uploads/report.csv: "region,total\nnorth,1200\nsouth,950\n"

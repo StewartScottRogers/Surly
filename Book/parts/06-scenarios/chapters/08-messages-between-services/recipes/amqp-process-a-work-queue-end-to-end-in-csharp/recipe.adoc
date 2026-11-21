@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-process-a-work-queue-end-to-end-in-csharp]]
+=== Processing a Work Queue End to End
+
+==== Problem
+
+In a C# test you want jobs put in a durable queue, a worker to consume and acknowledge them, and the test to check the queue is empty afterwards, and what the server recorded, with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+One program starts a server with an Advanced Message Queuing Protocol (AMQP) listener, a Simple Text Oriented Messaging Protocol (STOMP) listener, a durable queue `jobs` and a data directory. It queues three jobs, runs a STOMP worker through a `CurlClient`, and checks the queue and the server's own record:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for an `amqp://` and a `stomp://` listener on port `0`, so the system picks free ports. Both sit on one message bus, so the queue `jobs` of AMQP 0-9-1 is the destination `/queue/jobs` of STOMP (<<surl-readme>>). `Queues` has `jobs;durable`, as `--queue` does, and `DataDirectory` is `--directory`, the folder the durable queue is kept in. `AllowAnonymous` is `--allow-anonymous`: it lets the worker and the app in with no login, and `surl` warns on every start while it is on, so it is for a test server. `RecordExchanges` makes the server keep what happened, for `FindEvents`.
+
+The app's jobs are put on the queue from the server's side: `server.Messages`, a `SurlServerMessages`, has `EnqueueAsync`, which queues a message on a queue that exists. This `Curl.Api` cannot publish over AMQP, so the console recipe's `curl -d` becomes `EnqueueAsync` here (<<amqp-process-a-work-queue-end-to-end>>).
+
+The worker is a STOMP client, because STOMP lets a subscriber hold a job and acknowledge it later. A `CurlClient` sends it: the program sends the whole session as the `Body` of a `CurlRequest` to a `telnet://` URL on the STOMP port, the way `curl -T` does, and the `CurlResponse` has what the server answered. Each frame ends in a NUL byte (<<stomp12>>). The session is `CONNECT`, `SUBSCRIBE` to `/queue/jobs` with `ack:client-individual`, an `ACK` for each message the worker acknowledges, and `DISCONNECT` with a receipt, so the session ends. The server numbers a connection's messages 1, 2 and 3, and the frames name them. The answer holds the three `MESSAGE` frames in the order queued and then the `RECEIPT`. The program sets a time limit of its own on the call with a `CancellationToken`, so a session that does not end fails the test instead of hanging it.
+
+The check is a `SurlQueuePage` from `BrowseQueueAsync`, which counts what is ready and what a consumer holds, and lists the ready messages, without taking any. After a worker that acknowledged every job, none is ready and none in flight. The server's record is `FindEvents` with a `SurlEventQuery` for the bus store: each result is a `StoreChangedEvent` whose `Change` says enqueued, delivered or acknowledged, and three jobs make three of each.
+
+The queue is durable and the server has a directory, so the jobs wait through a restart. The `restart` scenario queues `job-4` and `job-5`, disposes the server and starts another on the same `DataDirectory`, and the worker receives both, in order; then the queue is empty. The new server keeps a record of its own, so it saw no enqueued event, the jobs having come from disk, and two delivered and two acknowledged.
+
+A message with no acknowledgement is not gone. The `fails` scenario queues three jobs and runs a worker that acknowledges only the first two, as one that fails on the third would, and then disconnects. The worker received `job-8`, but the server never heard it was done, so `job-8` is ready again: `BrowseQueueAsync` counts one ready and none in flight. A receive with `Curl.Api`, a `GET` of `<BoundUrls[0]>%2F/jobs`, takes it, where `%2F` is the virtual host `/`, the only one `surl` serves (<<amqp091>>), and the queue is empty again. The record shows the story: three enqueued, four delivered because `job-8` went out twice, and three acknowledged, two by the worker and one by the receive.
+
+Without `AllowAnonymous` the server offers AMQP only CRAM-MD5, which `Curl.Api` does not use, so the app's receive throws a `CurlException` with `Code` `67`, `LoginDenied`, before anything is sent, and the STOMP worker is answered an `ERROR` frame.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-process-a-work-queue-end-to-end>> for the same task on the console.
+* <<amqp-process-a-work-queue-end-to-end-from-an-agent>> for the same task from an agent.
+* <<amqp-seed-a-queue-and-browse-what-is-left>> for seeding a queue and browsing it.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>, <<stomp12>>.

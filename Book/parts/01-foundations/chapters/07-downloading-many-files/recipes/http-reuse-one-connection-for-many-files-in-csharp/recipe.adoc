@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-reuse-one-connection-for-many-files-in-csharp]]
+=== Reusing One Connection in C#
+
+==== Problem
+
+Your C# client fetches many small files, one after another. You want them to share one kept-alive connection, and a test that proves it from the server{apos}s side: one recorded exchange for every request.
+
+==== Solution
+
+Make one `CurlClient` and send every request through it; read `NumConnects` from each response, and count the exchanges a `SurlServer` with `RecordExchanges` saw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` serves three files from memory on a free port, and `RecordExchanges = true` makes the `SurlServer` keep every exchange in `Exchanges`, one `SurlExchangeRecord` each. For Hypertext Transfer Protocol (HTTP) an exchange is one connection, from accept to close, whatever number of requests it carries (<<surl-readme>>). The program counts the exchanges after a warm-up request: the first `Curl.Api` request in a process pays a one-time set-up, so it goes on a client of its own, before the count starts.
+
+A `CurlClient` keeps a pool of connections, as `curl` keeps one for a command line (<<curl-readme>>). Over HTTP/1.1 a connection stays open after a response unless one side says otherwise (<<rfc9110>>), so the second `CurlRequest` finds the first one{apos}s connection idle and goes down it. `CurlResponse.Info.NumConnects` is `curl`{apos}s `%{num_connects}`: `1` when the request opened a connection, `0` when it reused one. The server agrees: one exchange for three requests. A new `CurlClient` for each request has a pool of its own each time, so each request opens a connection and the server sees three. That is the usual cause of a test suite that opens a connection per request: a client made in every test.
+
+The rest are the ways reuse ends. A `Connection: close` header in `CurlRequest.Headers` asks the server to close after answering, so even a shared client opens three connections. `CurlHttpOptions` with `HttpVersion.Http10` gets the same three, because the server answers an HTTP/1.0 request and closes. And the server closes a connection idle for longer than its `IdleTimeout`, 120 seconds unless set. A two-second pause between requests is well inside the default and the connection is reused. Against a server with `IdleTimeout` of one second, each pause outlasts it: the server closes the connection, and the client sees it closed and opens a new one, with no exception and three exchanges in all.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-reuse-one-connection-for-many-files>> for the same task on the console.
+* <<http-reuse-one-connection-for-many-files-from-an-agent>> for an agent proving reuse with `get_exchanges`.
+* <<http-download-several-files-at-once-in-csharp>> for requests sent side by side, which need connections of their own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

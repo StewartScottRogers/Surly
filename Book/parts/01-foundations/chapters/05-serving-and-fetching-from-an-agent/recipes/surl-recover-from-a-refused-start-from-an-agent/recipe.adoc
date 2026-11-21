@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-recover-from-a-refused-start-from-an-agent]]
+=== Recovering from a Refused Start
+
+==== Problem
+
+Your artificial intelligence (AI) agent's `start_server` call is refused. You want it to read `surl`{apos}s exit code and message from the refusal, change the option they name, and start the server again, rather than retry blindly or give up.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It calls `surl-mcp`{apos}s `start_server`; on a refusal it reads `exit_code`, `exit_code_name` and `lines`, applies the one fix that code calls for, calls `start_server` again, and fetches a file with `curl-mcp`{apos}s `transfer` to show the server is up:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `listen_urls`, `surl`{apos}s listen URLs, `arguments`, `surl`{apos}s other options in its own words, and `files`, in-memory content as relative path and text. Each refusal below carries the code and the message `surl` gives for the same mistake on a command line, without the `surl: ` prefix. The refusal is a tool error, `IsError` on the result, whose structured content holds `exit_code`, the code `surl` would have exited with, `exit_code_name`, its name, and `lines`, `surl`{apos}s message. An agent acts on the code and reads the message for the detail; `surl --aihelp exit-codes` gives each code's meaning and next step (<<surl-readme>>), and the program's fixes follow that table.
+
+The four mistakes here each have one fix:
+
+* `58` `CertificateProblem`: an `https` listen URL with no certificate. The message itself names the fixes, `--cert <file>` or `--self-signed`; the agent adds `--self-signed`, which makes a throwaway certificate and is meant for tests. `transfer` then needs `insecure` true, because nobody signed that certificate.
+* `2` `FailedInit`: an option or its value that cannot be used, here `--max-time soon`. The message names the option, `option --max-time: expected a proper numerical parameter`, so the agent can change that one value, to `30`, and leave the rest alone.
+* `37` `CouldNotReadFile`: `--directory sites` names a folder that does not exist. `surl` creates no folder for you; the agent drops `--directory` and serves the file from `files` instead.
+* `3` `MalformedUrl`: a listen URL with a path, `http://127.0.0.1:0/site/`. A listen URL is `scheme://host:port` and nothing more, so the agent strips the path.
+
+After each fix the second `start_server` answers with `bound_urls`, and `transfer` fetches `hello.txt` from there, `200`; its `timeoutSeconds` bounds the call. The program makes one fix and one second try only. A code it has no fix for is passed on rather than guessed at: `htp://`, a scheme `surl` does not serve, is `1` `UnsupportedProtocol`, and the program stops and exits `1`. An agent that retried every refusal unchanged would only get the same refusal again, and one that loosened options until something started could end up serving what it should not.
+
+A port already in use is `45` `BindFailed`, and its fix, port 0, is the subject of <<surl-recover-when-a-port-is-taken-from-an-agent>>. `curl-mcp` answers `transfer` in text, parsed here as JavaScript Object Notation (JSON) (<<curl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-recover-when-a-port-is-taken-from-an-agent>> for the refusal of a port already bound.
+* <<http-serve-and-fetch-from-an-agent>> for `start_server` and `transfer` when nothing goes wrong.
+* <<surl-readme>>, <<curl-readme>>.

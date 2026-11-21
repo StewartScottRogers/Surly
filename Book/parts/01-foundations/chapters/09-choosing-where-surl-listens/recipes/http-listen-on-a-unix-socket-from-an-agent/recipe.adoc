@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-listen-on-a-unix-socket-from-an-agent]]
+=== Serving on Unix Sockets from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to start a Hypertext Transfer Protocol (HTTP) server on a Unix domain socket file rather than a port, and to fetch through it with `curl`{apos}s `--unix-socket`, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it calls `surl-mcp`{apos}s `start_server` with one listen URL and `--unix-socket surl.sock` in `arguments`, then `curl-mcp`{apos}s `curl` tool with `--unix-socket surl.sock` and the URL, reads the exchange back with `get_exchanges` and stops the server with `stop_server`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in. The first argument after `--` picks the scenario; the second is a free port, which the listen URL names and nothing opens.
+
+`start_server` takes `surl`{apos}s listen URLs in `listen_urls` and any other `surl` option in `arguments`, as `surl`{apos}s own words. With `--unix-socket surl.sock` the server listens on that file, resolved inside `SURL_MCP_ROOT`, and the listen URL{apos}s host and port are only the names it expects in requests. Its answer{apos}s `log_lines` holds the `Listening on` line, which names the listen URL and then `over unix://` and the socket path; `bound_urls` is the listen URL as given. A socket path outside the root is refused before anything starts: an agent may not make files where its host was not told it could. A path where a file already exists is a tool error carrying `surl`{apos}s own `exit_code` `45`, `BindFailed`, and the file is left as it was, because `surl` never deletes a file it did not make (<<surl-readme>>).
+
+`curl-mcp` has two ways to make a request, and only one reaches a socket. The `curl` tool runs `curl`{apos}s command line, so `--unix-socket surl.sock` connects to the file and sends the request for the URL; `-s` keeps it quiet and `-w "%{http_code}\n"` adds the status after the body (<<curl-manual>>). Like `-o`, the socket path is checked against `CURL_MCP_ROOT`: `../surl.sock` is refused as `PathRefused` before `curl` runs. The `transfer` tool describes a request by fields, and none of them is a socket, so it connects over the Transmission Control Protocol (TCP) to the listen URL{apos}s port, finds nothing, and fails with `failure` `kind` `CurlExit` and `exitCode` `7`.
+
+`get_exchanges` shows what the server saw: one exchange whose `client` is `unix peer`, since a socket file has no address and port, and whose request head carries `Host: localhost` and the port from the URL, the only place the URL{apos}s host and port go. `stop_server` answers `exit_code_name` `Ok` and the socket file is gone. The scenarios that never call `stop_server` leave their host to be ended with the program, so each has a socket file of its own, and none starts on a file another left behind.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-listen-on-a-unix-socket>> for the same task on the console.
+* <<http-listen-on-a-unix-socket-in-csharp>> for the same server and client in one .NET program.
+* <<http-serve-and-fetch-from-an-agent>> for `start_server` and `transfer` over TCP.
+* <<surl-readme>>, <<curl-manual>>.

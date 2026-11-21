@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: pop3-move-a-mail-client-to-imap
+title: Moving a Mail Client to IMAP
+protocols: [pop3, imap, smtp]
+tier: scenarios
+surl-options: [--mail-domain, --mailbox, -v, --log-file]
+curl-options: [-u, -o, -X, -w, -s, -S, --next, --crlf, --mail-from, --mail-rcpt, -T, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc1939, rfc9051, rfc5321]
+
+fixtures:
+  order1.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 1\n\nfirst order\n"
+  order2.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 2\n\nsecond order\n"
+
+# main: one mail store served three ways; SMTP delivers, POP3 and IMAP read the same mailbox.
+# SMTP is listed first, so the readiness check is an SMTP connection and the log's POP3 sessions
+# are the cases' own. -v --log-file records each session.
+# cutover: the same, with the mailbox's logins limited to SMTP and IMAP, so POP3 is closed to it.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:s3cret -v --log-file surl.log smtp://127.0.0.1:{{port}}/ pop3://127.0.0.1:{{port2}}/ imap://127.0.0.1:{{port3}}/
+    ready: port
+  cutover:
+    command: surl --mail-domain example.com --mailbox "ann@example.com:s3cret;protocols=smtp,imap" smtp://127.0.0.1:{{port4}}/ pop3://127.0.0.1:{{port5}}/ imap://127.0.0.1:{{port6}}/
+    ready: port
+
+# Two orders for ann on each server, then a bounded wait over IMAP until the second is stored.
+seed:
+  - curl -sS --crlf -u ann@example.com:s3cret --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[1-2].eml" smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:s3cret -X "FETCH 2 FLAGS" imap://127.0.0.1:{{port3}}/INBOX
+  - curl -sS --crlf -u ann@example.com:s3cret --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[1-2].eml" smtp://127.0.0.1:{{port4}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:s3cret -X "FETCH 2 FLAGS" imap://127.0.0.1:{{port6}}/INBOX
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first message fetched over POP3 and the message with UID 1 fetched over IMAP from the same mailbox are byte for byte the same.
+    run: curl -sS -u ann@example.com:s3cret -o over-pop3.eml pop3://127.0.0.1:{{port2}}/1 --next -sS -u ann@example.com:s3cret -o over-imap.eml "imap://127.0.0.1:{{port3}}/INBOX;UID=1" && cmp over-pop3.eml over-imap.eml && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: pop3-lists
+    claim: The POP3 listing has the two messages, one a line with its number and size.
+    run: curl -sS -u ann@example.com:s3cret pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\r?\n2 \d+\r?\n$'
+
+  - id: imap-sees-same
+    claim: An IMAP search of INBOX finds the same two messages.
+    run: curl -sS -u ann@example.com:s3cret "imap://127.0.0.1:{{port3}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 2\n"
+
+  - id: uidl-is-uid
+    claim: Each POP3 unique ID ends in the message's IMAP UID after the dot, so a client's record of what it has seen carries over.
+    run: curl -sS -u ann@example.com:s3cret -X UIDL pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\.1\r?\n2 \d+\.2\r?\n$'
+
+  - id: imap-marks-seen
+    claim: The IMAP fetch marked message 1 as seen, so a search for unseen mail finds only message 2.
+    run: curl -sS -u ann@example.com:s3cret "imap://127.0.0.1:{{port3}}/INBOX?UNSEEN"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 2\n"
+
+  - id: pop3-sets-no-flag
+    claim: A POP3 retrieve sets no flag, so message 2 is still unseen after it.
+    run: curl -sS -u ann@example.com:s3cret -o {{null}} pop3://127.0.0.1:{{port2}}/2 && curl -sS -u ann@example.com:s3cret "imap://127.0.0.1:{{port3}}/INBOX?UNSEEN"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 2\n"
+
+  - id: left-on-server
+    claim: Reading leaves both messages on the server; STATUS counts two, one unseen.
+    run: curl -sS -u ann@example.com:s3cret -X "STATUS INBOX (MESSAGES UNSEEN)" imap://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 2 UNSEEN 1)\n"
+
+  - id: old-client-in-log
+    claim: The server's log has a Maildrop opened line for each POP3 session, so counting them finds the client still polling POP3; here the four the cases opened.
+    run: 'grep -c "Maildrop opened: 2 messages" surl.log'
+    expect:
+      exit: 0
+      stdout: "4\n"
+
+  - id: wrong-password
+    claim: A wrong password is exit 67 over both protocols, so a handler that tests for it survives the move.
+    run: curl -sS -u ann@example.com:wrong -o {{null}} -w "%{exitcode}\n" pop3://127.0.0.1:{{port2}}/ --next -sS -u ann@example.com:wrong -o {{null}} -w "%{exitcode}\n" "imap://127.0.0.1:{{port3}}/INBOX?ALL"
+    expect:
+      exit: 67
+      stdout: "67\n67\n"
+
+  - id: old-client-deletes
+    claim: A POP3 delete removes the message for IMAP too, since both read one store, which is why the old client must stop before the new one relies on mail staying.
+    run: curl -sS -u ann@example.com:s3cret -X "DELE 1" pop3://127.0.0.1:{{port2}}/ && curl -sS -u ann@example.com:s3cret -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: cutover-refuses-pop3
+    claim: On the server whose mailbox is limited to protocols=smtp,imap a POP3 login is refused, the right password included, exit 67.
+    run: curl -sS -u ann@example.com:s3cret pop3://127.0.0.1:{{port5}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"
+
+  - id: cutover-serves-imap
+    claim: The IMAP client on the same server still reads the mailbox, which still takes mail over SMTP.
+    run: curl -sS -u ann@example.com:s3cret "imap://127.0.0.1:{{port6}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 2\n"

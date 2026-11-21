@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-cancel-a-download-midway
+title: Cancelling a Download Midway
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, ExchangeEndedEvent, CurlClient, CurlClientOptions, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Cancelling the token given to SendAsync once 1 MiB of a 64 MiB body has been read makes the next body read throw OperationCanceledException, within 2 s.
+    program: program.cs
+    args: [cancel]
+    expect:
+      exit: 0
+      stdout: "big.bin: 200 OK, Content-Length 67108864\nread before stopping: 1 MiB\nnext read: OperationCanceledException\nstopped within 2 s: yes\nserver's exchange ended, sent: under 16 MiB of 64 MiB\nnext: 200 hello from surl, new connection: yes\n"
+
+  - id: server-stops-sending
+    claim: After the cancel the server's exchange ends, having sent under 16 MiB of the 64 MiB file.
+    program: program.cs
+    args: [cancel]
+    expect:
+      exit: 0
+      stdout-matches: "\nserver's exchange ended, sent: under 16 MiB of 64 MiB\n"
+
+  - id: client-goes-on
+    claim: The next request on the same client is answered 200, over a new connection.
+    program: program.cs
+    args: [cancel]
+    expect:
+      exit: 0
+      stdout-matches: "\nnext: 200 hello from surl, new connection: yes\n$"
+
+  - id: dispose
+    claim: Disposing the body stream after 1 MiB, with no token, stops the transfer the same way, the server's exchange ending under 16 MiB.
+    program: program.cs
+    args: [dispose]
+    expect:
+      exit: 0
+      stdout: "big.bin: 200 OK, Content-Length 67108864\nread before stopping: 1 MiB\nbody disposed\nstopped within 2 s: yes\nserver's exchange ended, sent: under 16 MiB of 64 MiB\nnext: 200 hello from surl, new connection: yes\n"

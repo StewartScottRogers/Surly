@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-move-a-mail-client-to-imap]]
+=== Moving a Mail Client to IMAP
+
+==== Problem
+
+Your mail client polls a mailbox over the Post Office Protocol version 3 (POP3), downloading each message and deleting it. You want to switch it to the Internet Message Access Protocol (IMAP), prove that it sees the same messages, and leave them on the server instead of deleting them.
+
+==== Solution
+
+Serve one mailbox over SMTP, POP3 and IMAP from one `surl`, deliver two messages, fetch the first both ways in one `curl` command line and compare the copies with `cmp`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` with several mail listeners runs them over one mail store: the Simple Mail Transfer Protocol (SMTP) listener delivers, and the POP3 and IMAP listeners read the same mailboxes. That is what makes the move testable: the only thing that changes is the protocol. Each listener is Transmission Control Protocol (TCP), so each has a port of its own. `--mail-domain example.com` is the domain the server takes mail for, and `--mailbox ann@example.com:s3cret` makes a mailbox and the account that reads it, named by the whole address. `-v` makes the log detailed and `--log-file surl.log` writes it to a file the cases read.
+
+The seed delivers two orders with `curl` over SMTP: `--mail-from` and `--mail-rcpt` are the envelope, `-T "order[1-2].eml"` sends both files in one session, and `--crlf` gives them the line ends mail needs (<<rfc5321>>). Delivery finishes after `curl` returns, so the seed then asks IMAP for message 2 until it is there: `--retry 10` tries up to ten more times, `--retry-all-errors` counts a missing message as worth retrying, and `--retry-delay 1` waits a second between tries.
+
+POP3 and IMAP address the same message differently. POP3 numbers the messages of a session, `pop3://.../1` (<<rfc1939>>); IMAP gives each a unique identifier (UID) in its folder, `imap://.../INBOX;UID=1` (<<rfc9051>>). Fetched both ways, with `-u` for the account and `-o` for the file, the first message is the same bytes; `--next` starts the second transfer with its own options, `-s` keeps the progress meter away and `-S` still shows an error. The POP3 listing has one line per message with its number and size, and an IMAP search, `INBOX?ALL`, finds the same two. `-X UIDL` asks POP3 for each message{apos}s unique ID, and `surl`{apos}s ends in the IMAP UID after the dot, so a client that remembers which IDs it has seen can carry that record over.
+
+Leaving mail on the server needs a way to know what was read, and that is what IMAP flags are for. `curl`{apos}s IMAP fetch marks the message seen, so a search for `UNSEEN` mail finds only message 2: the new client polls with that search instead of deleting. A POP3 retrieve sets no flag; message 2 is still unseen after it. `STATUS` counts what the mailbox holds, two messages, one unseen. Nothing was deleted.
+
+The log shows which client still uses the old protocol. Each POP3 login is followed by a line `Maildrop opened: 2 messages, N octets`, so counting those lines counts the POP3 sessions: four here, the ones the cases opened. A wrong password is exit `67` over both protocols, as `-w "%{exitcode}\n"` prints after each transfer, so a handler that tests for it survives the move.
+
+The old client must stop before the new one relies on mail staying. Both read one store, so a POP3 `-X "DELE 1"` removes the message for IMAP too, and `STATUS` then counts one.
+
+Turning POP3 off for the mailbox is the failure path, rehearsed on the `cutover` server. `;protocols=smtp,imap` after the password limits which protocols the account may log in on. POP3 refuses it, the right password included, and `curl` exits `67`; IMAP still reads both messages, which SMTP still delivered.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-move-a-mail-client-to-imap-in-csharp>> and <<pop3-move-a-mail-client-to-imap-from-an-agent>> for the same move in C# and from an agent.
+* <<pop3-retrieve-and-delete-a-message>> for the old client by itself.
+* <<imap-check-unread-counts>> for the unseen counts.
+* <<imap-keep-a-mailbox-off-smtp>> for `;protocols=`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1939>>, <<rfc9051>>, <<rfc5321>>.

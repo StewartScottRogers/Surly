@@ -1,0 +1,125 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# No servers: block. verify's readiness check waits on a TCP port, and a surl on a Unix socket
+# opens none, so on-a-socket.sh starts its own surl and waits for the Listening on line.
+schema: 1
+key: http-listen-on-a-unix-socket
+title: Listening on a Unix Socket
+protocols: [http]
+tier: foundations
+surl-options: [--unix-socket, --directory]
+curl-options: [--unix-socket, -s, -o, -w]
+exit-codes: [0, 2, 7, 45]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello over a socket\n"
+  taken.sock: "not a socket\n"
+  on-a-socket.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Serves site/ on the Unix socket file <socket>, waits until surl listens, runs <command>
+    # with SURL_PID set to surl's process ID, then stops surl. Exits with the command's exit code.
+    # Usage: sh on-a-socket.sh <socket> <listen URL> <command> [<argument>...]
+    socket=$1; url=$2; shift 2
+    surl --directory site --unix-socket "$socket" "$url" > surl.out &
+    SURL_PID=$!
+    export SURL_PID
+
+    # surl writes "Listening on" once the socket file is bound. If it exits first, it refused
+    # to start: pass its exit code on.
+    tries=0
+    until grep -q '^Listening on ' surl.out 2>/dev/null; do
+      if ! kill -0 "$SURL_PID" 2>/dev/null; then wait "$SURL_PID"; exit; fi
+      tries=$((tries + 1))
+      if [ "$tries" -ge 300 ]; then echo "surl wrote no Listening on line" >&2; exit 1; fi
+      sleep 0.1
+    done
+    cat surl.out
+
+    "$@"
+    status=$?
+    kill "$SURL_PID" 2>/dev/null
+    wait "$SURL_PID"
+    exit "$status"
+  kill-it.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Stands in for a crash: kills the surl that on-a-socket.sh started, outright, and waits
+    # until it is gone.
+    kill -9 "$SURL_PID"
+    while kill -0 "$SURL_PID" 2>/dev/null; do sleep 0.1; done
+
+cases:
+  - id: solution
+    role: solution
+    claim: surl started with --unix-socket listens on the socket file and says so in its Listening on line, and curl --unix-socket fetches a file through it.
+    run: sh on-a-socket.sh surl.sock http://localhost:{{port}}/ curl -s --unix-socket surl.sock http://localhost:{{port}}/hello.txt
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '^Listening on http://localhost:\d+/ over unix://surl\.sock\nhello over a socket\n$'
+
+  - id: host-is-only-a-name
+    claim: Through the socket the URL's host is never looked up or connected to; it only names the server in the request, so a host that does not exist is answered 200 all the same.
+    run: sh on-a-socket.sh any.sock http://localhost:{{port}}/ curl -s -o {{null}} -w "%{http_code}\n" --unix-socket any.sock http://files.example/hello.txt
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\n200\n$'
+
+  - id: no-tcp-port
+    claim: The port in the listen URL is not opened; curl without --unix-socket finds nothing listening on it and exits 7.
+    run: sh on-a-socket.sh tcp.sock http://localhost:{{port}}/ curl -s -o {{null}} -w "%{exitcode}\n" http://localhost:{{port}}/hello.txt
+    timeout: 60
+    expect:
+      exit: 7
+      stdout-matches: '\n7\n$'
+
+  - id: file-exists
+    claim: A path where a file already exists is refused with exit 45 before surl listens, and the file is left as it was.
+    run: surl --unix-socket taken.sock http://localhost:{{port}}/
+    timeout: 60
+    expect:
+      exit: 45
+      stderr-contains: "surl: (45) Could not bind http://localhost:"
+      files:
+        taken.sock: "not a socket\n"
+
+  - id: left-by-a-crash
+    claim: A surl killed outright cannot remove its socket file, so the next surl on that path exits 45 until the file is deleted.
+    run: sh on-a-socket.sh dead.sock http://localhost:{{port}}/ sh kill-it.sh && surl --unix-socket dead.sock http://localhost:{{port}}/
+    timeout: 60
+    expect:
+      exit: 45
+      stderr-contains: "surl: (45) Could not bind http://localhost:"
+
+  - id: removed-on-stop
+    platforms: [linux, macos]
+    claim: On Linux and macOS surl removes its socket file when it is stopped with SIGTERM.
+    run: sh on-a-socket.sh stop.sock http://localhost:{{port}}/ true && test ! -e stop.sock
+    timeout: 60
+    expect:
+      exit: 0
+
+  - id: left-on-windows
+    platforms: [windows]
+    claim: On Windows Git Bash's kill ends surl outright rather than signalling it, so the socket file stays behind as it does after a crash.
+    run: sh on-a-socket.sh stop.sock http://localhost:{{port}}/ true && test -e stop.sock
+    timeout: 60
+    expect:
+      exit: 0
+
+  - id: one-listen-url
+    claim: A Unix socket carries one listen URL; a second is refused as a bad command line, exit 2.
+    run: surl --unix-socket two.sock http://localhost:{{port}}/ http://localhost:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --unix-socket: serves one listen URL, and 2 were given"
+
+  - id: no-udp
+    claim: A scheme that listens on UDP, tftp here, is refused on a Unix socket as a bad command line, exit 2.
+    run: surl --unix-socket udp.sock tftp://localhost:{{port}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --unix-socket: tftp listens on UDP"

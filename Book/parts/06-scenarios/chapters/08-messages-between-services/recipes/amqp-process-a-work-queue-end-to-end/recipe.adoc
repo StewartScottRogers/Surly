@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-process-a-work-queue-end-to-end]]
+=== Processing a Work Queue End to End
+
+==== Problem
+
+You want jobs put in a durable queue, a worker to consume and acknowledge them, and the test to check the queue is empty afterwards, and to see what happens to a job the worker does not acknowledge.
+
+==== Solution
+
+Start one `surl` with an AMQP listener for the app, a Simple Text Oriented Messaging Protocol (STOMP) listener for the worker, a durable queue `jobs` and a directory. The app queues three jobs with `curl -d`, and the worker, a file of STOMP frames sent with `-T`, subscribes, acknowledges each job and disconnects:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both listeners sit on one message bus, so the queue `jobs` of Advanced Message Queuing Protocol (AMQP) 0-9-1 is the destination `/queue/jobs` of STOMP (<<surl-readme>>). The app is `curl` over AMQP: `-d job-1` on `amqp://host:port/%2F/jobs` queues one message, where `%2F` is the virtual host `/`, the only one `surl` serves (<<amqp091>>). The worker is a STOMP client, because STOMP lets a subscriber hold a job and acknowledge it later, and a test that checks acknowledgement needs that. `curl -T` sends a file of frames to a `telnet://` URL and writes what comes back, so `worker.stomp` is the whole session: `CONNECT`, `SUBSCRIBE` to `/queue/jobs` with `ack:client-individual`, an `ACK` for each message, and `DISCONNECT` with a receipt, so the session ends and `curl` exits `0`. Each frame ends in a NUL byte (<<stomp12>>). The server numbers the messages of a connection 1, 2 and 3, and the `ACK` frames name them. The output holds `MESSAGE` frames for `job-1`, `job-2` and `job-3` in the order queued, then the `RECEIPT`.
+
+The test's check is a receive from the queue with `curl` and no `-d`. After a worker that acknowledged every job, the queue is empty: nothing is written, exit `0`. An empty AMQP 0-9-1 queue is not an error.
+
+The queue is durable and the server has a directory, so jobs wait through a restart. The program queues `job-4` and `job-5`, stops the server outright and starts it again with the same command (the case does this with `restart:`), and the worker receives both, in order. After it acknowledged them the queue is empty again. A message with no acknowledgement is not gone: the failure path queues three jobs and runs `two.stomp`, a worker that acknowledges only the first two, as one that fails on the third would, and then disconnects. The worker received `job-8`, but the server never heard it was done, so `job-8` is ready again, and only it: the next receive writes `job-8`, and the one after finds the queue empty. A test that checks the queue is empty afterwards fails here, which is its job.
+
+`--allow-anonymous` lets the app and the worker in with no login, and `surl` warns on start while it is on; use it for a test server. The second server in the recipe leaves it out and the app is refused: the AMQP 0-9-1 listener offers only CRAM-MD5, which `curl` does not use, so `curl` stops before it sends anything, exit `67`. The STOMP listener answers the worker's `CONNECT` with an `ERROR` frame, `Authentication failed`, and the worker receives nothing. `-s` keeps the progress meter out of `curl`{apos}s output and `-S` puts its error messages back. `--directory data` is the folder `surl` writes the durable queue to, and `--queue "jobs;durable"` makes the queue exist from the start and marks it to keep. `-m 10` stops a worker session that does not end after ten seconds, and `-T worker.stomp` sends the file of frames.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-send-and-receive>> for sending, receiving and the login rules.
+* <<amqp-keep-a-queue-across-restarts>> for what a restart keeps.
+* <<amqp-process-a-work-queue-end-to-end-in-csharp>> for the same task in a C# test.
+* <<amqp-process-a-work-queue-end-to-end-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<amqp091>>, <<stomp12>>.

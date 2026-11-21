@@ -1,0 +1,45 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks how the upload job runs.
+schema: 2
+key: ftp-find-what-an-upload-left-from-an-agent
+title: Finding What an Upload Left
+protocols: [ftp]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, list_files, read_file, get_events]
+exit-codes: [1]
+references: [surl-readme, curl-readme, rfc959]
+
+# The job's local files, in the folder both hosts are confined to.
+fixtures:
+  out/daily.csv: "day,total\nmon,3\n"
+  out/weekly.csv: "week,total\n47,21\n"
+  out/monthly.csv: "month,total\nnov,90\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A job that uploads three files over FTP with one curl call exits 0 although the middle upload, into a folder that does not exist, failed with 9; list_files and read_file show the other two stored with the local bytes and that file missing.
+    program: program.cs
+    args: [job]
+    expect:
+      exit: 1
+      stdout: "job: curl exit 0; per file: /reports/daily.csv 0 | /archive/weekly.csv 9 | /reports/monthly.csv 0\n/reports: README.txt (18 bytes), daily.csv (16 bytes), monthly.csv (19 bytes)\n/archive: No folder at /archive.\n/reports/daily.csv: same as out/daily.csv\n/archive/weekly.csv: missing (No file at /archive/weekly.csv.)\n/reports/monthly.csv: same as out/monthly.csv\nwritten: /reports/daily.csv, /reports/monthly.csv\nverdict: 1 of 3 files did not land; the job exited 0\n"
+
+  - id: store-events-agree
+    claim: The server's store_changed events list a written change for exactly the two files that landed.
+    program: program.cs
+    args: [job]
+    expect:
+      exit: 1
+      stdout-matches: "\nwritten: /reports/daily.csv, /reports/monthly.csv\n"
+
+  - id: fail-early
+    claim: With --fail-early the job stops at the failed upload and exits 9, so the third file is never sent and is missing from the store too.
+    program: program.cs
+    args: [fail-early]
+    expect:
+      exit: 1
+      stdout: "job: curl exit 9; per file: /reports/daily.csv 0 | /archive/weekly.csv 9\n/reports: README.txt (18 bytes), daily.csv (16 bytes)\n/archive: No folder at /archive.\n/reports/daily.csv: same as out/daily.csv\n/archive/weekly.csv: missing (No file at /archive/weekly.csv.)\n/reports/monthly.csv: missing (No file at /reports/monthly.csv.)\nwritten: /reports/daily.csv\nverdict: 2 of 3 files did not land; the job exited 9\n"

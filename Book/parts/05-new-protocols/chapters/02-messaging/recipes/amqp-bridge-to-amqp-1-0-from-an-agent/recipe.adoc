@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-bridge-to-amqp-1-0-from-an-agent]]
+=== Bridging AMQP Versions from an Agent
+
+==== Problem
+
+One service publishes with RabbitMQ's Advanced Message Queuing Protocol (AMQP) 0-9-1 client and another receives with an AMQP 1.0 client. You want an artificial intelligence (AI) agent to send a message to a queue on one version and receive it from the same address on the other, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts one server with a listener for each version, sends over AMQP 0-9-1 with the `curl` tool and receives over AMQP 1.0:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each host to the folder the program runs in. The argument after `--` picks the scenario.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` has an `amqp://` and an `amqp1://` listener on port `0`, so the system picks free ports, and `arguments` gives the account `alice` and `--allow-plaintext-auth`. The answer's `server_id` names the server for the other `surl-mcp` tools, and `bound_urls` holds the real URL of each listener, in the order asked. Both listeners share one message bus (<<surl-readme>>).
+
+The `curl` tool runs `curl` in-process with the arguments the agent gives it. `-d hello` sends, and a URL with no `-d` receives one message. An AMQP 0-9-1 URL names a virtual host and then the queue, `amqp://host:port/%2F/orders`, where `%2F` is the virtual host `/`, the only one `surl` serves; an AMQP 1.0 URL has only the address, `amqp1://host:port/orders` (<<amqp091>>, <<amqp10>>, <<curl-protocols>>). The answer is text, as JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`, each with its `content`; the program prints them on one line, and a failed call is also marked as a tool error. `-s` keeps the progress meter out and `-S` keeps the error message in, `-u alice:s3cret` logs in as the account, and `-m` is curl's time limit in seconds.
+
+A send is asynchronous: `curl` returns once the message is handed over, not once the bus has it. The program calls `wait_for_event` with `kinds` `store_changed` and `store` `bus`, which waits, for at most `timeout_ms`, for an event after `after_sequence`, and it goes on when the event's `change` is `enqueued`. It carries on from the last sequence it saw, so an event for an earlier receive cannot be taken for the send. There is no fixed pause. The message sent over AMQP 0-9-1 is received over AMQP 1.0 with exit `0` and the body as output, and the reverse holds. Behind both listeners is one queue, one copy: the message taken over AMQP 1.0 is gone, a receive over AMQP 0-9-1 answers exit `0` with empty output, and `browse_queue`, which lists what is ready without taking it, counts nothing ready and nothing in flight. When both versions send, the messages come out in the order sent.
+
+An empty AMQP 0-9-1 queue answers at once with empty output. An empty AMQP 1.0 address does not answer: the receive waits for a message to arrive, so every receive carries `-m`. The address is the queue's name and nothing more, so a message sent to `orders` is not at `refunds`, where `-m 2` ends the wait with exit `28`, a tool error, and the message is still on `orders` afterwards.
+
+The login is checked on both listeners. A wrong password is exit `67`, a tool error: over AMQP 1.0 the message names SASL outcome code `1`, and over AMQP 0-9-1 `connection.close` 403, `ACCESS_REFUSED`. The Simple Authentication and Security Layer (SASL) is the login step of AMQP 1.0. `--allow-plaintext-auth` loosens `surl`{apos}s defaults, so the account can log in without TLS, and `surl` warns on start. Without it the `locked` scenario starts the same server: the AMQP 1.0 listener does not offer SASL PLAIN, the AMQP 0-9-1 listener offers only CRAM-MD5, which `curl` does not use, and `curl` stops before it sends the password, exit `67`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-bridge-to-amqp-1-0>> for the same task on the console.
+* <<amqp-bridge-to-amqp-1-0-in-csharp>> for the same task in a C# test.
+* <<amqp-send-and-receive>> for sending, receiving and the login rules.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<amqp091>>, <<amqp10>>.

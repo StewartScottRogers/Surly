@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-in-parallel-segments-in-csharp]]
+=== Downloading in Parallel Segments in C#
+
+==== Problem
+
+Your client fetches large files as several byte ranges at once. From a C# test with `Surl.Api` and `Curl.Api`, you want a file fetched in ranges and joined byte for byte, and the ranges as the server received them.
+
+==== Solution
+
+Ask for the size with a `HEAD` request, send one `GET` per range with a `Range` header, all at once on one `CurlClient`, copy each body to its offset, compare digests, and read the ranges back from the server{apos}s `Exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` serves 1,000,000 bytes from memory, made by a `Random` with a fixed seed so every run serves the same file. `RecordExchanges = true` makes the `SurlServer` keep each exchange as a `SurlExchangeRecord`, whose `Received` holds every byte the client sent. For Hypertext Transfer Protocol (HTTP) an exchange is one connection (<<surl-readme>>).
+
+`Curl.Api` has no range option; a range is a header, `Range: bytes=first-last`, both ends counted (<<rfc9110>>), in the `Headers` of a `CurlRequest`. The `HEAD` request gives the size in `Content-Length`, and the program divides it by the number of segments, rounding up, so three segments are 333,334 bytes and the last stops at the last byte. `Task.WhenAll` starts every `SendAsync` together on the one `CurlClient`, which runs them side by side. Each `CurlResponse` is `206 Partial Content` with a `Content-Range` naming the bytes sent and the whole length, and its `Body` is copied to that offset in the result, so the order the transfers finish in does not matter. The check is a SHA-256 digest of the joined bytes against the original{apos}s. A range that starts past the end is answered `416 Range Not Satisfiable`, `Content-Range: bytes */1000000`, as an ordinary `CurlResponse`: nothing throws, and a client that does not look at `StatusCode` would join an empty part.
+
+The server{apos}s side comes from `server.Exchanges`: the program reads each exchange{apos}s `Received` as text and keeps the `Range` lines. The four ranges are the four sent. How many connections carried them depends on timing: over loopback one range can finish before another starts, and the client reuses its connection, so the count is anything from one to four. Against a server with a `SurlFault.Delay` of one second at `FaultStage.Command`, which holds every request as a slow server would, all four are in flight together and each has a connection of its own: four exchanges, one range each. A fault is `surl` misbehaving on purpose; nothing like it is on by default.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-in-parallel-segments>> for the same task on the console.
+* <<http-download-in-parallel-segments-from-an-agent>> for an agent doing it with `transfer` calls side by side.
+* <<http-download-a-byte-range-in-csharp>> for one range on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

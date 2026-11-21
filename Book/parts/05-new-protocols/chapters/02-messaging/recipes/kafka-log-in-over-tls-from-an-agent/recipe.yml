@@ -1,0 +1,99 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: kafka-log-in-over-tls-from-an-agent
+title: Logging In to Kafka over TLS from an Agent
+protocols: [kafkas, kafka]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, read_log]
+curl-options: [-sS, -u, -d, --cacert]
+exit-codes: [0]
+references: [surl-readme, curl-readme, kafka-protocol, rfc8446, mcp-spec]
+
+fixtures: {}
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Over kafkas with the certificate trusted, the right password lets curl-mcp's curl tool produce and consume, exit 0 each, with no loosening option, and read_log answers the record at offset 0."
+    program: program.cs
+    args: ["tls"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl produce: exit 0\ncurl consume: exit 0, first\nread_log orders: 0=first\n"
+
+  - id: tls-uses-plain
+    claim: "Offered PLAIN over TLS, curl uses it; a wrong password is refused with exit 67 and the text names SASL PLAIN."
+    program: program.cs
+    args: ["tls-wrong"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl consume: exit 67 curl: (67) Kafka SASL PLAIN authentication failed: Authentication failed\n"
+
+  - id: tls-no-login
+    claim: "A connection with no login is closed by the TLS listener, and curl exits 56."
+    program: program.cs
+    args: ["tls-no-login"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl consume: exit 56\n"
+
+  - id: untrusted-certificate
+    claim: "Without --cacert curl does not trust the certificate, sends no login and exits 60."
+    program: program.cs
+    args: ["tls-untrusted"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl consume: exit 60\n"
+
+  - id: plain-listener-scram
+    claim: "The plain listener does not offer PLAIN, and the same login works over kafka because curl takes SCRAM instead; produce, consume and read_log all see the record."
+    program: program.cs
+    args: ["plain"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl produce: exit 0\ncurl consume: exit 0, first\nread_log orders: 0=first\n"
+
+  - id: plain-names-scram
+    claim: "On the plain listener a wrong password is refused with exit 67 and the text names SCRAM-SHA-512, not PLAIN."
+    program: program.cs
+    args: ["plain-wrong"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl consume: exit 67 curl: (67) Kafka SASL SCRAM-SHA-512 authentication failed: Authentication failed\n"
+
+  - id: scram-256-only
+    claim: "With --auth SCRAM-SHA-256 the server offers that one mechanism and the refusal names it."
+    program: program.cs
+    args: ["scram-256"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl consume: exit 67 curl: (67) Kafka SASL SCRAM-SHA-256 authentication failed: Authentication failed\n"
+
+  - id: only-plain-offers-nothing
+    claim: "With --auth PLAIN alone over kafka the server offers no mechanism at all, and curl stops before it sends the password: exit 67, it offers no SASL mechanism."
+    program: program.cs
+    args: ["only-plain"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl consume: exit 67 curl: (67) SASL is not enabled on the Kafka listener, it offers no SASL mechanism\n"
+
+  - id: plaintext-option-loosens
+    claim: "With --allow-plaintext-auth the server offers PLAIN over kafka too, curl uses it, and a wrong password now names SASL PLAIN."
+    program: program.cs
+    args: ["loosened"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl consume: exit 67 curl: (67) Kafka SASL PLAIN authentication failed: Authentication failed\n"

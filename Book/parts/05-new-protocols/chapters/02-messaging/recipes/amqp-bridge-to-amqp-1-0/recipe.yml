@@ -1,0 +1,99 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: amqp-bridge-to-amqp-1-0
+title: Bridging AMQP 0-9-1 and 1.0
+protocols: [amqp, amqp1]
+tier: new-protocols
+surl-options: [--user, --allow-plaintext-auth]
+curl-options: [-s, -S, -d, -m, -u, --next]
+exit-codes: [0, 28, 67]
+references: [surl-readme, curl-readme, curl-protocols, amqp091, amqp10]
+triplet: amqp-bridge-to-amqp-1-0
+
+# main has one AMQP 0-9-1 listener and one AMQP 1.0 listener in the same surl, so both share one
+# message bus; it takes the account alice in clear, which is what --allow-plaintext-auth loosens.
+# locked is the same pair without it.
+servers:
+  main:
+    command: surl --user alice:s3cret --allow-plaintext-auth amqp://127.0.0.1:{{port}}/ amqp1://127.0.0.1:{{port2}}/
+    ready: port
+  locked:
+    command: surl --user alice:s3cret amqp://127.0.0.1:{{port3}}/ amqp1://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A message sent with -d to the queue orders over AMQP 0-9-1 is taken, after --next, from the address orders over AMQP 1.0 and written to standard output, exit 0.
+    run: curl -s -u alice:s3cret -d hello amqp://127.0.0.1:{{port}}/%2F/orders --next -s -u alice:s3cret amqp1://127.0.0.1:{{port2}}/orders
+    expect:
+      exit: 0
+      stdout: "hello"
+
+  - id: one-copy
+    claim: The two listeners share one queue, not two copies; the message taken over AMQP 1.0 is gone, and a receive over AMQP 0-9-1 finds the queue empty and writes nothing.
+    run: curl -s -u alice:s3cret amqp://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: from-amqp-1
+    claim: The reverse holds; a message sent over AMQP 1.0 to the address orders is taken from the queue orders over AMQP 0-9-1.
+    run: curl -s -u alice:s3cret -d back amqp1://127.0.0.1:{{port2}}/orders --next -s -u alice:s3cret amqp://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "back"
+
+  - id: mixed-order
+    claim: One message sent over each version, 0-9-1 first, is taken over AMQP 0-9-1 in the order sent, the oldest first, whichever version sent it.
+    run: curl -s -u alice:s3cret -d one amqp://127.0.0.1:{{port}}/%2F/orders --next -s -u alice:s3cret -d two amqp1://127.0.0.1:{{port2}}/orders --next -s -u alice:s3cret amqp://127.0.0.1:{{port}}/%2F/orders --next -s -u alice:s3cret amqp://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "onetwo"
+
+  - id: name-is-the-address
+    claim: The address is the queue's name; a message sent to orders over AMQP 0-9-1 is not at the address refunds, where an AMQP 1.0 receive waits for a message that never comes and curl stops it at -m 2, exit 28, with nothing written.
+    run: curl -s -u alice:s3cret -d only-orders amqp://127.0.0.1:{{port}}/%2F/orders --next -s -m 2 -u alice:s3cret amqp1://127.0.0.1:{{port2}}/refunds
+    expect:
+      exit: 28
+      stdout: ""
+
+  - id: still-on-orders
+    claim: The message sent to orders is still there after the wait at refunds, and an AMQP 1.0 receive of orders takes it.
+    run: curl -s -m 5 -u alice:s3cret amqp1://127.0.0.1:{{port2}}/orders
+    expect:
+      exit: 0
+      stdout: "only-orders"
+
+  - id: wrong-password-both
+    claim: With --allow-plaintext-auth the password is still checked on both listeners; a wrong one is refused over AMQP 1.0 with SASL outcome code 1, exit 67.
+    run: curl -sS -u alice:wrong amqp1://127.0.0.1:{{port2}}/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "AMQP 1.0 SASL authentication failed with outcome code 1"
+
+  - id: wrong-password-091
+    claim: The same wrong password over AMQP 0-9-1 is answered connection.close 403, access refused, exit 67.
+    run: curl -sS -u alice:wrong amqp://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: locked-amqp-1
+    claim: Without --allow-plaintext-auth, the AMQP 1.0 listener does not offer SASL PLAIN, and curl stops before it sends the password, exit 67.
+    run: curl -sS -u alice:s3cret amqp1://127.0.0.1:{{port4}}/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "AMQP 1.0 server does not offer the SASL PLAIN mechanism"
+
+  - id: locked-091
+    claim: Without it, the AMQP 0-9-1 listener offers only CRAM-MD5, which curl does not use, so curl stops there too, exit 67.
+    run: curl -sS -u alice:s3cret amqp://127.0.0.1:{{port3}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: 'AMQP server offers no mechanism this client can use (it offers "CRAM-MD5")'

@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ws-receive-a-message-with-curl-api
+title: Receiving a WebSocket Message from C#
+protocols: [ws]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, SurlEventQuery, CurlClient, CurlWebSocket, CurlWebSocketMessage, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc6455]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: ReceiveAsync gives the 100,000-byte file as one Binary message with the same SHA-256, the next ReceiveAsync gives the server's Close with no status code, and CloseAsync(1000) answers it without an exception.
+    program: program.cs
+    args: [receive]
+    expect:
+      exit: 0
+      stdout: "message: Binary, 100000 bytes, same SHA-256: yes\nthen: Close, status none\nclosed: 1000 done\n"
+
+  - id: read-all
+    claim: ReadMessagesAsync gives the file message and then the server's Close, and the enumeration ends there by itself.
+    program: program.cs
+    args: [read-all]
+    expect:
+      exit: 0
+      stdout: "message: Binary, 100000 bytes\nmessage: Close, 0 bytes\nenumeration ended\n"
+
+  - id: close-frame-sent
+    claim: After CloseAsync, the last thing the server received from the client is a close frame, masked as every client frame must be.
+    program: program.cs
+    args: [recorded]
+    expect:
+      exit: 0
+      stdout-matches: "\nserver's last received from the client: a close frame, masked: yes\n$"
+
+  - id: dispose-sends-no-close
+    claim: Disposing the CurlWebSocket without CloseAsync ends the connection with no close frame from the client.
+    program: program.cs
+    args: [no-close]
+    expect:
+      exit: 0
+      stdout-matches: "\nserver's last received from the client: not a close frame\n$"
+
+  - id: missing
+    claim: A path the server does not have refuses the upgrade, and ConnectWebSocketAsync throws a CurlException whose Code is HttpReturnedError, 22, before any message.
+    program: program.cs
+    args: [missing]
+    expect:
+      exit: 1
+      stdout: "refused: HttpReturnedError (22)\n"

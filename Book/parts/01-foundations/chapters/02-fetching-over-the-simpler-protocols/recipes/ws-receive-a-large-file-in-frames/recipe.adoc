@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-receive-a-large-file-in-frames]]
+=== Receiving a Large File in Frames
+
+==== Problem
+
+You want to download a file bigger than 64 KiB over WebSocket and check that the several frames `surl` sends arrive as one whole message, byte for byte.
+
+==== Solution
+
+Serve a directory over WebSocket, connect to the large file{apos}s path with `curl`, write the message to a local file, and compare the copy with the original:
+
+include::.generated/solution.adoc[]
+
+The compare uses `cmp` and the shell{apos}s `&&`, so the Solution needs a POSIX shell (Git Bash on Windows). Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A WebSocket message travels in one or more _frames_ (<<rfc6455>>). A server may cut a large message into several, marking each but the last as unfinished, and a client puts them back together before it hands the message over, so the receiver sees one message whatever the sender{apos}s frame size was. `surl` sends a file as a single message and cuts it into frames of at most 64 KiB, 65,536 bytes: a file of 200,000 bytes goes as four frames, and `curl` reads them as the one message that the Solution writes with `-o got.bin`. `cmp` prints nothing and exits `0` when the two files are the same, which is the check that no byte was lost or reordered at a frame boundary; `echo identical` runs only then (<<curl-readme>>). `--directory site` is the folder the server serves, so `ws://127.0.0.1:8080/big.bin` is the file `site/big.bin`. `-s` keeps the progress meter quiet.
+
+Without `-o`, `curl` writes the message to standard output, and the claims count it there: 200,000 bytes, exactly the file, with nothing from the frame headers between the parts. The files in the claims are random bytes, made by the `setup` step with `head -c ... /dev/urandom`, so a repeated or dropped part cannot hide in repetition.
+
+The server says how many frames it used. `-v` makes the log verbose and `--log-file surl.log` writes it to a file beside the served folder, not in it, and the line for each file reads `Sent 200000 bytes of /big.bin as a binary message in 4 frames`; the claims read it with `grep`. A file is sent as a binary message, not text, whatever its bytes are. The cut falls at 64 KiB exactly: a file of 65,536 bytes goes in one frame, and 65,537 bytes, one more, in two (<<surl-readme>>).
+
+`surl` cuts the message and `curl` joins it, and a WebSocket library does the same for a client of your own: it hands back the whole message from one receive call, as <<ws-receive-a-large-file-in-frames-in-csharp>> shows from C#, while <<ws-receive-a-large-file-in-frames-from-an-agent>> reads the first frame{apos}s header from the exchange record.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-receive-a-large-file-in-frames-in-csharp>> for the same task from a C# test.
+* <<ws-receive-a-large-file-in-frames-from-an-agent>> for the same task with an agent.
+* <<ws-receive-a-file-as-a-message>> for the small file and the refusals.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>.

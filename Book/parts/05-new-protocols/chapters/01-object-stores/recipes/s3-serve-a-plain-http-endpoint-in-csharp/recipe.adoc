@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-serve-a-plain-http-endpoint-in-csharp]]
+=== Plain-HTTP S3 Endpoints in C#
+
+==== Problem
+
+Your SDK points at a local S3 endpoint over http://, as with a MinIO container. You want the S3 server on plain HTTP, requests still signed and checked, and the warning it gives, from a C# test with Surl.Api and Curl.Api.
+
+==== Solution
+
+Start a Surl.Api server on an `s3` listen URL with `--s3-plaintext` and no certificate, and have Curl.Api get an object from it over `http://`, signed with the account{apos}s key and secret:
+
+include::.generated/solution.adoc[]
+
+The second server in the checked claims allows uploads, and the first one{apos}s log holds the warning.
+
+==== Discussion
+
+Amazon Simple Storage Service (S3) is reached over Transport Layer Security (TLS) from the first byte, and so is `surl`{apos}s `s3` listener, which is why it needs a certificate and refuses to start without one. A local stand-in such as a MinIO container is usually reached over plain `http://`, and an SDK pointed at it with an `http://` endpoint does not speak TLS. `--s3-plaintext` serves every `s3` listen URL as plain Hypertext Transfer Protocol (HTTP) instead (<<surl-readme>>). `SurlServerOptions` has no property for it; `AdditionalArguments` takes any `surl` option as `surl`{apos}s own words, so `AdditionalArguments = { "--s3-plaintext" }` is the option. It loosens security, for tests only: anyone who can watch the network reads every object as it is sent. `Log`, a `TextWriter`, receives what `surl` writes on start, byte for byte, at the `LogLevel` set, `Info` here, and the first line naming the option is the warning, `surl: warning: --s3-plaintext: s3 is served as plain HTTP, without TLS`. The recipe <<s3-serve-a-plain-http-endpoint>> does the same with the two programs on a console.
+
+Without the option, `SurlServer.StartAsync` of an `s3` listen URL with no certificate throws `SurlServerStartException`. Its `ExitCode` is the exit code `surl` would give, `58`, and `Lines[0]` is `(58) s3://127.0.0.1:0/ needs a certificate` and the rest of the sentence. Nothing is left bound.
+
+Plain HTTP removes the encryption and nothing else. `CurlClient.Create()` makes the client and `SendAsync` sends one `CurlRequest`. Every request must still be signed with AWS Signature Version 4, the scheme S3 uses (<<aws-s3-api>>), by an account: `SurlServerOptions.Accounts` holds a `SurlAccount`, the pair `--user AKIAIOSFODNN7EXAMPLE:s3cret` makes. In `CurlAuthenticationOptions`, `UserName` and `Password` are `-u`, and `AwsSigV4`, set to `aws:amz:us-east-1:s3`, is `--aws-sigv4`: the provider, the region and the service. `Files["photos/hello.txt"]` is the object `hello.txt` in the bucket `photos`, in memory, and `http://127.0.0.1:<port>/photos/hello.txt` is its address in path style, with `BoundUrl.Port` the port. An SDK that puts the bucket in the host name, `photos.s3.us-east-1.amazonaws.com`, is served too: `Network`, a `CurlNetworkOptions`, holds `ConnectTo`, which is `--connect-to`, and `::127.0.0.1:` with the port sends the connection to the server while the name stays in the request and in the signature.
+
+The refusals are the ones the TLS listener gives, as <<s3-tell-the-refusals-apart-in-csharp>> shows. Over `http://` an S3 error is an ordinary response, not an exception: the `CurlResponse` has a `StatusCode` of `403` or `404` and a `Body` whose XML names the error in `Code`. A request with no signature is `403 AccessDenied`, an access key the server does not hold `403 InvalidAccessKeyId`, the right key with the wrong secret `403 SignatureDoesNotMatch`, and a name with no object `404 NoSuchKey`. Writes are a separate permission: a put, a request with a `Body`, is `403 AccessDenied` on a server without `AllowUploads`, and on the second server the same put is accepted, status `200`, and `server.Files.ReadAsync("/photos/up.txt")` returns the bytes put as a `SurlFileContents`.
+
+Curl.Api{apos}s own `s3://` URL is a different thing. It means TLS from the first byte, so aimed at this listener it throws `CurlException`, whose `Code` is `SslConnectError`, the number `35`. Reach a plain-HTTP S3 endpoint with an `http://` URL, as above (<<curl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-serve-a-plain-http-endpoint>> for the same task on the console.
+* <<s3-serve-a-plain-http-endpoint-from-an-agent>> for the same task with an agent.
+* <<s3-tell-the-refusals-apart-in-csharp>> for the refusals in full.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

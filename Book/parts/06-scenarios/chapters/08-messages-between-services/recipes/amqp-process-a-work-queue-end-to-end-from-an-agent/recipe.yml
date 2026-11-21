@@ -1,0 +1,128 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs program.cs, a C# program on the official MCP SDK that
+# starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: amqp-process-a-work-queue-end-to-end-from-an-agent
+title: Processing a Work Queue End to End
+protocols: [amqp, stomp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, stop_server, wait_for_event, browse_queue, get_events, curl]
+curl-options: [-s, -S, -d, -m, -T]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, amqp091, stomp12]
+triplet: amqp-process-a-work-queue-end-to-end
+
+# The worker is a file of STOMP frames, each ended by a NUL byte: it logs in with no account, subscribes to
+# the queue jobs with per-message acknowledgement and disconnects with a receipt. worker.stomp acknowledges
+# the messages 1, 2 and 3; two.stomp only 1 and 2.
+fixtures:
+  worker.stomp: "CONNECT\naccept-version:1.2\nhost:/\n\n\0SUBSCRIBE\nid:0\ndestination:/queue/jobs\nack:client-individual\n\n\0ACK\nid:1\n\n\0ACK\nid:2\n\n\0ACK\nid:3\n\n\0DISCONNECT\nreceipt:bye\n\n\0"
+  two.stomp: "CONNECT\naccept-version:1.2\nhost:/\n\n\0SUBSCRIBE\nid:0\ndestination:/queue/jobs\nack:client-individual\n\n\0ACK\nid:1\n\n\0ACK\nid:2\n\n\0DISCONNECT\nreceipt:bye\n\n\0"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app queues job-1, job-2 and job-3 with the curl tool over AMQP; a STOMP worker run with -T receives them oldest first, acknowledges each and disconnects, and its output ends with the receipt.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '^worker received: job-1, job-2, job-3, then the receipt\n'
+
+  - id: queue-is-empty
+    claim: The agent checks the queue afterwards; every job was acknowledged, so browse_queue counts none ready and none in flight.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nqueue: ready 0 \[\], in flight 0\n'
+
+  - id: events-recorded
+    claim: The bus recorded the run; get_events for store_changed on the bus counts three enqueued, three delivered and three acknowledged.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nevents: enqueued 3, delivered 3, acknowledged 3\n$'
+
+  - id: durable-across-a-restart
+    claim: Two jobs are queued, stop_server and a second start_server use the same --directory, and the worker receives job-4 and job-5 in order.
+    program: program.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout-matches: '^after the restart the worker received: job-4, job-5, then the receipt\n'
+
+  - id: empty-after-the-restart
+    claim: The jobs the worker acknowledged after the restart are gone; browse_queue counts none.
+    program: program.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout-matches: '\nqueue: ready 0 \[\], in flight 0\n'
+
+  - id: record-starts-again
+    claim: The restarted server keeps a record of its own; it has no enqueued event, because the jobs came from disk, and two delivered and two acknowledged.
+    program: program.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout-matches: '\nevents: enqueued 0, delivered 2, acknowledged 2\n$'
+
+  - id: worker-fails
+    claim: A worker that acknowledges two of three jobs still receives all three, job-6, job-7 and job-8, and disconnects without acknowledging the third.
+    program: program.cs
+    args: [fails]
+    expect:
+      exit: 0
+      stdout-matches: '^worker received: job-6, job-7, job-8, then the receipt\n'
+
+  - id: unacknowledged-comes-back
+    claim: browse_queue finds the job the worker did not acknowledge ready again, and only that one, none in flight.
+    program: program.cs
+    args: [fails]
+    expect:
+      exit: 0
+      stdout-matches: '\nafter the worker: ready 1 \[job-8\], in flight 0\n'
+
+  - id: next-receive-takes-it
+    claim: A receive with the curl tool takes the returned job, job-8.
+    program: program.cs
+    args: [fails]
+    expect:
+      exit: 0
+      stdout-matches: '\nsecond receive: \[job-8\]\n'
+
+  - id: then-empty
+    claim: Once the job is taken the queue is empty again.
+    program: program.cs
+    args: [fails]
+    expect:
+      exit: 0
+      stdout-matches: '\nqueue: ready 0 \[\], in flight 0\n'
+
+  - id: failure-recorded
+    claim: The bus record tells the story of the failure; three enqueued, four delivered, because job-8 went out twice, and three acknowledged.
+    program: program.cs
+    args: [fails]
+    expect:
+      exit: 0
+      stdout-matches: '\nevents: enqueued 3, delivered 4, acknowledged 3\n$'
+
+  - id: app-refused
+    claim: Without --allow-anonymous the app receive is exit 67, a tool error, because the server offers only CRAM-MD5, which curl does not use.
+    program: program.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout-matches: '^receive: exit 67, tool error yes, error curl: \(67\) AMQP server offers no mechanism this client can use \(it offers "CRAM-MD5"\)\n'
+
+  - id: worker-refused
+    claim: Without it the STOMP worker is answered an ERROR frame and receives nothing.
+    program: program.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout-matches: '\nworker: ERROR\n$'

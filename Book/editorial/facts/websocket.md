@@ -34,3 +34,14 @@ ws-receive-a-file-as-a-message, ws-list-a-folder-over-websocket (+ -in-csharp, -
 - curl-mcp `curl(["-s", "ws://.../hello.txt"])`: `standardOutput.content` is the message, `isBase64` true for non-UTF-8 (`files_base64` `AAEC/f7/` comes back as `AAEC/f7/`); `read_file` answers `text` or `base64` the same way. Missing: exitCode 22, tool error, `standardOutput` empty. `transfer` of a binary file: `statusCode` 101, `body.isBase64` true, `info.sizeDownload` counts frame bytes (10 for 6).
 - `get_exchanges` first `base64` chunk of a 16-byte file: `0x82 0x10` + 16 bytes (one final binary frame).
 - Recipes: ws-receive-a-file-from-an-agent.
+
+## Large files and frames (ws-receive-a-large-file-in-frames and twins, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
+- surl cuts a file message into frames of 65,536 bytes: `-v` log line `Sent N bytes of /f as a binary message in K frames`: 65,535 and 65,536 -> 1, 65,537 -> 2, 131,072 -> 2, 131,073 -> 3, 200,000 -> 4. First frame bytes `0x02 0x7F` + 8-byte length (`0x10000`): opcode 2, FIN clear. A file is always a binary message.
+- curl writes the reassembled message (200,000 bytes exactly, `cmp` equal with `-o`); `--trace-ascii` shows 16,384-byte reads, not frames.
+- Curl.Api `ReceiveAsync` returns the whole message (`Binary`, `Data`), the next is `Close`. Surl.Api `Log` + `LogLevel = LogLevel.Verbose` (`using Surl.Output`) carries the `Sent ...` line.
+- Recipe `setup:` with `head -c N /dev/urandom > site/f` needs `schema: 2`.
+
+## Receive and close from Curl.Api (ws-receive-a-message-with-curl-api, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
+- A 100,000-byte file: `ReceiveAsync` gives one `Binary` message of 100000 bytes (same SHA-256); the next is `Close` with `CloseStatus` null (surl's close frame has no payload). `ReadMessagesAsync` (`await foreach`) gives the message then the Close (`Data` 0 bytes) and ends by itself; it does not send the client's close.
+- `socket.CloseAsync(1000, "done", ct)` after the server's close: no exception; the server's last `Received` chunk (`RecordExchanges`) then starts `0x88` with the mask bit set. Disposing without `CloseAsync`: no close frame reaches the server. Wait for `SurlEventKind.ExchangeEnded` before reading the record.
+- Missing path: `ConnectWebSocketAsync` throws `CurlException` `HttpReturnedError` (22).

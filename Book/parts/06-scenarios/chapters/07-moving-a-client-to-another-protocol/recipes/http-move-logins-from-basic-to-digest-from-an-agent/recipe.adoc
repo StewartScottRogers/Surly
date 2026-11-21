@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-logins-from-basic-to-digest-from-an-agent]]
+=== Moving Logins from Basic to Digest
+
+==== Problem
+
+As an agent: your Hypertext Transfer Protocol (HTTP) clients log in with Basic authentication, which sends the password in a form anyone on the path can read. You want the server to accept both Basic and Digest while the clients move, then only Digest, and the test to find any client still sending Basic.
+
+==== Solution
+
+Start a server through `surl-mcp` that accepts both methods, log in once each way through `curl-mcp`, and ask the server which logins it judged with which method:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Basic puts the user name and password in the `Authorization` header, encoded but not hidden (<<rfc7617>>). Digest sends a hash of the password and a one-time value the server chose, so the password itself never crosses the wire (<<rfc7616>>). Over plain HTTP `surl` takes only Digest: a Basic login is answered `403 Forbidden` without being checked. The move needs a loosening, and that one argument is the whole difference between the two servers here.
+
+`start_server` of `surl-mcp` takes `listen_urls`, here one `http://` URL on port 0 for a free one, which `bound_urls` reports; `files`, a map from name to text, holds `report.txt` in memory; and `arguments`, `surl`{apos}s own words. `--user billing:b1lling` is the old client{apos}s account and `--user search:s3arch` the new one{apos}s, which is what lets the record name the client. `--allow-plaintext-auth` lets Basic in clear be checked during the move, and its warning comes back in the answer{apos}s `log_lines`.
+
+The `curl` tool of `curl-mcp` runs real `curl` options: `args` is the list of words, and the answer holds `exitCode` and `standardOutput` with its `content`. `-s` keeps the progress meter away, `-u` gives the account, `--basic` and `--digest` pick the method, `-o reply.txt` puts the body in a file in the folder and `-w %{http_code}` prints the status. Both clients get `200`. `-i` prints the response headers: a request with no login is answered `401` with three Digest challenges, then Basic and Bearer, in its `WWW-Authenticate` headers (<<rfc9110>>).
+
+`get_events` of `surl-mcp`, given the `server_id` and the kind `login_judged`, answers one event per login with its `mechanism`, `account` and `is_accepted`. The accounts with an accepted `Basic` login are the clients still to move, here `billing`; the `Digest` ones have moved. A wrong Basic password is still checked during the move, answered `401`, and recorded with `is_accepted` false under the account it claimed. The events name accounts and never hold a password.
+
+A client need not hard-code the method. With `--anyauth` `curl` asks first, reads the challenge and picks Digest, and the login is recorded as `Digest billing`.
+
+The cutover is a server started without `--allow-plaintext-auth`, which is `surl`{apos}s default. A Basic login there is answered `403`, the right password included, and the 403 carries no `WWW-Authenticate` header: a 401 must offer a method, and offering Basic in clear would invite the password. A request with no login is now offered the Digest challenges alone. `search` logs in with `--digest` and `billing` with `--anyauth`, so the client that picks from the challenge keeps working unchanged.
+
+Basic clients that were missed still show up after the cutover, though not as logins: no `login_judged` event is kept, because the password was never checked. `get_exchanges` answers what each connection sent, as `chunks` with a `direction` of `received` or `sent`, and two of the requests arrived with `Authorization: Basic`, the two the program sent that way.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-logins-from-basic-to-digest>> and <<http-move-logins-from-basic-to-digest-in-csharp>> for the same move on the console and in C#.
+* <<http-find-who-failed-to-log-in-from-an-agent>> for more on the login events.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc7616>>, <<rfc9110>>.

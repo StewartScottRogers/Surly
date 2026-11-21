@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-check-an-app-cleaned-up-in-csharp]]
+=== Checking an App Cleaned Up in C#
+
+==== Problem
+
+Your app writes temporary files to a File Transfer Protocol (FTP) server and should delete them when it is done. You want a test in your own .NET code that runs the app against an in-process stand-in, lists the folder afterwards with `Files.ListAsync`, and fails if any temporary file is left.
+
+==== Solution
+
+The program starts `SurlServer` in process, runs the app, which is its `Upload` and `Cleanup` methods using a `CurlClient`, and then runs the check. The argument picks the scenario; the first, `clean`, is an app that uploads two temporary files and deletes both:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `AllowAnonymous` lets the client log in without an account, and `AllowUploads` is `--allow-uploads`, which the server refuses by default (<<surl-readme>>). `Files["work/keep.txt"]` seeds a folder with one file the app must not remove. `ListDirectories` is `--list-directories`: a client can list a folder only when it is set.
+
+The app is a `CurlClient`, one per call so that each has a control connection of its own. Each request is a `CurlRequest`, and the upload is a `PUT` to each file{apos}s URL with a `CurlContent` body; the `CurlResponse` carries the listing as its body. The app deletes with `CurlFtpOptions.PostQuote`, which is `curl -Q` with a leading dash: commands sent after the transfer, which is a listing of the folder, because a command needs a transfer to ride on (<<curl-readme>>, <<rfc959>>). The commands run when the listing has been read to its end, so the program reads the body, and a refused command is thrown then: a cleanup that deletes a file the server does not have throws `CurlException` with code 21, `QuoteError`. The leaky variant deletes only `a.tmp` and finishes without an exception: nothing in the app{apos}s own result says it leaked.
+
+The check is what fails the test. It calls `server.Files.ListAsync("/work")`, which returns a `SurlFolderPage` of entries with a `Name`, and returns `1` naming each file that ends in `.tmp`. That call reads the server{apos}s store with no client and needs no `ListDirectories`, so a check made this way cannot fail for want of the option, where a client{apos}s own listing without it throws `CurlException` with code 19, `FtpCouldntRetrFile`. `keep.txt` is in the folder throughout and does not fail the check, because the check looks for `.tmp` only.
+
+A clean listing proves less than it seems. A folder the app never wrote to passes the check as well: with `AllowUploads` off the app{apos}s first upload throws `UploadFailed`, code 25, and the check over the same folder still prints `clean`. A test should also show that the app ran, by its own result or by what it leaves on purpose, as `keep.txt` stands for here.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-check-an-app-cleaned-up>> for the same task on the console.
+* <<ftp-check-an-app-cleaned-up-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

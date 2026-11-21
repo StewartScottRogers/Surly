@@ -1,0 +1,122 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-move-logins-from-basic-to-digest-in-csharp
+title: Moving Logins from Basic to Digest
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, LoginJudgedEvent, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7617, rfc7616, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: During the move the old client, billing, logs in with Basic and the new client, search, with Digest; both get 200, the recorded logins name billing as still sending Basic, and the log holds no password; exit 0.
+    program: logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "billing, Basic: 200\nsearch, Digest: 200\nlogin judged: Basic billing accepted\nlogin judged: Digest search accepted\nstill sending Basic: billing\nmoved to Digest: search\nlog holds a password: no\n"
+
+  - id: basic-client-found
+    claim: The LoginJudgedEvent of each login names its method and account, so the test finds billing as the client still sending Basic.
+    program: logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstill sending Basic: billing\n'
+
+  - id: digest-client-found
+    claim: The same events name search as the account that logged in with Digest.
+    program: logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmoved to Digest: search\n'
+
+  - id: password-not-logged
+    claim: The server's verbose log names the logins but holds neither password.
+    program: logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlog holds a password: no\n$'
+
+  - id: both-offered
+    claim: During the move a request with no login is answered 401 with three Digest challenges, then Basic and Bearer.
+    program: logins.cs
+    args: [challenge]
+    expect:
+      exit: 0
+      stdout: "no login: 401\n401 offers: Digest, Digest, Digest, Basic, Bearer\n"
+
+  - id: wrong-basic-password
+    claim: A Basic login with the wrong password is checked and answered 401 during the move.
+    program: logins.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout-matches: '^billing, Basic, wrong password: 401\n'
+
+  - id: refusal-logged
+    claim: The refused Basic login is a LoginJudgedEvent under the account it claimed, with IsAccepted false.
+    program: logins.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin judged: Basic billing refused\n$'
+
+  - id: any-picks-digest
+    claim: With HttpAuthenticationMethods.Any the client reads the challenge and picks Digest, gets 200, and the login is recorded as Digest.
+    program: logins.cs
+    args: [any]
+    expect:
+      exit: 0
+      stdout: "billing, any method: 200\nlogin judged: Digest billing accepted\n"
+
+  - id: cutover-refuses-basic
+    claim: Without AllowPlaintextAuthentication a Basic login over plain HTTP is answered 403, the right password included; a 403 is a response, not an exception.
+    program: logins.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '^billing, Basic: 403\n'
+
+  - id: cutover-no-challenge
+    claim: The 403 carries no WWW-Authenticate header.
+    program: logins.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\n403 offers: nothing\n'
+
+  - id: cutover-digest-only
+    claim: After the cutover a request with no login is offered the three Digest challenges and nothing else.
+    program: logins.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\nno login: 401\n401 offers: Digest, Digest, Digest\n'
+
+  - id: cutover-serves-digest
+    claim: After the cutover search logs in with Digest, and billing with HttpAuthenticationMethods.Any, so a client that picks from the challenge survives the move.
+    program: logins.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\nsearch, Digest: 200\nbilling, any method: 200\n'
+
+  - id: cutover-still-finds-basic
+    claim: After the cutover no Basic login is judged, but the recorded exchanges still hold the one request that arrived with Basic.
+    program: logins.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\nBasic logins judged: 0\nrequests that arrived with Basic: 1\n$'

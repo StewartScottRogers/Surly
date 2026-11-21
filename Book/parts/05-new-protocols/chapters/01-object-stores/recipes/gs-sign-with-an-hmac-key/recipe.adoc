@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[gs-sign-with-an-hmac-key]]
+=== Signing Cloud Storage with HMAC
+
+==== Problem
+
+Your job reaches Cloud Storage with an HMAC key, and another with an OAuth token. You want both logins accepted, a wrong secret refused, and writes refused until uploads are allowed.
+
+==== Solution
+
+Start `surl` with two accounts, an HMAC key pair and an empty name whose password is the OAuth token, and send `curl` to it twice in one command, once signing with `-u` and once with `--oauth2-bearer`. Both get the object:
+
+include::.generated/solution.adoc[]
+
+The second server in the checked claims, with `--allow-uploads`, shows that writes are a separate permission from logging in. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+Google Cloud Storage takes two kinds of login on its Extensible Markup Language (XML) API (<<gcs-xml-api>>). A Hash-based Message Authentication Code (HMAC) key is a pair, an access key and a secret, and each request is signed with the secret in the `GOOG4-HMAC-SHA256` form of V4 signing, which proves the secret without sending it. An OAuth access token is one string, sent as `Authorization: Bearer`. `surl` on a `gs` listen URL accepts both, judged by that API and not by upstream curl, which has no `gs` scheme (<<surl-readme>>, <<curl-protocols>>), and both go through `--user`. `--user GOOGTESTKEY:s3cret` is the HMAC pair: the user name is the access key and the password its secret. `--user :ya29.t0ken` has an empty name, which makes the password a token. `curl` signs with the pair given to `-u GOOGTESTKEY:s3cret` and sends the token given to `--oauth2-bearer ya29.t0ken`, and the two get the same object, `store/photos/hello.txt`, since `--directory store` makes each top-level folder a bucket and the path under it the object name.
+
+A `gs://` URL in `curl` names the bucket as its host and the object as its path, so `gs://photos/hello.txt` is the object `hello.txt` in `photos`. `curl` sends it where Google would have it, to `storage.googleapis.com` on port 443; `--connect-to ::127.0.0.1:8080` sends every connection to `surl` instead, while `curl` keeps Google{apos}s host name in the request and in the certificate check. Cloud Storage is reached over Transport Layer Security (TLS) from the first byte (<<rfc8446>>), and so is `surl`{apos}s `gs` listener: it needs `--cert` and `--key`, and `--cacert server.pem` makes `curl` trust the certificate, which no authority signed. The `openssl` line makes it for `127.0.0.1` and `storage.googleapis.com`.
+
+Each wrong login has its own answer, and `curl` writes nothing to standard output, names the error on standard error and exits `22` for every one. The right access key with the wrong secret is `403 SignatureDoesNotMatch`: the account is known and the signature `surl` worked out is not the one sent. An access key `surl` does not hold is `403 InvalidAccessKeyId`, whatever the secret. A token it does not hold is `401 InvalidAuthentication`, in the 401 family with a request that carries no login at all, which is `401 AuthenticationRequired`. A client that sees `403` has found the account and failed the proof; a `401` says the login itself was not usable.
+
+Logging in is not permission to write. Without `--allow-uploads` a put is `403 AccessDenied` for the HMAC pair and for the token alike, however correct the login, and a signed get is still served, because a stand-in that changes when nobody asked it to is a test that lies. On the `writable` server, with `--allow-uploads`, the same two puts are accepted, and each object is a file in the folder, `writable/photos/note.txt` and `writable/photos/token.txt`. `-T note.txt` puts the local file `note.txt`. In the claims, `-s` silences `curl`{apos}s progress meter and `-S` puts the error message back.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<gs-sign-with-an-hmac-key-in-csharp>> for the same task from a C# test.
+* <<gs-sign-with-an-hmac-key-from-an-agent>> for the same task with an agent.
+* <<gs-put-and-get-an-object>> for the store, the certificate and the same object over S3.
+* <<s3-tell-the-refusals-apart>> for the S3 equivalents of these refusals.
+* <<surl-readme>>, <<curl-protocols>>, <<gcs-xml-api>>, <<rfc8446>>.

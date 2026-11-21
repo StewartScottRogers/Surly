@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-move-uploads-to-s3]]
+=== Moving File Uploads to S3
+
+==== Problem
+
+Your app uploads files with Hypertext Transfer Protocol (HTTP) `PUT` requests. You want to move it to the Amazon Simple Storage Service (S3) protocol and prove that the same files land under the same names in the same store.
+
+==== Solution
+
+Serve one folder over HTTPS and S3 from one `surl`, upload once with the old client and once with the new, and list the bucket:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` can hold several listeners, and every listener serves the same store. Here `--directory store` is served at an `s3://` listener and an `https://` one. Over S3 each top-level folder is a bucket and the path under it the key, so the HTTP path `/uploads/report.csv`, the object `s3://uploads/report.csv` and the file `store/uploads/report.csv` are one thing under three names. That is what makes the move testable: the only thing that changes is the protocol.
+
+Both listeners need a certificate, since S3 is HTTPS from the first byte: `--cert server.pem` and its key, `--key server.key`, made in the setup with `openssl`. `curl` sends an `s3://` request to the bucket{apos}s host name at Amazon, `uploads.s3.us-east-1.amazonaws.com`, so the certificate names `*.s3.us-east-1.amazonaws.com` as well as `127.0.0.1`, and `--connect-to ::127.0.0.1:PORT` sends the connection to `surl` instead. `--cacert server.pem` trusts it. `--user AKIAIOSFODNN7EXAMPLE:s3cret` is one account: an access key ID and its secret for S3, a user name and password for HTTP. `--allow-uploads` lets clients write; without it both protocols refuse. `--list-directories` lets a signed request list a bucket. `-v` makes the log detailed, logins included, and `--log-file surl.log` writes it to a file the cases read.
+
+`-T` uploads a file. The old client is `curl -T report.csv` to an `https://` URL with `-u`, which `curl` sends as Basic authentication over the encrypted connection (<<rfc7617>>). The new client is `curl -T summary.csv` to an `s3://` URL with the same `-u`, which `curl` turns into an AWS Signature Version 4 signature: the secret never crosses the wire (<<aws-s3-api>>). An `s3://` URL ending in `/` is a listing, and it names both files beside the one already there. `-s` keeps the progress meter away and `-S` still shows an error; `--next` starts another transfer with its own options. Read back the other way round, each file is byte for byte what was uploaded: the HTTP upload as an S3 object, the S3 object over HTTPS, compared with `cmp` after `-o` saved them.
+
+The log tells the two clients apart. Each HTTP upload has a line `PUT /uploads/report.csv: 201`, with its path and status, so a `grep` lists the uploads still arriving the old way. The logins name the method: `Login accepted: Basic AKIAIOSFODNN7EXAMPLE` for HTTP and `Login accepted: AWS4-HMAC-SHA256 AKIAIOSFODNN7EXAMPLE` for each S3 request, the put and the listing.
+
+What the app reads back changes. Over HTTP a `PUT` that makes a file is answered `201 Created` and one that replaces it `204 No Content` (<<rfc9110>>); `-w "%{http_code}\n"` prints them. Over S3 a put is `200` either way, so code that tests for `201` must change. Refusals change too. An HTTP `PUT` with no login is answered `401`, and `curl` exits `0` unless told `-f`. An S3 put with no signature is refused `403 AccessDenied` and one signed with the wrong secret `403 SignatureDoesNotMatch`; for each `curl` writes nothing and exits `22`, with the S3 error code in its message.
+
+Turning the old protocol off can be rehearsed on a second `surl`, here `cutover` with its own folder, `store2`. `--auth aws-sigv4` makes it accept only signed requests. `surl` warns about it on start, as it does for every change to the methods it takes. The old client{apos}s HTTPS `PUT` is answered `403`, the right password included, and nothing is stored, as `test ! -e` shows. The new client{apos}s S3 put on the same server is answered `200` and the file is in `store2/uploads`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-move-uploads-to-s3-in-csharp>> and <<http-move-uploads-to-s3-from-an-agent>> for the same move in C# and from an agent.
+* <<s3-put-and-get-an-object>> for S3 by itself.
+* <<http-sign-requests-with-aws-sigv4>> for `--auth aws-sigv4` over HTTP.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc9110>>, <<rfc7617>>.

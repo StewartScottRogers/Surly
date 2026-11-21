@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: amqp-keep-a-queue-across-restarts
+title: Keeping a Queue across Restarts
+protocols: [amqp]
+tier: new-protocols
+surl-options: [--directory, --queue, --allow-anonymous]
+curl-options: [-s, -S, -d, -o, --next]
+exit-codes: [0]
+references: [surl-readme, curl-readme, amqp091]
+triplet: amqp-keep-a-queue-across-restarts
+
+# data/readme.txt only makes the folder data exist, as surl needs; queues go under data/.surl/bus.
+fixtures:
+  data/readme.txt: "the server's data directory\n"
+
+# kept: --directory data, a durable queue jobs and a plain queue scratch. memory: a durable queue
+# with no --directory. --allow-anonymous is only here so the test needs no login.
+servers:
+  kept:
+    command: surl --directory data --allow-anonymous --queue "jobs;durable" --queue scratch amqp://127.0.0.1:{{port}}/
+    ready: port
+  memory:
+    command: surl --allow-anonymous --queue "jobs;durable" amqp://127.0.0.1:{{port2}}/
+    ready: port
+
+# Before the first case: three jobs and one scratch message on kept, the same three jobs on memory,
+# and the worker takes job-1 from kept.
+seed:
+  - curl -sS -d job-1 amqp://127.0.0.1:{{port}}/%2F/jobs --next -sS -d job-2 amqp://127.0.0.1:{{port}}/%2F/jobs --next -sS -d job-3 amqp://127.0.0.1:{{port}}/%2F/jobs --next -sS -d tmp amqp://127.0.0.1:{{port}}/%2F/scratch
+  - curl -sS -d job-1 amqp://127.0.0.1:{{port2}}/%2F/jobs --next -sS -d job-2 amqp://127.0.0.1:{{port2}}/%2F/jobs --next -sS -d job-3 amqp://127.0.0.1:{{port2}}/%2F/jobs
+  - curl -sS -o {{null}} amqp://127.0.0.1:{{port}}/%2F/jobs
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the server with --directory data is stopped outright and started again with the same command, a receive from the durable queue jobs writes job-2, the oldest message not taken before the restart; job-1, taken before it, is not back.
+    restart: [kept]
+    run: curl -sS amqp://127.0.0.1:{{port}}/%2F/jobs
+    expect:
+      exit: 0
+      stdout: "job-2"
+
+  - id: scratch-is-empty
+    claim: A queue that is not durable starts empty after the restart even though the server has a directory; its message tmp is gone and a receive writes nothing, exit 0.
+    run: curl -sS amqp://127.0.0.1:{{port}}/%2F/scratch
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: on-disk
+    claim: The durable queue is stored under data/.surl/bus/queues, an index beside the lock file, in the folder the server was given.
+    run: curl -sS -d job-4 amqp://127.0.0.1:{{port}}/%2F/jobs
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        data/.surl/bus/queues/index: null
+        data/.surl/lock: null
+
+  - id: second-restart
+    claim: A second restart keeps what is left, in the order sent; the next two receives write job-3, from before the first restart, and job-4, sent after it.
+    restart: [kept]
+    run: curl -sS amqp://127.0.0.1:{{port}}/%2F/jobs --next -sS amqp://127.0.0.1:{{port}}/%2F/jobs
+    expect:
+      exit: 0
+      stdout: "job-3job-4"
+
+  - id: taken-stays-taken
+    claim: The queue now holds nothing; a third restart does not bring a taken message back, and a receive writes nothing.
+    restart: [kept]
+    run: curl -sS amqp://127.0.0.1:{{port}}/%2F/jobs
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: memory-holds
+    claim: The server with a durable queue but no --directory holds the jobs while it runs; a receive writes job-1.
+    run: curl -sS amqp://127.0.0.1:{{port2}}/%2F/jobs
+    expect:
+      exit: 0
+      stdout: "job-1"
+
+  - id: memory-forgets
+    claim: Without --directory, durable keeps nothing; after a restart the queue jobs is empty.
+    restart: [memory]
+    run: curl -sS amqp://127.0.0.1:{{port2}}/%2F/jobs
+    expect:
+      exit: 0
+      stdout: ""

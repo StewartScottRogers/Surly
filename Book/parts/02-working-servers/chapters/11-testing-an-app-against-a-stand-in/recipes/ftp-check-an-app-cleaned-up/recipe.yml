@@ -1,0 +1,110 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-check-an-app-cleaned-up
+title: Checking an App Cleaned Up
+protocols: [ftp]
+tier: working-servers
+surl-options: [--allow-anonymous, --allow-uploads, --list-directories, --directory]
+curl-options: [-T, -Q, -l, -o, -s, -S]
+exit-codes: [0, 1, 19, 21, 25]
+references: [surl-readme, curl-readme, rfc959]
+
+# app.sh stands for the app under test: it writes two temporary files into a folder and deletes them, or, given
+# leak, deletes only the first. check.sh is the test's check: it lists the folder and fails if a .tmp is left.
+fixtures:
+  scratch.txt: "scratch\n"
+  site/work/keep.txt: "kept\n"
+  site/leaky/keep.txt: "kept\n"
+  app.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # app.sh FOLDER-URL [leak]: the app under test. It uploads two temporary files to the folder URL (ending in /),
+    # then deletes both, or only the first when given leak. A failed upload or delete is curl's exit code.
+    url=$1
+    curl -sS -T scratch.txt "${url}a.tmp" -T scratch.txt "${url}b.tmp" || exit
+    if [ "$2" = leak ]; then
+      curl -sS -o /dev/null -l -Q "-DELE a.tmp" "$url"
+    else
+      curl -sS -o /dev/null -l -Q "-DELE a.tmp" -Q "-DELE b.tmp" "$url"
+    fi
+  check.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # check.sh FOLDER-URL: lists the folder and fails, exit 1, naming what it finds if any .tmp file is left.
+    # A listing that fails is curl's exit code, so a folder that cannot be listed never passes.
+    names=$(curl -sS -l "$1") || exit
+    left=$(echo "$names" | tr -d '\r' | grep '\.tmp$' | tr '\n' ' ')
+    if [ -n "$left" ]; then echo "leftover: ${left% }"; exit 1; fi
+    echo clean
+
+# main takes uploads and lists folders; the files go into ./site. closed lists folders but takes no upload.
+# blind takes uploads but does not list.
+servers:
+  main:
+    command: surl --allow-anonymous --allow-uploads --list-directories --directory site ftp://127.0.0.1:{{port}}/
+    ready: port
+  closed:
+    command: surl --allow-anonymous --list-directories ftp://127.0.0.1:{{port2}}/
+    ready: port
+  blind:
+    command: surl --allow-anonymous --allow-uploads ftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: An app that uploads two temporary files and deletes both leaves nothing behind; the check lists the folder, finds no .tmp, prints clean and exits 0.
+    run: sh app.sh ftp://127.0.0.1:{{port}}/work/ && sh check.sh ftp://127.0.0.1:{{port}}/work/
+    expect:
+      exit: 0
+      stdout: "clean\n"
+
+  - id: kept-files-do-not-count
+    claim: The check looks for temporary files only; keep.txt, which the app was never meant to remove, is still in the folder and does not fail it.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/work/
+    expect:
+      exit: 0
+      stdout: "keep.txt\n"
+
+  - id: leaky-app
+    claim: An app that deletes only the first of its two temporary files finishes with exit 0, so nothing in the app itself says it leaked.
+    run: sh app.sh ftp://127.0.0.1:{{port}}/leaky/ leak
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: leftover-fails
+    claim: The check lists the folder, finds b.tmp, names it and exits 1, which is the failing test.
+    run: sh check.sh ftp://127.0.0.1:{{port}}/leaky/
+    expect:
+      exit: 1
+      stdout: "leftover: b.tmp\n"
+
+  - id: delete-missing
+    claim: A cleanup that deletes a file the server does not have is refused, and curl exits 21 saying the quote string was not accepted.
+    run: curl -sS -o {{null}} -l -Q "-DELE gone.tmp" ftp://127.0.0.1:{{port}}/work/
+    expect:
+      exit: 21
+      stderr-contains: "QUOT string not accepted"
+
+  - id: listing-needs-the-option
+    claim: Without --list-directories the folder cannot be listed, curl exits 19, and the check exits 19 with it instead of printing clean.
+    run: sh check.sh ftp://127.0.0.1:{{port3}}/
+    expect:
+      exit: 19
+      stdout: ""
+      stderr-contains: "curl: (19)"
+
+  - id: uploads-off-refused
+    claim: Without --allow-uploads the server refuses the app's first upload, and the app exits 25.
+    run: sh app.sh ftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 25
+      stderr-contains: "curl: (25)"
+
+  - id: nothing-written-passes
+    claim: A folder the app never wrote to passes the check too, so a clean listing alone does not show the app ran.
+    run: sh check.sh ftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "clean\n"

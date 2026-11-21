@@ -68,6 +68,9 @@ Linux case shows the password was not checked.
 
 - Git Bash (MSYS) converts arguments that look like POSIX paths, `path=/backups` included, into Windows paths before a native program sees them; a `--fault` scoped by `path=` then never matches. Set `MSYS_NO_PATHCONV=1` (2026-11-20, `ftp-run-out-of-space-on-upload`). Recipe scripts that pass such arguments need it on Windows.
 
+## Unix domain sockets
+- surl `--unix-socket`, curl `--unix-socket`, Curl.Api `UnixSocketPath`, surl-mcp and curl-mcp all work on Windows (AF_UNIX); no `platforms:` needed for serving and fetching. What differs is stopping: Git Bash's `kill` ends surl outright on Windows, leaving the socket file (next start 45); Linux and macOS SIGTERM lets surl remove it (`http-listen-on-a-unix-socket`, cases `[windows]` and `[linux, macos]`). Path limit 107 bytes (Linux, Windows), 103 (macOS): use relative paths.
+
 ## Unacknowledged writes
 - MQTT QoS 0 through curl or curl-mcp: curl returns before the broker keeps the message, and on macOS a
   `read_retained_message` straight after answered the previous value or nothing (CI run 44835381862). After each

@@ -1,0 +1,113 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs mail.cs, a C# program on the official MCP SDK that
+# starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: pop3-move-a-mail-client-to-imap-from-an-agent
+title: Moving a Mail Client to IMAP
+protocols: [pop3, imap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, seed_mail, curl, get_events, list_mailboxes]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc1939, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent reads the first message over POP3 and the message with UID 1 over IMAP through curl-mcp from one surl-mcp mailbox; the two are the same text, and the server's events hold one POP3 login and one IMAP login; exit 0.
+    program: mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "over pop3: 69 characters\nover imap: 69 characters\nthe two copies are identical\npop3 logins recorded: 1\nimap logins recorded: 1\n"
+
+  - id: pop3-lists
+    claim: The POP3 listing has the two messages, one a line with its number and size.
+    program: mail.cs
+    args: [ids]
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\n2 \d+\n'
+
+  - id: imap-sees-same
+    claim: An IMAP search of INBOX finds the same two messages.
+    program: mail.cs
+    args: [ids]
+    expect:
+      exit: 0
+      stdout-matches: '\n\* SEARCH 1 2\n'
+
+  - id: uidl-is-uid
+    claim: -X UIDL lists unique IDs that end in each message's IMAP UID after the dot.
+    program: mail.cs
+    args: [ids]
+    expect:
+      exit: 0
+      stdout-matches: '\n1 \d+\.1\n2 \d+\.2\n$'
+
+  - id: imap-marks-seen
+    claim: The IMAP fetch of UID 1 marks it seen, so a search for unseen mail finds only message 2.
+    program: mail.cs
+    args: [flags]
+    expect:
+      exit: 0
+      stdout-matches: '\nIMAP search after an IMAP fetch of UID 1: \* SEARCH 2\n'
+
+  - id: pop3-sets-no-flag
+    claim: A POP3 retrieve sets no flag, so message 2 is still unseen after it.
+    program: mail.cs
+    args: [flags]
+    expect:
+      exit: 0
+      stdout-matches: '\nIMAP search after a POP3 retrieve of 2: \* SEARCH 2\n'
+
+  - id: left-on-server
+    claim: Reading leaves both messages on the server; list_mailboxes counts two in INBOX, one unseen, where it counted two unseen at the start.
+    program: mail.cs
+    args: [flags]
+    expect:
+      exit: 0
+      stdout-matches: '^INBOX at start: 2 messages, 2 unseen\n.*\nINBOX at the end: 2 messages, 1 unseen\n$'
+
+  - id: old-client-recorded
+    claim: get_events, asked for login_judged with a scheme, counts the logins per protocol, so the agent finds the client still polling POP3.
+    program: mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npop3 logins recorded: 1\nimap logins recorded: 1\n$'
+
+  - id: wrong-password
+    claim: A wrong password is exit code 67 over both protocols, so a check that tests for it survives the move.
+    program: mail.cs
+    args: [password]
+    expect:
+      exit: 0
+      stdout: "pop3: exit 67\nimap: exit 67\n"
+
+  - id: old-client-deletes
+    claim: A POP3 -X "DELE 1" removes the message for IMAP too when that curl run ends; list_mailboxes counts one, and an IMAP fetch of UID 1 is exit code 78.
+    program: mail.cs
+    args: [delete]
+    expect:
+      exit: 0
+      stdout: "INBOX after a POP3 DELE 1: 1 messages, 1 unseen\nIMAP fetch of UID 1: exit 78\n"
+
+  - id: cutover-refuses-pop3
+    claim: With the mailbox limited to protocols=smtp,imap a POP3 login is refused, the right password included, exit code 67.
+    program: mail.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '^pop3: exit 67\n'
+
+  - id: cutover-serves-imap
+    claim: The IMAP client on the same server still reads both messages.
+    program: mail.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\nimap: \* SEARCH 1 2\n$'

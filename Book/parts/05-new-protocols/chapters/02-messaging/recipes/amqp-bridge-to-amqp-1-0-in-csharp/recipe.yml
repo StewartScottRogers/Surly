@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: amqp-bridge-to-amqp-1-0-in-csharp
+title: Bridging AMQP Versions in C#
+protocols: [amqp, amqp1]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlMessages, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, amqp091, amqp10]
+triplet: amqp-bridge-to-amqp-1-0
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A message put on the queue orders is received by Curl.Api over AMQP 1.0 at the address orders, and its body is the message.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '^over 1\.0: hello\n'
+
+  - id: one-copy
+    claim: The two listeners share one queue; once the message is taken over AMQP 1.0, a receive over AMQP 0-9-1 finds the queue empty and answers an empty body.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nover 0-9-1 after: \[\]\n$'
+
+  - id: reverse
+    claim: A message put on the queue is received over AMQP 0-9-1 just the same, at the virtual host / and the queue orders.
+    program: program.cs
+    args: [reverse]
+    expect:
+      exit: 0
+      stdout: "over 0-9-1: back\n"
+
+  - id: mixed-order
+    claim: With two messages on the queue, a receive over AMQP 1.0 takes the first and a receive over AMQP 0-9-1 takes the second, the oldest first whichever version asks.
+    program: program.cs
+    args: [order]
+    expect:
+      exit: 0
+      stdout: "over 1.0: one, then over 0-9-1: two\n"
+
+  - id: name-is-the-address
+    claim: The message on orders is not at the address refunds; an AMQP 1.0 receive there waits for a message that never comes, and the program's two-second cancellation ends it with nothing received.
+    program: program.cs
+    args: [address]
+    expect:
+      exit: 0
+      stdout-matches: '^refunds over 1\.0: cancelled\n'
+
+  - id: still-on-orders
+    claim: The message is still on orders after the wait at refunds, and an AMQP 1.0 receive of orders takes it.
+    program: program.cs
+    args: [address]
+    expect:
+      exit: 0
+      stdout-matches: '\norders over 1\.0: only-orders\n$'
+
+  - id: wrong-password-amqp-1
+    claim: With AllowPlaintextAuthentication the password is still checked; a wrong one over AMQP 1.0 throws CurlException with code 67, LoginDenied, naming SASL outcome code 1.
+    program: program.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout-matches: '^1\.0: CurlException 67 LoginDenied: AMQP 1\.0 SASL authentication failed with outcome code 1\n'
+
+  - id: wrong-password-091
+    claim: The same wrong password over AMQP 0-9-1 throws the same CurlException, whose message carries connection.close 403, ACCESS_REFUSED.
+    program: program.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout-matches: '\n0-9-1: CurlException 67 LoginDenied: AMQP server sent connection\.close: reply code 403, ACCESS_REFUSED - login refused\n$'
+
+  - id: locked-amqp-1
+    claim: Without AllowPlaintextAuthentication the AMQP 1.0 listener does not offer SASL PLAIN, and the receive throws CurlException 67 before the password is sent.
+    program: program.cs
+    args: [locked]
+    expect:
+      exit: 0
+      stdout-matches: '^1\.0: CurlException 67 LoginDenied: AMQP 1\.0 server does not offer the SASL PLAIN mechanism\n'
+
+  - id: locked-091
+    claim: Without it the AMQP 0-9-1 listener offers only CRAM-MD5, which Curl.Api does not use, and the receive throws CurlException 67 too.
+    program: program.cs
+    args: [locked]
+    expect:
+      exit: 0
+      stdout-matches: '\n0-9-1: CurlException 67 LoginDenied: AMQP server offers no mechanism this client can use \(it offers "CRAM-MD5"\)\n$'

@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-see-both-sides-of-a-request-in-csharp
+title: Seeing Both Sides in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlExchangeRecord, SurlExchangeChunk, SurlExchangeDirection, LogLevel, CurlClient, CurlRequest, CurlAuthenticationOptions, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110, rfc7616]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A PUT with a correct Digest login to a server without AllowUploads is answered 405, and the server's record shows the client sending the PUT twice, the second with Authorization, and the server answering 401 and then 405 with Allow GET, HEAD; its log says the login was accepted and the method is not served.
+    program: both-sides.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "PUT /notes.txt: 405 Method Not Allowed\nexchange 1:\n  client sent: PUT /notes.txt HTTP/1.1\n  server sent: HTTP/1.1 401 Unauthorized\n  client sent: PUT /notes.txt HTTP/1.1 | Authorization: Digest username=\"alice\"\n  server sent: HTTP/1.1 405 Method Not Allowed | Allow: GET, HEAD\nlog: #1 * PUT /notes.txt: 401, a login is needed\nlog: #1 < Authorization: Digest ****\\r\\n\nlog: #1 * Login accepted: Digest alice\nlog: #1 * PUT /notes.txt: the method is not served; answered 405 and closed.\n"
+
+  - id: record-keeps-the-credential
+    claim: RecordExchanges keeps the Authorization header as the client sent it, while the log writes **** in its place.
+    program: both-sides.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout-matches: 'client sent: PUT /notes\.txt HTTP/1\.1 \| Authorization: Digest username="alice"\n.*\nlog: #1 < Authorization: Digest \*\*\*\*\\r\\n\n'
+
+  - id: no-login
+    claim: Without a login the same PUT is answered 401 and never reaches the method check, because the server judges the login first.
+    program: both-sides.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "PUT /notes.txt: 401 Unauthorized\nexchange 1:\n  client sent: PUT /notes.txt HTTP/1.1\n  server sent: HTTP/1.1 401 Unauthorized\nlog: #1 * PUT /notes.txt: a login is needed, and the body announced was not read; answered 401 and closed.\n"
+
+  - id: uploads-allowed
+    claim: With AllowUploads the same login and PUT are answered 201 Created, and the log says the bytes were stored.
+    program: both-sides.cs
+    args: [allowed]
+    expect:
+      exit: 0
+      stdout-matches: '\n  server sent: HTTP/1\.1 201 Created\n.*\nlog: #1 \* PUT /notes\.txt: 201, 9 bytes stored at [^\n]+\n$'

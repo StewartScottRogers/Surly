@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-reuse-one-connection-for-many-files]]
+=== Reusing One Connection
+
+==== Problem
+
+You fetch many small files and want them to share one kept-alive connection rather than open one each, and you want proof from both ends: `curl` saying it reused the connection, and `surl` logging one connection for them all.
+
+==== Solution
+
+Name every URL on one `curl` command line and print `%{num_connects}` for each transfer:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Over Hypertext Transfer Protocol (HTTP) version 1.1 a connection stays open after a response unless one side says otherwise, so the next request can go down it without a new Transmission Control Protocol (TCP) handshake (<<rfc9110>>). `curl` keeps the connections of one command line in a pool and takes an idle one to the same host for the next transfer (<<curl-manual>>). Each URL has its own `-o`, sending its body to nowhere; `-s` turns the progress meter off; `-w` prints a line per transfer, after it ends. `%{num_connects}` in that line is the number of new connections the transfer had to open: `1` for the first, `0` for each that reused it. A URL glob such as `{a,b,c}.txt` is three transfers on one command line and is reused the same way. Two separate `curl` commands share nothing: the pool ends with the process.
+
+The server{apos}s side is `surl -v --log-file surl.log`, serving the folder `site` with `--directory`. `-v` logs every event, and `--log-file` appends the log to a file rather than to standard error. Each line starts with the exchange number, `#N`, and for HTTP an exchange is one connection, from accept to close (<<surl-readme>>). All three `GET` lines carry the same number. The number itself depends on what connected before; the claim is that it is one.
+
+Three things end reuse. `-H "Connection: close"` asks the server to close after each answer, so each transfer opens its own connection and `surl` logs three exchange numbers. `--http1.0` does the same without the header: `surl` answers an HTTP/1.0 request and closes. And a server closes a connection that sits idle too long: `surl`{apos}s `--idle-timeout` defaults to 120 seconds. `--rate 1/2s` makes `curl` wait two seconds between transfers. That is well inside the default, so the second transfer still finds the connection open. Against a second `surl` started with `--idle-timeout 1`, the same pause outlasts the timeout; `surl` has closed the connection, `curl` sees it closed and opens a new one, and nothing fails.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-reuse-one-connection-for-many-files-in-csharp>> for one shared `CurlClient` doing the same from C#.
+* <<http-reuse-one-connection-for-many-files-from-an-agent>> for an agent proving reuse with `get_exchanges`.
+* <<http-download-several-files-at-once>> for fetching files side by side, each on a connection of its own.
+* <<http-time-out-an-idle-client>> for `--idle-timeout` on its own.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.
