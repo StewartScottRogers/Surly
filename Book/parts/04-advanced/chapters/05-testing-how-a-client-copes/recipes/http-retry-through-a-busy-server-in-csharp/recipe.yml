@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: http-retry-through-a-busy-server-in-csharp
+title: Retrying a Busy Server in C#
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlFaultRule, SurlEventQuery, SurlEventKind, LogLevel, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The server is busy for two requests, answered 503 as ordinary responses; the client waits one second before each retry and its third attempt gets the file. The whole loop takes between two and twenty seconds, and the server's log and rule agree with the client's count.
+    program: busy.cs
+    args: ["2"]
+    expect:
+      exit: 0
+      stdout: "attempt 1: 503, waiting 1 s\nattempt 2: 503, waiting 1 s\nattempt 3: 200, report ready\nretries: 2\nwaited between 2 and 20 s: True\nserver logged GET /report.txt: 3\nfault applied: 2\nf1 remaining: 0\n"
+
+  - id: other-path-never-busy
+    claim: The rule is scoped to /report.txt, so health.txt is answered at once with no retry, and the rule is untouched. The warm-up request makes the log show two requests for it.
+    program: busy.cs
+    args: ["2", "health.txt"]
+    expect:
+      exit: 0
+      stdout: "attempt 1: 200, up\nretries: 0\nwaited: n/a\nserver logged GET /health.txt: 2\nfault applied: 0\nf1 remaining: 2\n"
+
+  - id: busy-is-spent
+    claim: The rule is spent after two answers, so a request after the retries is served at once, and the server has logged four requests for the file in all.
+    program: busy.cs
+    args: ["2", "report.txt", "again"]
+    expect:
+      exit: 0
+      stdout: "attempt 1: 503, waiting 1 s\nattempt 2: 503, waiting 1 s\nattempt 3: 200, report ready\nretries: 2\nwaited between 2 and 20 s: True\nagain: 200\nserver logged GET /report.txt: 4\nfault applied: 2\nf1 remaining: 0\n"
+
+  - id: one-retry-is-too-few
+    claim: With one retry allowed, the retry meets the second busy answer and the client gives up with 22; the rule is spent all the same.
+    program: busy.cs
+    args: ["1"]
+    expect:
+      exit: 22
+      stdout: "attempt 1: 503, waiting 1 s\nattempt 2: 503\nretries: 1\nwaited: n/a\nserver logged GET /report.txt: 2\nfault applied: 2\nf1 remaining: 0\n"
+
+  - id: no-retry
+    claim: A client that does not retry takes the first 503 as the answer and exits 22; the rule has acted once and has one use left.
+    program: busy.cs
+    args: ["0"]
+    expect:
+      exit: 22
+      stdout: "attempt 1: 503\nretries: 0\nwaited: n/a\nserver logged GET /report.txt: 1\nfault applied: 1\nf1 remaining: 1\n"

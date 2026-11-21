@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-to-several-recipients-from-an-agent]]
+=== Sending to Several Recipients from an Agent
+
+==== Problem
+
+You want an agent to send one message to several recipients and confirm each copy with `list_messages`.
+
+==== Solution
+
+The program starts both hosts and a mail server for one domain. The `curl` tool sends one message with a `--mail-rcpt` for each of three people, `wait_for_event` waits for the three deliveries, and `list_messages` counts each mailbox:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` serves the domain and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address, one for the app and one for each person who might be named. The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The send is `-u` for the app{apos}s login, `--mail-from` and one `--mail-rcpt` for each recipient, the envelope of the message (<<rfc5321>>), and `-T notice.eml` for the message, a fixture in the folder both hosts are confined to; `--crlf` makes line ends right for a file that has bare line feeds, and is harmless for one that has not. `-s` keeps the progress meter out of the answer and `-S` keeps the error line in.
+
+Delivery is asynchronous, so the program does not read the mailboxes when `curl` exits. Every delivery is an event: `wait_for_event` with `kinds` of `store_changed` and `store` of `mail` answers the next one, with a `name` such as `ann@example.com/INBOX/;UID=1`, the mailbox, the folder and the unique identifier (UID), and a `sequence`. The program asks again with `after_sequence` set to the last one it saw, until the last recipient{apos}s event has come, with a `timeout_ms` of ten seconds as the bound; a timeout is the answer `{"timed_out":true}`, not a tool error. Deliveries happen in order, so those before it have been dealt with. `list_messages` then lists a mailbox{apos}s messages, and one message each is what the three recipients hold.
+
+The recipients are the envelope{apos}s, not the headers{apos}. The message says `To: ann@example.com`, and Bob{apos}s copy, read with `read_message`, says so too; nothing in it names him. `get_exchanges` shows why the server can serve all three from one message: its chunks hold the conversation byte for byte, and the ones the client sent contain three `RCPT TO` commands and a single `DATA`.
+
+A refused recipient decides the whole message, by default. When Carol, whose address is outside every mail domain, is named after Dee, the server refuses her `RCPT`; the `curl` tool exits `55`, with the error line `RCPT failed: 550`, and the message is not sent, so Dee, who was accepted, holds nothing. A non-zero exit is also marked as a tool error, so the program reads the exit code and the error text from the answer. `--mail-rcpt-allowfails` changes that: `curl` sends to the recipients that were accepted and exits `0`, and Fay receives her copy. Which an app should want is a decision, and each has a case.
+
+A recipient inside the domain who has no mailbox is a different case. The server answers `250` for `nobody@example.com` and discards that copy, with no event, so a sender cannot use it to learn which addresses exist; Gus still receives his. An address named twice gets one copy: Hal is named twice, Ivy once, there is one event for each of them, and Hal holds one message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-to-several-recipients>> for the same task on the console.
+* <<smtp-send-to-several-recipients-in-csharp>> for the same task in C#.
+* <<smtp-fail-a-test-on-a-wrong-recipient-from-an-agent>> for a recipient refused for good.
+* <<surl-readme>>, <<rfc5321>>.

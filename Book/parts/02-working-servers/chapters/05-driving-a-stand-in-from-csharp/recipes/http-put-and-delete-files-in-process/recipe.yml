@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: http-put-and-delete-files-in-process
+title: Putting and Deleting Files in Process
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFiles, SurlFolderPage, SurlSeedRefusedException, SurlEventQuery, StoreKind, StoreChangedEvent, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Files.PutAsync puts /reports/a.txt into the running server, a client's GET is 200 with the text, Files.DeleteAsync takes it away and the same GET is 404.
+    program: files.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "put /reports/a.txt: 10 bytes\nGET reports/a.txt: 200 quarterly\ndelete /reports/a.txt: done\nGET reports/a.txt: 404\n"
+
+  - id: overwrite
+    claim: PutAsync on a path that holds a file replaces it, and the next GET sees the new text.
+    program: files.cs
+    args: [overwrite]
+    expect:
+      exit: 0
+      stdout: "put /reports/a.txt: 10 bytes\nput /reports/a.txt: 8 bytes\nGET reports/a.txt: 200 revised\n"
+
+  - id: folders
+    claim: A put makes the folders on its path; deleting the file takes only the file, and the folder stays, listed empty.
+    program: files.cs
+    args: [folder]
+    expect:
+      exit: 0
+      stdout: "put /reports/a.txt: 10 bytes\n/: hello.txt reports/\n/reports: a.txt\ndelete /reports/a.txt: done\n/: hello.txt reports/\n/reports: (empty)\n"
+
+  - id: events
+    claim: With RecordExchanges on, the server records a store change for each folder or file the put made, Seeded, and one for the delete, Deleted, in order.
+    program: files.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout: "put /reports/a.txt: 10 bytes\ndelete /reports/a.txt: done\nevent: Seeded /reports\nevent: Seeded /reports/a.txt\nevent: Deleted /reports/a.txt\n"
+
+  - id: client-needs-a-login
+    claim: A client's own DELETE with no login is 401 and the file stays; DeleteAsync from the test needs no login and the next GET is 404.
+    program: files.cs
+    args: [client-delete]
+    expect:
+      exit: 0
+      stdout: "client DELETE hello.txt: 401\nGET hello.txt: 200 hello from surl\ndelete /hello.txt: done\nGET hello.txt: 404\n"
+
+  - id: nothing-to-delete
+    claim: DeleteAsync on a path with no file, or on a folder, throws SurlSeedRefusedException, refusal Absent, and nothing changes.
+    program: files.cs
+    args: [nothing]
+    expect:
+      exit: 0
+      stdout: "put /reports/a.txt: 10 bytes\ndelete /reports/missing.txt: SurlSeedRefusedException: Content: Deleting the file /reports/missing.txt was refused: Absent.\ndelete /reports: SurlSeedRefusedException: Content: Deleting the file /reports was refused: Absent.\n"
+
+  - id: hidden-refused
+    claim: A path whose name starts with a dot is never served, and PutAsync refuses it with SurlSeedRefusedException, NotPermitted.
+    program: files.cs
+    args: [hidden]
+    expect:
+      exit: 0
+      stdout: "put /.env: SurlSeedRefusedException: Content: The file /.env was refused: NotPermitted.\n"

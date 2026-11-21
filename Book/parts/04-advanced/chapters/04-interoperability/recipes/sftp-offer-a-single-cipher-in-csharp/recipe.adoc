@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-offer-a-single-cipher-in-csharp]]
+=== Offering One SSH Cipher in C#
+
+==== Problem
+
+A security review says only one Secure Shell (SSH) cipher and Message Authentication Code (MAC) are allowed. A test in a .NET program has to start an SSH File Transfer Protocol (SFTP) server that offers only those, and check what it offers.
+
+==== Solution
+
+Start a `SurlServer` with `--ssh-ciphers` and `--ssh-macs` in `AdditionalArguments`, fetch a file with a `CurlClient` so that an exchange is recorded, and read the lists out of the server{apos}s own key exchange message:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` has no property for the algorithm options, so they go in `AdditionalArguments`, one string for each word, as on the command line. `HostKeyFiles` is `--hostkey`, and `--authorized-keys alice:client_key.pub` lets in the client{apos}s key; both keys come from `ssh-keygen` in the setup. `RecordExchanges = true` keeps what the server sent and received.
+
+Each end of an SSH connection lists the algorithms it will use, and they settle on the first of the client{apos}s that the server also offers (<<rfc4251>>). The server{apos}s list is the first message after its version line, so the program reads it from `server.Exchanges`: skip the version line, a four-byte length, a padding byte, the message type and a 16-byte cookie, then six name lists, each a four-byte length and a comma-separated string. The third is the ciphers, the fifth the MACs. With `--ssh-ciphers aes256-ctr --ssh-macs hmac-sha2-256` each list holds that one name. A cipher that is not the allowed one, `aes128-ctr`, and a MAC that is not, `hmac-sha2-512`, are absent, so a client that allows only those finds nothing in common and the connection ends before the login. `Curl.Api` offers no option that narrows its own list, so it cannot play that client; the console recipe does it with OpenSSH{apos}s `sftp` and shows the message. `Curl.Api` offers a list that includes the allowed pair, and it logs in with `CurlSshOptions` and its key and fetches the file from the narrowed server.
+
+Left to its defaults, the server{apos}s list starts with `chacha20-poly1305@openssh.com`, includes `aes256-ctr`, offers several MACs, the first of them `hmac-sha2-256-etm@openssh.com`, and no cipher in CBC mode. `--ssh-ciphers` takes a comma-separated list: `aes256-ctr,aes128-ctr` is offered in that order.
+
+A name `surl` does not offer, `bogus`, makes `StartAsync` throw `SurlServerStartException`: `ExitCode` is `FailedInit` and `Lines[0]` is `surl`{apos}s line, naming the option. A weak cipher such as `aes128-cbc` is refused the same way until `--allow-weak-ssh-algorithms` is added to the arguments, and then it is the whole offer.
+
+`CurlClient` sends the request, `CurlRequest` is the method and the URL, and `CurlResponse` carries the `Body`, a stream the program reads. `CurlTlsOptions` with `CurlTlsPeerOptions` and `VerifyPeer` off is `-k`, which skips the host-key check. `SurlExchangeRecord` is one recorded exchange: `Sent` is every byte the server sent.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-offer-a-single-cipher>> for the same task on the console, with the agreed algorithms shown.
+* <<sftp-offer-a-single-cipher-from-an-agent>> for the same task from an agent.
+* <<sftp-give-each-user-their-key-in-csharp>> for `--authorized-keys` from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4251>>, <<rfc4252>>.

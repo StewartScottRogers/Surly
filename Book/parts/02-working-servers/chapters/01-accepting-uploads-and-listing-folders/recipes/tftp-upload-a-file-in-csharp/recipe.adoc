@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-upload-a-file-in-csharp]]
+=== Uploading over TFTP in C#
+
+==== Problem
+
+A test in a .NET program has to push a file to a Trivial File Transfer Protocol (TFTP) server, as a device would, and check what the server kept and what it said when it refused.
+
+==== Solution
+
+Start a `SurlServer` on a `tftp://` URL with `AllowUploads`, and send the file as a `PUT` with a body from a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.AllowUploads` is `--allow-uploads`. A TFTP server listens on the User Datagram Protocol (UDP), and the in-process server needs no readiness wait: `StartAsync` returns once it is bound, and `BoundUrl` carries the port. `CurlRequest(HttpMethod.Put, url) { Body = bytes }` against a `tftp://` URL is `curl -T`: a TFTP write of the name in the URL (<<rfc1350>>). `SendAsync` returns when the transfer has finished; the server{apos}s own store then holds the bytes, which `server.Files.ReadAsync("/router.cfg")` reads without going through TFTP at all. A second upload to the same name replaces the file, a file of 1,300 bytes, three blocks, is kept whole, and a `GET` of the name returns the same bytes.
+
+Refusals are exceptions, as everywhere in `Curl.Api`: a `CurlException` whose `Code` is the number `curl` would exit with. A write to a name in a folder, or to a name that begins with a dot, is `TftpPerm`, `69`. So is any write while `AllowUploads` is off. `MaxFileSize = 1000` refuses the 1,300-byte file with `RemoteDiskFull`, `70`, and the store holds nothing under its name afterwards. A read of a name the server does not have is `TftpNotFound`, `68`; the program prints only that the read failed.
+
+What the code stands for is on the wire. `RecordExchanges = true` makes the server keep each exchange as a list of datagrams, `server.Exchanges`; the datagrams the server sent include an error packet, opcode 5, and the two bytes after it are the TFTP error code, `2`, access violation. That is the packet `curl -v` calls `TFTP error: Access violation` on the console.
+
+The first request a `CurlClient` makes in a process takes a few seconds while the library sets itself up; the claims here run one program for each, so each pays it once.
+
+`CurlResponse` is what a `GET` returns, its `Body` a stream the program copies into memory to count the bytes, and `SurlExchangeRecord` is one recorded exchange: its `Chunks` are the datagrams, each with a `Direction` and its `Bytes`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-upload-a-file>> for the same task on the console.
+* <<tftp-upload-a-file-from-an-agent>> for the same task from an agent.
+* <<tftp-choose-a-block-size-in-csharp>> for reading the datagrams of an exchange.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>.

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-offer-a-single-cipher]]
+=== Offering a Single SSH Cipher
+
+==== Problem
+
+A security review says only one Secure Shell (SSH) cipher and Message Authentication Code (MAC) are allowed, and your client must still connect. You want the server's offer narrowed to them, and the algorithms agreed shown.
+
+==== Solution
+
+Start `surl` with `--ssh-ciphers aes256-ctr --ssh-macs hmac-sha2-256`, and connect with OpenSSH's `sftp -v`, which prints the cipher and MAC it settled on for each direction:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Each end of an SSH connection lists the algorithms it will use and they settle on the first of the client's that the server also offers (<<rfc4251>>). By default `surl` offers a list of strong ciphers and MACs, and the client{apos}s preference decides. A review that names one cipher and one MAC needs the server to offer nothing else, so that a client cannot agree to anything else and no one has to trust the client{apos}s settings. `--ssh-ciphers` and `--ssh-macs` narrow the server{apos}s lists to what they name: here AES (the Advanced Encryption Standard) in Counter mode with a 256-bit key, and a MAC built on SHA-2 (Secure Hash Algorithm 2) with a 256-bit hash.
+
+`sftp -v` prints the decision as two lines, `server->client cipher: aes256-ctr MAC: hmac-sha2-256` and the same for `client->server`, so the claim reads what was agreed instead of trusting the option. `-b get.sftp` runs one command, `get hello.txt got.txt`, and `2>&1` brings the debug lines, which `sftp` writes to standard error, into the output. `-i client_key` is the client{apos}s login key, which `--authorized-keys alice:client_key.pub` lets in as `alice` (<<rfc4252>>), and the `-o` settings that name `/dev/null` or `NUL` skip the host-key check, which a test of ciphers does not need. The keys come from `ssh-keygen` in the setup. The narrowed server still serves its files: the batch fetches `hello.txt`.
+
+The refusals show the narrowing is real. A client that allows only `aes128-ctr`, a good cipher that is not the allowed one, finds none in common, prints `no matching cipher found. Their offer: aes256-ctr` and exits `255` before any login; the message names what the server offered, which is the quickest way to see what a server is set to. A client that allows `aes256-ctr` but a different MAC gets `no matching MAC found. Their offer: hmac-sha2-256`. With a counter-mode cipher the MAC is a separate choice; against the default list, OpenSSH as shipped on Windows and Linux picks `chacha20-poly1305@openssh.com`, which checks the data itself, and `sftp -v` shows `MAC: <implicit>` for it. macOS{apos}s own `sftp` reads `/etc/ssh/crypto.conf`, which puts `aes128-gcm@openssh.com` first, and agrees on that, also `MAC: <implicit>`: which default cipher you get is the client{apos}s choice. A server left to its defaults and a client that allows only `aes256-ctr` agree on that cipher, but the client picks a MAC of its own from the long list, `hmac-sha2-256-etm@openssh.com`: only the narrowed server pins both.
+
+`--ssh-ciphers` takes a comma-separated list, so a review that allows two ciphers is one option: a server offering `aes256-ctr,aes128-ctr` agrees on `aes128-ctr` with a client that allows only that. `curl` has no option that narrows what it offers; its list includes the allowed pair, so it connects to the narrowed server and fetches the file, but it cannot show what was agreed, and the claims use `sftp` for that.
+
+`surl` checks the names. A cipher or MAC it does not offer, `bogus` here, is refused at start with exit `2`, naming the option, and so is a weak one, `aes128-cbc`, unless `--allow-weak-ssh-algorithms` is also given: a review{apos}s one cipher cannot be a broken one by accident (<<sftp-offer-weak-algorithms-for-old-clients>> has the reverse case).
+
+The rest of the options are the ones the other SFTP recipes use. On the `surl` side, `--directory site` is the folder served and `--hostkey host_key` the host key. On the `curl` side, `-u alice:` names the user with no password, `--key` and `--pubkey` the key pair to log in with, `-k` skips the host-key check, `-s` hides the progress meter and `-S` still shows an error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-offer-a-single-cipher-in-csharp>> and <<sftp-offer-a-single-cipher-from-an-agent>> for the same task from a C# program and from an agent.
+* <<sftp-offer-weak-algorithms-for-old-clients>> for the other direction: adding old algorithms.
+* <<sftp-log-in-with-a-public-key>> for `--authorized-keys`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4251>>, <<rfc4252>>.

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-keep-mail-across-restarts-from-an-agent]]
+=== Keeping Mail Across Restarts from an Agent
+
+==== Problem
+
+You want an agent to deliver mail, stop the server and start a new one on the same directory, then find the mail still there.
+
+==== Solution
+
+The program starts both hosts and a mail server with a `--directory`, delivers one message with the `curl` tool and waits for the delivery event, calls `stop_server`, starts a second server with the same arguments, and reads Ann{apos}s `INBOX` with the message tools:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). `--mail-domain` and `--mailbox` give a mail server for `example.com` with a sending account and Ann{apos}s; an `smtp://` and an `imap://` URL run over one mail store. `--directory` is the folder `surl` keeps its state in. It must exist and sit inside the folder `surl-mcp` is confined to, so the program makes one for the case and removes it at the end. Everything else is the same for the first server and the second; the folder is what carries the mail from one to the other.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The shop{apos}s mail is `-u` for the login, `--mail-from` and `--mail-rcpt` for the envelope (<<rfc5321>>), `-T order.eml` for the message, which the program writes into the folder both hosts are confined to, and `--crlf` for line ends; `-s` keeps the progress meter out. Exit `0` says the server took the mail. Delivery is asynchronous, so the program does not read the store at once. `wait_for_event` with `kinds` of `store_changed` and `store` of `mail` answers when a delivery has happened, with a `name` such as `ann@example.com/INBOX/;UID=1`, the mailbox, the folder and the unique identifier (UID), and a `timeout_ms` of ten seconds as the bound; a timeout is the answer `{"timed_out":true}`, not a tool error.
+
+`stop_server` stops the server and releases its ports; a second `start_server` with the same `arguments` serves what the first kept. `list_messages` lists Ann{apos}s `INBOX` and `read_message` returns each message with its `text`, so the agent reads the subject with no client. The message is there under the same UID. The folder holds `.surl/lock` and `.surl/mail/index` while the server runs, and both are still there after it stops; a stale lock does not stop the next start.
+
+What is kept is the mailbox{apos}s state, not only the bytes. A new message to Ann after the restart becomes UID `2`, so a client that remembers UIDs need not start over, and a second restart keeps that message too. A flag survives as well: the `curl` tool{apos}s fetch of the message over Internet Message Access Protocol (IMAP) sets `\Seen` (<<rfc9051>>), and `list_mailboxes` shows an `unseen_count` that starts at `1`, is `0` after the fetch and is still `0` in the new server.
+
+A folder belongs to one server at a time. A second `start_server` on the same directory while the first runs is a tool error whose structured content has `exit_code` 124, `exit_code_name` `DataDirectoryInUse` and `surl`{apos}s message in `lines`; the message names the folder, so the program prints whether it says the directory is in use rather than the path.
+
+Without `--directory` the store lives in memory. The new server starts it over: the mailbox is back, from the arguments, and empty. A test that must find mail after a restart needs the folder.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-keep-mail-across-restarts>> for the same task on the console.
+* <<smtp-keep-mail-across-restarts-in-csharp>> for the same task in C#.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

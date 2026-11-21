@@ -1,0 +1,108 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: sftp-offer-a-single-cipher-from-an-agent
+title: Offering One SSH Cipher from an Agent
+protocols: [sftp]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, get_exchanges]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc4251, rfc4252]
+
+fixtures: {}
+
+# A host key and the client's login key; both RSA, which curl's SSH library reads.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f client_key
+
+cases:
+  - id: solution
+    role: solution
+    claim: "An agent starts an SFTP server with --ssh-ciphers aes256-ctr and --ssh-macs hmac-sha2-256 through surl-mcp, and get_exchanges shows the server's key exchange message listing that one cipher and that one MAC."
+    program: offer.cs
+    args: ["narrowed"]
+    expect:
+      exit: 0
+      stdout: "ciphers: aes256-ctr\nMACs: hmac-sha2-256\n"
+
+  - id: file-arrives
+    claim: "curl-mcp's curl tool logs in with the client key and fetches hello.txt from the narrowed server."
+    program: offer.cs
+    args: ["file"]
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: other-cipher
+    claim: "aes128-ctr, a good cipher that is not the allowed one, is absent from the offer."
+    program: offer.cs
+    args: ["other-cipher"]
+    expect:
+      exit: 0
+      stdout: "offers aes128-ctr: False\n"
+
+  - id: other-mac
+    claim: "The same for hmac-sha2-512 and the MAC."
+    program: offer.cs
+    args: ["other-mac"]
+    expect:
+      exit: 0
+      stdout: "offers hmac-sha2-512: False\n"
+
+  - id: default-offer
+    claim: "Without the options the offer is the default list: it starts with chacha20-poly1305@openssh.com, includes aes256-ctr, offers several MACs and no CBC cipher."
+    program: offer.cs
+    args: ["default-offer"]
+    expect:
+      exit: 0
+      stdout: "first cipher: chacha20-poly1305@openssh.com\noffers aes256-ctr as well: True\noffers more than one MAC: True\noffers a CBC cipher: False\n"
+
+  - id: default-macs
+    claim: "The default MAC list starts with hmac-sha2-256-etm@openssh.com, the MAC a client that restricts only its cipher is likely to be given."
+    program: offer.cs
+    args: ["default-macs"]
+    expect:
+      exit: 0
+      stdout: "first MAC: hmac-sha2-256-etm@openssh.com\n"
+
+  - id: list-of-two
+    claim: "--ssh-ciphers takes a comma-separated list: the offer then holds both ciphers, in the order given."
+    program: offer.cs
+    args: ["two"]
+    expect:
+      exit: 0
+      stdout: "ciphers: aes256-ctr, aes128-ctr\nMACs: hmac-sha2-256\n"
+
+  - id: unknown-cipher
+    claim: "A cipher surl does not offer makes start_server a tool error naming the option."
+    program: offer.cs
+    args: ["unknown-cipher"]
+    expect:
+      exit: 0
+      stdout: "start_server refused: surl: (2) --ssh-ciphers: surl does not offer the SSH cipher bogus\n"
+
+  - id: unknown-mac
+    claim: "The same for a MAC."
+    program: offer.cs
+    args: ["unknown-mac"]
+    expect:
+      exit: 0
+      stdout: "start_server refused: surl: (2) --ssh-macs: surl does not offer the SSH MAC bogus\n"
+
+  - id: weak-cipher-refused
+    claim: "A weak cipher, aes128-cbc, is refused without --allow-weak-ssh-algorithms."
+    program: offer.cs
+    args: ["weak-cipher"]
+    expect:
+      exit: 0
+      stdout: "start_server refused: surl: (2) --ssh-ciphers: aes128-cbc needs --allow-weak-ssh-algorithms\n"
+
+  - id: weak-allowed
+    claim: "With --allow-weak-ssh-algorithms added, the same cipher is the whole offer."
+    program: offer.cs
+    args: ["weak-allowed"]
+    expect:
+      exit: 0
+      stdout: "ciphers: aes128-cbc\n"
+

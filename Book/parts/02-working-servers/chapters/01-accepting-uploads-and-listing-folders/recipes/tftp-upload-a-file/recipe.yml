@@ -1,0 +1,118 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: tftp-upload-a-file
+title: Uploading over TFTP
+protocols: [tftp]
+tier: working-servers
+surl-options: [--allow-uploads, --max-filesize, --directory]
+curl-options: [-T, -s, -S, -v, -w, -o]
+exit-codes: [0, 68, 69, 70]
+references: [surl-readme, curl-readme, rfc1350]
+
+fixtures:
+  up.cfg: "hostname r1\n"
+  new.cfg: "hostname r2\n"
+  site/hello.txt: "hello from surl\n"
+  ro/hello.txt: "hello from surl\n"
+
+# A 1,300-byte file: more than two 512-byte blocks.
+setup:
+  - head -c 1300 /dev/zero | tr "\0" a > big.bin
+
+# TFTP listens on UDP, so there is no TCP port to wait for.
+servers:
+  open:
+    command: surl --allow-uploads --directory site tftp://127.0.0.1:{{port}}/
+    ready: none
+  closed:
+    command: surl --directory ro tftp://127.0.0.1:{{port2}}/
+    ready: none
+  capped:
+    command: surl --allow-uploads --max-filesize 1000 tftp://127.0.0.1:{{port3}}/
+    ready: none
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -T sends the file to a surl started with --allow-uploads, exit 0, and the served folder holds it under the name in the URL.
+    run: curl -s -S -T up.cfg tftp://127.0.0.1:{{port}}/router.cfg
+    expect:
+      exit: 0
+      files:
+        site/router.cfg: "hostname r1\n"
+
+  - id: read-back
+    claim: The file just written is read back over TFTP, byte for byte.
+    run: curl -s -S tftp://127.0.0.1:{{port}}/router.cfg
+    expect:
+      exit: 0
+      stdout: "hostname r1\n"
+
+  - id: overwrite
+    claim: Uploading to a name that exists replaces the file.
+    run: curl -s -S -T new.cfg tftp://127.0.0.1:{{port}}/router.cfg
+    expect:
+      exit: 0
+      files:
+        site/router.cfg: "hostname r2\n"
+
+  - id: several-blocks
+    claim: A file of 1,300 bytes, three blocks of 512 bytes or less, is uploaded in whole.
+    run: curl -s -S -T big.bin tftp://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 0
+
+  - id: several-blocks-read-back
+    claim: Read back, the 1,300-byte file is 1,300 bytes.
+    run: curl -s -S tftp://127.0.0.1:{{port}}/big.bin -o {{null}} -w "%{size_download}"
+    expect:
+      exit: 0
+      stdout: "1300"
+
+  - id: no-subfolders
+    claim: A name in a folder is refused with TFTP error 2, access violation; curl exits 69 and nothing is made.
+    run: curl -s -S -T up.cfg tftp://127.0.0.1:{{port}}/configs/r1.cfg
+    expect:
+      exit: 69
+      stderr-contains: "TFTP: Access Violation"
+
+  - id: no-dot-files
+    claim: A name that begins with a dot is refused the same way, 69.
+    run: curl -s -S -T up.cfg tftp://127.0.0.1:{{port}}/.hidden
+    expect:
+      exit: 69
+      stderr-contains: "TFTP: Access Violation"
+
+  - id: uploads-off
+    claim: Without --allow-uploads the write is answered with TFTP error 2, access violation, and curl exits 69.
+    run: curl -s -S -T up.cfg tftp://127.0.0.1:{{port2}}/router.cfg
+    expect:
+      exit: 69
+      stderr-contains: "TFTP: Access Violation"
+
+  - id: uploads-off-error-two
+    claim: "curl -v shows the server's answer as TFTP error: Access violation."
+    run: curl -s -S -v -T up.cfg tftp://127.0.0.1:{{port2}}/router.cfg 2>&1
+    expect:
+      exit: 69
+      stdout-matches: "TFTP error: Access violation"
+
+  - id: uploads-off-nothing-kept
+    claim: "After the refused write, the file is not served: exit 68, file not found."
+    run: curl -s -S tftp://127.0.0.1:{{port2}}/router.cfg
+    expect:
+      exit: 68
+      stderr-contains: "TFTP: File Not Found"
+
+  - id: over-the-limit
+    claim: With --max-filesize 1000 the 1,300-byte file is refused and curl exits 70.
+    run: curl -s -S -T big.bin tftp://127.0.0.1:{{port3}}/big.bin
+    expect:
+      exit: 70
+
+  - id: over-the-limit-kept-nothing
+    claim: "The refused file was not kept: a read of it is exit 68."
+    run: curl -s -S tftp://127.0.0.1:{{port3}}/big.bin
+    expect:
+      exit: 68

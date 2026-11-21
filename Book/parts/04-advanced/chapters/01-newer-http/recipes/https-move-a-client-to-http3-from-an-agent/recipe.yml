@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs move-to-http3.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: https-move-a-client-to-http3-from-an-agent
+title: Moving Clients to HTTP/3 from an Agent
+protocols: [https]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, get_exchanges]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9114, rfc9000]
+
+fixtures: {}
+
+# The certificate and its key are made here, never committed; both hosts read them from the folder.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first curl tool call with --alt-svc goes over HTTP/2 and saves an h2-to-h3 entry for the same host and port, and the second, reading it with --http3, goes over HTTP/3, which get_exchanges shows as a QUIC exchange, on every platform.
+    program: move-to-http3.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^first: exit 0, HTTP/2, Alt-Svc \[h3=":\d+"; ma=86400\]\nfirst: the server saw TCP\nsaved: h2 127\.0\.0\.1 to h3 127\.0\.0\.1 on the same port\nsecond: exit 0, HTTP/3, Alt-Svc \[\]\nsecond: the server saw QUIC\n$'
+
+  - id: no-version-option-switches
+    platforms: [linux, macos]
+    claim: On Linux and macOS, the second call needs no --http3 either; reading the entry, it goes over HTTP/3 and QUIC.
+    program: move-to-http3.cs
+    args: [none]
+    expect:
+      exit: 0
+      stdout-matches: '\nsecond: exit 0, HTTP/3, Alt-Svc \[\]\nsecond: the server saw QUIC\n$'
+
+  - id: windows-ignores-without-a-version
+    platforms: [windows]
+    claim: On Windows, the curl tool's curl does as curl's own Windows build and ignores the entry for a call with no version option, so the second call stays on HTTP/2 over TCP.
+    program: move-to-http3.cs
+    args: [none]
+    expect:
+      exit: 0
+      stdout-matches: '\nsecond: exit 0, HTTP/2, Alt-Svc \[h3=":\d+"; ma=86400\]\nsecond: the server saw TCP\n$'
+
+  - id: http1-1-ignores-it
+    claim: With --http1.1, curl looks only for entries learned over HTTP/1.1, finds none, and stays on HTTP/1.1 over TCP.
+    program: move-to-http3.cs
+    args: [http1.1]
+    expect:
+      exit: 0
+      stdout-matches: '\nsecond: exit 0, HTTP/1\.1, Alt-Svc \[h3=":\d+"; ma=86400\]\nsecond: the server saw TCP\n$'

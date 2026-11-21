@@ -1,0 +1,101 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-fail-one-command
+title: Failing One IMAP Command
+protocols: [imap, smtp]
+tier: advanced
+surl-options: [--fault, --mail-domain, --mailbox, -v, --log-file]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, -s, -S, -v, -o, -w, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 2, 67, 78]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+# order.eml is the one message every account holds. The app sends it once, before the cases.
+fixtures:
+  order.eml: "From: shop@example.com\nTo: customers@example.com\nSubject: Order 1042 has shipped\n\nYour order is on its way.\n"
+
+# One server, one fault rule per account, so every case has a rule of its own and none is spent by another.
+# The rules answer the first FETCH (the first SELECT, for dee) of their account with NO and then step aside;
+# a rule acts on the command, so the readiness check, which sends nothing, does not spend it.
+servers:
+  main:
+    command: surl -v --log-file surl.log --mail-domain example.com --mailbox shop@example.com:shoppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox cy@example.com:cypass --mailbox dee@example.com:deepass --mailbox eve@example.com:evepass --mailbox fay@example.com:faypass --fault "error;scheme=imap;command=FETCH;account=ann@example.com;reply=NO [SERVERBUG] fetch failed;times=1" --fault "error;scheme=imap;command=FETCH;account=bob@example.com;reply=NO [SERVERBUG] fetch failed;times=1" --fault "error;scheme=imap;command=FETCH;account=cy@example.com;reply=NO [SERVERBUG] fetch failed;times=1" --fault "error;scheme=imap;command=FETCH;account=eve@example.com;reply=NO [SERVERBUG] fetch failed;times=1" --fault "error;scheme=imap;command=SELECT;account=dee@example.com;reply=NO [UNAVAILABLE] store busy;times=1" smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The shop mails one order notice to six customers; the second line waits, bounded, until Fay, who has no rule, can read it.
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com --mail-rcpt bob@example.com --mail-rcpt cy@example.com --mail-rcpt dee@example.com --mail-rcpt eve@example.com --mail-rcpt fay@example.com -T order.eml smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u fay@example.com:faypass "imap://127.0.0.1:{{port2}}/INBOX;UID=1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Ann's first fetch is answered NO and curl exits 78, "Remote file not found".
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 78
+      stderr-contains: "curl: (78) Remote file not found"
+
+  - id: again-works
+    claim: The same fetch again is answered as usual; the rule was spent, and the message text comes back.
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout-matches: '\AYour order is on its way\.\r?\n\Z'
+
+  - id: search-unaffected
+    claim: A SEARCH in Bob's INBOX works while the rule for his fetch is still waiting; the rule is for one command.
+    run: curl -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n"
+
+  - id: retry-alone
+    claim: curl's --retry alone does not retry the NO; Bob's fetch fails once, exit 78, with no retry made.
+    run: curl -sS --retry 2 --retry-delay 1 -o {{null}} -w "%{num_retries}\n" -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 78
+      stdout: "0\n"
+
+  - id: retry-all-errors
+    claim: With --retry-all-errors the client tries again after a second and Cy's message arrives, one retry, exit 0.
+    run: curl -sS --retry 2 --retry-all-errors --retry-delay 1 -o {{null}} -w "%{num_retries}\n" -u cy@example.com:cypass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: server-reply
+    claim: curl -v shows the server's reply to the fetch, NO with the response code and text the rule names, after a SELECT that was answered OK.
+    run: curl -v -o {{null}} -u eve@example.com:evepass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 78
+      stderr-matches: 'A003 OK \[READ-WRITE\] SELECT completed\s+[\s\S]*A004 UID FETCH 1 BODY\[TEXT\]\s+[\s\S]*A004 NO \[SERVERBUG\] fetch failed'
+
+  - id: select-fails
+    claim: A rule can name another command; the first SELECT of Dee's session is answered NO and curl exits 67, "Select failed".
+    run: curl -sS -u dee@example.com:deepass "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Select failed"
+
+  - id: in-the-log
+    claim: The server's log has one line for each of the five times a rule answered, and no more.
+    run: grep -c "answered with the chosen error of fault rule" surl.log
+    expect:
+      exit: 0
+      stdout: "5\n"
+
+  - id: loosens
+    claim: A fault rule loosens surl, so it says so on start, once for the five rules together.
+    run: grep -c "5 fault rule(s) make this server misbehave on purpose" surl.log
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: reply-shape
+    claim: A reply not in IMAP's shape, an SMTP-style 250, is refused at start with exit 2, so a mistyped rule cannot start a server.
+    run: surl --fault "error;scheme=imap;command=FETCH;reply=250 OK" imap://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --fault: key reply does not fit the imap error shape\n'

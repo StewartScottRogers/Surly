@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-run-out-of-space-on-upload-from-an-agent
+title: Running Out of Space from an Agent
+protocols: [ftp]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, list_files, read_file, add_fault, remove_fault, get_events]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959]
+
+# Tonight's dump, in the folder curl-mcp is confined to.
+fixtures:
+  db.dump: "pg_dump of 2026-11-20\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: With /backups out of space, the curl tool's upload into it answers exitCode 25 and a tool error, Failed FTP upload 552, and list_files finds only last night's dump there; /staging takes an upload until add_fault fills it (25, 552) and remove_fault frees it (0); get_events lists one fault_applied per refusal, with the rule and the path.
+    program: program.cs
+    args: [full]
+    expect:
+      exit: 0
+      stdout: "upload backups/2026-11-20.dump: exitCode 25, tool error yes, curl: (25) Failed FTP upload: 552\n/backups: 2026-11-19.dump\nupload staging/a.dump: exitCode 0, tool error no\nadd_fault: f2\nupload staging/b.dump: exitCode 25, tool error yes, curl: (25) Failed FTP upload: 552\nremove_fault: f2\nupload staging/b.dump: exitCode 0, tool error no\n/staging: a.dump, b.dump\nfault_applied: f1 out_of_space /backups/2026-11-20.dump\nfault_applied: f2 out_of_space /staging/b.dump\n"
+
+  - id: uploads-off-is-550
+    claim: On a server started without --allow-uploads the same upload also answers exitCode 25, but the reply is 550, not 552, and /backups is unchanged.
+    program: program.cs
+    args: [closed]
+    expect:
+      exit: 0
+      stdout: "upload backups/2026-11-20.dump: exitCode 25, tool error yes, curl: (25) Failed FTP upload: 550\n/backups: 2026-11-19.dump\n"
+
+  - id: reply-is-552
+    claim: The refused upload's standardError carries the server's reply, 552, the reply FTP keeps for exceeded storage.
+    program: program.cs
+    args: [full]
+    expect:
+      exit: 0
+      stdout-matches: "^upload backups/2026-11-20.dump: exitCode 25, tool error yes, curl: [(]25[)] Failed FTP upload: 552\n"
+
+  - id: nothing-written
+    claim: After the refusal list_files finds only last night's dump in /backups; nothing half-written was left.
+    program: program.cs
+    args: [full]
+    expect:
+      exit: 0
+      stdout-matches: "\n/backups: 2026-11-19.dump\n"
+
+  - id: append-refused
+    claim: Appending to last night's dump with --append is refused the same way, exitCode 25 with 552, and read_file finds the dump unchanged.
+    program: program.cs
+    args: [append]
+    expect:
+      exit: 0
+      stdout: "upload backups/2026-11-19.dump: exitCode 25, tool error yes, curl: (25) Failed FTP upload: 552\n2026-11-19.dump: pg_dump of 2026-11-19\n"
+
+  - id: subfolder-full-too
+    claim: The rule covers every folder under /backups; --ftp-create-dirs still makes /backups/2026, but the file in it is refused (25, 552) and list_files finds the new folder empty.
+    program: program.cs
+    args: [subfolder]
+    expect:
+      exit: 0
+      stdout: "upload backups/2026/2026-11-20.dump: exitCode 25, tool error yes, curl: (25) Failed FTP upload: 552\n/backups: 2026/, 2026-11-19.dump\n/backups/2026: \n"
+
+  - id: whole-segments
+    claim: The path matches by whole folder names; /backups-old is not under /backups, and the upload is stored, exitCode 0.
+    program: program.cs
+    args: [old]
+    expect:
+      exit: 0
+      stdout: "upload backups-old/2026-11-20.dump: exitCode 0, tool error no\n/backups-old: 2026-11-20.dump\n"
+
+  - id: fault-events
+    claim: get_events lists one fault_applied per refused upload, rule and path, and none for the uploads that were stored.
+    program: program.cs
+    args: [full]
+    expect:
+      exit: 0
+      stdout-matches: "\nfault_applied: f1 out_of_space /backups/2026-11-20.dump\nfault_applied: f2 out_of_space /staging/b.dump\n$"

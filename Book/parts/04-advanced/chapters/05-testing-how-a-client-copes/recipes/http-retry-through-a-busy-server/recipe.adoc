@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-through-a-busy-server]]
+=== Retrying through a Busy Server
+
+==== Problem
+
+Your client should retry when a server answers `503 Service Unavailable`, a set number of times, and then succeed. You want a Hypertext Transfer Protocol (HTTP) server that is busy for exactly two requests, so a test can show that the client retried twice, that the server saw three requests, and that the third was answered.
+
+==== Solution
+
+Give `surl` a `--fault` rule that answers the first two requests for `/report.txt` with `503`, and fetch the file with `curl --retry 2`, exactly enough retries for a server that is busy twice:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "error;scheme=http;reply=503;path=/report.txt;times=2"` is one fault rule. `error` answers a request with the reply the rule names instead of serving it; `reply=503` must be an HTTP error status and `scheme=http` says it is in the shape HTTP uses. `path=/report.txt` makes only that file busy, and `times=2` spends the rule after two answers, so every request after them is served from `site`, the folder `--directory site` serves. The quotes keep the semicolons from the shell. `surl` warns on start that the server will misbehave on purpose. The rule acts when a request has arrived, so the connection the build makes to see that the server is up does not use one of the two.
+
+`curl --retry 2` allows two retries after a failure `curl` counts as transient, and `503` (<<rfc9110>>) is one (<<curl-manual>>). `--retry-delay 1` replaces the back-off, which would otherwise double from one second to two, with one second each time; `curl` says so on standard error, which `--no-progress-meter` keeps free of the progress bar (`-s` keeps it quiet in the claims below, where only the answer matters): `Retrying in 1 second. 2 retries left.`, then `Retrying in 1 second. 1 retry left.` The third request is served, `curl` writes the file and exits `0`, and `-w "%{http_code} %{num_retries}\n"` prints the final status and the number of retries it made, `200 2`. Two retries are exactly enough, and one fewer is not.
+
+The server keeps its own account. `-v` sets the log level to verbose and `--log-file surl.log` writes it to a file, where `grep -c` finds three requests for `/report.txt` from that one command, and two of them `answered 503 Service Unavailable by fault rule f1`, `f1` being the first rule{apos}s ID. A test can assert on either side, and the two agree.
+
+Busy is a property of a path and of a count, not of the server. A request for `/health.txt` is answered at once, `200 0`, and so is a request for `/report.txt` from a new command after the rule is spent: the rule counts answers, not clients. That is how a test tells a client that copes with a busy server from a server that is down.
+
+The failure path has its own server and folder, since one `surl` holds a folder at a time and each case spends a rule. With `--retry 1`, the one retry meets the second `503`, and `-f`, which makes an error status a failure, gives up with exit `22` after one retry, `503 1`. A new command after that gets the file, because the rule is spent whether or not the client was still there.
+
+The one timing claim is a range. A short script, which needs a POSIX shell (Git Bash on Windows), times a fetch from a server busy for one request, with one retry after `--retry-delay 1`, and says whether the whole command took at least one second, the wait, and less than thirty, a bound a slow machine meets. It does not claim an exact time.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-through-a-busy-server-in-csharp>> for the same test from a C# program.
+* <<http-retry-through-a-busy-server-from-an-agent>> for the same test from an agent.
+* <<http-retry-a-flaky-endpoint>> for curl{apos}s own back-off, one second and then two, on the same kind of rule.
+* <<http-recover-from-a-dropped-connection>> for a connection dropped instead of a `503`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

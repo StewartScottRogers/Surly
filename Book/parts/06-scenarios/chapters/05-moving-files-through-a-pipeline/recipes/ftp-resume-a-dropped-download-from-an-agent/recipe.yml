@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-resume-a-dropped-download-from-an-agent
+title: Resuming a Dropped Download from an Agent
+protocols: [ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, put_file, add_fault, curl, read_file, get_exchanges, get_events]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, rfc3659]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl tool call with -C - and --retry 1 --retry-all-errors resumes the 65,536-byte copy; the first try is dropped at RETR (56 in standardError), the retry fetches the other 134,464 bytes, exitCode 0; the copy is identical to the server's file, the server was sent REST 65536 on both tries, and get_events shows the one drop.
+    program: program.cs
+    args: [retry]
+    expect:
+      exit: 0
+      stdout-matches: "^fault: f1\ncurl: exitCode 0, tool error no, retries and bytes 1 134464, curl: [(]56[)][^\n]*\ncopy: 200000 bytes\nimage.iso: 200000 bytes, identical to the server's\nserver was sent: REST 65536, REST 65536\nfault_applied: f1 drop RETR /image.iso\n$"
+
+  - id: by-hand
+    claim: Without --retry the dropped call answers exitCode 56 and is a tool error, and a second identical call resumes and leaves the copy identical to the server's file.
+    program: program.cs
+    args: [by-hand]
+    expect:
+      exit: 0
+      stdout-matches: "^fault: f1\ncurl: exitCode 56, tool error yes, retries and bytes 0 0, curl: [(]56[)][^\n]*\ncopy: 65536 bytes\ncurl: exitCode 0, tool error no, retries and bytes 0 134464\ncopy: 200000 bytes\nimage.iso: 200000 bytes, identical to the server's\nserver was sent: REST 65536, REST 65536\nfault_applied: f1 drop RETR /image.iso\n$"
+
+  - id: partial-kept
+    claim: After the dropped call the copy in the folder still holds its 65,536 bytes.
+    program: program.cs
+    args: [by-hand]
+    expect:
+      exit: 0
+      stdout-matches: "tool error yes[^\n]*\ncopy: 65536 bytes\n"
+
+  - id: resumed-size
+    claim: The second call fetches only the 134,464 bytes that were missing, not 200,000.
+    program: program.cs
+    args: [by-hand]
+    expect:
+      exit: 0
+      stdout-matches: "\ncurl: exitCode 0, tool error no, retries and bytes 0 134464\ncopy: 200000 bytes\n"
+
+  - id: server-saw-rest
+    claim: get_exchanges shows the server was sent REST 65536 on both calls, the dropped one and the one that finished.
+    program: program.cs
+    args: [by-hand]
+    expect:
+      exit: 0
+      stdout-matches: "\nserver was sent: REST 65536, REST 65536\n"
+
+  - id: fault-event
+    claim: get_events lists one fault_applied for the drop, with the rule f1, its kind drop, and the command and path it acted on.
+    program: program.cs
+    args: [by-hand]
+    expect:
+      exit: 0
+      stdout-matches: "\nfault_applied: f1 drop RETR /image.iso\n$"
+
+  - id: already-whole
+    claim: A copy that is already whole is not fetched again; the call answers exitCode 0 with 0 bytes, the copy stays identical, the server is sent no REST, and the rule never acts.
+    program: program.cs
+    args: [whole]
+    expect:
+      exit: 0
+      stdout: "fault: f1\ncurl: exitCode 0, tool error no, retries and bytes 0 0\ncopy: 200000 bytes\nimage.iso: 200000 bytes, identical to the server's\nserver was sent: \n"
+
+  - id: local-copy-longer
+    claim: A copy longer than the server's file, another file under the same name, is refused by curl before any transfer, exitCode 36 and a tool error, Offset (300000) was beyond file size (200000); the copy is left as it was.
+    program: program.cs
+    args: [longer]
+    expect:
+      exit: 0
+      stdout: "fault: f1\ncurl: exitCode 36, tool error yes, retries and bytes 0 0, curl: (36) Offset (300000) was beyond file size (200000)\ncopy: 300000 bytes\nimage.iso: 300000 bytes, DIFFERENT from the server's\nserver was sent: \n"

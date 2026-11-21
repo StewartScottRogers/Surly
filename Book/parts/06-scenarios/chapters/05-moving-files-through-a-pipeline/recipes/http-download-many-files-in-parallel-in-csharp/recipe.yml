@@ -1,0 +1,62 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-download-many-files-in-parallel-in-csharp
+title: Downloading Many Files in Parallel in C#
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlClientOptions, CurlRequest, CurlResponse]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, libcurl-api, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With MaxConnectionsPerHost 8, the server's per-address limit, fifty requests started at once on one CurlClient all end 200, and every file saved under out-capped has the SHA-256 of the file the server holds.
+    program: parallel.cs
+    args: [capped]
+    expect:
+      exit: 0
+      stdout: "server limit per address: 8, client cap: 8\nlast status 200: 50, 503 Service Unavailable: 0, exceptions: 0\nsaved under out-capped and whole: 50 of 50\ntook under 30 s: yes\n"
+
+  - id: written-to-disk
+    claim: The capped run leaves the files on disk, out-capped/f1.bin to out-capped/f50.bin.
+    program: parallel.cs
+    args: [capped]
+    expect:
+      exit: 0
+      files:
+        out-capped/f1.bin: null
+        out-capped/f25.bin: null
+        out-capped/f50.bin: null
+
+  - id: no-cap
+    claim: With no cap the client opens a connection for each concurrent request, the server answers the ones past its eight with 503 Service Unavailable, and fewer than fifty files are saved.
+    program: parallel.cs
+    args: [uncapped]
+    expect:
+      exit: 22
+      stdout-matches: '^server limit per address: 8, client cap: none\nlast status 200: (\d|[1-4]\d), 503 Service Unavailable: [1-9]\d?, exceptions: 0\nsaved under out-uncapped and whole: (\d|[1-4]\d) of 50\n'
+
+  - id: a-503-does-not-throw
+    claim: SendAsync throws nothing for a 503; every refused request comes back as a CurlResponse, so the program must look at the status itself (exceptions 0).
+    program: parallel.cs
+    args: [uncapped]
+    expect:
+      exit: 22
+      stdout-matches: 'last status 200: (\d+), 503 Service Unavailable: (\d+), exceptions: 0\n'
+
+  - id: retry-recovers
+    claim: With no cap, sending each 503 again a second later, up to ten times, ends with all fifty 200 and whole, within 30 s.
+    program: parallel.cs
+    args: [retry]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "server limit per address: 8, client cap: none, 503 retried\nlast status 200: 50, 503 Service Unavailable: 0, exceptions: 0\nsaved under out-retry and whole: 50 of 50\ntook under 30 s: yes\n"

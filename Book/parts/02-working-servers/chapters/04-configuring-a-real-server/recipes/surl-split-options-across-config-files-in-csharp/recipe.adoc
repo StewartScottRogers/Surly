@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-split-options-across-config-files-in-csharp]]
+=== Splitting Options Across Config Files in C#
+
+==== Problem
+
+Your C# fixture keeps its `surl` settings in config files that shell scripts share: a base file for every test and a small one for each. You want `Surl.Api` to read them through, and to know which setting wins when they disagree.
+
+==== Solution
+
+Put the two files in `SurlServerOptions.ConfigFiles`, base first, and the listen URLs in code. The files are the ones the console recipe starts `surl` with:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`ConfigFiles` is `-K`, in order. `AdditionalArguments` are read after the files, as if they were the rest of the command line, and properties such as `MaxFileSize` are read before them. The last word on an option that takes one value wins, and that one rule answers each claim.
+
+Both files set `max-filesize`, `base.conf` 100 and `test.conf` 10. With the files in that order the later one wins: a 21-byte `PUT` is refused `413` and an 8-byte one is accepted, `201`. The same limit holds over FTP, where a refusal is not a status but a `CurlException` whose `Code` is `RemoteDiskFull`, `70`. With `ConfigFiles` the other way round `base.conf` is later, its 100 wins and the 21-byte upload is accepted. `"--max-filesize", "5"` in `AdditionalArguments` beats both. The property `MaxFileSize = 5` does not: it is read before the files, so `test.conf`{apos}s 10 applies and the 8-byte upload is accepted. A flag follows the order too, and has a form that turns it off: `"--no-allow-uploads"` in `AdditionalArguments` cancels the `allow-uploads` of `base.conf`, and the upload is refused `405`. A `--directory` there beats the one in `base.conf`, and the server serves another folder.
+
+Not everything is replaced. `user` adds an account: `second` from `test.conf` logs in beside `tester` from `base.conf`. With an account configured every request needs a login, so one without it is `401`. `CurlResponse.StatusCode` carries that and the other statuses; as with `curl`, a `401` is an answer and not an exception. HTTP and FTP serve the one directory `base.conf` names: an 8-byte upload over FTP is in `server.Files`, which reads it from there.
+
+A mistake in a file makes `StartAsync` throw `SurlServerStartException`: `ExitCode` is `FailedInit` and `Lines[0]` is `surl`{apos}s line without its prefix, `bad.conf:2: option --max-filesise: is unknown`, naming the file and the line.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties, and `CurlClient` the client that sends every request of the program. `CurlRequest` is a method and a URL, with a `Body` for an upload, and `CurlAuthenticationOptions` is the login, `-u tester:secret`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-split-options-across-config-files>> for the same task on the console.
+* <<surl-split-options-across-config-files-from-an-agent>> for the same task from an agent.
+* <<surl-run-a-fixture-from-a-config-file-in-csharp>> for a whole environment in one file.
+* <<surl-readme>>, <<curl-readme>>.

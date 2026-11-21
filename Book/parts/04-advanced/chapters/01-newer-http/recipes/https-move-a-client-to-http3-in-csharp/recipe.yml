@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: https-move-a-client-to-http3-in-csharp
+title: Moving Clients to HTTP/3 in C#
+protocols: [https]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, SurlExchangeChunk, CurlClient, CurlClientOptions, CurlAltSvcStore, CurlAltSvcEntry, AltSvcControl, CurlRequest, CurlResponse, CurlHttpOptions, CurlNetworkOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9114, rfc9000]
+
+fixtures: {}
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first request goes over HTTP/2 with Alt-Svc h3 on the same port, the client saves an h2-to-h3 entry for 127.0.0.1, and the second, with HttpVersion.Http3, goes over HTTP/3, which the server recorded as QUIC, on every platform.
+    program: move-to-http3.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^first: HTTP/2\.0 200, Alt-Svc \[h3=":\d+"; ma=86400\]\nfirst: the server saw TCP\nsaved: h2 127\.0\.0\.1 to h3 127\.0\.0\.1 on the same port\nsecond: HTTP/3\.0 200, Alt-Svc \[\]\nsecond: the server saw QUIC\n$'
+
+  - id: no-version-option-switches
+    platforms: [linux, macos]
+    claim: On Linux and macOS, the second request needs no version option either (HttpVersion.None); reading the entry, it goes over HTTP/3 and QUIC.
+    program: move-to-http3.cs
+    args: [none]
+    expect:
+      exit: 0
+      stdout-matches: '\nsecond: HTTP/3\.0 200, Alt-Svc \[\]\nsecond: the server saw QUIC\n$'
+
+  - id: windows-ignores-without-a-version
+    platforms: [windows]
+    claim: On Windows, Curl.Api does as curl's own Windows build and ignores the entry for a request with HttpVersion.None, so the second request stays on HTTP/2 over TCP.
+    program: move-to-http3.cs
+    args: [none]
+    expect:
+      exit: 0
+      stdout-matches: '\nsecond: HTTP/2\.0 200, Alt-Svc \[h3=":\d+"; ma=86400\]\nsecond: the server saw TCP\n$'
+
+  - id: http1-1-ignores-it
+    claim: With HttpVersion.Http11, the client looks only for entries learned over HTTP/1.1, finds none, and stays on HTTP/1.1 over TCP.
+    program: move-to-http3.cs
+    args: [http1.1]
+    expect:
+      exit: 0
+      stdout-matches: '\nsecond: HTTP/1\.1 200, Alt-Svc \[h3=":\d+"; ma=86400\]\nsecond: the server saw TCP\n$'

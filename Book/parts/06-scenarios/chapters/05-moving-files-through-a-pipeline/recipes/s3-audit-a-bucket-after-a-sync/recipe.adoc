@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-audit-a-bucket-after-a-sync]]
+=== Auditing a Bucket After a Sync
+
+==== Problem
+
+A job syncs a folder into an S3 bucket, and you want an artificial intelligence (AI) agent to check afterwards that the bucket holds what it should: to list the bucket and report the objects that are missing, extra or changed against a manifest, using Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the MCP software development kit (SDK): it runs the sync as one `curl-mcp` `curl` call, lists the bucket{apos}s store with `list_files`, reads what it must compare with `read_file`, and prints what differs from the manifest, here the `out` folder the sync copied from:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the S3 listen URL, `s3://127.0.0.1:0`, with `--cert` and `--key` from `setup:` (S3 is Transport Layer Security (TLS) from the first byte), `--user` for the access key and secret that signs requests, and `--allow-uploads`, without which a signed put is refused. `files` seeds the bucket: each top-level folder is a bucket, and `reports/old.csv` is an object a past run left behind. The answer holds `server_id`, which every other `surl-mcp` tool takes, and `bound_urls`.
+
+The sync is one `curl` call with a `-T file s3://reports/name` pair for each file. `s3://reports/a.csv` names the bucket as the host, so `--connect-to ::127.0.0.1:port` routes it to the server and `--cacert server.pem` trusts the certificate, which the setup made to cover every bucket{apos}s host name; `-u` signs with the access key. The tool answers `exitCode` `0`, and the audit does not take that as proof.
+
+The audit reads the store, not the S3 interface. `list_files` with the path `/reports`, the bucket, answers `entries`, each with a `name`, a `kind` and a `byte_count`, so the program sees every object and its size at once. A name in the manifest and not in the listing is missing; a name in the listing and not in the manifest is extra, and here `old.csv` is, with the three synced files present and unchanged. For a name in both, a different size is a change. The same size proves nothing, so the program reads that object with `read_file`, whose `text` is the exact bytes stored, and compares it.
+
+The `drift` case shows why. After the sync the program changes `a.csv` with `put_file` to text of the same length, deletes `b.csv` with `delete_file` and adds `z.csv`; the audit reports one of each, and the changed object is found only by reading it. `put_file` and `delete_file` write the store directly, with no login, as someone with access to the server would.
+
+A sync can fail part way, and the exit code is only the first sign. In the `partial` case the call names a file the source does not have: `curl` puts `a.csv`, cannot open `gone.csv` and stops with exit `26`, and the tool marks the answer a tool error. `b.csv` and `c.csv` were never sent, and the audit lists them missing, which is the list a re-run needs.
+
+What a client sees over S3 is a second view of the same store. A signed `curl s3://reports/` answers the names one to a line, and they are the names `list_files` returns. That listing is a feature the server must be told to allow: without `--list-directories` it is refused, `403 AccessDenied`, and `curl` exits `22`. The audit does not depend on it, because it reads the store from the server{apos}s side.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-list-a-bucket-from-an-agent>> for listing a bucket over S3.
+* <<ftp-copy-a-report-from-ftp-to-s3-from-an-agent>> for the hop that puts a report into a bucket.
+* <<sftp-upload-a-batch-and-verify-it-from-an-agent>> for the same check after an upload over SFTP.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

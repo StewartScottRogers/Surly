@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-list-and-upload-in-csharp]]
+=== Listing and Uploading over FTP in C#
+
+==== Problem
+
+A .NET test talks to a File Transfer Protocol (FTP) server: it needs to see what a folder holds, upload a file into it and see the file there afterwards. You want the server in the test process, with nothing to start and nothing to clean up.
+
+==== Solution
+
+Start a `SurlServer` that allows anonymous logins, listings and uploads, list its root with a `CurlClient`, upload a file with a `PUT` and list the root again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is the in-process spelling of `surl`{apos}s command line. `ListenUrls` is the listen URL, `ftp://127.0.0.1:0`, where port `0` takes a free port that `server.BoundUrl` then holds. `AllowAnonymous`, `ListDirectories` and `AllowUploads` are `--allow-anonymous`, `--list-directories` and `--allow-uploads`, and like them each loosens something and is off by default. `Files` holds the files the server starts with, in memory, under `/` separated relative paths; a file whose name begins with a dot is held but never listed or served.
+
+A `CurlRequest` with `HttpMethod.Get` for a URL that ends in a slash is a listing, as `curl ftp://host/` is. `CurlClient.SendAsync` returns a `CurlResponse` whose `Body` is the long listing, one line a name in the style of Unix `ls -l` (<<rfc959>>): the first character is `d` for a folder and `-` for a file, and the name is the last word. The program prints those two things, so the listing shows `hello.txt` and the folder `sub`, and not the hidden file. `Curl.Api` has no names-only listing, the `-l` of the console recipe, so a program that wants names only reads them from the line, or from the server{apos}s own store with `server.Files.ListAsync`. A subfolder is listed by naming it with its trailing slash. `server.Files`, a `SurlServerFiles`, is the same store seen from the test: `ListAsync` answers a `SurlFolderPage` of entries, each with a `Name` and an `IsFolder`, and needs no `ListDirectories`, since it is not a client.
+
+A `PUT` with a `Body` is `curl -T`: it sends `STOR` and stores the bytes at the path in the URL. The next listing shows the file, and `server.Files.ReadAsync("/notes.txt")` returns a `SurlFileContents` whose `Bytes` are exactly what was sent. A `CurlRequest` knows no local file name, so unlike `curl -T` to a URL ending in a slash, the path always names the file. An upload into a folder that is not there throws; `CurlFtpOptions.CreateMissingDirectories` set to `FtpCreateMissingDirectories.Create` is `--ftp-create-dirs`, and with it the folder is made and the upload lands in it.
+
+Each refusal is a `CurlException`, in `Curl.Api.Errors`, whose `Code` is the same number `curl` exits with. A listing on a server with `ListDirectories` left off is answered `550 No such directory`, as if the folder were not there: `FtpCouldntRetrFile`, `19`. With `AllowUploads` left off the listing still works and the upload is `UploadFailed`, `25`. With `AllowAnonymous` left off the login the client sends, `USER anonymous`, is refused: `LoginDenied`, `67`. `RecordExchanges = true` is what lets the program read, from `server.Exchanges`, the `USER anonymous` the server received.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-list-and-upload>> for the same task on the console, with `curl -l` and `curl -T`.
+* <<ftp-list-and-upload-from-an-agent>> for the same task from an agent.
+* <<ftp-create-folders-while-uploading-in-csharp>> for creating the folders an upload needs.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

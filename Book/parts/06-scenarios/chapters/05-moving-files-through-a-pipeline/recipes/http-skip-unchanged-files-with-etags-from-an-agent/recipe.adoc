@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-skip-unchanged-files-with-etags-from-an-agent]]
+=== Skipping Unchanged Files by Date
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to run a sync job that fetches only what changed: every file on the first run, nothing unchanged on the next, and a file changed between runs fetched again.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit: it starts a server through `surl-mcp`{apos}s `start_server`, fetches each file with `curl-mcp`{apos}s `curl` tool and `-R -z`, and changes the server between runs with `put_file`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a Hypertext Transfer Protocol (HTTP) server holding `a.txt` and `b.txt` in memory; `bound_urls` in its answer names the port, and `server_id` names the server for the other `surl-mcp` tools. The server sends each file with a `Last-Modified` date, to the second (<<rfc9110>>).
+
+The `curl` tool runs a `curl` command line, given as `args`, inside `CURL_MCP_ROOT`, and answers JavaScript Object Notation (JSON) text with `exitCode` and the output streams. The job makes one call per file. `-z local-changed/a.txt` makes the fetch conditional on the date of the local copy: `curl` takes a new copy only when the server{apos}s is newer, and when the local file does not exist yet it fetches unconditionally. `-R` gives the saved file the server{apos}s date, so the next comparison is between two of the server{apos}s dates. `-o` and `--create-dirs` save the copy, `-s` keeps the output to what `-w "%{http_code}"` prints, and `-f` makes an error status a failure. When `curl` does not take a new copy it reports `304 Not Modified` and the local file is left alone (<<curl-manual>>). The copies are ordinary files on disk under `CURL_MCP_ROOT`, `local-changed/a.txt` and `local-changed/b.txt`, for the next step to read.
+
+The `dates` case shows the comparison itself. A `transfer` call with `method` `HEAD` returns the headers and no body: an unchanged file is answered `200`, and its `Last-Modified` is the date `-R` gave the saved copy. Run with `-v`, the `curl` tool{apos}s `standardError` holds the request head, and in it `-z` sent that date back as `If-Modified-Since`.
+
+The first run prints `200` for both files, the second `304` for both. `put_file` then rewrites `a.txt` in the server{apos}s store, and the third run fetches it again and still skips `b.txt`. The program waits just over a second before the rewrite because `Last-Modified` counts whole seconds: a rewrite in the second the files were first served would carry the same date and be missed. An entity tag (ETag), which the server changes with the content, would not need the wait (<<rfc9110>>); Surl is adding entity tags and conditional requests, and until a recipe shows them, this one relies on dates alone.
+
+`delete_file` removes `a.txt` from the store. The next fetch of it is answered `404 Not Found`; `-f` makes `curl` exit `22` before it writes anything, so the local copy stays as it was. Without `-f` the same fetch prints `404` and exits `0`, and `-o` writes the empty `404` body over the local copy, leaving `a.txt` empty. With `-f`, an agent reads the `exitCode` of `22` as "gone on the server" and decides for itself whether to delete its copy.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-skip-unchanged-files-with-etags>> for the same job on the console.
+* <<http-skip-unchanged-files-with-etags-in-csharp>> for the same job from .NET code.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

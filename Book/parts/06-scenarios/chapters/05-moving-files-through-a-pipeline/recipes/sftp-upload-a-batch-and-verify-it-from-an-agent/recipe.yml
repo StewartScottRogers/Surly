@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: sftp-upload-a-batch-and-verify-it-from-an-agent
+title: Uploading a Batch and Verifying It from an Agent
+protocols: [sftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_files]
+exit-codes: [0]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+
+cases:
+  - id: solution
+    role: solution
+    claim: "An agent starts an SFTP server with surl-mcp, uploads four files to /inbox/ with curl-mcp's curl tool against a pinned host key, lists the server's side, and every name and size matches; list_files agrees."
+    program: batch.cs
+    args: ["all"]
+    expect:
+      exit: 0
+      stdout: "all 4 files match: blob.bin 1500, config.ini 18, data.csv 16, notes.txt 14\nthe store agrees: True\n"
+
+  - id: wrong-pin
+    claim: "A host key that is not the pinned one is refused before any login: curl exits 60."
+    program: batch.cs
+    args: ["wrong-pin"]
+    expect:
+      exit: 0
+      stdout: "upload: exit code 60\n"
+
+  - id: missing-file-found
+    claim: "When one file is not uploaded, the comparison names it."
+    program: batch.cs
+    args: ["missing"]
+    expect:
+      exit: 0
+      stdout: "missing: blob.bin (1500)\n"
+
+  - id: wrong-size-found
+    claim: "When a file arrives short, 1,000 bytes for 1,500, the comparison shows both sizes."
+    program: batch.cs
+    args: ["short"]
+    expect:
+      exit: 0
+      stdout: "size: blob.bin local 1500, remote 1000\n"
+
+  - id: repaired
+    claim: "Uploading the whole batch again replaces the short file; the comparison passes and list_files agrees."
+    program: batch.cs
+    args: ["repaired"]
+    expect:
+      exit: 0
+      stdout: "all 4 files match: blob.bin 1500, config.ini 18, data.csv 16, notes.txt 14\nthe store agrees: True\n"
+
+  - id: uploads-off
+    claim: "A server started without --allow-uploads refuses the upload: curl exits 9, Permission denied."
+    program: batch.cs
+    args: ["uploads-off"]
+    expect:
+      exit: 0
+      stdout: "upload: exit code 9\n"
+
+  - id: no-listing
+    claim: "A server that takes uploads but was not given --list-directories cannot be checked: the listing is refused, exit code 78."
+    program: batch.cs
+    args: ["no-listing"]
+    expect:
+      exit: 0
+      stdout: "listing refused: exit code 78\n"
+
+  - id: glob-refused
+    claim: "curl-mcp refuses a glob in -T, which curl itself would expand: the failure is of kind PathRefused, so the agent names each file."
+    program: batch.cs
+    args: ["glob-refused"]
+    expect:
+      exit: 0
+      stdout: "curl-mcp: PathRefused\n"

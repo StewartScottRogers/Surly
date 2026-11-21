@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-upload-a-batch-and-verify-it-in-csharp]]
+=== Uploading a Batch and Verifying It in C#
+
+==== Problem
+
+A test in a .NET program uploads a batch of files over SSH File Transfer Protocol (SFTP) to a server whose host key it has pinned, then lists the server{apos}s side and compares every name and size with what it sent.
+
+==== Solution
+
+Start a `SurlServer` with uploads and listings on, upload each file with a `CurlClient` `PUT` that carries the pinned host key, and read `/inbox/` back with a `GET`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` carries what the console recipe{apos}s `surl` command line does: `HostKeyFiles` is `--hostkey`, `Accounts` is `--user`, `AllowUploads` is `--allow-uploads` and `ListDirectories` is `--list-directories`. The host key and its public half come from `ssh-keygen` in the setup.
+
+The pin is `CurlSshOptions.HostPublicKeySha256`, the same hash `curl --hostpubsha256` takes: the SHA-256 of the key{apos}s blob, the second field of `host_key.pub`, in base64 without padding. The program works it out from the file with `SHA256.HashData`, so the pin is what `ssh-keygen -l` would print and not a copy that can drift. A different hash makes the connection fail before any login with a `CurlException` whose `Code` is `PeerFailedVerification`, `60`.
+
+`CurlRequest(HttpMethod.Put, url) { Body = bytes }` is `curl -T`, and `Ftp = new CurlFtpOptions { CreateMissingDirectories = FtpCreateMissingDirectories.Create }` is `--ftp-create-dirs`, which makes `/inbox/`. A `GET` of the folder URL returns the long listing as the body, `ls -l` form, and the program takes the last field of each line as the name and the fifth as the size. A listing needs `ListDirectories`; without it the folder is answered as if it were not there, `RemoteFileNotFound`, `78`, which the program reports as a refused listing and not as an empty folder. A server without `AllowUploads` refuses the first upload with `RemoteAccessDenied`, `9`.
+
+The comparison goes through every local name: absent from the listing is `missing`, and a different size is `size`. A match prints the names and sizes. Re-sending the whole batch replaces a file that arrived short, and the next comparison passes. As on the console, a match of names and sizes shows that the files arrived whole, not that their bytes are the same.
+
+`SurlAccount` is `--user`, one account. `CurlClient` sends the requests; `CurlAuthenticationOptions` is the login, `CurlFtpOptions` carries the settings that `curl` keeps for FTP and SFTP, here the folder creation, and `CurlResponse` has the `Body`, a stream read for the listing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-upload-a-batch-and-verify-it>> for the same task on the console, with scripts.
+* <<sftp-upload-a-batch-and-verify-it-from-an-agent>> for the same task from an agent.
+* <<sftp-list-and-make-folders-in-csharp>> for listings from C#.
+* <<surl-readme>>, <<curl-readme>>.

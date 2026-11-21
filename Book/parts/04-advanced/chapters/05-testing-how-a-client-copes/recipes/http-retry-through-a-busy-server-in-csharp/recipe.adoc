@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-through-a-busy-server-in-csharp]]
+=== Retrying a Busy Server in C#
+
+==== Problem
+
+Your .NET client should retry when a server answers `503 Service Unavailable`, a set number of times, and then succeed. In a test, you want an in-process Hypertext Transfer Protocol (HTTP) server that is busy for exactly two requests, and you want the client and the server to say the same thing about what happened.
+
+==== Solution
+
+Start a `SurlServer` with a `SurlFault` that makes `/report.txt` busy for two requests, fetch it with a `CurlClient` in a loop that allows two retries and waits one second before each, and read back what the server logged and what its rule did:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlFault.ProtocolError("503")` makes a rule that answers a request with the reply it names instead of serving it, as `surl --fault error;reply=503` does. The reply must fit its protocol{apos}s error shape, so `with { Scheme = "http" }` says which. `Path` makes only `/report.txt` busy and `Times = 2` spends the rule after two answers. A rule in `SurlServerOptions.Faults` is there from the start and is numbered `f1`.
+
+A busy answer is a response, not a failure: `CurlClient.SendAsync`, given a `CurlRequest`, returns a `CurlResponse` whose `StatusCode` is `503` and throws nothing. The retrying is the program{apos}s. It treats the statuses `curl --retry` counts as transient, `408`, `429`, `500`, `502`, `503` and `504` (<<curl-manual>>), as worth another try, waits one second as `curl --retry-delay 1` would, and reads each body to its end and disposes it before it asks again. The third attempt gets `200 OK` and the file, after two retries, and the program exits `0`. Two retries are exactly enough for a server busy twice. With one, the retry meets the second `503` and the program exits `22`, as `curl -f` does for an error status; with none, the first `503` is the answer. The exit codes are the program{apos}s choice, not the library{apos}s.
+
+The first request a process makes with `Curl.Api` takes longer than the rest, a one-time set-up. The program makes one request first, for `/health.txt`, which is never busy, and only then starts a `Stopwatch`. The timing claim is then a range: the two waits take at least two seconds, and on a slow machine still well under twenty.
+
+The server keeps its own account. Its `Log`, a `StringWriter` here, with `LogLevel.Verbose` from `Surl.Output`, holds a line for each request, from which the program counts three for `/report.txt`. `RecordExchanges = true` makes it keep every event, and `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.FaultApplied` counts the times the rule answered, two. `Faults.List()` reads the rule back as a `SurlFaultRule`: `f1`, and `Remaining` is `0`. A test can assert on both sides.
+
+The rule is scoped and counted. A request for `/health.txt` never touches it, so `Remaining` is still `2` after one, and the log shows two requests for the file, the warm-up and the fetch. A request for `/report.txt` after the retries is served at once, `200`, because the rule counts answers and not clients, and the server has then logged four requests for the file.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-through-a-busy-server>> for the same test on the console, with `curl --retry`.
+* <<http-retry-through-a-busy-server-from-an-agent>> for the same test from an agent.
+* <<http-retry-a-flaky-endpoint-in-csharp>> for a doubling wait on the same kind of rule.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

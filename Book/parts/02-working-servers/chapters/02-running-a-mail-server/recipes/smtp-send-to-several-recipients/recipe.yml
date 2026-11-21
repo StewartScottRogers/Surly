@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-send-to-several-recipients
+title: Sending to Several Recipients
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox, -v, --log-file]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, --mail-rcpt-allowfails, -T, --next, -s, -S, -o, -w, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 55]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+# The notice the app sends. Its To header names Ann only; the envelope decides who gets it.
+fixtures:
+  notice.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Maintenance on Saturday\n\nThe system is down from 02:00 to 04:00.\n"
+
+# SMTP for the app and IMAP for the check, over one mail store. Each case has mailboxes of its own,
+# so one case's mail never shows up in another's count.
+servers:
+  main:
+    command: surl -v --log-file surl.log --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox cy@example.com:cypass --mailbox dee@example.com:deepass --mailbox fay@example.com:faypass --mailbox gus@example.com:guspass --mailbox hal@example.com:halpass --mailbox ivy@example.com:ivypass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One message with three --mail-rcpt is answered once, and an IMAP SEARCH finds it in Ann's, Bob's and Cy's INBOX, each as UID 1.
+    run: 'curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt bob@example.com --mail-rcpt cy@example.com -T notice.eml smtp://127.0.0.1:{{port}}/example.com --next -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u cy@example.com:cypass "imap://127.0.0.1:{{port2}}/INBOX;UID=1" --next -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?ALL" --next -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?ALL" --next -sS -u cy@example.com:cypass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n* SEARCH 1\n* SEARCH 1\n"
+
+  - id: envelope-not-header
+    claim: The envelope decides who gets the message, not its headers; Bob's copy has a To field that names Ann, and no header names Bob.
+    run: 'curl -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(TO)"'
+    expect:
+      exit: 0
+      stdout: "To: ann@example.com\n\n"
+
+  - id: stored-once
+    claim: The server logs the message as stored once, for three recipients, not three times.
+    run: 'grep -c "Message stored: .* for 3 recipients" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: one-refused-abandons-all
+    claim: When one recipient is refused, a mailbox outside every --mail-domain, curl exits 55 with the 550 and the whole message is abandoned; Dee, who was named first, has nothing.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt dee@example.com --mail-rcpt carol@elsewhere.org -T notice.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "RCPT failed: 550"
+
+  - id: nothing-for-dee
+    claim: Dee's INBOX is empty after the abandoned message; the server stored nothing for her.
+    run: curl -sS -u dee@example.com:deepass "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: allowfails
+    claim: With --mail-rcpt-allowfails curl sends to the recipients that were accepted and exits 0, though Carol was refused; Fay receives the message.
+    run: 'curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt fay@example.com --mail-rcpt carol@elsewhere.org --mail-rcpt-allowfails -T notice.eml smtp://127.0.0.1:{{port}}/example.com --next -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u fay@example.com:faypass "imap://127.0.0.1:{{port2}}/INBOX;UID=1" --next -sS -u fay@example.com:faypass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n"
+
+  - id: unknown-in-domain
+    claim: An address inside the domain that is no mailbox is answered 250 and its copy discarded, so a sender cannot learn which addresses exist; the last reply is 250 and Gus still receives his copy.
+    run: 'curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt gus@example.com --mail-rcpt nobody@example.com -T notice.eml -w "%{response_code}\n" -o {{null}} smtp://127.0.0.1:{{port}}/example.com --next -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u gus@example.com:guspass "imap://127.0.0.1:{{port2}}/INBOX;UID=1" --next -sS -u gus@example.com:guspass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "250\n* SEARCH 1\n"
+
+  - id: same-address-twice
+    claim: An address named twice gets one copy, not two; Hal is named twice and Ivy once, and after Ivy's copy has arrived Hal's INBOX holds one message.
+    run: 'curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt hal@example.com --mail-rcpt hal@example.com --mail-rcpt ivy@example.com -T notice.eml smtp://127.0.0.1:{{port}}/example.com --next -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u ivy@example.com:ivypass "imap://127.0.0.1:{{port2}}/INBOX;UID=1" --next -sS -u hal@example.com:halpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n"

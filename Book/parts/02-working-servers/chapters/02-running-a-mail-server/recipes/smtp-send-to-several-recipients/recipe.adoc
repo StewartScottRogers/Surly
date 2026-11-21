@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-to-several-recipients]]
+=== Sending to Several Recipients
+
+==== Problem
+
+You want to send one message to three people with a repeated `--mail-rcpt`, and check over Internet Message Access Protocol (IMAP) that each mailbox got its own copy.
+
+==== Solution
+
+Name each recipient with its own `--mail-rcpt`, send the message once, and search each mailbox. The one command sends, waits until the last mailbox can be read, and searches the three in turn:
+
+include::.generated/solution.adoc[]
+
+In a real test the app sends, pointed at port `8025`, and the test runs the searches.
+
+==== Discussion
+
+The server is `surl` with an `smtp://` and an `imap://` listen URL, which run over one mail store, so what the first receives the second reads. `--mail-domain example.com` serves the domain and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address, one for the app and one for each recipient (<<surl-readme>>). Every case uses mailboxes of its own, so one case{apos}s mail never shows in another{apos}s count. `-v` and `--log-file surl.log` write a verbose log to a file, which one claim reads.
+
+On the `curl` side, `-u` is the app{apos}s login, `--mail-from` is the envelope sender and each `--mail-rcpt` is one envelope recipient (<<rfc5321>>), `-T notice.eml` is the message, and `--crlf` turns the file{apos}s line feeds into the carriage return and line feed a message is made of. `-s` keeps `curl` quiet and `-S` lets it still print an error; `-o` throws a body away and `-w` prints one of `curl`{apos}s own values after the transfer. `--next` starts the next transfer in the same command, and each repeats its own options, `-u` included.
+
+Delivery is asynchronous, so the command does not assume the mail has arrived when `curl` exits. `--retry 10` allows ten retries at most, `--retry-all-errors` makes every failure count, which a message not yet stored is, and `--retry-delay 1` waits a second between tries, until a fetch of Cy{apos}s message by its unique identifier (UID) succeeds, with no fixed sleep (<<curl-manual>>). The three searches follow, and each finds the message as UID `1`.
+
+The recipients are the envelope{apos}s, not the headers{apos}. The message says `To: ann@example.com`, and Bob{apos}s copy says so too; no header names him. The server stores the message once and lists the three recipients on it, which the log records as one `Message stored` line for three recipients.
+
+A refused recipient decides the whole message, by default. When Carol, whose address is outside every `--mail-domain`, is named after Dee, the server answers her `RCPT` with `550 5.7.1 Relaying denied`; `curl` exits `55`, prints `RCPT failed: 550`, and does not send the message, so Dee, who was accepted, has an empty `INBOX` (<<rfc9051>>). `--mail-rcpt-allowfails` changes that: `curl` sends to the recipients that were accepted and exits `0`, and Fay receives her copy. Which one an app should want is a decision, and each has a case.
+
+A recipient inside the domain who has no mailbox is a different case. The server answers `250` for `nobody@example.com` and discards that copy, as it would for any address, so a sender cannot use it to learn which addresses exist; the last reply is `250` and Gus still receives his copy. An address named twice gets one copy: Hal is named twice, Ivy once, and after Ivy{apos}s copy has arrived Hal{apos}s `INBOX` holds one message. Deliveries happen in order, so Ivy{apos}s arrival shows that nothing for Hal is still on its way.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-to-several-recipients-in-csharp>> for the same task in C#.
+* <<smtp-send-to-several-recipients-from-an-agent>> for the same task run by an agent.
+* <<smtp-fail-a-test-on-a-wrong-recipient>> for a recipient refused for good.
+* <<smtp-send-and-read-it-over-imap>> for one message to one recipient.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-fail-one-command-from-an-agent]]
+=== Failing One IMAP Command from an Agent
+
+==== Problem
+
+Your mail app must survive a server that answers one fetch with `NO` while everything else works. You want an agent to fail one Internet Message Access Protocol (IMAP) command on purpose with `surl-mcp`, fetch as the app would with `curl-mcp`, and see both the client{apos}s error and the server{apos}s side of it.
+
+==== Solution
+
+The program starts both hosts, starts a mail server whose rules answer the first `FETCH` of two accounts with `NO`, puts a message in each account{apos}s store, and fetches Ann{apos}s twice with the `curl` tool. The first fetch fails and the second works:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). `--mail-domain` and `--mailbox` give a mail server for `example.com` with two accounts. `--fault "error;scheme=imap;command=FETCH;account=ann@example.com;reply=NO [SERVERBUG] fetch failed;times=1"` is a rule: `error` answers a command with the reply the rule names instead of carrying it out, `scheme=imap` says the reply is in IMAP{apos}s shape, a status of `NO` or `BAD` with an optional response code in brackets and text (<<rfc9051>>), `command=FETCH` and `account=` narrow it, and `times=1` spends it after one answer. `seed_mail` puts a message in an account{apos}s store as Simple Mail Transfer Protocol (SMTP) would, with no client, and answers once it is stored, so the program needs no wait.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON; a non-zero exit is also marked as a tool error, so the program reads the exit code and the error text from the answer. `-s` keeps the progress meter out and `-S` keeps the error line in, `-u` is the login, and the URL is `INBOX;UID=1;SECTION=TEXT`, the text of the first message. A `NO` to the fetch gives exit `78`, `Remote file not found`, the same exit a message that does not exist gives; only the response code in the server{apos}s text tells them apart. The fetch again is answered normally because the rule was spent. A `NO` refuses one command and the session stays, so a `SEARCH` in the same mailbox is answered while the fetch rule waits, and the fetch after it fails.
+
+`curl`{apos}s retries do not fit this well (<<curl-manual>>). `--retry 2` alone, with `--retry-delay 1` to wait a second between tries, does not count a `NO` as transient, so the fetch fails at once with exit `78` and `-w "retries %{num_retries}"` prints `retries 0`. `--retry-all-errors` makes every failure count, so the same fetch tries again after a second, the message arrives and `num_retries` is `1`. A rule can name any command: with `command=SELECT` the first folder selection is refused and `curl` exits `67`, `Select failed`, before any search is sent; the search after it works.
+
+The agent can read the server{apos}s side. `get_exchanges` returns each connection{apos}s `chunks` byte for byte, each with a `direction`; the chunks the server sent hold the tagged lines `A003 OK [READ-WRITE] SELECT completed` and `A004 NO [SERVERBUG] fetch failed`. A fault rule is a loosening, and `start_server` returns the log lines `surl` wrote on start, one of which is a warning that the two rules make the server misbehave on purpose. `get_events` with `kinds` of `fault_applied` gives one event each time a rule acted, with the `rule_id`, the `fault_kind` and the `stage`: only Ann{apos}s rule `f1` has acted. `list_faults` agrees, `remaining` 0 for `f1` and 1 for Bob{apos}s `f2`.
+
+`add_fault` takes a rule while the server runs and answers its `fault_id`; with no `times` it answers every fetch, so the app fails twice in a row, until `remove_fault` takes it away and `list_faults` is empty again. A reply not in IMAP{apos}s shape, such as `250 OK`, makes `start_server` a tool error with `exit_code` 2, `FailedInit`, and `surl`{apos}s message in `lines`, so a mistyped rule cannot start a server that fails some other way than the test meant.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-fail-one-command>> for the same test on the console.
+* <<imap-fail-one-command-in-csharp>> for the same test in C#.
+* <<smtp-survive-a-temporary-rcpt-failure-from-an-agent>> for the same kind of rule on an SMTP command.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

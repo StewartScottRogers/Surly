@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-stream-a-download-and-hash-it]]
+=== Streaming a Download and Hashing It
+
+==== Problem
+
+Your .NET code downloads large files, and you want each one streamed to disk and hashed as it arrives, never held whole in memory, with the hash compared against the file the server stores before anything trusts the copy.
+
+==== Solution
+
+Read `CurlResponse.Body` a block at a time, write each block to a file and feed it to an `IncrementalHash`, then compare the hash with the SHA-256 of the server{apos}s own copy and keep the file only if they match:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Files` holds `big.bin`, 16 MiB of seeded random bytes, in the in-process `SurlServer`. The program first fetches `warm-up.txt` on a client of its own, because the first request in a process sets up the engine and takes a few seconds.
+
+`CurlClient.SendAsync` returns the `CurlResponse` as soon as the status line and headers are in, with the `CurlRequest`{apos}s body still arriving. `Body` is a stream over it: each `ReadAsync` returns the next bytes the transfer delivered. The loop hands each block to `IncrementalHash.AppendData` and writes it to `big.bin.part`, so the hash is ready the moment the last byte is written, with no second pass over the file, and memory holds one 80 KiB block, not the file: the heap, measured with `GC.GetTotalMemory` before and after, grows by less than 4 MiB for a 16 MiB download. A hash of what arrived proves only what arrived, so it has to be compared with something outside the transfer. In a test that is the server{apos}s copy, `server.Files.ReadAsync`, a `SurlFileContents` whose `Bytes` are hashed with `SHA256.HashData`. Only when the two hashes match is `big.bin.part` renamed to `big.bin`.
+
+The failure path is a connection that breaks mid-body. `SurlFault.DropConnection` with `AfterBytes = 1_000_000` is `surl --fault "drop;after-bytes=1000000"`: from then on the server drops every new connection once it has sent that much. A fault makes `surl` misbehave on purpose, which is why none is set by default; it is added after the warm-up so the warm-up is not dropped. The status is already `200` by then, so `SendAsync` succeeds, and the failure comes out of the body{apos}s `ReadAsync` as a `CurlException`. The download{apos}s client has `CurlClientOptions.Timeout` of 15 seconds, which is `curl --max-time 15` and covers the body as well as the request: on macOS the break was not reported and the read waited on, so the timeout is what ends it there, still as a `CurlException`, rather than a read that never returns. Any download a pipeline depends on wants such a bound. The program catches it, finds fewer bytes than the server holds and a hash that does not match, and deletes the partial file. Writing to a `.part` name and renaming only after the check means no later step ever sees a file that was not checked.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-stream-a-large-download-to-disk>> for streaming without the hash.
+* <<http-verify-a-download-checksum-in-csharp>> for checking a download against a published checksum.
+* <<http-report-progress-of-a-large-upload>> for the upload side, with progress.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

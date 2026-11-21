@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-move-a-client-to-http3-in-csharp]]
+=== Moving Clients to HTTP/3 in C#
+
+==== Problem
+
+Your .NET client should switch to HTTP/3 when the server advertises it, as browsers do. You want a test in which the server's Alt-Svc answer is saved by the first request and the second request is carried over QUIC, with the server's record to prove which transport each used.
+
+==== Solution
+
+Start a `SurlServer` with `--http3` that records its exchanges, give a `CurlClient` an alt-svc file with `AltSvc.Use`, and send two requests, the second with `HttpVersion.Http3`:
+
+include::.generated/solution.adoc[]
+
+This works the same on Linux, macOS and Windows.
+
+==== Discussion
+
+Hypertext Transfer Protocol version 3 (HTTP/3) runs over QUIC, a transport on User Datagram Protocol (UDP), and a client cannot know a server has it until the server says so. The server says so over HTTP/1.1 or HTTP/2 with an `Alt-Svc` header, an alternative service: `h3=":<port>"; ma=86400` is HTTP/3 on that port of the same host, good for a day, and a client that remembers it can use QUIC for later connections (<<rfc9114>>). `SurlServerOptions` has no property for `--http3`, so it goes in `AdditionalArguments`; with it the server serves HTTP/3 on UDP at the same port as its Transmission Control Protocol (TCP) listener and puts that header on every answer over TCP (<<surl-readme>>). `CertificateFile` and `KeyFile` are the certificate and key made by the `openssl` line in setup; on the client, `CurlClientOptions.Tls`, a `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` holds `server.pem`, trusts it on both transports. Each request is a `CurlRequest` for `hello.txt`, with a `CurlHttpOptions` in `Http` choosing its version.
+
+`CurlClient.AltSvc` is the client's `CurlAltSvcStore`. libcurl, the library `curl` is built on, keeps alt-svc only in a file, so `Use` names one, `alt-svc.txt`, and every later request reads it before connecting and writes back what it learned: `curl --alt-svc alt-svc.txt` (<<curl-readme>>). `AltSvcControl.H1 | AltSvcControl.H2 | AltSvcControl.H3` lets entries name any version. The first request has nothing to go on and goes over HTTP/2, its `CurlResponse.Headers` carrying the `alt-svc` header. `GetEntriesAsync` then reads the file back as `CurlAltSvcEntry` values: one entry, `SourceAlpn` `h2` on `SourceHost` `127.0.0.1`, to `DestinationAlpn` `h3` on the same host, `DestinationPort` equal to `SourcePort`.
+
+The second request, with `HttpVersion.Http3` in its `CurlHttpOptions`, reads that entry and goes over HTTP/3, `Version` `3.0`, its answer carrying no `Alt-Svc`, since it already came over the alternative. It races: an entry naming the origin's own host and port makes the client try QUIC and TCP side by side and take whichever connects first. `CurlNetworkOptions.HappyEyeballsTimeout`, set on the request's `Network`, holds TCP back four seconds instead of a fraction of one, so on a busy machine a slow QUIC handshake still wins; it is there to make the claim hold. For the same reason the program warms up on a client of its own first: the first request in a process pays a one-time set-up of a few seconds, and the first QUIC handshake is slow too.
+
+`RecordExchanges = true` makes the server keep each exchange, and `SurlServer.Exchanges` lists them as `SurlExchangeRecord`s, one per connection. The bytes are `Chunks`, `SurlExchangeChunk`s; a QUIC exchange records each stream's bytes with its QUIC `StreamId`, where a TCP exchange has none. The program looks at the exchanges each request added and prints `QUIC` when a chunk has a stream ID: the server's own word on how the request came.
+
+The version is there because of Windows, where `Curl.Api` behaves as `curl`{apos}s own Windows build does. That build has no HTTP/3, and `Curl.Api`, like it, ignores a saved `h3` entry for a request with no version option (`HttpVersion.None`); given `HttpVersion.Http3`, it uses the entry on Windows as everywhere. On Linux and macOS the second request needs no version: with `none` it goes over HTTP/3 and QUIC by itself. On Windows, with `none`, the entry is saved but the second request stays on HTTP/2 over TCP. `HttpVersion.Http11` is the other way round: the client looks only for entries learned over HTTP/1.1, finds none, and stays on HTTP/1.1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-move-a-client-to-http3>> for the same task on the console.
+* <<https-move-a-client-to-http3-from-an-agent>> for the same task from an agent.
+* <<https-fall-back-when-http3-is-missing-in-csharp>> for a client that falls back when UDP is blocked.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9114>>, <<rfc9000>>.

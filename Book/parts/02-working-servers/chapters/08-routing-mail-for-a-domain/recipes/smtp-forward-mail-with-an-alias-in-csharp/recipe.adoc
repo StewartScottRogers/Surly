@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-forward-mail-with-an-alias-in-csharp]]
+=== Forwarding Mail with an Alias in C#
+
+==== Problem
+
+Your C# app mails a role address, `support@`, over Simple Mail Transfer Protocol (SMTP). You want a test server where that address is an alias for two real mailboxes, given through `AdditionalArguments`, and a test that checks both mailboxes got the message.
+
+==== Solution
+
+Start a `SurlServer` with `--mail-alias` among its `AdditionalArguments`, let the app send with a `CurlClient`, wait for the two deliveries the server announces, then read both mailboxes from the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `smtp://` and an `imap://` URL on port 0, so the system picks free ports; `MailDomains` is `--mail-domain`, the domain mail is served for, and `Mailboxes` is `--mailbox`, one address and password per entry, each a mailbox and the account that logs in to it. An option that suits the test but has no property of its own goes in `AdditionalArguments`, one string per argument: `"--mail-alias"` and then `"support@example.com=ann@example.com,bob@example.com"` makes `support@` deliver to both. `MailAliases` is the same option as a property, and the `property` case gives the same alias that way and the same result (<<surl-readme>>).
+
+The app is played by `Curl.Api`: one `CurlClient` per mail, and each mail is a `CurlRequest` with `HttpMethod.Put` on the bound `smtp://` URL, `CurlMailOptions` for the envelope sender and recipients (<<rfc5321>>), `CurlAuthenticationOptions` for the form{apos}s login, and the message as `CurlContent.FromStream`. `CurlResponse.StatusCode` is the server{apos}s last reply, `250` when the mail was taken. No loosening option is needed: without Transport Layer Security the server offers only `CRAM-MD5`, a login that never sends the password, and `Curl.Api` uses it.
+
+Delivery is asynchronous, so the test does not read the store when the `250` comes. Every delivery is an event: `OnEvent` with a `SurlEventQuery` of kind `StoreChanged` in the mail store calls back with a `StoreChangedEvent` whose `Name` is `ann@example.com/INBOX/;UID=1`, the mailbox, the folder and the UID. An alias to two mailboxes makes two events, so the program waits, with a bound of ten seconds and never a fixed sleep, until two have come. They name Ann{apos}s and Bob{apos}s `INBOX`, one copy each. `server.Mail.ReadMessageAsync` then returns each message as a `SurlMailMessage` with its exact bytes, without setting the `\Seen` flag an Internet Message Access Protocol (IMAP) fetch would (<<rfc9051>>).
+
+The stored copy is the message as the form sent it. Its `To` field still reads `support@example.com`, and neither Ann{apos}s nor Bob{apos}s address appears in it. The server adds nothing to say it was forwarded, and the sender{apos}s own mailbox holds nothing, since only the alias{apos}s targets receive the mail.
+
+Several routes to one mailbox make one copy. A second message to `support@` and `ann@` together reaches Ann once, so Ann and Bob hold two messages each. A test cannot tell the absence of a third delivery from one that is merely late, and the program has to wait for something. It sends a marker, a mail to the form{apos}s own mailbox, after the message in question: deliveries happen in order, so when the marker{apos}s event has come, nothing before it is still on its way, and the counts from `ListMessagesAsync`, a `SurlMessagePage`, are final.
+
+An alias is an address, not an account. A `CurlRequest` that reads Ann{apos}s `INBOX` over IMAP but logs in as `support@example.com` throws a `CurlException`, whose `Code` is `LoginDenied`, curl{apos}s 67. Three mistakes in the alias itself stop `StartAsync` with a `SurlServerStartException` whose `ExitCode` is `FailedInit` and whose `Lines` hold `surl`{apos}s message: an alias that is also a mailbox, a target that names no mailbox, such as the typo `anne@`, and a target outside every mail domain. The test fails at start, before any mail could vanish.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-forward-mail-with-an-alias>> for the same task on the console.
+* <<smtp-forward-mail-with-an-alias-from-an-agent>> for the same task run by an agent.
+* <<smtp-route-mail-through-aliases-in-csharp>> for several aliases and a test that finds mail sent to a mistyped address.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

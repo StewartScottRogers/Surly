@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-cancel-a-stuck-transfer
+title: Cancelling a Stuck Transfer
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, libcurl-api, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A request the server holds for a minute is ended by a CancellationToken cancelled after one second, SendAsync throws OperationCanceledException within 1 to 5 s, and the next request on the same client gets 200 at once over a new connection.
+    program: cancel.cs
+    args: [cancel]
+    expect:
+      exit: 0
+      stdout: "stuck.txt: OperationCanceledException\ngiven up after: 1 to 5 s\nnext: 200 OK hello from surl\nnext on a new connection: yes\nnext took under 5 s: yes\n"
+
+  - id: timeout
+    claim: The client's own Timeout of one second ends the same request with a CurlException OperationTimedOut instead, and the client goes on working the same way.
+    program: cancel.cs
+    args: [timeout]
+    expect:
+      exit: 0
+      stdout: "stuck.txt: CurlException OperationTimedOut\ngiven up after: 1 to 5 s\nnext: 200 OK hello from surl\nnext on a new connection: yes\nnext took under 5 s: yes\n"
+
+  - id: server-still-holds-it
+    claim: Cancelling frees the client's side only; a server that takes one connection per address still counts the stalled one while it waits, and answers the next request 503 Service Unavailable.
+    program: cancel.cs
+    args: [one-slot]
+    expect:
+      exit: 1
+      stdout: "stuck.txt: OperationCanceledException\ngiven up after: 1 to 5 s\nnext: 503 Service Unavailable\nnext on a new connection: yes\nnext took under 5 s: yes\n"

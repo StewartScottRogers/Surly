@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-fail-one-command-in-csharp
+title: Failing One IMAP Command in C#
+protocols: [imap]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlFault, SurlFaultRule, SurlEventQuery, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1, 2]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app's first fetch is answered NO and Curl.Api throws a CurlException with code 78, RemoteFileNotFound; the same fetch again returns the message text.
+    program: fail-a-fetch.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "fetch 1: failed 78 RemoteFileNotFound: Remote file not found\nfetch 2: Your order is on its way.\n"
+
+  - id: search-unaffected
+    claim: A SEARCH works while the rule for the fetch still waits, and the fetch after it is the one that fails; the rule is for one command.
+    program: fail-a-fetch.cs
+    args: [search]
+    expect:
+      exit: 0
+      stdout: "search: * SEARCH 1\nfetch: failed 78 RemoteFileNotFound: Remote file not found\n"
+
+  - id: retry
+    claim: An app that tries again at once gets the message on its second try, since the rule answered only once.
+    program: fail-a-fetch.cs
+    args: [retry]
+    expect:
+      exit: 0
+      stdout: "try 1: failed 78 RemoteFileNotFound: Remote file not found\ntry 2: Your order is on its way.\n"
+
+  - id: no-retry
+    claim: An app that gives up on the first refusal ends the test with exit 1, though the message was in the mailbox all along.
+    program: fail-a-fetch.cs
+    args: [no-retry]
+    expect:
+      exit: 1
+      stdout: "try 1: failed 78 RemoteFileNotFound: Remote file not found\nmessages: 1\n"
+
+  - id: select-fails
+    claim: A rule can name another command; the first SELECT is answered NO and Curl.Api throws code 67, "Select failed", before any search is sent. The next try works.
+    program: fail-a-fetch.cs
+    args: [select]
+    expect:
+      exit: 0
+      stdout: "search: failed 67 LoginDenied: Select failed\nsearch again: * SEARCH 1\n"
+
+  - id: server-reply
+    claim: The recorded exchange shows the server's side of the refused fetch, the SELECT answered OK and then the fetch answered NO with the response code and text the rule names.
+    program: fail-a-fetch.cs
+    args: [reply]
+    expect:
+      exit: 0
+      stdout: "A003 OK [READ-WRITE] SELECT completed\nA004 NO [SERVERBUG] fetch failed\n"
+
+  - id: in-the-log
+    claim: The server's log says the rule loosens it, and has one line each time a rule answers a command.
+    program: fail-a-fetch.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout: "surl: warning: --fault: 1 fault rule(s) make this server misbehave on purpose\n* FETCH answered with the chosen error of fault rule f1.\n"
+
+  - id: count
+    claim: After two fetches the rule, which has times 1, has none left and a single fault-applied event was recorded.
+    program: fail-a-fetch.cs
+    args: [count]
+    expect:
+      exit: 0
+      stdout: "rule f1 remaining: 0\nfault applied: 1\n"
+
+  - id: late-rule
+    claim: A rule added while the server runs acts at once and, with no limit, on every fetch until it is removed; after Remove the fetch works again.
+    program: fail-a-fetch.cs
+    args: [late-rule]
+    expect:
+      exit: 0
+      stdout: "before: Your order is on its way.\nwith the rule: failed 78 RemoteFileNotFound: Remote file not found\nwith the rule again: failed 78 RemoteFileNotFound: Remote file not found\nremoved f1: True\nafter: Your order is on its way.\n"
+
+  - id: reply-shape
+    claim: A rule whose reply is not in IMAP's shape, an SMTP-style 250 OK, stops StartAsync with SurlServerStartException, ExitCode FailedInit (2).
+    program: fail-a-fetch.cs
+    args: [bad-shape]
+    expect:
+      exit: 2
+      stdout: "refused: FailedInit: option --fault: key reply does not fit the imap error shape\n"

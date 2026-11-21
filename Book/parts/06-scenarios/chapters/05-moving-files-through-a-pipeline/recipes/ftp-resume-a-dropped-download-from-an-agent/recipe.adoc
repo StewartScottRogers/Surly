@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-a-dropped-download-from-an-agent]]
+=== Resuming a Dropped Download from an Agent
+
+==== Problem
+
+As an agent, you test a download over File Transfer Protocol (FTP) that loses its connection partway; you want the server to drop it on purpose, then the client to resume where it stopped and end with the whole file.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts an FTP server with `surl-mcp`, puts the image in it, adds a rule that drops the next `RETR`, resumes with one call of `curl-mcp`{apos}s `curl` tool, and checks the copy with `read_file` and `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server as `surl` with the same `arguments` would: `ftp://127.0.0.1:0` on a free port, in memory, with `--allow-anonymous` so the client logs in without an account. `bound_urls` gives the real port and `server_id` names the server in every later call. `put_file` puts the 200,000-byte image at `/image.iso`, given as `base64` because it is not text.
+
+`add_fault` adds one `--fault` item to the running server and answers its `fault_id`, `f1`. `drop;stage=command;command=RETR;path=/image.iso;times=1` closes the connection, unanswered, the first time a client asks for the image, then lets it be. A fault loosens the server on purpose and is for tests only. Before any call the program writes the image{apos}s first 65,536 bytes into the folder as `image.iso`: what a download cut off there leaves behind.
+
+The `curl` tool runs one `curl` command line given as `args`, with its files in the folder `CURL_MCP_ROOT` names. `-C -` measures `image.iso` there and asks the server to start after its last byte, `REST 65536` before `RETR` (<<rfc3659>>); `-o image.iso` appends to it. `--retry 1` with `--retry-all-errors` tries once more after a dropped connection, `-w "%{num_retries} %{size_download}"` prints the retries and the bytes fetched, and `-sS` keeps the answer to errors only. The answer is text holding JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`.
+
+With the retry, one call is enough: `exitCode` 0, one retry, 134,464 bytes, and the first try{apos}s `curl: (56)` still in `standardError`, so an agent that reads only `exitCode` sees a clean download, which here it is. Without it, the dropped call answers `exitCode` 56 and is a tool error, and the copy keeps its 65,536 bytes; the agent makes the same call again, and that one resumes and fetches 134,464 bytes, not 200,000.
+
+`read_file` answers the server{apos}s file by `server_id` and `path`, as `base64` for bytes that are not text, and the program finds the copy identical to it (<<rfc959>>). `get_exchanges` answers what passed on each connection as `chunks`, each with a `direction` and its `data`; the `received` ones that begin `REST` show the server was asked from byte 65536 on both tries, the dropped one and the one that finished. `get_events` with `kinds` `fault_applied` lists each time a rule acted: one event, `rule_id` `f1`, `fault_kind` `drop`, and its `target`, `RETR /image.iso`.
+
+`-C -` is safe to call again: on a copy that is already whole the call answers `exitCode` 0 with 0 bytes, the server is sent no `REST`, and the rule never acts. It trusts the name, though: a copy longer than the server{apos}s file, another file under the same name, makes `curl` give up with `exitCode` 36, `Offset (300000) was beyond file size (200000)`, and leaves the copy as it was. `curl` compares lengths, not bytes, which is why the agent compares the copy with `read_file`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-a-dropped-download>> for the resume on the console.
+* <<ftp-resume-a-dropped-download-in-csharp>> for the resume as a C# test.
+* <<http-recover-from-a-dropped-connection-from-an-agent>> for a dropped connection over HTTP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs send-notice.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-send-to-several-recipients-from-an-agent
+title: Sending to Several Recipients from an Agent
+protocols: [smtp, imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_messages, read_message, get_exchanges]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, --mail-rcpt-allowfails, -T]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+# The notice the app sends. Its To header names Ann only; the envelope decides who gets it.
+fixtures:
+  notice.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Maintenance on Saturday\r\n\r\nThe system is down from 02:00 to 04:00.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl tool call with three --mail-rcpt exits 0; three store_changed events name Ann's, Bob's and Cy's INBOX, UID 1 each, and list_messages shows one message in each.
+    program: send-notice.cs
+    args: [three]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1, cy@example.com/INBOX/;UID=1\nann@example.com holds 1\nbob@example.com holds 1\ncy@example.com holds 1\n"
+
+  - id: envelope-not-header
+    claim: The envelope decides who gets the message, not its headers; Bob's copy, read with read_message, has a To field that names Ann.
+    program: send-notice.cs
+    args: [header]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1, cy@example.com/INBOX/;UID=1\nTo: ann@example.com\n"
+
+  - id: one-data-three-rcpt
+    claim: get_exchanges shows the conversation byte for byte, three RCPT TO commands and a single DATA, so the message was sent once for all three recipients.
+    program: send-notice.cs
+    args: [exchange]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1, cy@example.com/INBOX/;UID=1\nRCPT TO commands: 3\nDATA commands: 1\n"
+
+  - id: one-refused-abandons-all
+    claim: When one recipient is refused, an address outside every mail domain, the curl tool exits 55 with RCPT failed 550 and the message is abandoned.
+    program: send-notice.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "curl exit 55: curl: (55) RCPT failed: 550\n"
+
+  - id: nothing-for-dee
+    claim: Dee, who was named before the refused recipient, holds no message; list_messages shows her INBOX empty.
+    program: send-notice.cs
+    args: [refused-none]
+    expect:
+      exit: 0
+      stdout: "curl exit 55: curl: (55) RCPT failed: 550\ndee@example.com holds 0\n"
+
+  - id: allowfails
+    claim: With --mail-rcpt-allowfails the curl tool sends to the recipients that were accepted and exits 0, though Carol was refused; Fay receives her copy.
+    program: send-notice.cs
+    args: [allowfails]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\ndelivered: fay@example.com/INBOX/;UID=1\nfay@example.com holds 1\n"
+
+  - id: unknown-in-domain
+    claim: An address inside the domain that is no mailbox is answered 250 and its copy discarded, with no event of its own; Gus still receives his copy.
+    program: send-notice.cs
+    args: [unknown]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\ndelivered: gus@example.com/INBOX/;UID=1\ngus@example.com holds 1\n"
+
+  - id: same-address-twice
+    claim: An address named twice gets one copy, not two; Hal is named twice and Ivy once, and after Ivy's delivery event Hal holds one message.
+    program: send-notice.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\ndelivered: hal@example.com/INBOX/;UID=1, ivy@example.com/INBOX/;UID=1\nhal@example.com holds 1\nivy@example.com holds 1\n"

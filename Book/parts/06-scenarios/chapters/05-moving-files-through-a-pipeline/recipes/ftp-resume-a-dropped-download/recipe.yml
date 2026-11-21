@@ -1,0 +1,103 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-resume-a-dropped-download
+title: Resuming a Dropped Download
+protocols: [ftp]
+tier: scenarios
+surl-options: [--allow-anonymous, --directory, --fault, -v, --log-file]
+curl-options: [-C, --retry, --retry-all-errors, -o, -w, -s, -S]
+exit-codes: [0, 36, 56]
+references: [surl-readme, curl-readme, rfc959, rfc3659]
+
+fixtures: {}
+
+# Two 200,000-byte images of random bytes, and beside each the first 65,536 bytes of it: what a
+# download cut off at that point leaves behind. A third local file is longer than the server's.
+setup:
+  - mkdir site
+  - head -c 200000 /dev/urandom > site/update.iso
+  - head -c 65536 site/update.iso > update.iso
+  - head -c 200000 /dev/urandom > site/image.iso
+  - head -c 65536 site/image.iso > image.iso
+  - head -c 300000 /dev/zero > other.iso
+
+# Each image's next RETR is dropped once, unanswered, as a connection that dies would be.
+servers:
+  main:
+    command: surl --allow-anonymous --directory site -v --log-file surl.log --fault "drop;stage=command;command=RETR;path=/update.iso;times=1" --fault "drop;stage=command;command=RETR;path=/image.iso;times=1" ftp://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With -C - and --retry 1 --retry-all-errors, curl asks for update.iso from byte 65536, loses the connection at RETR (56, printed), tries once more from the same byte and gets the other 134,464 bytes; exit 0, num_retries 1.
+    run: curl -sS -C - --retry 1 --retry-all-errors -o update.iso -w "%{num_retries} %{size_download}\n" ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stdout: "1 134464\n"
+      stderr-contains: "curl: (56)"
+
+  - id: update-whole
+    claim: The resumed update.iso is the server's file byte for byte.
+    run: cmp update.iso site/update.iso && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: drop-without-retry
+    claim: Without --retry the drop at RETR ends the command, exit 56, and nothing is added to image.iso.
+    run: curl -sS -C - -o image.iso ftp://127.0.0.1:{{port}}/image.iso
+    expect:
+      exit: 56
+      stdout: ""
+      stderr-contains: "curl: (56)"
+
+  - id: partial-kept
+    claim: After the drop image.iso still holds the 65,536 bytes it had.
+    run: wc -c image.iso
+    expect:
+      exit: 0
+      stdout-matches: "^\\s*65536 image.iso\\s*$"
+
+  - id: resume-by-hand
+    claim: Running the same command again resumes from byte 65536 and fetches only the 134,464 bytes that were missing; exit 0.
+    run: curl -sS -C - -o image.iso -w "%{size_download}\n" ftp://127.0.0.1:{{port}}/image.iso
+    expect:
+      exit: 0
+      stdout: "134464\n"
+
+  - id: image-whole
+    claim: The resumed image.iso is the server's file byte for byte.
+    run: cmp image.iso site/image.iso && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: server-saw-rest
+    claim: surl's log shows each resumed attempt asked with REST 65536 and was answered 350 Restarting at 65536, twice for each image.
+    run: grep -c "350 Restarting at 65536" surl.log
+    expect:
+      exit: 0
+      stdout: "4\n"
+
+  - id: server-logged-the-drops
+    claim: surl's log names each drop and the rule that made it.
+    run: grep -c "RETR dropped the connection, unanswered, by fault rule" surl.log
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: already-whole
+    claim: Resuming a file that is already whole fetches nothing, exit 0.
+    run: curl -sS -C - -o image.iso -w "%{size_download}\n" ftp://127.0.0.1:{{port}}/image.iso
+    expect:
+      exit: 0
+      stdout: "0\n"
+
+  - id: local-file-longer
+    claim: A local file longer than the server's (another file under the same name) is not resumed; curl exits 36 and says the offset is beyond the file's size.
+    run: curl -sS -C - -o other.iso ftp://127.0.0.1:{{port}}/image.iso
+    expect:
+      exit: 36
+      stderr-contains: "Offset (300000) was beyond file size (200000)"

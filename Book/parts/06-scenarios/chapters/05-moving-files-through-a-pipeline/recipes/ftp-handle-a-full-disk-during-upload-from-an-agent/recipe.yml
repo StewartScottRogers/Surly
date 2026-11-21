@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-handle-a-full-disk-during-upload-from-an-agent
+title: Handling a Full Disk During Upload
+protocols: [ftp, http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, transfer, read_file, get_events]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, rfc9110]
+
+# Tonight's export, in the folder curl-mcp is confined to.
+fixtures:
+  export.csv: "id,total\n1,1200\n2,950\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool's FTP upload of the export into /archive, out of space by fault rule, answers exitCode 25 and a tool error with 552; the transfer tool's HTTP read of the same path is statusCode 404 with no body and no tool error; read_file finds no file there, and get_events shows the rule acted on that path.
+    program: program.cs
+    args: [archive]
+    expect:
+      exit: 0
+      stdout: "upload /archive/2026-11-20.csv: exitCode 25, tool error yes, curl: (25) Failed FTP upload: 552\nnext step: statusCode 404, tool error no, no body\nstore: No file at /archive/2026-11-20.csv.\nfault_applied: f1 out_of_space /archive/2026-11-20.csv\n"
+
+  - id: nothing-to-read
+    claim: The next step's read of tonight's path is statusCode 404 with no body, and not a tool error.
+    program: program.cs
+    args: [archive]
+    expect:
+      exit: 0
+      stdout-matches: "\nnext step: statusCode 404, tool error no, no body\n"
+
+  - id: nothing-half-written
+    claim: read_file finds no file at the refused path; it is a tool error, No file at /archive/2026-11-20.csv.
+    program: program.cs
+    args: [archive]
+    expect:
+      exit: 0
+      stdout-matches: "\nstore: No file at /archive/2026-11-20[.]csv[.]\n"
+
+  - id: last-night-intact
+    claim: Last night's export in /archive is still served over HTTP, statusCode 200, unchanged, and the rule has not acted.
+    program: program.cs
+    args: [last-night]
+    expect:
+      exit: 0
+      stdout: "next step: statusCode 200, tool error no, the export\nstore: 22 bytes at /archive/2026-11-19.csv\nfault_applied: none\n"
+
+  - id: incoming-has-room
+    claim: The same export to /incoming answers exitCode 0; the next step reads it over HTTP, statusCode 200, the export itself, read_file finds its 22 bytes, and the rule never acts.
+    program: program.cs
+    args: [incoming]
+    expect:
+      exit: 0
+      stdout: "upload /incoming/2026-11-20.csv: exitCode 0, tool error no\nnext step: statusCode 200, tool error no, the export\nstore: 22 bytes at /incoming/2026-11-20.csv\nfault_applied: none\n"
+
+  - id: fills-partway
+    claim: A 300,000-byte export to /incoming runs past its 100,000 bytes of room partway and fails as a tool error, exitCode 70 (Exceeded storage allocation) or 55 (Send failure) as the 552 and the reset race; either way the next step gets 404 and the store has nothing half-written.
+    program: program.cs
+    args: [big]
+    expect:
+      exit: 0
+      stdout-matches: "^upload /incoming/big.csv: exitCode (70|55), tool error yes, curl: [(](70|55)[)][^\n]*\nnext step: statusCode 404, tool error no, no body\nstore: No file at /incoming/big.csv.\n"
+
+  - id: size-limit-is-no-fault
+    claim: The partway refusal is the size limit, not the rule; get_events shows no fault_applied for it.
+    program: program.cs
+    args: [big]
+    expect:
+      exit: 0
+      stdout-matches: "\nfault_applied: none\n$"
+
+  - id: http-put-refused-too
+    claim: The rule is on the path, not the listener; the curl tool's HTTP PUT of the export into /archive is answered 413, exitCode 22 with -f, nothing is stored, and get_events shows the rule acted.
+    program: program.cs
+    args: [http-put]
+    expect:
+      exit: 0
+      stdout: "upload /archive/2026-11-20.csv: exitCode 22, tool error yes, 413 curl: (22) The requested URL returned error: 413\nnext step: statusCode 404, tool error no, no body\nstore: No file at /archive/2026-11-20.csv.\nfault_applied: f1 out_of_space /archive/2026-11-20.csv\n"

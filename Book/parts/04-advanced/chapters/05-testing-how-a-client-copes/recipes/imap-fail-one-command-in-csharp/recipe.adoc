@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-fail-one-command-in-csharp]]
+=== Failing One IMAP Command in C#
+
+==== Problem
+
+Your mail app must survive a server that answers one fetch with `NO` while everything else works. In a C# test you want one Internet Message Access Protocol (IMAP) command failed on purpose, and the error the app{apos}s client throws.
+
+==== Solution
+
+Start a `SurlServer` with a `SurlFault` rule that answers the first `FETCH` with `NO`, fetch as the app would with a `CurlClient`, and catch what `Curl.Api` throws. The first fetch fails and the second works:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `imap://` URL on port 0, so the system picks a free port; `MailDomains` and `Mailboxes` are `--mail-domain` and `--mailbox`, and `RecordExchanges` keeps what the server and its clients said to each other. `Faults` is `--fault`, and `SurlFault.ProtocolError("NO [SERVERBUG] fetch failed")` is the rule `error;reply=NO [SERVERBUG] fetch failed`: it answers a command with that reply instead of carrying it out. The reply is in IMAP{apos}s shape, a status of `NO` or `BAD` with an optional response code in brackets and text (<<rfc9051>>). `with { Scheme = "imap", Command = "FETCH", Times = 1 }` narrows it to the IMAP `FETCH` command and spends it after one answer (<<surl-readme>>). The mail itself is put in the store by `server.Mail.DeliverAsync`, which is synchronous, so the test needs no wait.
+
+The app is played by `Curl.Api`. Each read is a `CurlRequest` with `HttpMethod.Get` on an `imap://` URL, with a `CurlAuthenticationOptions` for the login, sent by a `CurlClient`; `CurlResponse.Body` is the message text. A `NO` to the fetch is not a response but a `CurlException`, whose `Code` is `RemoteFileNotFound`, curl{apos}s code 78, the same one a message that does not exist gives, so the only way to tell the two apart is the response code in the server{apos}s text. Every read here uses a `CurlClient` of its own: a client keeps its IMAP session with the folder selected, which is right for an app but would carry one test{apos}s state into the next.
+
+A `NO` refuses one command; the session and the login stay. A `SEARCH` is answered while the fetch rule waits, and the fetch right after it is the one that fails. The `retry` case is a loop the app might have, three tries straight away, and the rule answers only once, so the second try returns the message; the `no-retry` case is an app that gives up, and the test sees that the message still sits in the mailbox while the app reports a failure. A rule can name any command. With `Command = "SELECT"` the first folder selection is refused and `Curl.Api` throws code 67, `LoginDenied`, with the message `Select failed`: the name is curl{apos}s for a failed login or folder selection, and the message is what to read. The search after it works.
+
+The test can read the server{apos}s side. `server.Exchanges` holds each connection{apos}s bytes, and the lines `A003 OK [READ-WRITE] SELECT completed` and `A004 NO [SERVERBUG] fetch failed` are the tagged replies to the folder selection and the fetch. `Log` and `LogLevel.Verbose` give the log a console run writes to `--log-file`: one warning that the rule makes the server misbehave on purpose, since a fault rule is a loosening, and a line `FETCH answered with the chosen error of fault rule f1.` for each answer. `server.Faults.List()` gives each rule{apos}s `SurlFaultRule`, with `Remaining` going from 1 to 0 once the rule is spent, and `FindEvents` with a `SurlEventQuery` of kind `FaultApplied` finds the one event.
+
+`server.Faults.Add` takes a rule while the server runs and returns its ID, and `Remove` takes it away again. A rule with no `Times` answers every fetch, so the app fails twice in a row, until `Remove` returns `True` and the fetch works. A reply not in IMAP{apos}s shape, such as `250 OK`, makes `StartAsync` throw `SurlServerStartException`, `ExitCode` `FailedInit`, with `surl`{apos}s message in `Lines`, so a mistyped rule cannot start a server that fails some other way than the test meant.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-fail-one-command>> for the same test on the console.
+* <<imap-fail-one-command-from-an-agent>> for the same test run by an agent.
+* <<smtp-survive-a-temporary-rcpt-failure-in-csharp>> for the same kind of rule on an SMTP command.
+* <<surl-readme>>, <<rfc9051>>.

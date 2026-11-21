@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-forward-mail-with-an-alias-from-an-agent]]
+=== Forwarding with an Alias from an Agent
+
+==== Problem
+
+You want an agent to start a mail server where `support@` is an alias for two people, mail that address as a form would, and confirm with `list_messages` that both people got the message.
+
+==== Solution
+
+The program starts both hosts and a mail server whose `--mail-alias` sends `support@` to Ann and Bob. The `curl` tool mails `support@`, `wait_for_event` waits for the two deliveries, and `read_message` shows each mailbox{apos}s message:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). An `smtp://` and an `imap://` URL run over one mail store. `--mail-domain` serves `example.com`, each `--mailbox` adds a mailbox and the account that logs in to it by its whole address, and `--mail-alias "support@example.com=ann@example.com,bob@example.com"` makes `support@` deliver a copy to each address after the `=`. The alias is not a mailbox and not an account.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The form{apos}s mail is `-u` for the login, `--mail-from` and `--mail-rcpt` for the envelope of the message (<<rfc5321>>) and `-T help.eml` for the message, a fixture in the folder both hosts are confined to; its lines already end in a carriage return and line feed, so `--crlf` is only needed for a file that does not. `-s` keeps the progress meter out. Exit `0` says the server took the mail.
+
+Delivery is asynchronous, so the program does not read the mailboxes when `curl` exits. Every delivery is an event: `wait_for_event` with `kinds` of `store_changed` and `store` of `mail` answers the next one, with a `name` such as `ann@example.com/INBOX/;UID=1`, the mailbox, the folder and the unique identifier (UID), and a `sequence`. The program asks again with `after_sequence` set to the last one it saw until two have come, with a `timeout_ms` of ten seconds as the bound; a timeout is the answer `{"timed_out":true}`, not a tool error. An alias to two mailboxes makes two events, one for Ann{apos}s `INBOX` and one for Bob{apos}s.
+
+`list_messages` then lists a mailbox{apos}s messages, and `read_message` returns one with its `text`, setting no `\Seen` flag an Internet Message Access Protocol (IMAP) fetch would (<<rfc9051>>). The stored copy is the message the form sent: its `To` field still reads `support@example.com`, and neither Ann{apos}s nor Bob{apos}s address appears in it. The sender{apos}s own mailbox holds nothing, since only the alias{apos}s targets receive the mail.
+
+Several routes to one mailbox make one copy. A second message to `support@` and `ann@` together reaches Ann once, so she and Bob hold two messages each. An absent third delivery cannot be told from a late one, so the program sends a marker, a mail to the form{apos}s own mailbox, after the message in question: deliveries happen in order, and when the marker{apos}s event has come, nothing before it is still on its way.
+
+`seed_mail` puts a message in the store as SMTP would after `RCPT TO`, aliases included, and answers once it is stored. The same two events follow, so a test can fill both mailboxes without sending anything.
+
+An alias is an address, not an account. The `curl` tool logging in over IMAP as `support@example.com` exits `67`. Three mistakes in the alias itself make `start_server` a tool error whose structured content has `exit_code` 2, `exit_code_name` `FailedInit` and `surl`{apos}s message in `lines`: an alias that is also a mailbox, a target that names no mailbox, such as the typo `anne@`, and a target outside every mail domain. The test fails at start, before any mail could vanish.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-forward-mail-with-an-alias>> for the same task on the console.
+* <<smtp-forward-mail-with-an-alias-in-csharp>> for the same task in C#.
+* <<smtp-route-mail-through-aliases-from-an-agent>> for several aliases and a test that finds mail sent to a mistyped address.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

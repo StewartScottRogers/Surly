@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-multiplex-requests-over-http2]]
+=== Multiplexing Requests over HTTP/2
+
+==== Problem
+
+Your client fetches many small files and should send them all on one HTTP/2 connection. You want several transfers in parallel on one connection, with the proof in the log.
+
+==== Solution
+
+Serve the files with `surl`, and fetch them all with one `curl` command that speaks HTTP/2 from the first byte and runs its transfers in parallel with `-Z`:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run a second `surl` on port `8081` that holds every request for two seconds, so that the overlap shows on the clock. You do not need it. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Hypertext Transfer Protocol version 2 (HTTP/2) carries each request and its answer on a stream of its own, and many streams share one connection at once; that is multiplexing (<<rfc9113>>). HTTP/1.1 has no streams, so a connection carries one request at a time, and parallel requests need parallel connections. Nothing on the `surl` side turns multiplexing on: an `http` listener answers HTTP/2 with prior knowledge, each request on its own stream, and `--directory site` serves the files under `site` (<<surl-readme>>).
+
+`--http2-prior-knowledge` makes `curl` open with HTTP/2 instead of asking to upgrade (<<http-upgrade-to-http2>>). `-Z` (`--parallel`) makes it run the transfers of one command line at the same time instead of one after another (<<curl-readme>>). `"f[1-5].txt"` is a glob that names five URLs, quoted so the shell leaves the brackets alone, and `-o "got/f#1.txt"` saves each under `got/` with the number the glob matched; `--create-dirs` makes `got`. `-w "%{http_version}\n"` prints one line per transfer, `2` each time; `-s` keeps `curl` quiet. With `-Z` the lines come in the order the transfers finish, which is not the order of the URLs, so the claims below print only what does not depend on it.
+
+The proof starts on the client's side. `-w "%{num_connects}\n"` prints how many connections each transfer opened: one transfer prints `1`, and the other four print `0`, because they went as streams on the connection the first one opened. By default `curl` waits for that first connection before starting the rest, to learn whether it can multiplex, and then adds every other transfer to it (<<curl-readme>>).
+
+The server's side is in its log. `--trace-ascii trace.txt` makes `surl` write each exchange to `trace.txt`, every line headed by the exchange's number, and one connection is one exchange. After five more files are fetched with `-Z`, `grep` finds five lines such as `#2 * GET /m1.txt`, one per request, all under the same number. The `&&` runs `grep` once `curl` has succeeded; it works the same in a Portable Operating System Interface (POSIX) shell and in Windows' `cmd.exe`, where `grep` comes with Git.
+
+Parallel is a claim about time, so the second `surl` makes the time visible. `--fault "delay;stage=command;ms=2000"` holds each request two seconds before answering it. `elapsed.sh` runs the command it is given and prints the whole seconds it took, which needs a POSIX shell (Git Bash on Windows). With `-Z`, the five transfers take two to four seconds in all, so they waited out their two seconds together; without `-Z`, `curl` sends them one after another on the connection and they take ten seconds or more. The fault is there only to make the clock show it; a real client is after the opposite, five requests in the time of one.
+
+`--http1.1` is the contrast. `-Z` still runs the five transfers in parallel, but HTTP/1.1 cannot put two of them on one connection, so `curl` opens more than one, and `%{num_connects}` prints `1` for at least two of them. Which transfers open a connection and which reuse one freed by a finished transfer depends on timing, so the claim is only "more than one".
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-multiplex-requests-over-http2-in-csharp>> for the same task in C#.
+* <<http-multiplex-requests-over-http2-from-an-agent>> for the same task from an agent.
+* <<http-upgrade-to-http2>> for HTTP/2 on `http://` by an upgrade from HTTP/1.1.
+* <<https-serve-http2>> for HTTP/2 agreed during the Transport Layer Security (TLS) handshake.
+* <<http-download-a-numbered-series>> for globbing a numbered series.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9113>>.

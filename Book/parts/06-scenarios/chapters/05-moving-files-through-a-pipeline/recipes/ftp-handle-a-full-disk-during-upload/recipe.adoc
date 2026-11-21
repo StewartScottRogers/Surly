@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-handle-a-full-disk-during-upload]]
+=== Handling a Full Disk During Upload
+
+==== Problem
+
+A pipeline uploads tonight{apos}s export over File Transfer Protocol (FTP) and the next step reads it over Hypertext Transfer Protocol (HTTP). You want one upload path to report out of space, so the test proves the uploader reports the failure and leaves no half-written file for the next step to trust.
+
+==== Solution
+
+Run one `surl` that takes uploads over FTP and serves the same folder over HTTP, with `/archive` out of space by fault rule, and upload into it:
+
+include::.generated/solution.adoc[]
+
+Then read the same path over HTTP, as the next step would. The cases below follow the export through a path with room, and one that runs out of room partway.
+
+==== Discussion
+
+One `surl` listens on `ftp://` and `http://` and serves one folder, `--directory site`, on both, so what the uploader writes is what the next step reads. `--allow-uploads` turns on writing, which `surl` refuses by default, and `--allow-anonymous` lets `curl` log in without an account. `--fault "out-of-space;path=/archive"` makes every store under `/archive` fail as a full disk would; `--fault` loosens the server on purpose and is for tests only. `--max-filesize 100000` gives every other path 100,000 bytes of room per file. `-v` with `--log-file surl.log` records what the server did in that file.
+
+`-T export.csv` uploads the export under the name in the URL; `-s` hides the progress meter and `-S` still prints an error. Into `/archive`, `surl` refuses the store with `552`, the reply FTP keeps for exceeded storage (<<rfc959>>), and `curl` exits `25`. That exit code is the uploader{apos}s report; a pipeline that checks it stops here. One that does not would hand the next step a path with nothing behind it: over HTTP, `-f` turns the `404 Not Found` into exit `22`, and `-w "%{http_code}\n"` prints the status (<<rfc9110>>). Last night{apos}s export is still served whole.
+
+The same export to `/incoming`, which has room, is stored, and the next step reads it back byte for byte. A 300,000-byte export there runs out of room partway: `surl` takes the first 100,000 bytes, then answers `552` and resets the data connection, and the upload fails. Which code `curl` exits with is a race: `70`, `Exceeded storage allocation`, when it reads the `552` first, `55`, `Send failure`, when it meets the reset while still sending, so a pipeline should treat any nonzero exit as a failed upload, and the case does. That is a full disk during the upload, not before it, and it is still clean: `surl` deleted what had arrived, and the next step finds no `big.csv`.
+
+The log says both FTP refusals in the same words, `The upload grew past the limit of 100000 bytes; the partial upload was deleted`, the fault rule{apos}s too: the line does not name the rule. A test that wants to know which refusal it got reads the exit code: `25` for a store refused at once, `70` or `55` for one stopped partway.
+
+The rule is on the path, not the listener: an HTTP `PUT` into `/archive` is refused as well, with `413`, exit `22` with `-f`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-handle-a-full-disk-during-upload-in-csharp>> for the pipeline as a C# test.
+* <<ftp-handle-a-full-disk-during-upload-from-an-agent>> for an agent running it.
+* <<ftp-run-out-of-space-on-upload>> for the out-of-space rule on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc9110>>.

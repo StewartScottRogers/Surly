@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs fail-a-fetch.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-fail-one-command-from-an-agent
+title: Failing One IMAP Command from an Agent
+protocols: [imap]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, seed_mail, curl, get_exchanges, get_events, add_fault, list_faults, remove_fault]
+curl-options: [-s, -S, -u, -w, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 2]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool's first fetch of Ann's message is answered NO and exits 78, "Remote file not found"; the same fetch again returns the message text.
+    program: fail-a-fetch.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "fetch 1: exit 78, curl: (78) Remote file not found\nfetch 2: exit 0, Your order is on its way.\n"
+
+  - id: search-unaffected
+    claim: A SEARCH in Ann's INBOX is answered while the rule for her fetch still waits, and the fetch after it is the one that fails.
+    program: fail-a-fetch.cs
+    args: [search]
+    expect:
+      exit: 0
+      stdout: "search: exit 0, * SEARCH 1\nfetch: exit 78, curl: (78) Remote file not found\n"
+
+  - id: retry-alone
+    claim: curl's --retry alone does not retry the NO; the fetch fails once, exit 78, and %{num_retries} is 0.
+    program: fail-a-fetch.cs
+    args: [retry-alone]
+    expect:
+      exit: 0
+      stdout: "ann, --retry: exit 78, curl: (78) Remote file not found | retries 0\n"
+
+  - id: retry-all-errors
+    claim: With --retry-all-errors the client tries again after a second and the message arrives, one retry, exit 0.
+    program: fail-a-fetch.cs
+    args: [retry-all]
+    expect:
+      exit: 0
+      stdout: "ann, --retry-all-errors: exit 0, Your order is on its way. | retries 1\n"
+
+  - id: select-fails
+    claim: A rule can name another command; the first SELECT is answered NO and the curl tool exits 67, "Select failed"; the next search works.
+    program: fail-a-fetch.cs
+    args: [select]
+    expect:
+      exit: 0
+      stdout: "search: exit 67, curl: (67) Select failed\nsearch again: exit 0, * SEARCH 1\n"
+
+  - id: server-reply
+    claim: get_exchanges shows the server's side of the refused fetch, the SELECT answered OK and then the fetch answered NO with the response code and text the rule names.
+    program: fail-a-fetch.cs
+    args: [reply]
+    expect:
+      exit: 0
+      stdout: "A003 OK [READ-WRITE] SELECT completed\nA004 NO [SERVERBUG] fetch failed\n"
+
+  - id: in-the-log
+    claim: start_server's log lines carry the warning that the rules make the server misbehave on purpose, and one fault_applied event names the rule that acted, its kind and the stage.
+    program: fail-a-fetch.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout: "surl: warning: --fault: 2 fault rule(s) make this server misbehave on purpose\nfault_applied: rule f1, error, stage command\n"
+
+  - id: count
+    claim: After two fetches by Ann, list_faults shows her rule spent, remaining 0, and Bob's untouched, remaining 1.
+    program: fail-a-fetch.cs
+    args: [count]
+    expect:
+      exit: 0
+      stdout: "f1 remaining: 0\nf2 remaining: 1\n"
+
+  - id: late-rule
+    claim: A rule added with add_fault while the server runs acts at once and, with no limit, on every fetch until remove_fault takes it away; then the fetch works again.
+    program: fail-a-fetch.cs
+    args: [late-rule]
+    expect:
+      exit: 0
+      stdout: "before: exit 0, Your order is on its way.\nwith the rule: exit 78, curl: (78) Remote file not found\nwith the rule again: exit 78, curl: (78) Remote file not found\nremoved f1, rules left: 0\nafter: exit 0, Your order is on its way.\n"
+
+  - id: reply-shape
+    claim: A rule whose reply is not in IMAP's shape, an SMTP-style 250 OK, makes start_server a tool error with exit_code 2, FailedInit, and surl's message.
+    program: fail-a-fetch.cs
+    args: [bad-shape]
+    expect:
+      exit: 2
+      stdout: "start_server refused: 2 FailedInit: option --fault: key reply does not fit the imap error shape\n"

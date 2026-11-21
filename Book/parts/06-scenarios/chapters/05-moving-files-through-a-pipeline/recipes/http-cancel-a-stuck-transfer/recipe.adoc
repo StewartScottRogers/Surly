@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-cancel-a-stuck-transfer]]
+=== Cancelling a Stuck Transfer
+
+==== Problem
+
+A server in your pipeline sometimes stalls, and you want your .NET code to give up on the transfer cleanly, with the connection freed and the next transfer working, and a test that proves it.
+
+==== Solution
+
+Start a `SurlServer` with a fault that holds one path for a minute, send the request with a `CancellationToken` cancelled after one second, and send the next request on the same `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlFault.Delay` is `surl --fault "delay;..."`: it makes the server hold a matching exchange before answering. `Stage = FaultStage.Command` holds it after the request has arrived, so the client has connected and sent its request and is waiting for a reply that does not come, and `Path` limits it to `/stuck.txt`. A fault makes `surl` misbehave on purpose, which is why `SurlServerOptions.Faults` is empty by default. `/hello.txt` is answered at once, and the program fetches it first because the first request in a process sets up the engine and takes a few seconds.
+
+`CurlClient.SendAsync` takes a `CancellationToken`. `CancelAfter` cancels it one second in, while the `CurlRequest` for `/stuck.txt` is still waiting for its headers; the client aborts the transfer and `SendAsync` throws `OperationCanceledException`, between one and five seconds after it started. The next `CurlRequest` on the same client gets `200 OK` at once. `CurlResponse.Info.NumConnects` is 1: the aborted connection was closed, not handed back for reuse with a reply still owed on it, and the client opened a new one.
+
+`CurlClientOptions.Timeout` is the other way to give up, libcurl{apos}s `CURLOPT_TIMEOUT_MS` for every request the client makes (<<libcurl-api>>), the spelling of `curl -m`. It ends the same stuck request with a `CurlException` whose `Code` is `OperationTimedOut`, curl{apos}s exit code 28, rather than an `OperationCanceledException`, and the client goes on working the same way. A token suits a caller that decides when to stop, such as a test{apos}s own time limit or a user pressing Cancel; `Timeout` suits a limit every request should share. A catch for one does not catch the other.
+
+Cancelling frees the client{apos}s side only. The server does not notice that the client has gone while it waits, and goes on counting the connection. With `MaxConnectionsPerAddress = 1`, `surl --max-connections-per-address 1`, the next request is refused `503 Service Unavailable` while the server{apos}s own wait goes on, though the client has nothing open. So a client that cancels and retries at once against a tight limit can be refused because of its own abandoned request.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-time-out-an-idle-client>> for the server{apos}s side of a silent peer.
+* <<http-download-many-files-in-parallel-in-csharp>> for the per-address limit with many requests.
+* <<surl-readme>>, <<curl-readme>>, <<libcurl-api>>, <<rfc9110>>.

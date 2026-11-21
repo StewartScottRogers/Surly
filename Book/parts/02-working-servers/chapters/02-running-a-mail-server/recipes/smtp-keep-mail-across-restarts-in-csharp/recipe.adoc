@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-keep-mail-across-restarts-in-csharp]]
+=== Keeping Mail Across Restarts in C#
+
+==== Problem
+
+Your C# test keeps a mail store between runs with `DataDirectory`. You want to deliver a message, stop the server, start another on the same folder and read the same message.
+
+==== Solution
+
+Give a `SurlServer` a `DataDirectory`, deliver a message over Simple Mail Transfer Protocol (SMTP) and wait for the delivery event, dispose the server, start a new one with the same options, and read Ann{apos}s `INBOX` from the store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `smtp://` and an `imap://` URL on port 0, so the system picks free ports; `MailDomains` and `Mailboxes` are `--mail-domain` and `--mailbox`. `DataDirectory` is `--directory`: the folder `surl` keeps its state in, which must exist, so the program makes a temporary one and deletes it at the end (<<surl-readme>>). Everything else is the same for the first server and the second; the folder is what carries the mail from one to the other.
+
+The shop is played by `Curl.Api`. The mail is a `CurlRequest` with `HttpMethod.Put` on the bound `smtp://` URL, `CurlMailOptions` for the envelope (<<rfc5321>>), `CurlAuthenticationOptions` for the login and `CurlContent.FromStream` for the message, sent by a `CurlClient`; `CurlResponse.StatusCode` is `250` when the mail was taken. Delivery is asynchronous, so the program does not read the store at once. `OnEvent` with a `SurlEventQuery` of kind `StoreChanged` in the mail store calls back with a `StoreChangedEvent` whose `Name`, `ann@example.com/INBOX/;UID=1`, names the mailbox, the folder and the unique identifier (UID), and the program waits for it, with a bound of ten seconds and never a fixed sleep.
+
+Disposing the server stops it; a new `SurlServer.StartAsync` with the same `DataDirectory` serves what the first kept. `server.Mail.ListMessagesAsync` returns a `SurlMessagePage` of `SurlMessageSummary` values and `ReadMessageAsync` a `SurlMailMessage` with the exact bytes, so the test reads the subject from the store with no client. The message is there under the same UID. The folder holds `.surl/lock` and `.surl/mail/index` while the server runs, and both are still there after it stops; a stale lock does not stop the next start. A console run stops the server outright, which is the harder test; a disposed server shuts down cleanly.
+
+What is kept is the mailbox{apos}s state, not only the bytes. A new message to Ann after the restart becomes UID `2`, so a client that remembers UIDs need not start over, and a second restart keeps that message too. A flag survives as well: an Internet Message Access Protocol (IMAP) fetch sets `\Seen` (<<rfc9051>>), and the unseen count, which starts at `1`, is `0` after the fetch and still `0` in the new server.
+
+A folder belongs to one server at a time. A second `StartAsync` on the same `DataDirectory` while the first runs throws `SurlServerStartException`, whose `ExitCode` is `DataDirectoryInUse`, `surl`{apos}s 124, with `surl`{apos}s message in `Lines`; the message names the folder, so the program prints whether it says the directory is in use rather than the path.
+
+Without `DataDirectory` the store lives in memory. The new server starts it over: the mailbox is back, from the options, and empty. A test that must find mail after a restart needs the folder.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-keep-mail-across-restarts>> for the same task on the console.
+* <<smtp-keep-mail-across-restarts-from-an-agent>> for the same task run by an agent.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

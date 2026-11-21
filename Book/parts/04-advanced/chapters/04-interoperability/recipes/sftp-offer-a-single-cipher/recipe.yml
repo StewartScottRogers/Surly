@@ -1,0 +1,123 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: sftp-offer-a-single-cipher
+title: Offering a Single SSH Cipher
+protocols: [sftp]
+tier: advanced
+surl-options: [--ssh-ciphers, --ssh-macs, --allow-weak-ssh-algorithms, --directory, --hostkey, --authorized-keys]
+curl-options: [-k, -s, -S, --key, --pubkey, -u]
+exit-codes: [0, 2, 255]
+references: [surl-readme, curl-readme, rfc4251, rfc4252]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  plain/hello.txt: "hello from surl\n"
+  pair/hello.txt: "hello from surl\n"
+  get.sftp: "get hello.txt got.txt\n"
+
+# A host key and the client's login key; both RSA, which curl's SSH library reads.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f client_key
+
+servers:
+  narrow:
+    command: surl --ssh-ciphers aes256-ctr --ssh-macs hmac-sha2-256 --directory site --hostkey host_key --authorized-keys alice:client_key.pub sftp://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --directory plain --hostkey host_key --authorized-keys alice:client_key.pub sftp://127.0.0.1:{{port2}}/
+    ready: port
+  pair:
+    command: surl --ssh-ciphers aes256-ctr,aes128-ctr --ssh-macs hmac-sha2-256 --directory pair --hostkey host_key --authorized-keys alice:client_key.pub sftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Against surl narrowed to --ssh-ciphers aes256-ctr and --ssh-macs hmac-sha2-256, OpenSSH's sftp -v reports that both directions agreed on aes256-ctr and hmac-sha2-256, and exits 0.
+    run: sftp -v -b get.sftp -P {{port}} -i client_key -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1 2>&1
+    expect:
+      exit: 0
+      stdout-matches: "server->client cipher: aes256-ctr MAC: hmac-sha2-256 .*client->server cipher: aes256-ctr MAC: hmac-sha2-256 "
+
+  - id: file-arrives
+    claim: The narrowed server still serves its files; sftp -b fetches hello.txt and exits 0.
+    run: sftp -q -b get.sftp -P {{port}} -i client_key -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1
+    expect:
+      exit: 0
+      stdout: "sftp> get hello.txt got.txt\n"
+      files:
+        got.txt: "hello from surl\n"
+
+  - id: other-cipher-refused
+    claim: A client that allows only aes128-ctr finds no cipher in common, is told the server's offer is aes256-ctr, and exits 255 before logging in.
+    run: sftp -b get.sftp -P {{port}} -i client_key -o Ciphers=aes128-ctr -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1 2>&1
+    expect:
+      exit: 255
+      stdout-matches: "no matching cipher found. Their offer: aes256-ctr\n"
+
+  - id: other-mac-refused
+    claim: A client that allows aes256-ctr but only the MAC hmac-sha2-512 finds no MAC in common, is told the server's offer is hmac-sha2-256, and exits 255.
+    run: sftp -b get.sftp -P {{port}} -i client_key -o Ciphers=aes256-ctr -o MACs=hmac-sha2-512 -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1 2>&1
+    expect:
+      exit: 255
+      stdout-matches: "no matching MAC found. Their offer: hmac-sha2-256\n"
+
+  - id: curl-connects
+    claim: curl offers algorithms that include the allowed pair, so it logs in with its key and fetches the file, exit 0.
+    run: 'curl -s -S -k --key client_key --pubkey client_key.pub -u alice: sftp://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: default-offer
+    claim: Without --ssh-ciphers, surl offers its full default list and the same client, as OpenSSH ships on Windows and Linux, agrees on chacha20-poly1305@openssh.com, which has no separate MAC.
+    platforms: [windows, linux]
+    run: sftp -v -b get.sftp -P {{port2}} -i client_key -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1 2>&1
+    expect:
+      exit: 0
+      stdout-matches: "server->client cipher: chacha20-poly1305@openssh.com MAC: <implicit> "
+
+  - id: default-offer-macos
+    claim: macOS's own sftp puts aes128-gcm@openssh.com first (its /etc/ssh/crypto.conf), so against the same server it agrees on that, which has no separate MAC either.
+    platforms: [macos]
+    run: sftp -v -b get.sftp -P {{port2}} -i client_key -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1 2>&1
+    expect:
+      exit: 0
+      stdout-matches: "server->client cipher: aes128-gcm@openssh.com MAC: <implicit> "
+
+  - id: default-client-chooses
+    claim: On the same unnarrowed server a client that allows only aes256-ctr gets it, and a MAC of its own pick, hmac-sha2-256-etm@openssh.com, which the narrowed server did not leave it.
+    run: sftp -v -b get.sftp -P {{port2}} -i client_key -o Ciphers=aes256-ctr -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1 2>&1
+    expect:
+      exit: 0
+      stdout-matches: "server->client cipher: aes256-ctr MAC: hmac-sha2-256-etm@openssh.com "
+
+  - id: list-of-two
+    claim: --ssh-ciphers takes a comma-separated list; a client that allows only aes128-ctr connects to the server offering aes256-ctr and aes128-ctr, and agrees on aes128-ctr.
+    run: sftp -v -b get.sftp -P {{port3}} -i client_key -o Ciphers=aes128-ctr -o StrictHostKeyChecking=no -o UserKnownHostsFile={{null}} -o GlobalKnownHostsFile={{null}} alice@127.0.0.1 2>&1
+    expect:
+      exit: 0
+      stdout-matches: "server->client cipher: aes128-ctr MAC: hmac-sha2-256 "
+
+  - id: unknown-cipher
+    claim: A cipher surl does not offer is refused at start, naming the option, with exit 2.
+    run: surl --ssh-ciphers bogus --hostkey host_key sftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "--ssh-ciphers: surl does not offer the SSH cipher bogus"
+
+  - id: unknown-mac
+    claim: The same goes for a MAC, exit 2.
+    run: surl --ssh-macs bogus --hostkey host_key sftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "--ssh-macs: surl does not offer the SSH MAC bogus"
+
+  - id: weak-cipher-refused
+    claim: A cipher the review might name but that is weak, aes128-cbc, is refused without --allow-weak-ssh-algorithms, exit 2.
+    run: surl --ssh-ciphers aes128-cbc --hostkey host_key sftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "--ssh-ciphers: aes128-cbc needs --allow-weak-ssh-algorithms"

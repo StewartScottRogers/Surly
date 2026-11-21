@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-handle-a-full-disk-during-upload-in-csharp
+title: Handling a Full Disk During Upload
+protocols: [ftp, http]
+tier: scenarios
+surface: csharp
+api-types: [LogLevel, SurlServer, SurlServerOptions, SurlFault, SurlServerFiles, SurlFileContents, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc959, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The export uploaded over FTP to /archive, out of space by fault rule, throws CurlException UploadFailed with 552; the next step's HTTP GET of the same path is 404, the store has nothing there, the log records the refusal as a deleted partial upload, and the test exits 1.
+    program: program.cs
+    args: []
+    expect:
+      exit: 1
+      stdout: "upload /archive/2026-11-20.csv: UploadFailed (Failed FTP upload: 552)\nnext step: 404, 0 bytes\nstore: nothing at /archive/2026-11-20.csv\nlog: 1 partial uploads deleted\n"
+
+  - id: nothing-to-read
+    claim: The next step's HTTP GET of tonight's path in /archive returns a CurlResponse with StatusCode 404 and an empty body; nothing is thrown.
+    program: program.cs
+    args: []
+    expect:
+      exit: 1
+      stdout-matches: "\nnext step: 404, 0 bytes\n"
+
+  - id: nothing-half-written
+    claim: The server's store has no file at the refused path.
+    program: program.cs
+    args: []
+    expect:
+      exit: 1
+      stdout-matches: "\nstore: nothing at /archive/2026-11-20.csv\n"
+
+  - id: last-night-intact
+    claim: Last night's export in /archive is still served whole over HTTP, 200, byte for byte.
+    program: program.cs
+    args: [last-night]
+    expect:
+      exit: 0
+      stdout: "next step: 200, the export byte for byte\nstore: 22 bytes at /archive/2026-11-19.csv\nlog: 0 partial uploads deleted\n"
+
+  - id: incoming-has-room
+    claim: The same export to /incoming is stored; the next step reads it over HTTP, 200, byte for byte, and the store holds its 22 bytes.
+    program: program.cs
+    args: [incoming]
+    expect:
+      exit: 0
+      stdout: "upload /incoming/2026-11-20.csv: stored\nnext step: 200, the export byte for byte\nstore: 22 bytes at /incoming/2026-11-20.csv\nlog: 0 partial uploads deleted\n"
+
+  - id: fills-partway
+    claim: A 300,000-byte export to /incoming runs past its 100,000 bytes of room partway and fails, RemoteDiskFull when the client reads the 552 first or SendError when it meets the reset first (a race); either way the next step gets 404 and the store has nothing half-written.
+    program: program.cs
+    args: [big]
+    expect:
+      exit: 1
+      stdout-matches: "^upload /incoming/big.csv: (RemoteDiskFull|SendError) [^\n]*\nnext step: 404, 0 bytes\nstore: nothing at /incoming/big.csv\n"
+
+  - id: partial-deleted-logged
+    claim: The server's log records that it deleted the partial upload of big.csv.
+    program: program.cs
+    args: [big]
+    expect:
+      exit: 1
+      stdout-matches: "\nlog: 1 partial uploads deleted\n$"
+
+  - id: http-put-refused-too
+    claim: The rule is on the path, not the listener; an HTTP PUT of the export into /archive is answered 413, the next step gets 404, and the store has nothing there.
+    program: program.cs
+    args: [http-put]
+    expect:
+      exit: 1
+      stdout: "upload /archive/2026-11-20.csv: 413\nnext step: 404, 0 bytes\nstore: nothing at /archive/2026-11-20.csv\nlog: 0 partial uploads deleted\n"

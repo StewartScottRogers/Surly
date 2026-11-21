@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-run-out-of-space-on-upload-in-csharp]]
+=== Running Out of Space in C#
+
+==== Problem
+
+Your backup tool uploads over File Transfer Protocol (FTP) and must report a full disk instead of claiming success. In a C# test, you want uploads to one folder refused as if the disk were full, and proof that nothing half-written was left behind.
+
+==== Solution
+
+Host the FTP server in the test with an out-of-space fault on `/backups`, upload with `Curl.Api`, then list what the server kept:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `AllowAnonymous` is `--allow-anonymous`, so the client logs in with no account; `AllowUploads` is `--allow-uploads`, without which every store is refused; `Files` puts last night{apos}s dump in `/backups`. `Faults` takes the rule: `SurlFault.OutOfSpace()` with `Path` `/backups` makes every store under that folder fail as a full disk would, as `--fault "out-of-space;path=/backups"` does. A fault loosens the server on purpose and is for tests only.
+
+The backup tool{apos}s upload is a `CurlRequest` `PUT` with the dump as `Body`, sent on a `CurlClient`: on an `ftp://` URL that is `STOR`. `CurlFtpOptions.Append` makes it `APPE`, and `CreateMissingDirectories` `FtpCreateMissingDirectories.Create`, `--ftp-create-dirs`, makes a missing folder first. A stored file gives a `CurlResponse`, whose body is disposed unread. A refused one throws `CurlException` with `Code` `UploadFailed`, `curl`{apos}s exit 25, and the message carries the reply: `Failed FTP upload: 552`, the reply FTP keeps for exceeded storage (<<rfc959>>).
+
+The check reads the server{apos}s store without a request. `server.Files` is the `SurlServerFiles`; `ListAsync` returns a `SurlFolderPage` whose `Entries` are `SurlFolderEntry` values with a `Name` and a `ByteCount`, and a folder that does not exist throws `SurlNotFoundException`. After the refused upload `/backups` holds only last night{apos}s 22-byte dump. Appending to that dump is refused the same way and it keeps its 22 bytes. The rule covers a path and everything under it, by whole folder names. `CreateMissingDirectories` still makes `/backups/2026`, since a folder is not a store, but the file in it is refused and the new folder lists empty (a folder entry has `IsFolder` set and no `ByteCount`). `/staging` and `/backups-old` are not under `/backups`, and the same upload to either is stored whole.
+
+A disk can fill while a server runs. `server.Faults.Add` adds a rule to the running server and returns its id; the next upload to `/staging` is refused, `552`. `Faults.Remove` with that id frees the space, and the same upload tried again is stored. That is the shape of a test for a tool that retries a full disk later.
+
+A server without `AllowUploads` refuses too, also `UploadFailed`, but with `550`. The `Code` alone cannot tell a closed server from a full one; a tool that wants to say which has to read the reply.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-run-out-of-space-on-upload>> for the same test on the console.
+* <<ftp-run-out-of-space-on-upload-from-an-agent>> for an agent running it.
+* <<ftp-handle-a-full-disk-during-upload-in-csharp>> for a full disk in a pipeline, partway through an upload.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

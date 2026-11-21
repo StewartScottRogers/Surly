@@ -1,0 +1,60 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs sync.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH; its argument picks the scenario.
+# The planned task was ETags; the pinned surl sends Last-Modified only, so this recipe syncs by date (see review.md).
+schema: 2
+key: http-skip-unchanged-files-with-etags-from-an-agent
+title: Skipping Unchanged Files by Date
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, put_file, delete_file, curl, transfer]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first run of curl -R -z fetches both files (200), the second takes no new copy (304 each), and after put_file rewrites a.txt more than a second later the third run fetches a.txt (200) and skips b.txt (304).
+    program: sync.cs
+    args: [changed]
+    expect:
+      exit: 0
+      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nrun 2: a.txt 304 (exit 0), b.txt 304 (exit 0)\na.txt rewritten\nrun 3: a.txt 200 (exit 0), b.txt 304 (exit 0)\nlocal a.txt: alpha, revised\n"
+
+  - id: deleted
+    claim: After delete_file removes a.txt, its fetch is answered 404 and with -f curl exits 22, and the local copy is kept as it was.
+    program: sync.cs
+    args: [deleted]
+    expect:
+      exit: 0
+      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nrun 2: a.txt 304 (exit 0), b.txt 304 (exit 0)\na.txt deleted\nrun 3: a.txt 404 (exit 22), b.txt 304 (exit 0)\nlocal a.txt: alpha\n"
+
+  - id: written-to-disk
+    claim: The copies are files on disk inside CURL_MCP_ROOT; after the changed case local-changed/a.txt holds the revised text and local-changed/b.txt the first one.
+    program: sync.cs
+    args: [changed]
+    expect:
+      exit: 0
+      files:
+        local-changed/a.txt: "alpha, revised\n"
+        local-changed/b.txt: "beta\n"
+
+  - id: without-fail-clobbers
+    claim: Without -f, the fetch of the deleted a.txt still prints 404 but exits 0, and -o writes the empty 404 body over the local copy.
+    program: sync.cs
+    args: [no-fail]
+    expect:
+      exit: 0
+      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nrun 2: a.txt 304 (exit 0), b.txt 304 (exit 0)\na.txt deleted\nrun 3: a.txt 404 (exit 0), b.txt 304 (exit 0)\nlocal a.txt: \n"
+
+  - id: dates-compared
+    claim: An unchanged file's HEAD through transfer is answered 200, -R dated the saved copy with that Last-Modified, and curl -z sends it back as If-Modified-Since.
+    program: sync.cs
+    args: [dates]
+    expect:
+      exit: 0
+      stdout: "run 1: a.txt 200 (exit 0), b.txt 200 (exit 0)\nHEAD a.txt: 200\nsaved a.txt dated as Last-Modified: yes\ncurl sent If-Modified-Since with that date: yes\n"

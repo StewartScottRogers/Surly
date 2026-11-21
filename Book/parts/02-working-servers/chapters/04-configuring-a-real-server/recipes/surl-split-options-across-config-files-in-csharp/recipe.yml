@@ -1,0 +1,136 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: surl-split-options-across-config-files-in-csharp
+title: Splitting Options Across Config Files in C#
+protocols: [http, ftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme]
+
+fixtures:
+  site/hello.txt: "from base.conf\n"
+  site-b/hello.txt: "from the command line\n"
+  site-c/hello.txt: "from the command line\n"
+  site-d/hello.txt: "from the command line\n"
+  site-e/hello.txt: "from the command line\n"
+  base.conf: |
+    # Shared by every test
+    directory = site
+    user = "tester:secret"
+    allow-plaintext-auth
+    allow-uploads
+    max-filesize = 100
+  test.conf: |
+    # This test only
+    max-filesize = 10
+    user = "second:pw"
+  bad.conf: "max-filesize = 10\nmax-filesise = 20\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "SurlServerOptions.ConfigFiles = base.conf, test.conf starts a server with the directory and the account base.conf names: tester logs in and reads hello.txt from site."
+    program: split.cs
+    args: ["both"]
+    expect:
+      exit: 0
+      stdout: "tester: from base.conf\n"
+
+  - id: second-account
+    claim: "A user line in the second file adds an account: second logs in to the same server."
+    program: split.cs
+    args: ["second-account"]
+    expect:
+      exit: 0
+      stdout: "second: from base.conf\n"
+
+  - id: login-needed
+    claim: "With an account configured, every request needs a login: without one, 401."
+    program: split.cs
+    args: ["login-needed"]
+    expect:
+      exit: 0
+      stdout: "no login: status 401\n"
+
+  - id: later-file-wins
+    claim: "Both files set max-filesize, base.conf 100 and test.conf 10; the later file wins, and a 21-byte upload is refused 413."
+    program: split.cs
+    args: ["later-file-wins"]
+    expect:
+      exit: 0
+      stdout: "21 bytes: 413\n"
+
+  - id: under-the-limit
+    claim: "An 8-byte upload is under 10 and accepted, 201."
+    program: split.cs
+    args: ["under-the-limit"]
+    expect:
+      exit: 0
+      stdout: "8 bytes: 201\n"
+
+  - id: ftp-limit
+    claim: "The same limit holds over FTP: the 21-byte upload throws CurlException, RemoteDiskFull, 70."
+    program: split.cs
+    args: ["ftp-limit"]
+    expect:
+      exit: 0
+      stdout: "ftp: RemoteDiskFull (70)\n"
+
+  - id: ftp-same-directory
+    claim: "An 8-byte upload over FTP is accepted and lands in the directory base.conf names, which Files reads."
+    program: split.cs
+    args: ["ftp-same-directory"]
+    expect:
+      exit: 0
+      stdout: "ftp: ok, the directory holds 1234567\n"
+
+  - id: order-matters
+    claim: "With ConfigFiles the other way round, test.conf then base.conf, base.conf is later and its 100 wins: the 21-byte upload is accepted, 201."
+    program: split.cs
+    args: ["order-matters"]
+    expect:
+      exit: 0
+      stdout: "21 bytes: 201\n"
+
+  - id: command-line-after-wins
+    claim: "AdditionalArguments are read after the files and beat both: --max-filesize 5 refuses the 8-byte upload, 413."
+    program: split.cs
+    args: ["command-line-after-wins"]
+    expect:
+      exit: 0
+      stdout: "8 bytes: 413\n"
+
+  - id: property-before-loses
+    claim: "A property is read before the files and loses to them: MaxFileSize = 5 is beaten by test.conf's 10, and the 8-byte upload is accepted, 201."
+    program: split.cs
+    args: ["property-before-loses"]
+    expect:
+      exit: 0
+      stdout: "8 bytes: 201\n"
+
+  - id: command-line-directory
+    claim: "--directory in AdditionalArguments beats the one in base.conf: the server serves site-b."
+    program: split.cs
+    args: ["command-line-directory"]
+    expect:
+      exit: 0
+      stdout: "hello.txt: from the command line\n"
+
+  - id: no-allow-after-the-files
+    claim: "--no-allow-uploads in AdditionalArguments turns off the allow-uploads base.conf set: the same upload is refused 405."
+    program: split.cs
+    args: ["no-allow-after-the-files"]
+    expect:
+      exit: 0
+      stdout: "8 bytes: 405\n"
+
+  - id: typo-names-its-file
+    claim: "A mistake in the second file throws SurlServerStartException, FailedInit, whose first line names file and line."
+    program: split.cs
+    args: ["typo"]
+    expect:
+      exit: 0
+      stdout: "refused: FailedInit, bad.conf:2: option --max-filesise: is unknown\n"
+
