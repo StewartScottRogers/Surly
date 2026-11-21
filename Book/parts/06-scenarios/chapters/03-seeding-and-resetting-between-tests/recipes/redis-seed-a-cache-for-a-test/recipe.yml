@@ -1,0 +1,85 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: redis-seed-a-cache-for-a-test
+title: Seeding a Cache for a Test
+protocols: [redis, http]
+tier: scenarios
+surl-options: [--user, --allow-plaintext-auth, --directory]
+curl-options: [-s, -S, -u, -o, -w]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, rfc9110]
+
+# The script needs a POSIX shell: it waits for the cached key to expire, which one command cannot do.
+fixtures:
+  site/products.json: "{\"items\":[\"tea\",\"coffee\"]}\n"
+  seed.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Seeds the settings and a cached copy that lives three seconds, reads them as the app would,
+    # waits until the copy has expired, and reads again, then asks the origin over HTTP.
+    # Usage: sh seed.sh <redis port> <http port>
+    r=redis://127.0.0.1:$1
+    h=http://127.0.0.1:$2
+    curl -s -u alice:s3cret "$r/SET/settings:currency/EUR" "$r/SET/cache:products/cached-copy/PX/3000" \
+      "$r/GET/settings:currency" "$r/GET/cache:products" | {
+      read -r set1; read -r set2; read -r currency; read -r cached
+      echo "settings:currency: $currency"
+      echo "cache:products: $cached"
+    }
+    sleep 4
+    curl -s -u alice:s3cret "$r/GET/settings:currency" "$r/GET/cache:products" | {
+      read -r currency; read -r cached
+      echo "settings:currency: $currency"
+      echo "cache:products: [$cached]"
+    }
+    echo "origin: $(curl -s -u alice:s3cret "$h/products.json")"
+
+# main is the recipe: one account for both listeners, whose password may cross them in clear. strict has the
+# account on Redis only, without the loosening.
+servers:
+  main:
+    command: surl --user alice:s3cret --allow-plaintext-auth --directory site redis://127.0.0.1:{{port}} http://127.0.0.1:{{port2}}
+    ready: port
+  strict:
+    command: surl --user alice:s3cret redis://127.0.0.1:{{port3}}
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The settings and a cached copy seeded with SET, the copy with PX 3000, read back as seeded; four seconds later the setting is still there, the cached copy is null, an empty line, and the origin file over HTTP answers its seeded content.
+    run: sh seed.sh {{port}} {{port2}}
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "settings:currency: EUR\ncache:products: cached-copy\nsettings:currency: EUR\ncache:products: []\norigin: {\"items\":[\"tea\",\"coffee\"]}\n"
+
+  - id: time-to-live
+    claim: The seeded copy has a positive time to live and the setting seeded with no expiry has -1, so only the copy can go; a key that was never seeded has -2.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/SET/settings:page-size/20 redis://127.0.0.1:{{port}}/SET/cache:prices/seeded/EX/1000 redis://127.0.0.1:{{port}}/TTL/settings:page-size redis://127.0.0.1:{{port}}/TTL/cache:prices redis://127.0.0.1:{{port}}/TTL/never-seeded
+    expect:
+      exit: 0
+      stdout-matches: '^OK\nOK\n-1\n(99[0-9]|1000)\n-2\n$'
+
+  - id: miss-then-refill
+    claim: A cache-miss test can force a miss at once by deleting the key; DEL answers 1, the next GET is null, and a second SET puts a copy back for the app to find.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port}}/SET/cache:orders/old redis://127.0.0.1:{{port}}/DEL/cache:orders redis://127.0.0.1:{{port}}/GET/cache:orders redis://127.0.0.1:{{port}}/SET/cache:orders/refilled redis://127.0.0.1:{{port}}/GET/cache:orders
+    expect:
+      exit: 0
+      stdout: "OK\n1\n\nOK\nrefilled\n"
+
+  - id: origin-content
+    claim: The same account reads the origin over HTTP, a file that is not in the directory is 404, and a request with no login is 401.
+    run: curl -s -u alice:s3cret -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port2}}/products.json http://127.0.0.1:{{port2}}/missing.json --next -s -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port2}}/products.json
+    expect:
+      exit: 0
+      stdout: "200\n404\n401\n"
+
+  - id: plaintext-refused
+    claim: Without --allow-plaintext-auth the account's login over redis:// is refused and curl exits 67 with WRONGPASS, so a test that seeds this way needs the option.
+    run: curl -s -S -u alice:s3cret redis://127.0.0.1:{{port3}}/SET/settings:currency/EUR
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"

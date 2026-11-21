@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-build-an-environment-from-a-spec]]
+=== Building an Environment from a Spec
+
+==== Problem
+
+Your tests need a web server, a mail server and a message broker, and you keep the list of them in a short JavaScript Object Notation (JSON) file in the repository. You want your artificial intelligence (AI) agent to read that file, start every server in it, report the URLs they bound, and leave nothing half-started if one fails.
+
+==== Solution
+
+Write the spec so that each server{apos}s fields are `start_server`{apos}s own arguments, keyed by a name the tests use:
+
+[source,json]
+----
+include::environment.json[]
+----
+
+Then write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it calls `surl-mcp`{apos}s `start_server` once per entry, prints each name with its bound URL, and checks each server answers, through `curl-mcp`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The spec adds nothing of its own to learn: under `servers`, each name holds `listen_urls`, and optionally `arguments` and `files`, exactly as `start_server` takes them (<<mcp-spec>>). The program passes each entry{apos}s fields through unchanged, so anything `start_server` accepts can go in the file, and anything it refuses is refused with `surl`{apos}s own words. `listen_urls` on port 0 get free ports. `arguments` are `surl`{apos}s options (<<surl-readme>>): the mail server serves `example.com` with two mailboxes, and the broker has an account and keeps the last message on each `env/` topic (`--topic "env/#;retain"`). That broker also has `--allow-plaintext-auth`, a loosening: a Message Queuing Telemetry Transport (MQTT) login over plain `mqtt://` sends its password as it is (<<mqtt311>>), and the server refuses that unless told otherwise. `files` puts `health.txt` in the web server{apos}s store.
+
+`start_server` answers each `server_id` and `bound_urls`, the URLs with their real ports, and the program prints one line per name, in the spec{apos}s order: the report the tests read their addresses from. Then a smoke check, one per server, so the report is not taken on trust. `curl-mcp`{apos}s `transfer` fetches `health.txt`, `200` and `ok`. Its `curl` tool sends `hello.eml` to ann over Simple Mail Transfer Protocol (SMTP) (<<rfc5321>>) with `-s`, `--crlf`, `-u`, `--mail-from`, `--mail-rcpt` and `-T`, and `list_messages` finds one message in her `INBOX`. The `curl` tool publishes `ready` on `env/status` with `-u` and `-d`, and `read_retained_message` reads it back. An MQTT publish at quality of service 0 is never acknowledged, so `curl` can be finished before the broker has kept the message; the program calls `wait_for_event` for the `store_changed` event in the `bus` store named `env/status` before it reads.
+
+A spec is all or nothing. When an entry will not start, `start_server` is a tool error whose text is `surl`{apos}s: here `surl: option --topics: is unknown`, a misspelt `--topic`. The program prints it beside the entry{apos}s name, calls `stop_server` for each server it already started from the spec, and checks with `list_servers` that none is left. A test run that cannot have its whole environment gets none of it, rather than two servers nobody will stop. The spec cannot widen what the agent may do, either: a listen URL on `0.0.0.0` is refused before anything binds, since exposing a server to the network is for whoever starts `surl-mcp` to allow, with `--allow-non-loopback`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-fixture-from-a-config-file-from-an-agent>> for one server from a `surl` configuration file.
+* <<surl-stand-up-mail-files-and-messages-from-an-agent>> for mail, files and messages on one server.
+* <<surl-stop-every-server-from-an-agent>> for stopping everything an agent started.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<rfc5321>>, <<mqtt311>>.

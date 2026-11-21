@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-lock-out-one-account-in-csharp]]
+=== Locking Out One Account in C#
+
+==== Problem
+
+Your app must show a clear message when one user's login is refused while other users carry on. You want the server to refuse exactly one account, with the right password, until the test lifts the refusal, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+Start a `SurlServer` with two accounts and a `refuse-login` rule for one of them, log in as each with a `CurlClient` and a `CurlRequest`, and remove the rule when the test is done being refused:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Accounts` holds `SurlAccount` values, name and password, the same accounts `--user` adds; once one exists every request needs a login. `SurlFault.RefuseLogin()` is the rule `--fault "refuse-login"` writes, and a `with` expression narrows it, as the console recipe does with `;account=bob`: `Account = "bob"` scopes it to one account. `Faults.Add` at start numbers the rule `f1`. The rule is meant only for tests. With no rule, bob logs in with the same password and is answered `200`.
+
+`CurlClient.Create()` makes the client, a `CurlRequest` is a method and a URL, and `CurlAuthenticationOptions` carries `UserName`, `Password` and `HttpAuthentication`, here `HttpAuthenticationMethods.Digest`, Digest access authentication (<<rfc7616>>). A refused bob is not an exception: `SendAsync` returns a `CurlResponse` with `StatusCode` `401` and `ReasonPhrase` `Unauthorized`, the same answer a wrong password gets, so the client cannot tell a lock-out from a typing mistake. The `Body` stream is read and disposed either way.
+
+`server.Faults.List()` answers `SurlFaultRule` values with `Id`, `Item`, the rule as `surl` words it, and `Remaining`, null for no limit. `Times = 1` on the `SurlFault` gives the rule one use: bob is refused once and then answered `200`, and `Remaining` reads `0`. `Faults.Remove(id)` lifts a rule and returns `true` when there was one to lift; no control endpoint is involved in process, where the test already holds the server. With `RecordExchanges` on, `FindEvents` with `SurlEventKind.LoginJudged` answers `LoginJudgedEvent` values: `Mechanism`, `Account` and `IsAccepted`, so alice is accepted and bob refused, and `SurlEventQuery` is the filter, and `FindExchanges` with `Account = "bob"` finds the one exchange that judged a login for him.
+
+The console recipe also checks the control endpoint's token; in process there is no endpoint to protect.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-lock-out-one-account>> for the same lock-out on the console.
+* <<http-lock-out-one-account-from-an-agent>> for the same lock-out from an agent.
+* <<http-tell-clients-apart-by-account-in-csharp>> for reading which account did what.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>.

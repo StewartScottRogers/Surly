@@ -11,3 +11,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. A publish outside the --topic filter is accepted (curl exit 0) and not kept.
 3. --allow-anonymous has its refusal case (curl exit 8) in login-required.
 4. Chapter intro 06/08 written.
+5. CI run 44835381862: on macOS the last device's QoS 0 publish was not yet kept when read; the program now waits for each publish's `exchange_ended` event (bounded 10 s), no sleep.

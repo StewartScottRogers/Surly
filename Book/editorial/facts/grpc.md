@@ -13,7 +13,7 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-20
 - `grpc://host:port/<pkg.Service>/<Method>`, request `-d '{...}'` JSON; reply printed as JSON, one object per message, default values left out (`index` 0).
 - `--grpc-proto file.proto`: types from the file, no reflection. The file decides the JSON names (field numbers on the wire). Errors: unknown field `curl: (2) -d: the data is not a surl.test.Ask message as JSON (UnknownField)` (exit 2); method not in the file `--grpc-proto: service surl.test.Echo has no method Chat` (2); missing file exit 26 `File "missing.proto" was not found`; syntax error exit 26 `bad.proto:1:28: Expected a service name, found "{".`; a service the server does not have, with a file: `grpc-status 12 (UNIMPLEMENTED): unknown service`, exit 22.
 - Any `grpc-status` other than 0: exit 22, stdout the replies already sent, stderr `curl: (22) grpc-status 5 (NOT_FOUND): no such order`. Empty message: `grpc-status 14 (UNAVAILABLE): `. `statusCode` outside 0..16 (99, -1): `grpc-status 3 (INVALID_ARGUMENT): request field out of range`. `grpc-message` percent-encoding is undone (`disk 100% full`).
-- `-m 1` with `delayMilliseconds` 3000: exit 28, no status. The text includes the elapsed milliseconds; match `curl: (28)`.
+- `-m 1` with `delayMilliseconds` 3000: exit 28, no status. The text includes the elapsed milliseconds; match `curl: (28)`. `-m` is also sent as `grpc-timeout`, which surl enforces, so the server can answer `grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded`, exit 22, first (seen on macOS); add `-H "grpc-timeout:"` to leave the header off (see platforms.md).
 - With no body, `GET`: curl without `-d` calls with an empty request; reply `{}` for Echo.
 
 ## MCP
@@ -31,3 +31,11 @@ surl-mcp `start_server(listen_urls ["grpc://127.0.0.1:0"], arguments ["--allow-a
 grpc-call-with-a-proto-file, grpc-test-a-failing-call (each with -in-csharp and -from-an-agent); also grpc-call-a-method.
 
 - Libcurl answers `UnsupportedProtocol` for this scheme by design: Libcurl mirrors upstream libcurl's protocol set, and extensions never change Libcurl or `curl -V`. Use Curl.Api or the console (Curl session, 2026-11-20).
+
+## grpcs (TLS) and logins (grpcs-call-over-tls, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20, windows)
+- `surl --cert server.pem --key server.key --user alice:s3cret grpcs://...`; curl `-s -S --cacert server.pem -u alice:s3cret -d '{"message":"hello"}' grpcs://.../surl.test.Echo/Echo` prints the reply. No `--cacert`: exit 60 (schannel wording on Windows; match `curl: (60)`); URL host `localhost` for an IP-only certificate: 60. `-k` also works. No cert: surl exit 58 `needs a certificate`.
+- Logins are judged at curl's first request, the reflection call: wrong password or none, exit 22 `The server did not answer gRPC server reflection (grpc-status 16 (UNAUTHENTICATED): unauthenticated); give the method's .proto file with --grpc-proto`. Over plain `grpc://` with an account, `-u` is refused unchecked: same wording with `grpc-status 7 (PERMISSION_DENIED): permission denied`.
+- Plain `grpc://` to a grpcs port: exit 55 `Send failure: Connection was reset` (Windows only probed).
+- Curl.Api (re-pin, unchanged): `GET` and `POST` with a JSON `Body` both reply `{}` (the body is not sent); `Content-Type: application/json` gives `HTTP status 415` as grpc-status 2. TLS via `CurlTlsPeerOptions.CertificateAuthorityFile`, login via `CurlAuthenticationOptions { UserName, Password }`; failures `PeerFailedVerification` (60), `HttpReturnedError` (22) with the same reflection wording. Surl.Api without `CertificateFile`: `SurlServerStartException` `CertificateProblem` (58).
+- surl-mcp `start_server(["grpcs://127.0.0.1:0"], arguments ["--cert","server.pem","--key","server.key","--user","alice:s3cret"])`; no cert: tool error `exit_code` 58 `CertificateProblem`, text `surl: (58) grpcs://127.0.0.1:0/ needs a certificate: ...` (port 0 kept). curl-mcp `curl` tool takes the console's args.
+- Recipes: grpcs-call-over-tls (+ -in-csharp, -from-an-agent).

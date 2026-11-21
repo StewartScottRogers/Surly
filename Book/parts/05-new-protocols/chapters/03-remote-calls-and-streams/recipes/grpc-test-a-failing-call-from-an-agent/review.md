@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Every failing status is a tool error with `isError` true and curl's exit code 22; exit 28 for `-m` is also a tool error. For the stream that fails part way the output holds the three replies and the status is on standard error.
 2. The program prints the status from the first `grpc-status` line of standard error; a Windows carriage return there is trimmed.
+3. CI run 44835381862: on macOS `-m 1` lost the race to surl enforcing the `grpc-timeout` curl sends from it (exit 22, DEADLINE_EXCEEDED); the client-timeout call now adds `-H "grpc-timeout:"` so only curl stops, exit 28.

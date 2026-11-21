@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-rename-and-delete-a-file-in-csharp]]
+=== Renaming and Deleting over FTP in C#
+
+==== Problem
+
+Your C# job renames a file on a File Transfer Protocol (FTP) server when processing is done and deletes the temporary ones. You want to send the FTP commands with `Curl.Api` and check the store afterwards, against a server in the same process.
+
+==== Solution
+
+Start a `SurlServer` over four files, send `RNFR` and `RNTO` as quoted commands on a request for the folder, and read the listing, the replies and the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+FTP (<<rfc959>>) renames in two steps: `RNFR` names the file to rename and the server answers `350 Ready for RNTO`, then `RNTO` names the new name and the server answers `250`. `DELE` deletes a file. `Curl.Api` has no method for either; `CurlFtpOptions.Quote` is `curl -Q`, a list of commands sent as they are, in order, before the transfer, and `PostQuote` is `curl -Q` with a leading dash, the same sent after it. A quoted command needs a transfer to come before or after, so the program asks for the folder itself with a `GET`, and the server answers with a listing.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free port; `AllowUploads` is `--allow-uploads`, which permits renaming and deleting as it permits `STOR` and, though `surl` prints no warning for it, loosens the server; `AllowAnonymous` is `--allow-anonymous`, which lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; `ListDirectories` is `--list-directories`, without which `surl` refuses the listing. `Files` seeds the store with four files. `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrl` names it.
+
+`CurlRequest` with `HttpMethod.Get` and a folder URL is the request for the listing, and its `Ftp`, a `CurlFtpOptions`, holds the quoted commands. `CurlClient.SendAsync` returns a `CurlResponse`; its `Body` is the listing, one `ls -l` style line a file, whose last word the program prints as a name. Every reply on the control connection is also an entry in `Headers`, the reply line as the key: the program keeps `350 Ready for RNTO` and the `250` that answers `RNTO`, which is how it knows each step was accepted.
+
+Where the command goes sets what the listing shows. With `Quote` the commands run first, so the listing already shows `final.txt` and not `draft.txt`, and a `DELE` leaves its file out. With `PostQuote` they run after the listing was sent, so the listing still shows the file and the store, read afterwards with `ListAsync` of `SurlServer.Files`, a `SurlServerFiles`, and its `SurlFolderPage`, does not. A rename onto a name that is taken replaces that file, and `surl` does not ask: `SurlFileContents.Bytes` of `taken.txt` is what `keep.txt` held.
+
+A refusal is a `CurlException`, whose `Code` is the number `curl` exits with. A file that is not there, a rename with no source and an `RNTO` with no `RNFR` before it each fail the quoted command: the code is `QuoteError`, `21` (<<curl-readme>>). A server with `AllowUploads` off answers `RNFR` with `550 Not permitted`, the code is the same and the store is as it was. Without `AllowAnonymous` the login is refused and the code is `LoginDenied`, `67`. That is the server being surly on purpose, and the program must catch each, since nothing else reports them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-rename-and-delete-a-file>> for the same commands on the console with `curl -Q`.
+* <<ftp-rename-and-delete-a-file-from-an-agent>> for the same commands sent by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

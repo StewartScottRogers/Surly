@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-create-and-replace-a-file-in-csharp]]
+=== Creating and Replacing a File in C#
+
+==== Problem
+
+Your C# client uploads with Hypertext Transfer Protocol (HTTP) `PUT`, and your test has to check the `201 Created`, `204 No Content` and `409 Conflict` answers and read back what the server actually stored.
+
+==== Solution
+
+Host the server with `Surl.Api`, uploads on and one account, send each `PUT` with `Curl.Api`, and after each answer read the path from the server's store with `Files.ReadAsync`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `AllowUploads` is `--allow-uploads`, and `Accounts` holds one `SurlAccount`, the `--user alice:s3cret` an upload has to log in as. `Files` seeds the in-memory store with `drafts/outline.txt`, which makes a `drafts` folder. Port 0 in the listen URL takes a free port, and `BoundUrl` names it.
+
+On the client side, one `CurlClient` sends every request, and `CurlRequest` with `HttpMethod.Put` and a `Body` of bytes is `curl -T`. `CurlAuthenticationOptions` with `HttpAuthenticationMethods.Digest` is `curl --digest -u alice:s3cret`: the client answers the server{apos}s Digest challenge. `SendAsync` returns a `CurlResponse` whose `StatusCode` and `ReasonPhrase` are the answer; none of `201`, `204`, `405` or `409` throws, so the test has to read the status itself.
+
+`server.Files` is the store the server reads and writes, a `SurlServerFiles`. `ReadAsync` returns a `SurlFileContents` with the file's exact `Bytes`, read from the store and not over the network, so the test checks what landed rather than what a later `GET` would say. After the `201` it holds the first body; after the `204` it holds the second, whole: the upload replaced the file and did not append. A path with no file throws `SurlNotFoundException`, which the program reports as `no file`.
+
+`409 Conflict` (<<rfc9110>>) is the server refusing to make a folder. `/archive/report.txt` needs an `archive` folder that is not there; `surl` creates no folders on an upload, so it stores nothing and `ReadAsync` finds no file. A `PUT` to `/drafts`, which is a folder, is `409` as well, and `ReadAsync` of a folder throws `SurlNotFoundException` too.
+
+Uploads are off by default, so a test server accepts no writes it was not told to. With `AllowUploads` left off, every one of these logged-in `PUT` requests is `405 Method Not Allowed` and the store gains nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-create-and-replace-a-file>> for the same uploads on the console.
+* <<http-create-and-replace-a-file-from-an-agent>> for an agent making them through `surl-mcp` and `curl-mcp`.
+* <<http-accept-uploads>> for the login and the refusals in front of an upload.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

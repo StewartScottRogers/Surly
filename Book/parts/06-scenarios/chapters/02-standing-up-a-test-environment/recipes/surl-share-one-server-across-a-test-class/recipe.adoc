@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-share-one-server-across-a-test-class]]
+=== Sharing One Server Across a Test Class
+
+==== Problem
+
+You would rather not start a server, and wire the app under test to it, in every test. You want one server for the whole test class, and every test starting from the same clean state, whatever order the tests run in.
+
+==== Solution
+
+Start one `SurlServer` in a class fixture, build the app against its bound URLs there, and call `ResetAsync` before each test:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A class fixture is the test framework{apos}s object for state shared by one class{apos}s tests: xUnit makes one per class and disposes it after the last test, and NUnit{apos}s `[OneTimeSetUp]` plays the same part. The program{apos}s small runner stands in for the framework, so the recipe runs without one: it makes `ServerFixture` once, runs each test, prints `PASS` or `FAIL` and exits 1 if any failed.
+
+`ServerFixture.StartAsync` starts the server from one `SurlServerOptions`: Hypertext Transfer Protocol (HTTP) and Simple Mail Transfer Protocol (SMTP) on free ports, uploads on, `config.json` given at start in `Files`, and two mailboxes, the app{apos}s and ann{apos}s. It builds `ShopApp`, the code under test, against the two bound URLs once; every test then talks to the same addresses, which the program checks by collecting them, one pair for the whole run. `ShopApp` is a `CurlClient` that `PUT`s a report with a Digest login through `CurlAuthenticationOptions` and sends a welcome mail with `CurlMailOptions` and a `CurlContent` body (<<rfc5321>>), one `CurlRequest` each, disposing each `CurlResponse`.
+
+`ResetAsync` returns the server{apos}s stores to how it started: the content store to the `Files` given at start and no others, every mailbox to empty, and the accounts to those given at start (<<surl-readme>>). Open connections stay open, so the app{apos}s client keeps working across the reset. The runner calls it before each test rather than after, so a test that crashed half-way cannot leave anything for the next. Each test asserts on everything the server holds, not only on what it expects to find: the upload test wants `config.json, report.csv` and no mail, the sign-up test `config.json` and one mail, and the third test the start state exactly. Run the three in the opposite order and they still pass, which is the property a shared fixture has to keep: no test depends on the one before.
+
+Leave the reset out and the second test finds the first test{apos}s report beside its own mail, and the third finds both: two failures in tests whose app did nothing wrong. Each failure names what the server held and what was wanted, which is the clue that a test is seeing another{apos}s leftovers. On a server whose files are on disk, `DataDirectory`, `ResetAsync` refuses rather than empty a real folder (<<http-reset-and-snapshot-in-process>>), so a class fixture that resets uses `Files`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-assert-mail-in-an-xunit-fixture>> for the same fixture for mail alone.
+* <<http-restore-a-snapshot-before-each-test>> for starting each test from seeded data rather than from the start state.
+* <<http-reset-and-snapshot-in-process>> for `ResetAsync` and `SnapshotAsync` one call at a time, and the refusal on disk.
+* <<surl-readme>>, <<rfc9110>>, <<rfc5321>>.

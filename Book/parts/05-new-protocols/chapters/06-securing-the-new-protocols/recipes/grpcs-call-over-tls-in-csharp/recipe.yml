@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: grpcs-call-over-tls-in-csharp
+title: Calling gRPC over TLS in C#
+protocols: [grpcs]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1, 22, 60]
+references: [surl-readme, curl-readme, grpc-http2, rfc9113, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Curl.Api client that trusts server.pem as its CertificateAuthorityFile and logs in as alice calls surl.test.Echo/Echo over grpcs with an empty request and gets the empty reply {}, nothing thrown.
+    program: program.cs
+    args: [trusted]
+    expect:
+      exit: 0
+      stdout: "grpcs: reply {}\n"
+
+  - id: untrusted
+    claim: Without CertificateAuthorityFile the client cannot verify the certificate, and SendAsync throws CurlException PeerFailedVerification (60).
+    program: program.cs
+    args: [untrusted]
+    expect:
+      exit: 60
+      stdout-matches: '^grpcs: CurlException PeerFailedVerification \(60\)\n'
+
+  - id: wrong-name
+    claim: Trusting the certificate is not enough when the URL names localhost and the certificate names 127.0.0.1; PeerFailedVerification (60) again.
+    program: program.cs
+    args: [wrong-name]
+    expect:
+      exit: 60
+      stdout-matches: '^grpcs: CurlException PeerFailedVerification \(60\)\n'
+
+  - id: wrong-password
+    claim: Over a trusted connection a wrong password is refused with grpc-status 16 UNAUTHENTICATED, thrown as CurlException HttpReturnedError (22).
+    program: program.cs
+    args: [wrong-password]
+    expect:
+      exit: 22
+      stdout-matches: '^grpcs: CurlException HttpReturnedError \(22\)\nThe server did not answer gRPC server reflection \(grpc-status 16 \(UNAUTHENTICATED\): unauthenticated\)'
+
+  - id: in-clear
+    claim: The same login to a plain grpc listener is refused unchecked with grpc-status 7 PERMISSION_DENIED, HttpReturnedError (22).
+    program: program.cs
+    args: [in-clear]
+    expect:
+      exit: 22
+      stdout-matches: '^grpc: CurlException HttpReturnedError \(22\)\nThe server did not answer gRPC server reflection \(grpc-status 7 \(PERMISSION_DENIED\): permission denied\)'
+
+  - id: no-request-message
+    claim: Curl.Api 0.2.0 does not send a request message; a POST with the JSON body {"message":"hello"} still gets the empty reply {}.
+    program: program.cs
+    args: [body]
+    expect:
+      exit: 0
+      stdout: "grpcs: reply {}\n"
+
+  - id: no-certificate
+    claim: A grpcs listener with no CertificateFile refuses to start with SurlServerStartException, ExitCode CertificateProblem (58).
+    program: program.cs
+    args: [no-certificate]
+    expect:
+      exit: 1
+      stdout: "start refused: CertificateProblem (58)\n"

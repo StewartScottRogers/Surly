@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-sign-requests-with-aws-sigv4-from-an-agent]]
+=== Signing with AWS SigV4 from an Agent
+
+==== Problem
+
+Your client signs its requests with Amazon Web Services (AWS) Signature Version 4 (SigV4) rather than sending a password. You want a server that checks the signature, refuses a wrong secret key, and accepts the right one over plain Hypertext Transfer Protocol (HTTP), with an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts a server whose one account is an access key ID and its secret key and whose only accepted method is `aws-sigv4`, then signs requests through `curl-mcp`{apos}s `curl` tool:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s own options in `arguments`: `--user AKIAEXAMPLE:topsecret` is the account, the access key ID before the colon and the secret key after, and `--auth aws-sigv4` makes the server accept and offer that method alone. `files` puts the file in memory.
+
+SigV4 does not send the secret key: the client signs the request with it and sends the signature and the access key ID (<<aws-s3-api>>), so `surl` accepts it over plain `http://`. The `curl` tool runs `curl` with the arguments given, and `--aws-sigv4 "aws:amz:us-east-1:s3"` with `-u` signs the request. `-w "%{http_code}"` puts the status in `standardOutput`, and `-o` sends the body to a file in the folder the host is confined to.
+
+A refusal is an answer and not a failure of the tool. A wrong secret and an access key ID the server does not hold are answered `403`. The right secret sent as a Basic password, or with `--digest`, is `403` too, because `--auth aws-sigv4` turned the other methods off. A signed request for a file that is not there is `404`, which shows the signature was accepted, and a signature for `eu-west-1` and `ec2` is accepted as well: `surl` does not check the region or the service.
+
+`transfer` sends no signature at all. It answers `403` as a response, with `statusCode` 403, and its `headers`, a list of `name` and `value` pairs, hold no `WWW-Authenticate`.
+
+`get_events` with `kinds` set to `login_judged` answers a login per event: `mechanism`, here `AWS4-HMAC-SHA256`, `account`, the access key ID, and `is_accepted`. The right secret is accepted and the wrong one refused.
+
+Without `--auth`, the same account also accepts the signed request. A wrong secret is then `401` with a `WWW-Authenticate: Digest` header, since the server offers other logins, where `--auth aws-sigv4` alone gives a `403` with none. That scenario reads the headers with `-D -`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-sign-requests-with-aws-sigv4>> for the same check on the console.
+* <<http-sign-requests-with-aws-sigv4-in-csharp>> for the same check from a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

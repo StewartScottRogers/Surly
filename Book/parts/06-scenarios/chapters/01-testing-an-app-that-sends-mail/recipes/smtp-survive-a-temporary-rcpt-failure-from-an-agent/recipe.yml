@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs retry-send.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-survive-a-temporary-rcpt-failure-from-an-agent
+title: Surviving a Temporary RCPT Failure
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, list_faults, get_events, list_mailboxes]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T, -w]
+exit-codes: [0, 1, 55]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  order.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Order 1042 has shipped\r\n\r\nYour order is on its way.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: add_fault makes the first RCPT answer 451; the curl tool's send exits 55 with reply 451, the agent tries again a second later and gets 250, the rule is spent after acting once, and ann has exactly one message.
+    program: retry-send.cs
+    args: [temporary]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ntry 1: curl exit 55, reply 451\ntry 2: curl exit 0, reply 250\nlist_faults: f1 remaining 0\nget_events: 1 fault_applied\nlist_mailboxes: 1 message(s) for ann\n"
+
+  - id: no-retry
+    claim: A sender that gives up on the first 451 leaves ann with no message, and the agent's test exits 1.
+    program: retry-send.cs
+    args: [no-retry]
+    expect:
+      exit: 1
+      stdout: "add_fault: f1\ntry 1: curl exit 55, reply 451\nlist_faults: f1 remaining 0\nget_events: 1 fault_applied\nlist_mailboxes: 0 message(s) for ann\n"
+
+  - id: permanent-is-not-retried
+    claim: A 550 is permanent, so the sender does not retry it; the rule, with no limit, shows remaining null and acted once, and ann has no message.
+    program: retry-send.cs
+    args: [permanent]
+    expect:
+      exit: 1
+      stdout: "add_fault: f1\ntry 1: curl exit 55, reply 550\nlist_faults: f1 remaining null\nget_events: 1 fault_applied\nlist_mailboxes: 0 message(s) for ann\n"
+
+  - id: reply-must-fit
+    claim: add_fault refuses a rule whose reply is not an SMTP error, 250 OK here, as a tool error with surl's own text.
+    program: retry-send.cs
+    args: [bad-reply]
+    expect:
+      exit: 1
+      stdout: "add_fault refused: option --fault: key reply does not fit the smtp error shape\n"

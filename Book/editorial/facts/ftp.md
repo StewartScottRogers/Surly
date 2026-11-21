@@ -45,7 +45,18 @@ No login without an account or `--allow-anonymous`: 530, curl 67. A password ove
 - `stdout-matches` is applied with `re.S`; `curl -I` prints `\r\n`.
 
 ## Recipes
-ftp-choose-passive-or-active-mode (+ -in-csharp, -from-an-agent), ftp-read-a-files-size-and-date (+ -in-csharp, -from-an-agent), ftp-check-an-upload-landed-intact, tftp-download-a-file-from-an-agent
+ftp-choose-passive-or-active-mode (+ -in-csharp, -from-an-agent), ftp-read-a-files-size-and-date (+ -in-csharp, -from-an-agent), ftp-check-an-upload-landed-intact, tftp-download-a-file-from-an-agent, ftp-append-to-a-file, ftp-create-folders-while-uploading, ftp-rename-and-delete-a-file (each + -in-csharp, -from-an-agent)
+
+## Appending, folders, rename and delete (ftp-append-to-a-file, ftp-create-folders-while-uploading, ftp-rename-and-delete-a-file; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20)
+- `curl -T f --append url/x` sends `TYPE I` then `APPE x`, `150`, `226`; a missing remote file is created; only the bytes sent are added (no newline fixed). Uploads off: `APPE` is `550 Not permitted`, exit 25. `--max-filesize N` counts the file after the append: 11 bytes stored + 12 sent under 15 is exit 70, file unchanged.
+- `--ftp-create-dirs`: `CWD` each folder, `MKD` only after `550 No such directory`, then `CWD` again (`257 "/2026/11" created`); existing folders get `250` and no `MKD`. Without it a missing folder is exit 9 (`550` to CWD), nothing made. Uploads off: `MKD` is `550 Not permitted`, exit 9. Listing a folder needs `--list-directories` (else `550 No such directory`, exit 19).
+- `curl -Q "RNFR a" -Q "RNTO b" url/` (no prefix) runs before the listing; `-Q "-DELE x"` runs after it. Replies: `RNFR` 350 `Ready for RNTO`, `RNTO` 250, `DELE` 250; missing file `550 No such file`; `RNTO` alone `503 Send RNFR first`; `RNTO` into a missing folder `553 No such directory`; uploads off `550 Not permitted`; all exit 21. Rename onto an existing name replaces it. A quote needs a transfer: use a folder URL (`-l`, or `-o` null device).
+- Console shell on Windows verify/probe is cmd: `2>&1` works in a case, a `|` pipe to grep with `>` in its pattern does not. `{null}`/`{{null}}` for the null device.
+- Curl.Api: `CurlRequest(HttpMethod.Put, url) { Body = bytes, Ftp = new CurlFtpOptions { Append = true } }` is `-T --append`; Put without `Append` is `STOR`. `CreateMissingDirectories = FtpCreateMissingDirectories.Create` (`using Curl.Api.Options.Protocols;`; also `None`, `CreateAndRetry`) is `--ftp-create-dirs`. `Quote` is `-Q` (before), `PostQuote` is `-Q "-cmd"` (after); both `IReadOnlyList<string>`, collection expressions work. GET on the folder URL (`server.BoundUrl.ToString()`, a Uri) returns the long listing in `Body`.
+- Exception codes: `UploadFailed` 25, `RemoteDiskFull` 70, `RemoteAccessDenied` 9, `QuoteError` 21, `LoginDenied` 67.
+- Surl.Api: `MaxFileSize`, `AllowUploads`, `ListDirectories`; `server.Files.ReadAsync("/x")` (`.Bytes`), `server.Files.ListAsync("/dir")` (`.Entries`, `Name`, `IsFolder`), `Files["2026/old.txt"]` seeds a folder; ListAsync needs no `ListDirectories`.
+- surl-mcp `list_files` answers `entries[] {name, kind folder|file}`; `read_file` `text`. Each `curl` tool call is its own exchange in `get_exchanges`; `received` chunks begin with the command line (`APPE log.txt`, `MKD 11`, `STOR x`).
+- Cases share server state in order; a case may check `files:` under the served directory (`site/x`) after an upload.
 
 ## TFTP beside HTTP (tftp-move-a-firmware-fetch-to-http)
 - One surl serves `tftp://127.0.0.1:{{port}}/ http://127.0.0.1:{{port}}/` from one `--directory` (or one `Files` store): UDP and TCP port numbers are separate, so one number does; `ready: port` waits on the TCP side. Same bytes either way; 1300 and exactly 1024 bytes (empty final block) both arrive whole; `--tftp-blksize 1024` and `--tftp-no-options` do not change the bytes.

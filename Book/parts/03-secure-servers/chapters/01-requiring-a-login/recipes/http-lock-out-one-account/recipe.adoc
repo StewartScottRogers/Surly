@@ -1,0 +1,48 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-lock-out-one-account]]
+=== Locking Out One Account
+
+==== Problem
+
+Your app must show a clear message when one user's login is refused while other users carry on. You want the server to refuse exactly one account, with the right password, until the test lifts the refusal.
+
+==== Solution
+
+Give `surl` two accounts and a `--fault` rule that refuses one of them, then log in as each; here alice is answered `200` and bob, with his right password, `401`:
+
+include::.generated/solution.adoc[]
+
+To lift the refusal, delete the rule through the control endpoint, which is why `--control` and a token file are on the command line. `token.txt` holds the token on its first line:
+
+[source,shell]
+----
+curl -X DELETE -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:8082/v1/faults/f1
+----
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`--directory site` serves the files. Each `--user name:password` adds an account, and once any account exists every request needs a login. `--fault "refuse-login;account=bob"` adds a rule that makes `surl` refuse the login of the account `bob`, whatever password it carries. Quote it: the `;` is the shell's. The rule is a fault, a way to make `surl` misbehave on purpose so a client can be tested against it (<<surl-readme>>), and it is for tests only. Without the rule, the same bob with the same password logs in.
+
+The refusal is a login that fails, not a missing account. `curl` with `--digest` logs in, as the account `-u bob:b2-secret` names, with Digest access authentication (<<rfc7616>>), and bob is answered `401 Unauthorized` with a new Digest challenge, exactly as for a wrong password. A client cannot tell a lock-out from a typing mistake, which is how a real lock-out looks from outside. alice is untouched. `-s`, `-o` to nowhere and `-w "%{http_code}"` print the status alone, and `--next` lets one `curl` command run both logins.
+
+With `-v` and `--log-file`, the log says which login the server refused: `Login refused: Digest bob`, and `Login accepted: Digest alice` for the other. The log names the account claimed, never a password.
+
+The rule has an ID, `f1`. `--control http://127.0.0.1:8082` opens a control endpoint on loopback, and `--control-token-file token.txt` names the file whose first line is the bearer token every request to it must send that a test drives over Hypertext Transfer Protocol (HTTP) and JavaScript Object Notation (JSON). `GET /v1/faults` lists the rules, here `f1` with `remaining` null, no limit on how often it applies. A request without `Authorization: Bearer` and the token is answered `401`, so only the test can change a rule. `-X DELETE` sets the method and `-H` adds the `Authorization` header, and `DELETE /v1/faults/f1` is answered `204 No Content`, and bob's next login is answered `200`.
+
+`times=1` on the rule limits how often it applies: bob is refused once, and his next login is answered `200` with no one lifting anything. That fits a test of a client that must try again after a refusal.
+
+The C# and agent versions of this recipe add and remove the rule from code, without a control endpoint.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-lock-out-one-account-in-csharp>> for the same lock-out from a C# test.
+* <<http-lock-out-one-account-from-an-agent>> for the same lock-out from an agent.
+* <<http-tell-clients-apart-by-account>> for reading which account did what.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>.

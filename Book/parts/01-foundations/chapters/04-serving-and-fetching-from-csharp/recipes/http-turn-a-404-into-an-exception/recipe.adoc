@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-turn-a-404-into-an-exception]]
+=== Turning a 404 into an Exception
+
+==== Problem
+
+`Curl.Api` hands you a `404 Not Found` as an ordinary response, and your code keeps forgetting to look. You want a C# helper that returns the body of a `200` and throws a clear exception for a `404`.
+
+==== Solution
+
+Wrap `SendAsync` in a helper that checks `StatusCode` before it reads the body: a `404` throws `NotFoundException`, any other status of 400 or more throws `HttpRequestException`, and a `200` returns the text:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program serves `report.csv` from memory with `SurlServerOptions.Files` on a free port, and `SurlServer.StartAsync` returns once the server is bound. `CurlClient.SendAsync` sends the `CurlRequest` and returns a `CurlResponse` as soon as the status line and headers are in. For a path the server does not have, that response carries `404` and nothing is thrown: to Hypertext Transfer Protocol (HTTP), a 404 is a complete, successful answer (<<rfc9110>>), and `Curl.Api` behaves as `curl` without `-f` does. Every caller that fetches must then remember to look at `StatusCode`. The helper looks once, for all of them.
+
+`Fetch.GetStringAsync` throws `NotFoundException` for a `404`, with the method and URL in its message. `NotFoundException` derives from `HttpRequestException`, the exception `HttpClient`{apos}s `EnsureSuccessStatusCode` throws, and sets its `StatusCode` to `NotFound`, so code that already catches `HttpRequestException` keeps working, while code that wants to treat a missing file differently, say to create it, catches `NotFoundException` alone. Any other status of 400 or more throws a plain `HttpRequestException` with that `StatusCode`. The program shows one with a `SurlFault`: `ProtocolError("503")` scoped to the path `/busy.csv` makes the server answer `503 Service Unavailable` there, and the `catch` for `NotFoundException` lets it past to the one for `HttpRequestException`. The body of an error response is disposed unread.
+
+A server that cannot be reached is a different failure, and the helper leaves it alone. With the server stopped, `SendAsync` has no status to return: it throws `CurlException` with `Code` `CouldntConnect`, `curl`{apos}s exit code 7, and that reaches the caller unchanged. Keeping the two apart matters in a test: a `NotFoundException` says the server is up and the file is not there, a `CurlException` says the server is not there at all. The program exits 1 for any of the three exceptions and 0 when it printed the file; those exit codes are the program{apos}s choice, not the library{apos}s.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fail-a-script-on-a-missing-file-in-csharp>> for failing a run on a missing file without an exception type of your own.
+* <<http-tell-a-dead-server-from-a-missing-file-in-csharp>> for telling the two failures apart in more detail.
+* <<http-retry-a-flaky-endpoint-in-csharp>> for the `503` fault used to test a retry.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

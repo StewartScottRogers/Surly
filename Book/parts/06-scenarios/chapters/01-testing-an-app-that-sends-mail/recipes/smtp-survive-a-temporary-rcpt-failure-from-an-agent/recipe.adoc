@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-survive-a-temporary-rcpt-failure-from-an-agent]]
+=== Surviving a Temporary RCPT Failure
+
+==== Problem
+
+As an artificial intelligence (AI) agent testing an app{apos}s mail, you want the Simple Mail Transfer Protocol (SMTP) server to answer the first recipient `451`, try again later, and then accept, to prove the sender retries a temporary failure and delivers exactly one copy.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts a mail server with `surl-mcp`{apos}s `start_server`, adds a fault rule on `RCPT` with `add_fault`, sends through `curl-mcp`{apos}s `curl` tool and tries again after a `4xx`, then asks `surl-mcp` what the rule did and what was stored:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+`start_server` takes an `smtp://` listen URL on port 0 and `surl`{apos}s own options in `arguments`: `--mail-domain example.com` and a `--mailbox` each for the app and for Ann. It answers a `server_id` and the `bound_urls`. `add_fault` then adds one rule to the running server, written as one `surl --fault` item: `error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=1` answers the next recipient command with that reply instead of judging it, once (<<surl-readme>>). It answers the rule{apos}s `fault_id`, `f1`. A rule `surl` would refuse at start is refused here as a tool error with `surl`{apos}s text: a `reply` of `250 OK` is not an SMTP error, and the answer says the key `does not fit the smtp error shape`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON), with `exitCode` and the `standardOutput` `content`. The program prepends `-s`; `-u`, `--mail-from`, `--mail-rcpt` and `-T order.eml` are the app{apos}s login, envelope and message, `--crlf` keeps every line ending a carriage return and line feed, and `-w "%{response_code}"` prints the server{apos}s last reply code (<<curl-readme>>). A refused recipient makes `curl` exit `55`, and the code says why. A code that starts with `4` is temporary and one that starts with `5` permanent (<<rfc5321>>), so the agent tries again after a second on a `4xx`, up to three tries, and stops on anything else.
+
+Three tools then report the server{apos}s side. `list_faults` lists each rule with its `fault_id` and `remaining`, `0` once a rule is spent and null for one with no limit. `get_events` with `kinds` `fault_applied` returns one event for each time a rule acted. `list_mailboxes`, given Ann{apos}s address as `owner`, counts the messages in her `INBOX` as `message_count`. With the retry it is `1`: the refused try stored nothing, the second stored one. A sender that gives up on the first refusal leaves `0`, and a permanent `550` is not retried at all, though its rule has no limit and would refuse every try.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-survive-a-temporary-rcpt-failure>> for the same test on the console.
+* <<smtp-survive-a-temporary-rcpt-failure-in-csharp>> for the same test in C#.
+* <<http-retry-a-flaky-endpoint-from-an-agent>> for a fault rule over HTTP from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

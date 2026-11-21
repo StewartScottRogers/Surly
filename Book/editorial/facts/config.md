@@ -44,3 +44,9 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), Surl.Api 1
 ## Recipes
 surl-hand-bound-ports-to-the-app (+ twins), surl-run-a-fixture-from-a-config-file (+ twins),
 surl-clean-up-leftover-servers.
+
+## Surl.Api AdditionalArguments (surl-pass-any-option-through-in-process, Surl 9ad60d80c, 2026-11-20)
+- Options with no property go in `AdditionalArguments`, one string per argument (`"--max-request-head", "1000"`): a 2000-character header is then 431 Request Header Fields Too Large, 200 without. Read after the properties: `--no-allow-uploads` there overrides `AllowUploads = true` (PUT 201 -> 405).
+- Host options throw `ArgumentException` at `StartAsync`: `--log-file, --trace and --trace-ascii belong to a host; write the log to SurlServerOptions.Log. (Parameter 'options')`; `--help` (and `--aihelp`, `--manual`, `--version`): `--help, --aihelp, --manual and --version start no server.` surl's own refusals: `SurlServerStartException` FailedInit, `Lines[0]` `option --bogus: is unknown` / `option --max-request-head: expected a proper numerical parameter`.
+- `Mailboxes` entry `;protocols=...,redis` with `AreExtensionsTurnedOn = false`: FailedInit `option --mailbox: unknown scheme redis`. A `redis://` listen URL with extensions off: `UnsupportedProtocol`, `(1) Protocol "redis" not supported`. `AreExtensionsTurnedOn` null with no `SURL_EXTENSIONS` set served redis on Windows.
+- In-process `StartAsync` timing: ~0.4 s for the first server in a process, ~5 ms after; `ResetAsync` 0-20 ms; seeding 200 files with `Files.PutAsync` ~20 ms, `SnapshotAsync`/`RestoreAsync` ~15 ms.

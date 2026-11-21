@@ -64,7 +64,10 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   `LoginJudgedEvent.Mechanism/Account/IsAccepted` (Surl.Api, namespace Surl.Protocol.Abstractions).
   Curl.Api `LoginOptions = "AUTH=PLAIN"` on the default server: CurlException 67, no login judged.
 - MQTT on the same surl needs `--allow-plaintext-auth` for any password (CONNACK 5, curl 8); the option
-  does not change curl's SMTP choice. HTTP with any account configured: GET with no login is 401.
+  does not change curl's SMTP choice. HTTP with any `--user` account configured: GET with no login is 401.
+- Mailbox accounts (no `protocols=`) log in on smtp, imap, pop3 only (`surl -v` log on start: `* Mailbox ann@example.com:
+  logins on smtp, imap, pop3`), so an `http://` listener on a surl with only `--mailbox` accounts serves GET with NO login
+  (200; probed 2026-11-20, smtp-test-a-password-reset-mail). `--directory` serves files written after start.
 
 ## Client: curl
 - Send: `curl --crlf -u app@example.com:pw --mail-from a --mail-rcpt b -T file smtp://host:port/<ehlo-name>`.
@@ -90,6 +93,14 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   `--next` POP3 transfers share one session; DELEs commit at QUIT, and a failing DELE later in the chain
   (exit 8) does not undo earlier ones. Wrong password with n `--next` transfers: n `Login denied` lines.
 
+- SMTP fault on RCPT (2026-11-20): `--fault "error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=1"`; the readiness
+  connection does not spend it. curl: exit 55 `curl: (55) RCPT failed: 451`, `-w %{response_code}` 451, curl sends QUIT,
+  nothing stored. `--retry N` alone does NOT retry an SMTP 451 (`451 0`); `--retry-all-errors` does (stderr `Warning: Problem
+  (retrying all errors). Retrying in 1 second. 1 retry left.`, `250 1`) and retries a 550 just the same (`550 2`).
+  `surl -v` log: `RCPT answered with the chosen error of fault rule f1; nothing was stored.`, `Message stored: 202 bytes for 1
+  recipients`, HTTP `GET /x: 200, 43 bytes of <path>`, `GET /x: 404, nothing exists at <path>`.
+- surl adds `Return-Path` and `Received` at the top of a stored message, never `Date` or `Message-ID`.
+
 ## .NET
 - Curl.Api sends SMTP: `new CurlRequest(HttpMethod.Put, smtpUrl + "example.com")`
   with `Mail = new CurlMailOptions { MailFrom = .., MailRecipients = [..] }`, `Authentication`, and
@@ -110,6 +121,8 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   Nor STORE/MOVE: `new HttpMethod("STORE 1 +FLAGS (\Flagged)")` throws FormatException (one token only; BL-5612 adds
   CustomRequest later). Raw TcpClient IMAP with CRAM-MD5 by hand
   (hex HMACMD5(password, challenge)) works: imap-test-a-shared-team-folder-in-csharp.
+- SmtpClient, RCPT answered 451 (one recipient): plain `SmtpException`, `StatusCode` LocalErrorInProcessing, message `Error in
+  processing. The server response was: 4.3.0 try later`; a 550 is `SmtpFailedRecipientException` MailboxUnavailable.
 - SmtpClient + `new Attachment(stream, "report.csv", "text/csv")`: part 2, base64, `Content-Type: text/csv;
   name=report.csv`, `Content-Disposition: attachment` with no filename. `Convert.FromBase64String` skips CRLFs.
 - `server.OnEvent(new SurlEventQuery { Kind = SurlEventKind.StoreChanged, Store = StoreKind.Mail }, cb)`: one
@@ -151,6 +164,12 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
 - curl-mcp `curl(args)`: `exitCode`, `standardOutput.content`, `standardError.content`; non-zero exit is
   a tool error (`isError`). `-T file` reads from CURL_MCP_ROOT.
 
+- `add_fault(server_id, fault)` on a mail server: `error;scheme=smtp;command=RCPT;reply=250 OK` -> tool error `option --fault:
+  key reply does not fit the smtp error shape`. `list_faults` `remaining` is JSON null for a rule with no `times`.
+- `--mail-catch-all` start warning (in `log_lines`): `surl: warning: --mail-catch-all: example.com keeps mail to every unknown
+  address, which would otherwise be discarded`.
+- `put_file(server_id, path, text)` publishes a page an `http://` listener of the same server serves at once.
+
 ## Gotchas
 - Fixture line ends: LF fixtures need `--crlf`; CRLF fixtures in mcp recipes avoid it but it is harmless.
 - `Received:` carries the client's EHLO name (SmtpClient sends the machine name): never match it exactly.
@@ -181,4 +200,5 @@ smtp-route-mail-through-aliases (+ twins), smtp-log-in-with-cram-md5 (+ twins),
 surl-stand-up-mail-files-and-messages (+ twins), smtp-send-a-batch-of-mails-from-files,
 smtp-wait-for-an-apps-mail, surl-give-each-task-its-own-account, surl-smoke-test-every-listener (+ twins), surl-run-a-test-server-in-ci (+ twins),
 imap-test-a-shared-team-folder (+ twins), smtp-check-a-mail-attachment (+ twins), imap-poll-until-the-mail-arrives,
-smtp-assert-mail-in-an-xunit-fixture, smtp-collect-mail-as-it-arrives.
+smtp-assert-mail-in-an-xunit-fixture, smtp-collect-mail-as-it-arrives,
+smtp-survive-a-temporary-rcpt-failure (+ twins), smtp-test-a-password-reset-mail (+ twins), smtp-review-an-apps-mail-against-rules.

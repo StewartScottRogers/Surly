@@ -45,6 +45,16 @@ Any TLS scheme (`https`, `mqtts`, `ftps`, `wss`, ...) needs a certificate; `read
 - The bibliography has no PKCS #12 (RFC 7292) or TLS 1.0/1.1 deprecation (RFC 8996) entry.
 
 ## Recipes
-https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a-client-to-https (and twins), https-serve-a-pfx-certificate (and twins), mqtts-log-in-over-tls (and twins).
+https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a-client-to-https (and twins), https-serve-a-pfx-certificate (and twins), mqtts-log-in-over-tls (and twins), https-serve-a-certificate-chain (and twins).
 
 - Curl.Api: `VerifyHost = false` skips only the name check. A self-signed peer still fails 60; use `VerifyPeer = false` as well (`curl -k` is both) or trust the certificate with `CertificateAuthorityBlob` (Curl session, 2026-11-20).
+
+## Certificate chains (https-serve-a-certificate-chain, 2026-11-20, windows)
+- `--cert chain.pem --key leaf.key` with the leaf first, then the intermediate (`cat leaf.pem inter.pem`): surl sends both; a client with `--cacert root.pem` alone verifies (exit 0). A root appended (`full.pem`) works too. A leaf-only file with a client that trusts only the root: exit 60. No `--cacert`: 60.
+- The key is matched with the FIRST certificate: intermediate first (`cat inter.pem leaf.pem`), or the intermediate's key beside the chain: exit 58 `surl: (58) Could not load the server certificate: The private key cannot be read or does not match the certificate.` (wording is Windows; match the prefix).
+- Windows (Schannel): any real chain needs `--ssl-no-revoke` (Curl.Api `SslOptions = SslOptions.NoRevoke` in `CurlTlsPeerOptions`), else exit 60 `schannel: the revocation status is unknown` (test certs have no CRL or OCSP address). A single self-signed certificate used as the trust anchor needs no such option. See `platforms.md`.
+- Windows caches intermediates it has seen: after a server sent `chain.pem`, a leaf-only server of the SAME intermediate verified with `--cacert root.pem` (exit 0). The leaf-only case therefore uses a second intermediate (`inter2`) signed by the same root and a `leaf2` nobody sent in a chain. Not probed on Linux/macOS.
+- openssl setup for a chain: root `req -x509 ... -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign`; intermediate by `x509 -req -CA root.pem -CAkey root.key -CAcreateserial -extfile inter.ext` (`basicConstraints=critical,CA:TRUE,pathlen:0`, `keyUsage=critical,keyCertSign,cRLSign`); leaf `subjectAltName=IP:127.0.0.1`, `basicConstraints=CA:FALSE`. `printf "...\n" > file` works in `setup:`.
+- Trusting the intermediate alone (`--cacert inter.pem`) also verifies on Windows (partial chain); not claimed.
+- Curl.Api: `CertificateAuthorityBlob` is `ReadOnlyMemory<byte>?` and init-only: build it in the initializer (`ReadOnlyMemory<byte>? root = File.ReadAllBytes(...)`). Failure: `CurlException` `Code` `PeerFailedVerification` (60). Start refusal: `SurlServerStartException` `ExitCode` `CertificateProblem` (58), `Message` `(58) Could not load the server certificate: ...`. An https fetch answers a `ReasonPhrase` of "" (print the code only).
+- surl-mcp start refusal: structured `exit_code` 58, `exit_code_name` `CertificateProblem`; curl-mcp `curl` tool nonzero exit (60) is a tool error; `transfer` cannot skip revocation checking.

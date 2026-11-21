@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-serve-a-certificate-chain-from-an-agent]]
+=== Serving a Certificate Chain from an Agent
+
+==== Problem
+
+Your production certificate is signed by an intermediate authority, and clients trust only the root. You want a test server that sends the whole chain, so a client trusting the root verifies it and one missing the intermediate is caught, with an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts an HTTPS server from the chain file with `start_server`, then fetches with `curl-mcp`{apos}s `curl` tool, trusting only the root. The `setup` lines in `recipe.yml` make the root, the intermediate and the leaf with `openssl`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s own options in `arguments`: `--cert chain.pem` is the leaf and then the intermediate, and `--key leaf.key` is the leaf's key. Both files lie under `SURL_MCP_ROOT`, the folder the program runs in. The server presents the leaf and the intermediate, so a client that holds only the root can walk from the leaf to it (<<rfc5280>>). `bound_urls` holds the real port.
+
+The `curl` tool runs `curl` with the arguments given. `--cacert root.pem` names the root, the one certificate the client trusts, and the file lies under `CURL_MCP_ROOT`. The answer holds `exitCode`, here `0`, and `standardOutput` with the file. `transfer` has `caFile` too, but no way to switch off revocation checking, which Windows{apos} Schannel library insists on once there is a chain; `--ssl-no-revoke` on the `curl` tool does that, since test certificates carry no revocation address.
+
+The same client against a server that sends the leaf alone, `leaf2.pem`, cannot build a path to the root: `curl` exits `60`, and because the exit code is not zero the call is a tool error. With no `--cacert`, a client that trusts neither the root nor the intermediate exits `60` against the full chain too. The two servers use two different intermediates on purpose: Windows keeps the intermediates it has seen, so a leaf-only server whose intermediate was sent once in a chain would pass on that machine.
+
+A chain file that also ends with the root, `full.pem`, is served and verified the same way. The server pairs the key with the first certificate, so a file that starts with the intermediate, or a key that is not the leaf's, stops `start_server`: the call is a tool error whose structured content carries `exit_code` `58` and `exit_code_name` `CertificateProblem`, the same code as `surl` on the console, and whose text is `surl`{apos}s `Could not load the server certificate` message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-serve-a-certificate-chain>> for the same check on the console.
+* <<https-serve-a-certificate-chain-in-csharp>> for the same check from a C# test.
+* <<https-serve-a-pfx-certificate-from-an-agent>> for a certificate and key that arrive in one file.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5280>>.

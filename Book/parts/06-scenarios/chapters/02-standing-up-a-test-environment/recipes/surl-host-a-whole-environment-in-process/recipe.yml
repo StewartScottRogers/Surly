@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-host-a-whole-environment-in-process
+title: Hosting a Whole Environment In-Process
+protocols: [http, smtp, imap, mqtt, redis]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, SurlRetainedMessage, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlMailOptions, CurlContent, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9110, rfc5321, rfc9051, mqtt311, redis-resp]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: One in-process server listens for HTTP, SMTP, IMAP, MQTT and Redis; the test seeds a Redis key, the app reads it over Redis and then uploads a file, mails ann, publishes a retained MQTT message and sets a Redis key; ann's IMAP search finds the mail, and the file, the retained message and the key are all as the test expects, so it exits 0.
+    program: whole-environment.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "listening: http smtp imap mqtt redis\napp read feature:shipping = on\napp shipped order 7\nIMAP search for ann's order mail: * SEARCH 1\nfile invoice-7.txt: Invoice 7: 3 widgets, 42.00\nretained on orders/7: shipped\nredis order:7: shipped\n"
+
+  - id: seeded-flag-steers-the-app
+    claim: With the seeded flag off the app reads off and ships nothing; the IMAP search finds no message, and the file, retained message and key are absent, so each check fails and the test exits 1.
+    program: whole-environment.cs
+    args: [flag-off]
+    expect:
+      exit: 1
+      stdout: "listening: http smtp imap mqtt redis\napp read feature:shipping = off\nFAIL IMAP search for ann's order mail: * SEARCH, want * SEARCH 1\nFAIL file invoice-7.txt: (none), want Invoice 7: 3 widgets, 42.00\nFAIL retained on orders/7: (none), want shipped\nFAIL redis order:7: (none), want shipped\n"
+
+  - id: extensions-off
+    claim: Redis is an extended protocol server; with AreExtensionsTurnedOn false the start fails with SurlServerStartException UnsupportedProtocol, (1) Protocol "redis" not supported, and nothing listens.
+    program: whole-environment.cs
+    args: [no-extensions]
+    expect:
+      exit: 1
+      stdout: "start refused: UnsupportedProtocol: (1) Protocol \"redis\" not supported\n"
+
+  - id: plaintext-refused-by-default
+    claim: Without AllowPlaintextAuthentication the server refuses a password sent in clear over redis://, so the app's first call throws CurlException LoginDenied, WRONGPASS, before it ships anything.
+    program: whole-environment.cs
+    args: [strict]
+    expect:
+      exit: 1
+      stdout: "listening: http smtp imap mqtt redis\napp failed: CurlException LoginDenied: Redis server answered HELLO with error: WRONGPASS invalid username-password pair or user is disabled.\n"

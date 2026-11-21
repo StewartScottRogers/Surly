@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-host-a-whole-environment-in-process]]
+=== Hosting a Whole Environment In-Process
+
+==== Problem
+
+Your integration test needs a web server, a mail server, a message broker and a Redis cache, and you do not want to install, start or clean up any of them. You want one server inside the test process that answers all of those protocols.
+
+==== Solution
+
+Give one `SurlServerOptions` a listen URL per protocol, an account, a mailbox and a retained topic, start it with `SurlServer.StartAsync`, seed what the app reads, let the app run, and check each store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` describes the one server. Its `ListenUrls` holds five URLs on port 0: Hypertext Transfer Protocol (HTTP), Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP), Message Queuing Telemetry Transport (MQTT) and Redis. One `SurlServer` serves them all from the same stores: a file uploaded over HTTP is one file, mail sent over SMTP is read over IMAP, and the Redis keyspace is one the test can write without a client. `Surl.Api` runs these servers in the test{apos}s own process (<<surl-readme>>); there is no binary to find on `PATH` and nothing left running when the test ends. `Accounts` gives the app one account, a `SurlAccount` named `app`, which logs in on every scheme; `MailDomains` and `Mailboxes` give ann, the customer, a mailbox; `Topics` with `orders/#;retain` keeps the last message on each order topic.
+
+Redis is one of `surl`{apos}s extended protocol servers, for schemes upstream `curl` does not have. `AreExtensionsTurnedOn` says whether this server serves them; left unset, the server reads the `SURL_EXTENSIONS` environment variable at start. The program sets it to `true`, so the test does not depend on the machine{apos}s environment. Set it to `false` and the start fails: `SurlServerStartException` with `ExitCode` `UnsupportedProtocol`, `(1) Protocol "redis" not supported`, and nothing listens on any of the five.
+
+`AllowPlaintextAuthentication`, `surl`{apos}s `--allow-plaintext-auth`, is a loosening, and this environment needs it: MQTT and Redis over plain `mqtt://` and `redis://` send the password as it is (<<mqtt311>>, <<redis-resp>>). Without it the server refuses the app{apos}s first Redis login with `WRONGPASS`, and `Curl.Api` throws `CurlException` `LoginDenied` before the app has shipped anything. HTTP logs in with Digest here, so its password is not sent in clear either way. Keep the loosening to a test server on loopback.
+
+The test seeds the app{apos}s feature flag with `server.Keys.SetAsync`, straight into the keyspace. The app, a `CurlClient` sending one `CurlRequest` per step with `CurlAuthenticationOptions`, reads the flag with a Redis `GET` in the URL path, then uploads an invoice, sends ann a mail with `CurlMailOptions` and a `CurlContent` body (<<rfc5321>>), publishes `shipped` on `orders/7` and sets `order:7` in Redis; each `CurlResponse` body is read to its end. The test then checks with what suits each store: ann searches her inbox over IMAP as a mail client would (<<rfc9051>>) and the answer names message 1; the file, the retained message (a `SurlRetainedMessage`, or null) and the key are read from the server, with a missing file or key thrown as `SurlNotFoundException`. Seed the flag `off` and the app ships nothing: each check fails and says what it found, so the failure points at the step the app skipped.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-stand-up-mail-files-and-messages-in-csharp>> for mail, files and MQTT without Redis.
+* <<redis-expire-a-key-in-csharp>> for Redis keys from C# in more detail.
+* <<http-wait-for-an-apps-background-work>> for waiting on an app that works in the background.
+* <<surl-readme>>, <<rfc9110>>, <<rfc5321>>, <<rfc9051>>, <<mqtt311>>, <<redis-resp>>.

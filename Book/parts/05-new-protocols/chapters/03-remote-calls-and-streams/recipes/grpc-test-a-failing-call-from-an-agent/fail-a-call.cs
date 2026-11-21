@@ -58,7 +58,9 @@ switch (which)
         break;
     case "deadlines":
         await Call("Echo", """{"statusCode":4}""");
-        await Call("Echo", """{"message":"x","delayMilliseconds":3000}""", "-m", "1");
+        // -m also goes to the server as grpc-timeout, and surl ends the call DEADLINE_EXCEEDED when it passes,
+        // in a race with curl's own timer. An empty -H grpc-timeout: keeps it off the wire, so only curl stops.
+        await Call("Echo", """{"message":"x","delayMilliseconds":3000}""", "-m", "1", "-H", "grpc-timeout:");
         break;
     default:
         Console.Error.WriteLine($"unknown case {which}");

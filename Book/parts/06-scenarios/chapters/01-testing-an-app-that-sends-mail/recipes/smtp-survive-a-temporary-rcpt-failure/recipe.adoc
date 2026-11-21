@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-survive-a-temporary-rcpt-failure]]
+=== Surviving a Temporary RCPT Failure
+
+==== Problem
+
+Your app is meant to retry when a mail server answers `451`, try again later, and you want a Simple Mail Transfer Protocol (SMTP) server that refuses the first recipient that way and then accepts, so a test can show the app retries and delivers exactly one copy.
+
+==== Solution
+
+Give `surl` a `--fault` rule that answers the first `RCPT` with `451`, send through a sender that retries a temporary refusal, then ask the server over Internet Message Access Protocol (IMAP) how many messages arrived. The sender is a short script and needs a POSIX shell (Git Bash on Windows):
+
+include::send-retrying.sh[]
+
+include::.generated/solution.adoc[]
+
+In a real test the app sends, pointed at port `8080`, and the test runs the `STATUS` check.
+
+==== Discussion
+
+`--fault "error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=1"` is one fault rule. `error` answers a command with the reply the rule names instead of carrying it out; `scheme=smtp` says the reply is in SMTP{apos}s shape, a code from 400 to 599 and text, and `command=RCPT` limits the rule to the recipient command. `times=1` spends it after one answer, so every `RCPT` after it is judged as usual (<<surl-readme>>). The quotes keep the semicolons from the shell. The rest is a mail server for one domain: `--mail-domain example.com` serves mail for it, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. `-v` and `--log-file surl.log` write a verbose log to a file, which the checked claims read.
+
+A reply code that starts with `4` is a temporary failure: the client should try again later. One that starts with `5` is permanent: the same command will fail again, and the client must not repeat it unchanged (<<rfc5321>>). `send-retrying.sh` holds to that. It runs `curl` with the arguments it is given, `-s` to keep it quiet and `-w "%{response_code}"` to print the server{apos}s last reply code. `curl` exits `55` when the server refuses the recipient, and the script then looks at the code: a `4xx` is retried after a second, while tries are left; anything else ends the script with `curl`{apos}s own exit code. On the `curl` side `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T order.eml` the message, and `--crlf` turns the file{apos}s line feeds into the carriage return and line feed a message is made of.
+
+The check is the server{apos}s. `-X "STATUS INBOX (MESSAGES)"` asks the IMAP server how many messages Ann{apos}s `INBOX` holds without fetching any (<<rfc9051>>), and the answer is `1`: the refused attempt stored nothing, the retry stored one message. The log agrees. It has one line saying `RCPT answered with the chosen error of fault rule f1; nothing was stored.`, `f1` being the first rule{apos}s ID, and one `Message stored:` line. A sender that retried after the message had already been accepted would leave two, and the same check would catch it.
+
+`curl` has retries of its own, but they do not fit SMTP well. `--retry 3` retries only what `curl` counts as transient, such as a timeout or an HTTP `503` (<<curl-manual>>); an SMTP `451` is not one, so `curl` exits `55` at once, reports `451 0` (the code and no retries), and Ann{apos}s `INBOX` on that server holds nothing. `--retry-all-errors` makes every failure count: with `--retry 1` and `--retry-delay 1` the `451` is retried after one second, `--no-progress-meter` leaves the notice `Warning: Problem (retrying all errors). Retrying in 1 second. 1 retry left.` on standard error, and the message arrives once. But it retries a permanent `550` just the same, two retries for nothing, where `send-retrying.sh` gives up after the first try. A test of a sender should include that permanent refusal as well as the temporary one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-survive-a-temporary-rcpt-failure-in-csharp>> for the same test in C#.
+* <<smtp-survive-a-temporary-rcpt-failure-from-an-agent>> for the same test from an agent.
+* <<smtp-fail-a-test-on-a-wrong-recipient>> for a recipient refused for good.
+* <<http-retry-a-flaky-endpoint>> for the same kind of fault over HTTP.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

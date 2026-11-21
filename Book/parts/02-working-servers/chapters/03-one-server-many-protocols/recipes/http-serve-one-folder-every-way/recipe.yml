@@ -1,0 +1,69 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-serve-one-folder-every-way
+title: Serving One Folder Every Way
+protocols: [http, ftp, tftp, gopher, dict, ws]
+tier: working-servers
+surl-options: [--directory, --allow-anonymous]
+curl-options: [-s, -o, -w]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc9110, rfc959, rfc1350, rfc1436, rfc2229, rfc6455]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  plain/hello.txt: "hello from surl\n"
+
+# main: one folder on six listen URLs; TFTP is UDP, so it shares the HTTP port number.
+# no-anonymous: the same file without --allow-anonymous, in its own folder (one surl per folder).
+servers:
+  main:
+    command: surl --allow-anonymous --directory site http://127.0.0.1:{{port}}/ ftp://127.0.0.1:{{port2}}/ tftp://127.0.0.1:{{port}}/ gopher://127.0.0.1:{{port3}}/ dict://127.0.0.1:{{port4}}/ ws://127.0.0.1:{{port5}}/
+    ready: port
+  no-anonymous:
+    command: surl --directory plain ftp://127.0.0.1:{{port6}}/ http://127.0.0.1:{{port7}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command fetches hello.txt from one surl over HTTP, FTP, TFTP, Gopher, DICT and WebSocket and exits 0; five print the file's bytes and DICT prints them as a definition between its status lines.
+    run: curl -s http://127.0.0.1:{{port}}/hello.txt ftp://127.0.0.1:{{port2}}/hello.txt tftp://127.0.0.1:{{port}}/hello.txt gopher://127.0.0.1:{{port3}}/0/hello.txt dict://127.0.0.1:{{port4}}/d:hello.txt ws://127.0.0.1:{{port5}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\nhello from surl\nhello from surl\nhello from surl\n220 surl DICT server <mime> <10@surl>\n250 ok\n150 1 definitions retrieved\n151 \"hello.txt\" surl \"Files served by surl\"\nhello from surl\n.\n250 ok\n221 bye\nhello from surl\n"
+
+  - id: same-bytes
+    claim: Saved to files, the HTTP, FTP, TFTP, Gopher and WebSocket copies are the served file byte for byte.
+    run: curl -s -o via-http.txt http://127.0.0.1:{{port}}/hello.txt -o via-ftp.txt ftp://127.0.0.1:{{port2}}/hello.txt -o via-tftp.txt tftp://127.0.0.1:{{port}}/hello.txt -o via-gopher.txt gopher://127.0.0.1:{{port3}}/0/hello.txt -o via-ws.txt ws://127.0.0.1:{{port5}}/hello.txt
+    expect:
+      exit: 0
+      files:
+        via-http.txt: "hello from surl\n"
+        via-ftp.txt: "hello from surl\n"
+        via-tftp.txt: "hello from surl\n"
+        via-gopher.txt: "hello from surl\n"
+        via-ws.txt: "hello from surl\n"
+
+  - id: sizes
+    claim: curl counts the same 16 bytes over HTTP, FTP, TFTP and Gopher; the DICT reply is longer because it carries the protocol's status lines.
+    run: curl -s -w "%{url.scheme} %{size_download}\n" -o {{null}} http://127.0.0.1:{{port}}/hello.txt -o {{null}} ftp://127.0.0.1:{{port2}}/hello.txt -o {{null}} tftp://127.0.0.1:{{port}}/hello.txt -o {{null}} gopher://127.0.0.1:{{port3}}/0/hello.txt -o {{null}} dict://127.0.0.1:{{port4}}/d:hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '^http 16\nftp 16\ntftp 16\ngopher 16\ndict (1[0-9][0-9])\n$'
+
+  - id: one-folder-live
+    claim: All six read the folder as it is now, so a file added to site after the start is served over each of them at once.
+    fixtures:
+      site/later.txt: "added later\n"
+    run: curl -s http://127.0.0.1:{{port}}/later.txt ftp://127.0.0.1:{{port2}}/later.txt tftp://127.0.0.1:{{port}}/later.txt gopher://127.0.0.1:{{port3}}/0/later.txt ws://127.0.0.1:{{port5}}/later.txt
+    expect:
+      exit: 0
+      stdout: "added later\nadded later\nadded later\nadded later\nadded later\n"
+
+  - id: ftp-needs-a-login
+    claim: Without --allow-anonymous and with no account, curl's anonymous FTP login is refused, exit 67, though the same server's HTTP still serves the file.
+    run: curl -s -w "%{url.scheme} %{exitcode}\n" -o {{null}} http://127.0.0.1:{{port7}}/hello.txt -o {{null}} ftp://127.0.0.1:{{port6}}/hello.txt
+    expect:
+      exit: 67
+      stdout: "http 0\nftp 67\n"

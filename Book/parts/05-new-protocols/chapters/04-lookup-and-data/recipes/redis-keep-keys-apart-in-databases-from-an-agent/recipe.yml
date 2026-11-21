@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: redis-keep-keys-apart-in-databases-from-an-agent
+title: Separating Redis Databases from an Agent
+protocols: [redis]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, set_key, read_key, list_keys, curl]
+curl-options: [-s, -S, -u]
+exit-codes: [0, 8, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: set_key with database 1 and with database 2 stores the same key name with a different value in each; read_key and curl's GET read each back with the database number, and database 0 holds neither, read_key a tool error and GET null.
+    program: program.cs
+    args: [apart]
+    expect:
+      exit: 0
+      stdout: "set_key greeting in database 1: 12 bytes\nset_key greeting in database 2: 12 bytes\nread_key database 1: from-app-one\ncurl 1/GET/greeting: exit 0, from-app-one\nread_key database 2: from-app-two\ncurl 2/GET/greeting: exit 0, from-app-two\nread_key database 0: error: No such key.\ncurl 0/GET/greeting: exit 0, null\n"
+
+  - id: delete-in-one
+    claim: curl's DEL in database 1 answers 1 and removes the key there only; read_key then finds nothing in database 1 and still the value in database 2.
+    program: program.cs
+    args: [delete]
+    expect:
+      exit: 0
+      stdout: "set_key greeting in database 1: 12 bytes\nset_key greeting in database 2: 12 bytes\ncurl 1/DEL/greeting: exit 0, 1\nread_key database 1: error: No such key.\nread_key database 2: from-app-two\n"
+
+  - id: list-per-database
+    claim: list_keys and curl's DBSIZE each cover one database only, so database 1 with two keys, database 2 with one and database 0 with none are told apart.
+    program: program.cs
+    args: [list]
+    expect:
+      exit: 0
+      stdout: "set_key greeting in database 1: 12 bytes\nset_key greeting in database 2: 12 bytes\nset_key other in database 1: 1 bytes\nlist_keys database 0: []; curl 0/DBSIZE: exit 0, 0\nlist_keys database 1: [greeting, other]; curl 1/DBSIZE: exit 0, 2\nlist_keys database 2: [greeting]; curl 2/DBSIZE: exit 0, 1\n"
+
+  - id: out-of-range
+    claim: Only databases 0 to 15 exist; set_key refuses 16 before surl sees it, as an invalid-params error naming the bound, and curl exits 8 with ERR DB index is out of range.
+    program: program.cs
+    args: [range]
+    expect:
+      exit: 0
+      stdout: "set_key greeting in database 16: refused: Request failed (remote): Invalid params: arguments.database: expected at most 15\ncurl 16/GET/greeting: exit 8, null (curl: (8) Redis server answered SELECT with error: ERR DB index is out of range)\n"
+
+  - id: no-login
+    claim: A curl run with no login is refused at its first command, whichever database the URL names, with exit 67 and NOAUTH.
+    program: program.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout-matches: '^curl 1/GET/greeting: exit 67, null \(curl: \(67\) Redis server answered HELLO with error: NOAUTH '

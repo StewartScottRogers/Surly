@@ -1,0 +1,129 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the pinned
+# surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: ftp-rename-and-delete-a-file
+title: Renaming and Deleting over FTP
+protocols: [ftp]
+tier: working-servers
+surl-options: [--directory, --allow-anonymous, --allow-uploads, --list-directories]
+curl-options: [-Q, -l, -v, -s, -o]
+exit-codes: [0, 21, 67]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures:
+  site/draft.txt: "the draft\n"
+  site/scratch.txt: "scratch\n"
+  site/keep.txt: "keep me\n"
+  site/other.txt: "other\n"
+  site/taken.txt: "taken\n"
+  frozen/draft.txt: "the draft\n"
+  frozen/scratch.txt: "scratch\n"
+
+servers:
+  main:
+    command: surl --directory site --allow-anonymous --allow-uploads --list-directories ftp://127.0.0.1:{{port}}/
+    ready: port
+  read-only:
+    command: surl --directory frozen --allow-anonymous --list-directories ftp://127.0.0.1:{{port2}}/
+    ready: port
+  default:
+    command: surl ftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two quoted commands, RNFR with the old name and RNTO with the new, rename draft.txt to final.txt, and the same command, with -l, lists the folder after the rename, exit 0.
+    run: curl -s -l -Q "RNFR draft.txt" -Q "RNTO final.txt" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "final.txt\nkeep.txt\nother.txt\nscratch.txt\ntaken.txt\n"
+      files:
+        site/final.txt: "the draft\n"
+
+  - id: rename-replies
+    claim: surl answers RNFR 350 Ready for RNTO and the RNTO that follows 250, and the old name is gone.
+    run: curl -s -v -o {{null}} -Q "RNFR other.txt" -Q "RNTO renamed.txt" ftp://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '> RNFR other\.txt.*< 350 Ready for RNTO.*> RNTO renamed\.txt.*< 250 '
+
+  - id: delete
+    claim: A quoted DELE removes the named file, which the listing then leaves out, exit 0.
+    run: curl -s -l -Q "DELE scratch.txt" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "final.txt\nkeep.txt\nrenamed.txt\ntaken.txt\n"
+
+  - id: delete-reply
+    claim: surl answers DELE 250.
+    run: curl -s -v -o {{null}} -Q "DELE renamed.txt" ftp://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '> DELE renamed\.txt.*< 250 '
+
+  - id: before-the-transfer
+    claim: A command without a leading dash is sent before the transfer, so the listing already shows its effect; with a dash it is sent after, and the listing still shows the old state.
+    run: curl -s -l -Q "-DELE final.txt" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "final.txt\nkeep.txt\ntaken.txt\n"
+
+  - id: deleted-after
+    claim: The command sent after the transfer did run, and the file is gone from the next listing.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "keep.txt\ntaken.txt\n"
+
+  - id: rename-over-a-file
+    claim: Renaming onto a name that is taken replaces that file, so the one that was there is gone.
+    run: curl -s -o {{null}} -Q "RNFR keep.txt" -Q "RNTO taken.txt" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      files:
+        site/taken.txt: "keep me\n"
+
+  - id: missing-source
+    claim: Renaming a file that is not there is answered 550 No such file to RNFR, and curl exits 21, quote command failed.
+    run: curl -s -v -o {{null}} -Q "RNFR nothere.txt" -Q "RNTO y.txt" ftp://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 21
+      stdout-matches: '< 550 No such file'
+
+  - id: delete-missing
+    claim: Deleting a file that is not there is answered 550 No such file and curl exits 21.
+    run: curl -s -o {{null}} -Q "DELE nothere.txt" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+
+  - id: rnto-without-rnfr
+    claim: RNTO without an RNFR before it is answered 503 Send RNFR first, and curl exits 21.
+    run: curl -s -v -o {{null}} -Q "RNTO z.txt" ftp://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 21
+      stdout-matches: '< 503 Send RNFR first'
+
+  - id: uploads-off-rename
+    claim: A server started without --allow-uploads answers RNFR 550 Not permitted, curl exits 21, and the file keeps its name.
+    run: curl -s -v -o {{null}} -Q "RNFR draft.txt" -Q "RNTO final.txt" ftp://127.0.0.1:{{port2}}/ 2>&1
+    expect:
+      exit: 21
+      stdout-matches: '> RNFR draft\.txt.*< 550 Not permitted'
+
+  - id: uploads-off-delete
+    claim: The same server answers DELE 550 Not permitted, curl exits 21, and both files are still there.
+    run: curl -s -l -Q "DELE scratch.txt" ftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 21
+      files:
+        frozen/scratch.txt: "scratch\n"
+        frozen/draft.txt: "the draft\n"
+
+  - id: login-refused
+    claim: A server started without --allow-anonymous refuses curl's anonymous login before any command, and curl exits 67, login denied.
+    run: curl -s -o {{null}} -Q "DELE draft.txt" ftp://127.0.0.1:{{port3}}/
+    expect:
+      exit: 67

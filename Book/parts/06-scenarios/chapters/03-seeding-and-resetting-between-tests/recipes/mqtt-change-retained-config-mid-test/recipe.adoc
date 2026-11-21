@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-change-retained-config-mid-test]]
+=== Changing Retained Config Mid-Test
+
+==== Problem
+
+Your device reads its configuration from a retained Message Queuing Telemetry Transport (MQTT) message when it connects. You want that message seeded before the test, replaced in the middle of it, and the device{apos}s second read checked, so the test shows that a device which reconnects gets the new configuration and not the old.
+
+==== Solution
+
+Start `surl` as an MQTT broker that keeps every message published under `devices/`, then publish the first config, read it as the device would, publish the change, and read again, all in one `curl` command line. `--next` starts each transfer with its own options:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A retained message is MQTT{apos}s way of leaving a message on a topic for a client that connects later: the broker keeps one per topic and sends it to every client that subscribes, before anything else (<<mqtt311>>). A device that reads its config this way subscribes to its config topic, here `devices/lamp/config`, and the retained message is the config. `curl` is both sides. `curl -d interval=60 mqtt://host:port/devices/lamp/config` publishes, with the path as the topic, and the same URL without `-d` subscribes (<<curl-readme>>, <<curl-protocols>>). A subscribe ends when `surl` has sent the retained messages for the topic, so the device{apos}s read is one command that exits `0` (`-s` silences `curl`{apos}s progress meter, and `--next` lets one command line carry several transfers, each starting with its own options), and the output is each message as the topic{apos}s length in two bytes, the topic and the message: the bytes `0x00` `0x13` and `devices/lamp/config` before `interval=60`.
+
+`curl` publishes with the retain flag clear, so a plain `surl` would keep nothing. `--topic "devices/#;retain"` changes that for one filter: `surl` keeps every publish on a matching topic as its retained message, whatever the flag said (<<surl-readme>>). That is what makes the seed, a publish before the test, work, and it also makes the change work, since the broker keeps a publish in the middle of the test the same way. The `noretain` server shows the broker without it: the publish is accepted, `curl` exits `0`, and the device reads nothing. A topic outside the filter, here `lab/lamp/config`, is the same, and a test that seeds the wrong topic fails by reading nothing, which looks like a device with no config.
+
+The change is a replacement. The broker keeps one message per topic, so the Solution{apos}s second publish takes the place of the first: the device{apos}s second read is `interval=15`, and the first message is not there to be read again. A device that connects after the change reads one message, the new one, and two changes in a row leave the last. The topics are independent: the door{apos}s config changing leaves the lamp{apos}s as it was. An empty message, `-d ""`, clears the topic, and a device that connects afterwards reads nothing; that is the way to test a device with no config.
+
+By default the retained messages are in memory and go when `surl` stops. `--directory` keeps them on disk, and the `kept` server shows it: after `surl` restarts, the device still reads the config it was seeded with. A test that restarts the broker to see how the device recovers needs that option; without it the restart empties every topic.
+
+`--allow-anonymous` is on the first servers because every MQTT `CONNECT` needs a login and `curl` sends none unless given `-u`. Without it, the `closed` server refuses the publish of the change: `curl` exits `8` and `-S` shows `Expected 0000 but got 0005`, the broker{apos}s refusal, and the config never changes. `--allow-anonymous` lets anyone who can reach the broker read and write every topic and makes `surl` warn on start, so use it only on a machine nobody else can reach (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-change-retained-config-mid-test-in-csharp>> for the same seed, change and read from a C# test.
+* <<mqtt-change-retained-config-mid-test-from-an-agent>> for an agent that publishes with `publish_message` and reads with `read_retained_message`.
+* <<mqtt-publish-and-subscribe>> for publishing and subscribing on the console.
+* <<mqtt311>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

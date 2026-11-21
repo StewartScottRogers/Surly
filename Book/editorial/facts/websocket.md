@@ -29,3 +29,8 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-20
 
 ## Recipes
 ws-receive-a-file-as-a-message, ws-list-a-folder-over-websocket (+ -in-csharp, -from-an-agent)
+
+## Files from an agent (ws-receive-a-file-from-an-agent, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20)
+- curl-mcp `curl(["-s", "ws://.../hello.txt"])`: `standardOutput.content` is the message, `isBase64` true for non-UTF-8 (`files_base64` `AAEC/f7/` comes back as `AAEC/f7/`); `read_file` answers `text` or `base64` the same way. Missing: exitCode 22, tool error, `standardOutput` empty. `transfer` of a binary file: `statusCode` 101, `body.isBase64` true, `info.sizeDownload` counts frame bytes (10 for 6).
+- `get_exchanges` first `base64` chunk of a 16-byte file: `0x82 0x10` + 16 bytes (one final binary frame).
+- Recipes: ws-receive-a-file-from-an-agent.

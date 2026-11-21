@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-create-folders-while-uploading-in-csharp]]
+=== Creating Folders While Uploading in C#
+
+==== Problem
+
+Your C# uploader writes reports into dated folders such as `2026/11/12/` that may not exist yet. You want `Curl.Api` to make the missing ones on the way and a test to list the result from a File Transfer Protocol (FTP) server running in the same process.
+
+==== Solution
+
+Start a `SurlServer` that accepts uploads, send the report with folder creation switched on, and list each level of the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+FTP (<<rfc959>>) uploads into the current folder of the connection, so before it stores the file `Curl.Api` changes into each folder of the path with `CWD`. When a folder is missing the server answers `550 No such directory`, and by default the request fails. `CurlFtpOptions.CreateMissingDirectories` is `curl --ftp-create-dirs`: set to `FtpCreateMissingDirectories.Create`, a failed `CWD` is followed by `MKD`, make a directory, and then the change into the new folder. Its default, `None`, is what `curl` does without the option.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free port; `AllowUploads` is `--allow-uploads`, which permits `MKD` as it permits `STOR` and, though `surl` prints no warning for it, loosens the server; `AllowAnonymous` is `--allow-anonymous`, which lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; `RecordExchanges` keeps what each client sent. `Files` seeds the store, here one file in the `2026` folder, so that folder exists before the upload. `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrl` names it.
+
+`CurlRequest` with `HttpMethod.Put` is `curl -T`: its `Body` is uploaded to the URL, and its `Ftp`, a `CurlFtpOptions`, holds the FTP settings. `CurlClient.SendAsync` returns a `CurlResponse`; the program reads its `Body` to the end and discards it, since an upload answers with nothing to keep. One `CurlClient` reuses its control connection, so everything the program sends is one exchange.
+
+`SurlServer.Files`, a `SurlServerFiles`, is the store as a test sees it, and its `ListAsync` returns a `SurlFolderPage` whose `Entries` give each child{apos}s `Name` and whether it `IsFolder`. The program lists `/`, then each level down: `2026` holds `11` beside the file that was already there, `11` holds `12`, and `12` holds `report.txt`. Left at `None`, the same upload throws a `CurlException` whose `Code` is `RemoteAccessDenied`, `9`, the code `curl` exits with, and the root still holds only `2026`.
+
+`SurlServer.Exchanges` is a list of `SurlExchangeRecord`, and its `Received` holds what the server received on the control connection. The program keeps the `MKD` and `STOR` lines. Into a new path ending in `13` it sent `MKD 11` and `MKD 13` and no `MKD 2026`, since that folder existed, and the second upload into the same path sent no `MKD` at all. Setting `Create` is therefore safe on every upload of a job that may run twice.
+
+A server with `AllowUploads` off answers `MKD` with `550 Not permitted`, so folder creation cannot make a folder there: the request throws the same code `9` and the store is unchanged. Without `AllowAnonymous` the login is refused and the code is `LoginDenied`, `67` (<<curl-readme>>). That is the server being surly on purpose, and the program must catch each, since nothing else reports them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-create-folders-while-uploading>> for the same upload on the console with `--ftp-create-dirs`.
+* <<ftp-create-folders-while-uploading-from-an-agent>> for the same upload made by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

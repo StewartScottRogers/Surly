@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-sign-requests-with-aws-sigv4-in-csharp]]
+=== Signing with AWS SigV4 in C#
+
+==== Problem
+
+Your client signs its requests with Amazon Web Services (AWS) Signature Version 4 (SigV4) rather than sending a password. You want a server that checks the signature, refuses a wrong secret key, and accepts the right one over plain Hypertext Transfer Protocol (HTTP), from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+Start a `SurlServer` whose one account is an access key ID and its secret key and whose only accepted method is `aws-sigv4`, then sign requests with a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Accounts` holds one `SurlAccount`: the name is the access key ID, the password the secret key. `AuthenticationMethods` is `--auth`: setting it to `aws-sigv4` alone makes the server accept and offer that method only. It is an `IList<string>` that starts null, so the program assigns a new list instead of adding to it. `Files` holds the file in memory. `CurlClient.Create()` makes the client, and a `CurlRequest` is a method and a URL.
+
+SigV4 does not send the secret key: the client signs the request with it and sends the signature and the access key ID in an `Authorization` header (<<aws-s3-api>>), so `surl` accepts it over plain `http://`. `CurlAuthenticationOptions` carries the login: `UserName` and `Password` are the access key ID and secret key, and `AwsSigV4` is the same provider, second word, region and service string as `curl --aws-sigv4`, here `aws:amz:us-east-1:s3`. With the right secret `SendAsync` returns a `CurlResponse` of `200 OK`, and the program reads its `Body`.
+
+None of the refusals throws, because an HTTP status is an answer. A wrong secret, an access key ID the server does not hold, and a request with no `AwsSigV4` are each a `CurlResponse` of `403 Forbidden`, and the unsigned one has no `WWW-Authenticate` header in `Headers`. The right secret sent with `HttpAuthenticationMethods.Basic`, and with `HttpAuthenticationMethods.Digest`, is `403` as well, since `AuthenticationMethods` turned the other methods off. A signed request for a file that is not there is `404 Not Found`, which shows the signature was accepted. A signature for another region and service, `aws:amz:eu-west-1:ec2`, is accepted too: `surl` does not check them.
+
+With `RecordExchanges` on, `FindEvents` with a `SurlEventQuery` for `SurlEventKind.LoginJudged` answers `LoginJudgedEvent` values: `Mechanism`, here `AWS4-HMAC-SHA256`, `Account`, the access key ID, and `IsAccepted`. The right secret is accepted and the wrong one refused.
+
+Leave `AuthenticationMethods` out and the same account also accepts the signed request. What changes is a refusal: a wrong secret is `401 Unauthorized` with a `WWW-Authenticate: Digest` header, because the server then offers other logins, where `aws-sigv4` alone gives a `403` with none.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-sign-requests-with-aws-sigv4>> for the same check on the console.
+* <<http-sign-requests-with-aws-sigv4-from-an-agent>> for the same check from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

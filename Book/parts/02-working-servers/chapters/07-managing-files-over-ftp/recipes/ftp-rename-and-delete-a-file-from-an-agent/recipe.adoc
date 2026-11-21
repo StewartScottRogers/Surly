@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-rename-and-delete-a-file-from-an-agent]]
+=== Renaming FTP Files from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to rename and delete files on a File Transfer Protocol (FTP) server through `curl -Q`, and to confirm the result with `list_files` rather than trust an exit code alone.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP listener over four files, calls `curl` with quoted `RNFR` and `RNTO` commands, and calls `list_files` to read the store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution.
+
+FTP (<<rfc959>>) renames in two steps: `RNFR` names the file to rename and the server answers `350 Ready for RNTO`, then `RNTO` names the new name and the server answers `250`. `DELE` deletes a file. `curl -Q` sends any command you give it, one `-Q` for each, as they are.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port, and `files` seeds the in-memory store with four files. `arguments` is `surl`{apos}s other options in its own words: `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; `--allow-uploads` permits renaming and deleting as it permits `STOR`, and loosens the server, though `surl` prints no warning for it; `--list-directories` lets the listing through. The answer is structured content with `server_id` and `bound_urls`, the real address.
+
+`curl` runs `curl` with `args` as its command line, and each quoted command is one element after its `-Q`, so the space inside `RNFR draft.txt` needs no shell quoting. A quoted command needs a transfer to come before or after, so the call also asks for the folder with `-l`, names only, and `standardOutput` is the listing. `-v` puts the replies on `standardError`, `350 Ready for RNTO` and the `250` that answers `RNTO`, and the answer carries `exitCode`.
+
+Where the command goes sets what the listing shows. A command with no prefix runs before the transfer, so the listing already shows `final.txt` and a `DELE` leaves its file out. A command prefixed with a dash, as in `-DELE draft.txt`, runs after it, so the listing still shows the file and `list_files`, read afterwards, does not. `list_files` answers the store as the server holds it, `entries` each with a `name`; that is the agent{apos}s evidence that the change happened, whatever the listing showed. A rename onto a name that is taken replaces that file, and `surl` does not ask: `read_file` of `taken.txt` answers what `keep.txt` held.
+
+An agent should read each refusal in `exitCode`. A file that is not there, a rename with no source and an `RNTO` with no `RNFR` before it are answered `550` or `503`, and `curl` exits `21`, quote command failed (<<curl-readme>>). A server started without `--allow-uploads` answers `RNFR` with `550 Not permitted`, `curl` exits `21` and `list_files` shows every file under its old name. One started without `--allow-anonymous` refuses the login and `curl` exits `67`, login denied. That is the server being surly on purpose.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-rename-and-delete-a-file>> for the same commands on the console.
+* <<ftp-rename-and-delete-a-file-in-csharp>> for the same commands sent from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

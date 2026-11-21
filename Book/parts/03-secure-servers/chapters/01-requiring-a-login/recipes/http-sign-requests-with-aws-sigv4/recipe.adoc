@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-sign-requests-with-aws-sigv4]]
+=== Signing Requests with AWS SigV4
+
+==== Problem
+
+Your client signs its requests with Amazon Web Services (AWS) Signature Version 4 (SigV4) rather than sending a password. You want a server that checks the signature, refuses a wrong secret key, and accepts the right one over plain Hypertext Transfer Protocol (HTTP).
+
+==== Solution
+
+Give `surl` an account whose name is the access key ID and whose password is the secret key, let it accept SigV4 with `--auth aws-sigv4`, and have `curl` sign with `--aws-sigv4`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+SigV4 does not send the secret key. The client computes a signature over the request from the secret and a scope, a date, a region and a service, and sends only the signature and the access key ID in an `Authorization` header (<<aws-s3-api>>). The server holds the same secret, computes the signature again, and compares. The secret never crosses the wire, which is why `surl` accepts SigV4 over plain `http://` with no `--allow-plaintext-auth`, where a Basic password is refused unchecked (<<http-refuse-a-password-in-clear>>).
+
+`--user AKIAEXAMPLE:topsecret` is the account: the part before the colon is the access key ID, the part after is the secret key. `--auth aws-sigv4` sets the methods `surl` accepts and offers to SigV4 alone. `--directory site` serves the files. On the `curl` side `--aws-sigv4 "aws:amz:us-east-1:s3"` signs with a provider, `aws`, a second word, `amz`, a region and a service, and `-u` gives the access key ID and the secret key. `-s` hides the progress meter, `-o` sends the body to nowhere, `-w "%{http_code}"` prints the status alone, and `-D -` prints the response headers to standard output.
+
+The claims cover what can go wrong. A secret that does not match, and an access key ID the server does not hold, are both answered `403 Forbidden`. So is a request with no signature, and it carries no `WWW-Authenticate` challenge, since a `401` must carry a challenge and SigV4 alone offers none. The right secret sent as a Basic password, or as a Digest login with `--digest`, is answered `403` too: `--auth aws-sigv4` turns the other methods off. A signed request for a file that is not there is `404`, which shows the signature was accepted and the file was looked for.
+
+`surl` does not check the region or the service. A signature for `eu-west-1` and `ec2` is accepted as one for `us-east-1` and `s3`, so a test can sign for whatever scope its client uses.
+
+With `-v` and `--log-file surl.log`, the log has a line per login: `Login accepted: AWS4-HMAC-SHA256 AKIAEXAMPLE` names the algorithm and the access key ID, and a refusal is a `Login refused` line with the access key ID the request claimed. Neither the secret nor a wrong one appears in it.
+
+Without `--auth`, the same account also takes the signed request and answers `200`. What changes is a refusal: a wrong secret is `401` with a Digest challenge, since the server then offers other logins, where `--auth aws-sigv4` alone gives a `403` with none.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-sign-requests-with-aws-sigv4-in-csharp>> for the same check from a C# test.
+* <<http-sign-requests-with-aws-sigv4-from-an-agent>> for the same check from an agent.
+* <<s3-put-and-get-an-object>> for SigV4 on the `s3` scheme, where every request is signed.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

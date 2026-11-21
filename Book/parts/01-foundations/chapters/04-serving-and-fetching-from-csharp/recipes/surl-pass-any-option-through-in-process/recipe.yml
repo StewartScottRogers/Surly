@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-pass-any-option-through-in-process
+title: Passing Any surl Option Through
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]
+exit-codes: [0, 1]
+references: [surl-readme, rfc6585]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: SurlServerOptions has no property for --max-request-head; given in AdditionalArguments as "--max-request-head", "1000", it limits the request head, so an ordinary request is 200 OK and one carrying a 2000-character header is 431 Request Header Fields Too Large.
+    program: pass-through.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "AdditionalArguments: --max-request-head 1000\nshort head: 200 OK\nlong head: 431 Request Header Fields Too Large\n"
+
+  - id: without-the-option
+    claim: Without the argument the server keeps its default limit, and the request with the 2000-character header is served 200 OK.
+    program: pass-through.cs
+    args: [without]
+    expect:
+      exit: 0
+      stdout: "AdditionalArguments: \nshort head: 200 OK\nlong head: 200 OK\n"
+
+  - id: properties-alone
+    claim: With AllowUploads true and no AdditionalArguments, a logged-in PUT of a new file is 201 Created.
+    program: pass-through.cs
+    args: [put]
+    expect:
+      exit: 0
+      stdout: "AdditionalArguments: \nPUT /new.txt: 201 Created\n"
+
+  - id: arguments-read-last
+    claim: AdditionalArguments are read after the properties, so --no-allow-uploads there overrides AllowUploads true, and the same PUT is 405 Method Not Allowed.
+    program: pass-through.cs
+    args: [override]
+    expect:
+      exit: 0
+      stdout: "AdditionalArguments: --no-allow-uploads\nPUT /new.txt: 405 Method Not Allowed\n"
+
+  - id: host-option-refused
+    claim: An option that belongs to a host, --log-file here, is refused before anything starts with an ArgumentException that points to SurlServerOptions.Log instead.
+    program: pass-through.cs
+    args: [host-option]
+    expect:
+      exit: 1
+      stdout: "AdditionalArguments: --log-file surl.log\nArgumentException: --log-file, --trace and --trace-ascii belong to a host; write the log to SurlServerOptions.Log. (Parameter 'options')\n"
+
+  - id: bad-value-refused
+    claim: An option surl itself refuses, --max-request-head abc, fails the start with SurlServerStartException, exit code FailedInit, and surl's own line about the option.
+    program: pass-through.cs
+    args: [bad-value]
+    expect:
+      exit: 1
+      stdout: "AdditionalArguments: --max-request-head abc\nSurlServerStartException FailedInit: option --max-request-head: expected a proper numerical parameter\n"

@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: mqtt-change-retained-config-mid-test-from-an-agent
+title: Changing Retained Config Mid-Test from an Agent
+protocols: [mqtt]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, stop_server, publish_message, read_retained_message, curl]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, curl-protocols, mqtt311, mcp-spec]
+
+# state/ must exist before surl --directory opens it.
+fixtures:
+  state/README.txt: "retained messages are kept here\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A config seeded with publish_message and retain true is what a device reads through the curl tool on connecting, and after a second publish_message to the same topic the device's second read is the new config alone; read_retained_message holds the new text at QoS 0.
+    program: program.cs
+    args: [change]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/config: device reads interval=60\ndevices/lamp/config: device reads interval=15\nkept: interval=15 at QoS 0\n"
+
+  - id: replaced-twice
+    claim: Two changes in a row leave only the last, so a device that connects afterwards reads one message, the second change.
+    program: program.cs
+    args: [twice]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/door/config: device reads interval=5\n"
+
+  - id: other-topic-untouched
+    claim: A change to one topic leaves another topic's config as it was.
+    program: program.cs
+    args: [topics]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/config: device reads interval=15\ndevices/door/config: device reads interval=10\n"
+
+  - id: clear-the-config
+    claim: Seeding an empty message clears the topic, so a device that connects afterwards reads nothing and read_retained_message answers retained false.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/config: device reads nothing\nkept: nothing\n"
+
+  - id: outside-the-filter
+    claim: A curl publish, whose retain flag is clear, on a topic outside the --topic filter is not kept, while a message seeded with publish_message on the same topic is, because retain true sets the flag.
+    program: program.cs
+    args: [filter]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish, kept: nothing\nseeded, kept: interval=60 at QoS 0\n"
+
+  - id: no-retain-filter
+    claim: A server with no retain filter keeps no config from a curl publish, but a seeded message is kept.
+    program: program.cs
+    args: [no-retain]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish, kept: nothing\nseeded, kept: interval=60 at QoS 0\n"
+
+  - id: after-a-restart
+    claim: With --directory the retained config is on disk, so after stop_server and a new start_server on the same directory read_retained_message still holds it.
+    program: program.cs
+    args: [restart]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "after the restart: interval=60 at QoS 0\n"
+
+  - id: no-anonymous-refused
+    claim: The seed needs no login, but a device that connects to a server without --allow-anonymous is refused, curl exit 8 with Expected 0000 but got 0005.
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/config: device refused: exit 8, curl: (8) Expected 0000 but got 0005\n"

@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks the scenario.
+schema: 2
+key: ws-receive-a-file-from-an-agent
+title: Receiving a File over WebSocket
+protocols: [ws]
+tier: foundations
+surface: mcp
+mcp-tools: [start_server, curl, read_file, get_exchanges]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc6455]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool fetching ws://.../hello.txt receives the file as one message in standardOutput, exitCode 0, and its 16 bytes are the text read_file returns for /hello.txt.
+    program: program.cs
+    args: [text]
+    expect:
+      exit: 0
+      stdout: "curl: exitCode 0, tool error no, 16 bytes, isBase64 false\nread_file: 16 bytes, as text\nthe same bytes\n"
+
+  - id: binary
+    claim: A file that is not UTF-8 comes back in standardOutput as base64 with isBase64 true, and read_file answers it as base64 too, the same six bytes.
+    program: program.cs
+    args: [binary]
+    expect:
+      exit: 0
+      stdout: "curl: exitCode 0, tool error no, 6 bytes, isBase64 true\nread_file: 6 bytes, as base64\nthe same bytes\n"
+
+  - id: one-binary-frame
+    claim: get_exchanges shows the server sent the file as a single final binary frame, first byte 0x82, length 16 in the second byte, then the 16 bytes.
+    program: program.cs
+    args: [frame]
+    expect:
+      exit: 0
+      stdout-matches: '\nfirst frame: 0x82 0x10, then 16 bytes\n$'
+
+  - id: missing
+    claim: A path the server does not have refuses the upgrade, curl exit 22, which the curl tool answers as a tool error with nothing in standardOutput; read_file says there is no file.
+    program: program.cs
+    args: [missing]
+    expect:
+      exit: 1
+      stdout: "curl: exitCode 22, tool error yes, 0 bytes, isBase64 false\nread_file: No file at /missing.txt.\n"

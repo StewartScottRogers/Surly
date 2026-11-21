@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-restore-a-snapshot-before-each-test
+title: Restoring a Snapshot Before Each Test
+protocols: [http, ftp, smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlSnapshot, SurlFolderPage, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlMailOptions, CurlContent, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9110, rfc959, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The program seeds 100 catalog files and three mails once, takes a snapshot, and restores it before each of three tests; an HTTP upload over one item, an SMTP mail to ann and an FTP read of the item each find the rest exactly as seeded, and all three pass.
+    program: restore-before-each.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^seeded and snapshot taken: \d+ bytes\nPASS Price_change_rewrites_one_item\nPASS Order_mail_adds_one_message\nPASS Ftp_reader_sees_the_seeded_price\n$'
+
+  - id: order-does-not-matter
+    claim: In the opposite order the same tests pass, since each starts from the snapshot, not from what ran before it.
+    program: restore-before-each.cs
+    args: [reverse]
+    expect:
+      exit: 0
+      stdout-matches: '^seeded and snapshot taken: \d+ bytes\nPASS Ftp_reader_sees_the_seeded_price\nPASS Order_mail_adds_one_message\nPASS Price_change_rewrites_one_item\n$'
+
+  - id: without-the-restore
+    claim: With nothing between tests, the price the first test wrote is what the next two find, over HTTP's store and over FTP alike, so both fail and the run depends on test order.
+    program: restore-before-each.cs
+    args: [none]
+    expect:
+      exit: 1
+      stdout-matches: '^seeded and snapshot taken: \d+ bytes\nPASS Price_change_rewrites_one_item\nFAIL Order_mail_adds_one_message: 100 items, item 7 \{"id":7,"price":12\}, 4 mails; want 100, \{"id":7,"price":10\}, 4\nFAIL Ftp_reader_sees_the_seeded_price: FTP read \{"id":7,"price":12\}\n$'
+
+  - id: reset-is-not-restore
+    claim: ResetAsync instead of RestoreAsync goes back to the start state, before the seeding, so the catalog is gone and every test fails, the FTP read with CurlException RemoteAccessDenied.
+    program: restore-before-each.cs
+    args: [reset]
+    expect:
+      exit: 1
+      stdout-matches: '^seeded and snapshot taken: \d+ bytes\nFAIL Price_change_rewrites_one_item: No folder at /catalog\.\nFAIL Order_mail_adds_one_message: No folder at /catalog\.\nFAIL Ftp_reader_sees_the_seeded_price: CurlException RemoteAccessDenied: '
+
+  - id: ftp-needs-plaintext
+    claim: Without AllowPlaintextAuthentication the FTP login, whose password crosses plain ftp:// in clear, is refused (CurlException LoginDenied, 530), while the HTTP Digest upload and the SMTP mail still pass.
+    program: restore-before-each.cs
+    args: [strict]
+    expect:
+      exit: 1
+      stdout-matches: '^seeded and snapshot taken: \d+ bytes\nPASS Price_change_rewrites_one_item\nPASS Order_mail_adds_one_message\nFAIL Ftp_reader_sees_the_seeded_price: CurlException LoginDenied: Access denied: 530\n$'

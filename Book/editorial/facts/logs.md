@@ -107,3 +107,6 @@ curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-
 
 - Decided by Surl (2026-11-20): with `--log-file f --trace-ascii t`, exchange lines go only to t; the log file gets the dump only when there is no trace file (Surl ADR-0033 s.6). Secrets in -v/--trace/--log-file are withheld from Surl 9ad60d80c for the protocols listed above (ADR-0182); filter only what is still logged.
 - Surl.Api `StopAsync` waits up to about 7 s while a client holds a connection: a 5 s shutdown grace plus a 2 s lingering close (Surl ADR-0099 decision 4). Dispose clients first.
+
+## Surl.Api Log levels (surl-read-the-server-log-in-process, 2026-11-20)
+- `Log = TextWriter.Synchronized(new StringWriter())`; read the inner writer after the server stops (exchange-ended lines are in by then). `AllowAnonymous` writes `surl: warning: --allow-anonymous: every request and login is accepted without checking credentials` first, then `Listening on`. `LogLevel.Info`: warning, Listening on, `#1 * Exchange 1 opened: ...` only. `LogLevel.Error`: nothing at all, the warning included. Verbose: as in the `surl -v` notes above; a 401 is `#1 * GET /x: 401, a login is needed` followed by three `WWW-Authenticate: Digest` lines (MD5, SHA-256, SHA-512-256).

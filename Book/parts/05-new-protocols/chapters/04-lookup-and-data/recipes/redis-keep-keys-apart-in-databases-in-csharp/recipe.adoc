@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-keep-keys-apart-in-databases-in-csharp]]
+=== Separating Redis Databases in C#
+
+==== Problem
+
+Two apps share one Redis but use different numbered databases. You want a test in C# that puts the same key name, with a different value, in two databases and shows that each database answers with its own, with the server in the same program.
+
+==== Solution
+
+Start a `SurlServer` with a Redis listener and one account, set `greeting` in database 1 and in database 2 through `server.Keys`, and read each database through `server.Keys` and through a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `redis://127.0.0.1:0`, a Redis store on a free port, and `Accounts` holds one account, `alice`, a `SurlAccount`, which is a user and a password. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`: it lets her password cross a `redis://` connection, which has no encryption. It is a loosening, for a test on one machine, and the last claim leaves it out (<<surl-readme>>).
+
+A Redis server holds sixteen keyspaces, numbered 0 to 15 (<<redis-resp>>). `server.Keys`, a `SurlServerKeys`, takes the database as the fourth argument of `SetAsync`, after the key, the value and the expiry, and as the second of `GetAsync`. The program passes `null` for the expiry, so the keys have none. `SetAsync` sets a string key as a `SET` would, with no client and no login, so the same name `greeting` goes into databases 1 and 2 with two values, and each `GetAsync` answers a `SurlKeyContents` whose `Text` is the value of that database only. Database 0, the default, holds neither: `GetAsync` throws `SurlNotFoundException`, as it does for a key never set, and a test that expects a missing key catches that and does not look for a null.
+
+`CurlClient` sees the same keys over the wire. A `CurlRequest` is a method and a URL, and `SendAsync` answers a `CurlResponse` whose `Body` is a stream. The URL is `redis://host:port/1/GET/greeting`: the path is the Redis command and its arguments, and a number first selects the database (<<curl-readme>>). `CurlAuthenticationOptions` carries the login. The body is the value and a line feed, and null, which database 0 answers, is a lone line feed; the program trims it and prints `null`. Both views agree for each database, one by exception and one by an empty line, and a test that reads through both has both to check.
+
+Commands through the client are scoped the same way. A `DEL` of `greeting` in database 1 answers `1` and removes it there only: the next read of database 1 finds nothing, and database 2 still has `from-app-two`. `Keys.ListAsync` lists the keys of one database, `greeting` and `other` for database 1, and `DBSIZE` counts them, 2; database 2 lists one and counts 1, and database 0 lists none. The page is a `SurlKeyPage` whose `Keys` are `SurlKeyInfo` values, each with its `Key`.
+
+The numbers stop at 15. Database 16 is refused each way it can come in: `SetAsync` throws `ArgumentOutOfRangeException`, `GetAsync` throws `SurlReadRefusedException`, and the server answers the client{apos}s selection of it with `ERR DB index is out of range`, which `Curl.Api` throws a `CurlException` whose `Code` is `8`, the code `curl` exits with.
+
+A login the server refuses is a `CurlException` too. A request with no `Authentication` is refused at its first command with `NOAUTH`, and a login over `redis://` without `AllowPlaintextAuthentication` is answered `WRONGPASS`, the right password included. Both have `Code` `67`, and the program returns it as its exit code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-keep-keys-apart-in-databases>> for the same two databases on the console, with `curl` and a number in the URL.
+* <<redis-keep-keys-apart-in-databases-from-an-agent>> for an agent that seeds each database with `set_key` and reads it back.
+* <<redis-expire-a-key-in-csharp>> for a key that goes after a time.
+* <<redis-resp>>, <<surl-readme>>, <<curl-readme>>.

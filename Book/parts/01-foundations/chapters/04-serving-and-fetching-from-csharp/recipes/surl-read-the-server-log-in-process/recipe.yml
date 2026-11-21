@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-read-the-server-log-in-process
+title: Reading the Server Log in Process
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, LogLevel, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1]
+references: [surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With Log set to a StringWriter at LogLevel.Verbose, a failing test prints the whole log after the server stops, in order the AllowAnonymous warning, the Listening on line, the request received, the 404 event naming the path, the response sent and the end of the exchange.
+    program: read-the-log.cs
+    args: []
+    expect:
+      exit: 1
+      stdout-matches: '^FAIL expected 200 for summary\.csv, got 404\nserver log:\n  surl: warning: --allow-anonymous: every request and login is accepted without checking credentials\n  Listening on http://127\.0\.0\.1:\d+/\n  #1 \* Exchange 1 opened: http from 127\.0\.0\.1:\d+\.\n  #1 < GET /summary\.csv HTTP/1\.1\\r\\n\n(  #1 < .*\n)+  #1 \* GET /summary\.csv: 404, nothing exists at .*summary\.csv\n  #1 > HTTP/1\.1 404 Not Found\\r\\n\n(  #1 > .*\n)+  #1 \* The client closed the connection: ConnectionClosed\.\n  #1 \* Exchange 1 ended; closing the connection\.\n$'
+
+  - id: passing-test-prints-nothing
+    claim: A passing test prints none of the log it captured.
+    program: read-the-log.cs
+    args: [pass]
+    expect:
+      exit: 0
+      stdout: "PASS fetched report.csv\n"
+
+  - id: info-level
+    claim: At LogLevel.Info, the default, the log holds the warning, the Listening on line and one line for the exchange, and nothing about the request or the 404.
+    program: read-the-log.cs
+    args: [info]
+    expect:
+      exit: 1
+      stdout-matches: '^FAIL expected 200 for summary\.csv, got 404\nserver log:\n  surl: warning: --allow-anonymous: every request and login is accepted without checking credentials\n  Listening on http://127\.0\.0\.1:\d+/\n  #1 \* Exchange 1 opened: http from 127\.0\.0\.1:\d+\.\n$'
+
+  - id: error-level
+    claim: At LogLevel.Error, surl's -s -S, the log is empty; the start-up warning is not written either.
+    program: read-the-log.cs
+    args: [error]
+    expect:
+      exit: 1
+      stdout: "FAIL expected 200 for summary.csv, got 404\nserver log:\n"
+
+  - id: no-warning-without-the-loosening
+    claim: Without AllowAnonymous there is no warning, and the server, which has an account, answers the request with no login 401, logged as a login is needed.
+    program: read-the-log.cs
+    args: [strict]
+    expect:
+      exit: 1
+      stdout-matches: '^FAIL expected 200 for summary\.csv, got 401\nserver log:\n  Listening on http://127\.0\.0\.1:\d+/\n(  #1 .*\n)*  #1 \* GET /summary\.csv: 401, a login is needed\n'

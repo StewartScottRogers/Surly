@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-add-an-account-per-test
+title: Adding an Account per Test
+protocols: [http, imap]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerAccounts, SurlServerFiles, SurlEventQuery, StoreKind, StoreChangedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9110, rfc7616, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two tests run in turn on one server, each with an account Accounts.Add made for it; each uploads its result over HTTP with Digest (201) and reads it back (200), and a finally block deletes its file and removes its account. Afterwards test-1's login is refused 401, no file is left, and the accounts store records each account added and removed, in order.
+    program: account-per-test.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "test-1: upload 201, read back 200\ntest-2: upload 201, read back 200\ntest-1 logs in afterwards: 401\nfiles left: 0\naccounts store: AccountAdded test-1, AccountRemoved test-1, AccountAdded test-2, AccountRemoved test-2\n"
+
+  - id: accounts-do-not-divide-files
+    claim: Accounts do not divide the content store; while both accounts exist, test-2 reads the file test-1 uploaded, 200, so each test deletes its own files and tests that must not see each other's files run in turn.
+    program: account-per-test.cs
+    args: [overlap]
+    expect:
+      exit: 1
+      stdout: "test-2 reads test-1.txt: 200\n"
+
+  - id: no-mailbox-for-an-added-account
+    claim: Over IMAP an account Accounts.Add made logs in and lists its mailboxes, but has no INBOX, so reading it throws CurlException LoginDenied (Select failed); after Accounts.Remove the login itself is refused (Login denied).
+    program: account-per-test.cs
+    args: [imap]
+    expect:
+      exit: 1
+      stdout: "test-1 lists its IMAP mailboxes: ok\ntest-1 reads its INBOX: CurlException LoginDenied: Select failed\ntest-1 logs in after Remove: CurlException LoginDenied: Login denied\n"
+
+  - id: leftover-account
+    claim: An account a test failed to remove is still there for the next test, and adding the same name again throws ArgumentException, User test-1 already has an account, which is why the removal goes in finally.
+    program: account-per-test.cs
+    args: [leftover]
+    expect:
+      exit: 1
+      stdout: "adding test-1 again: ArgumentException: User test-1 already has an account. (Parameter 'account')\n"

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-append-to-a-file-from-an-agent]]
+=== Appending over FTP from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to add a line to a file on a File Transfer Protocol (FTP) server twice, with `curl --append`, and to read the whole file back to see that both lines are there, in order, and that nothing was replaced.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP listener that accepts uploads, calls `curl` twice with `-T` and `--append`, and calls `read_file` and `get_exchanges` to see the result:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution. Before it starts either host the program writes `line.txt`, the line to send, into that folder, where `curl-mcp` can read it.
+
+FTP (<<rfc959>>) sends a file with `STOR`, which replaces any file of that name, or with `APPE`, which adds the bytes to the end and creates the file when it is not there. `curl --append` is the switch between them.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port, and `files` seeds the in-memory store with three small files. `arguments` is `surl`{apos}s other options in its own words: `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only, and `--allow-uploads` lets a client write; it loosens the server, though `surl` prints no warning for it. `--max-filesize 15` is the size limit. The answer is structured content with `server_id` and `bound_urls`, the real address.
+
+`curl` runs `curl` with `args` as its command line: `-s` keeps the progress meter out of the answer, `-T line.txt` is the upload and `--append` makes it `APPE`. The answer is text, JSON, with `exitCode`, `0` for an upload that landed. `read_file` answers the file as the server holds it, `byte_count` and `text`, which the program prints with its line ends written as `\n`. Two things show there. A file that does not exist is created by the first append, so a log needs no first-run branch. And only the bytes sent are added: when the file does not end in a newline, the new text is joined to its last line, so end each line you append with one.
+
+`get_exchanges` answers what each client sent the server, byte for byte, as `chunks` with a `direction` and its `data`; the program keeps the `received` ones that begin `APPE` or `STOR`. With `--append` they are `APPE log.txt` twice, and without it `STOR replace.txt`, which replaces the file.
+
+An agent should read each refusal in `exitCode`. A server started without `--allow-uploads` answers `550 Not permitted` and `curl` exits `25`, upload failed. One started with `--max-filesize 15` refuses the file as it would be after the append, not the bytes of the append: 11 bytes already stored and 12 sent make 23, so `curl` exits `70`, remote disk full, and the file keeps its 11 bytes (<<curl-readme>>). One started without `--allow-anonymous` refuses the login and `curl` exits `67`, login denied. That is the server being surly on purpose, and `read_file` shows each time that nothing was written.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-append-to-a-file>> for the same appends on the console.
+* <<ftp-append-to-a-file-in-csharp>> for the same appends from a C# logger.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

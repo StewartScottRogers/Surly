@@ -35,4 +35,10 @@ Server: `ListenUrls = { "sftp://127.0.0.1:0" }`, `ThrowawayHostKey = true`, `Acc
 - On the agent surface the message for an existing folder is `Operation failed`; do not match more than `mkdir "/x" failed:`.
 
 ## Recipes
-sftp-list-and-make-folders, sftp-list-and-make-folders-in-csharp, sftp-list-and-make-folders-from-an-agent; sftp-upload-and-rename and sftp-log-in-with-a-public-key use the same listener.
+sftp-list-and-make-folders, sftp-list-and-make-folders-in-csharp, sftp-list-and-make-folders-from-an-agent; sftp-upload-and-rename and sftp-log-in-with-a-public-key use the same listener; sftp-give-each-user-their-key (and twins).
+
+## One key file per user (sftp-give-each-user-their-key, 2026-11-20, windows)
+- `--authorized-keys deploy-a:a_keys --authorized-keys deploy-b:deploy_b.pub` (repeatable; `a_keys` made with `cat deploy_a.pub deploy_a2.pub`, one key a line): each user's keys log in as that user (exit 0); a key offered as another user, a second key offered as another user, and any key for a user with no file are all curl exit 67 `Login denied`.
+- Log (`-v`): `Login accepted: publickey deploy-a`. A refused key is NOT a publickey line: curl falls back and the log has `Login refused: password deploy-b` and `Login refused: keyboard-interactive deploy-b` (same exchange). Events say the same: `Mechanism` `publickey` accepted; refusals are `password` / `keyboard-interactive`, even with `SshAuthenticationTypes.PublicKey` on the Curl.Api request.
+- Surl.Api has no `AuthorizedKeys` property: `AdditionalArguments.Add` each word; `HostKeyFiles.Add("host_key")`. Curl.Api: user in the URL (`sftp://deploy-a@127.0.0.1:port/hello.txt`), `Ssh = new CurlSshOptions { PrivateKeyFile, PublicKeyFile, AuthenticationTypes = SshAuthenticationTypes.PublicKey }`, `Tls = ...VerifyPeer = false` for `-k`; refusal throws `CurlException` `LoginDenied` (67).
+- surl-mcp `start_server arguments` take `--hostkey host_key --authorized-keys user:file` with files under `SURL_MCP_ROOT`; curl-mcp `curl` tool `-s -S -k -u deploy-a: --key deploy_a --pubkey deploy_a.pub sftp://...` (exitCode 67, `standardError` `curl: (67) Login denied`, tool error). `ssh-keygen -q` keeps setup quiet. A YAML `run:` with `-u deploy-a: ` needs single quotes.

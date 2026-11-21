@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the pinned
+# surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: ftp-append-to-a-file
+title: Appending to a File over FTP
+protocols: [ftp]
+tier: working-servers
+surl-options: [--directory, --allow-anonymous, --allow-uploads, --max-filesize]
+curl-options: [-T, --append, -v, -s]
+exit-codes: [0, 25, 67, 70]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures:
+  site/log.txt: "first line\n"
+  site/audit.txt: "start\n"
+  site/replace.txt: "old contents\n"
+  site/no-newline.txt: "no newline"
+  small/log.txt: "first line\n"
+  frozen/log.txt: "first line\n"
+  second.txt: "second line\n"
+  third.txt: "third line\n"
+
+servers:
+  main:
+    command: surl --directory site --allow-anonymous --allow-uploads ftp://127.0.0.1:{{port}}/
+    ready: port
+  read-only:
+    command: surl --directory frozen --allow-anonymous ftp://127.0.0.1:{{port2}}/
+    ready: port
+  small:
+    command: surl --directory small --allow-anonymous --allow-uploads --max-filesize 15 ftp://127.0.0.1:{{port3}}/
+    ready: port
+  default:
+    command: surl ftp://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --append, curl -T adds the local file's bytes to the end of the remote file instead of replacing it, so log.txt holds both lines, exit 0.
+    run: curl -s -T second.txt --append ftp://127.0.0.1:{{port}}/log.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/log.txt: "first line\nsecond line\n"
+
+  - id: append-again
+    claim: Each append lands after the last, so a second one leaves the three lines in the order they were sent.
+    run: curl -s -T third.txt --append ftp://127.0.0.1:{{port}}/log.txt
+    expect:
+      exit: 0
+      files:
+        site/log.txt: "first line\nsecond line\nthird line\n"
+
+  - id: read-back
+    claim: Downloading the file shows the whole log, every append in order.
+    run: curl -s ftp://127.0.0.1:{{port}}/log.txt
+    expect:
+      exit: 0
+      stdout: "first line\nsecond line\nthird line\n"
+
+  - id: sends-appe
+    claim: The option changes the command curl sends from STOR to APPE, and the line is added to the file.
+    run: curl -s -v -T second.txt --append ftp://127.0.0.1:{{port}}/audit.txt
+    expect:
+      exit: 0
+      stderr-contains: "> APPE audit.txt"
+      files:
+        site/audit.txt: "start\nsecond line\n"
+
+  - id: appe-reply
+    claim: surl completes an accepted APPE with 226 Transfer complete, the reply an upload gets.
+    run: curl -s -v -T second.txt --append ftp://127.0.0.1:{{port}}/audit.txt
+    expect:
+      exit: 0
+      stderr-contains: "< 226 Transfer complete"
+
+  - id: without-append-replaces
+    claim: Without --append, the same upload sends STOR and replaces the remote file, so the old contents are gone.
+    run: curl -s -v -T third.txt ftp://127.0.0.1:{{port}}/replace.txt
+    expect:
+      exit: 0
+      stderr-contains: "> STOR replace.txt"
+      files:
+        site/replace.txt: "third line\n"
+
+  - id: creates-a-missing-file
+    claim: Appending to a file that is not there creates it, so the first append of a new log needs no special case.
+    run: curl -s -T second.txt --append ftp://127.0.0.1:{{port}}/fresh.txt
+    expect:
+      exit: 0
+      files:
+        site/fresh.txt: "second line\n"
+
+  - id: no-separator-added
+    claim: Only the bytes sent are added, so a remote file that does not end in a newline has the new text joined to its last line.
+    run: curl -s -T second.txt --append ftp://127.0.0.1:{{port}}/no-newline.txt
+    expect:
+      exit: 0
+      files:
+        site/no-newline.txt: "no newlinesecond line\n"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads answers APPE 550 Not permitted, curl exits 25, upload failed, and the file is unchanged.
+    run: curl -s -v -T second.txt --append ftp://127.0.0.1:{{port2}}/log.txt
+    expect:
+      exit: 25
+      stderr-contains: "< 550 Not permitted"
+      files:
+        frozen/log.txt: "first line\n"
+
+  - id: size-limit-counts-the-whole-file
+    claim: With --max-filesize 15 the limit applies to the file as it would be after the append, so a 12-byte append to an 11-byte file is refused, curl exits 70, remote disk full, and the file is unchanged.
+    run: curl -s -T second.txt --append ftp://127.0.0.1:{{port3}}/log.txt
+    expect:
+      exit: 70
+      files:
+        small/log.txt: "first line\n"
+
+  - id: login-refused
+    claim: A server started without --allow-anonymous refuses curl's anonymous login before any command, and the append exits 67, login denied.
+    run: curl -s -T second.txt --append ftp://127.0.0.1:{{port4}}/log.txt
+    expect:
+      exit: 67

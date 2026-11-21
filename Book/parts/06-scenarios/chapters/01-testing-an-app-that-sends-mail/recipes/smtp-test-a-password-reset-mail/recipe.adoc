@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-test-a-password-reset-mail]]
+=== Testing a Password Reset Mail
+
+==== Problem
+
+Your app mails a password reset link; you want the test to read the mail, pull out the link and fetch it from the same server, proving the link works and not only that a mail was sent.
+
+==== Solution
+
+Run one `surl` that serves your domain{apos}s mail over Simple Mail Transfer Protocol (SMTP) and Internet Message Access Protocol (IMAP) and the app{apos}s pages over Hypertext Transfer Protocol (HTTP). The test reads the mail, finds the link and fetches it; it is a short script and needs a POSIX shell (Git Bash on Windows):
+
+include::check-reset-link.sh[]
+
+`reset-app.sh` stands in for the app: it makes a token, publishes the reset page under it, and mails the link:
+
+include::reset-app.sh[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+One `surl` with an `smtp://`, an `imap://` and an `http://` listen URL runs all three over its stores: what arrives over SMTP is read over IMAP, and `--directory site` serves the folder `site` over HTTP, files the app writes there after the start included (<<surl-readme>>). `--mail-domain example.com` serves mail for that domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. `-v` and `--log-file surl.log` write a verbose log to a file, which the checked claims read.
+
+The app stand-in makes a token of 16 hexadecimal digits from `/dev/urandom`, writes the page to `site/reset/<token>`, and pipes the mail to `curl`: `-T -` uploads standard input, `--crlf` turns its line feeds into the carriage return and line feed a message is made of, `-u` is the app{apos}s login and `--mail-from` and `--mail-rcpt` the envelope (<<rfc5321>>). The link names the HTTP port, `http://127.0.0.1:8082/reset/<token>`, as a real app{apos}s link names its own site.
+
+The test fetches `INBOX;UID=1;SECTION=TEXT`, the body of the first message in the recipient{apos}s `INBOX` without its header (<<rfc9051>>). `-s` keeps `curl` quiet and `-S` still prints an error, and a failed fetch ends the script with `curl`{apos}s exit code. `sed` picks out the first `http://` address with `/reset/` in it, after `tr` removes the carriage returns. The script prints the link and fetches it with `-f`, so an error status is a failure: exit `22` (<<curl-manual>>). Exit `0` means the mail arrived, held a link, and the link served the page; the page names Ann, so the test can also check it is hers.
+
+Each way of getting it wrong fails differently. A link whose token the app never published is answered `404 Not Found` (<<rfc9110>>), and the script exits `22` with `curl: (22) The requested URL returned error: 404` on standard error. A mail with no link fails before any fetch, with `FAIL: no reset link in the mail` and exit `1`. The server{apos}s log agrees with the test: one `GET /reset/...` answered `200`, and one answered `404, nothing exists at` the path.
+
+A reset link is followed by someone who cannot log in, so it must work with no login. It does here: on start the log says each mailbox account logs in `on smtp, imap, pop3`, so the HTTP listener has no account, and any page under `site` is served to anyone: `-w "%{http_code}"` prints `200` for `index.txt`, with the body sent to nowhere by `-o`. Once an account that logs in on HTTP is configured, with `--user` for one, every HTTP request needs a login, the reset page included (<<http-require-a-login>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-test-a-password-reset-mail-in-csharp>> for the same test in C#.
+* <<smtp-test-a-password-reset-mail-from-an-agent>> for the same test from an agent.
+* <<imap-poll-until-the-mail-arrives>> for a reset mail that comes some seconds late.
+* <<smtp-check-the-mail-an-app-sent>> for checking the mail{apos}s header fields.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>, <<rfc9110>>.

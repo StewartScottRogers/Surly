@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-seed-a-cache-for-a-test-in-csharp]]
+=== Seeding a Cache for a Test
+
+==== Problem
+
+Your app reads its settings from Redis and its content over Hypertext Transfer Protocol (HTTP), and it keeps a cached copy that expires. You want a test in C# that seeds both with known values, one key expiring soon, and covers the cache-miss path, with the server in the same program.
+
+==== Solution
+
+Start a `SurlServer` with a Redis listener and an HTTP one, one account and one file; seed the setting and a cached copy through `server.Keys`; read them through a `CurlClient`; wait for the copy to expire; and read again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds two listen URLs, `redis://127.0.0.1:0` and `http://127.0.0.1:0`, each on a free port, and `server.BoundUrls` lists the addresses they bound in the same order. `Accounts` holds one account, `alice`, a `SurlAccount`, which is a user and a password, and it covers both listeners, so the app logs in the same way to each; an HTTP request with no login is `401`. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, which lets her password cross connections that have no encryption. It is a loosening, for a test on one machine, and the last claim leaves it out: `Curl.Api` throws a `CurlException` whose `Code` is `67`, the code `curl` exits with, and whose message carries Redis{apos}s `WRONGPASS` (<<surl-readme>>, <<redis-resp>>).
+
+The seed has two halves. The content is `options.Files`, which holds the file `products.json` in memory as a file in a directory would be. The keys are `server.Keys`, a `SurlServerKeys`, and its `SetAsync`, which sets a string key as a `SET` would, with no client and no login: the setting `settings:currency` with no expiry, and the cached copy `cache:products` with a `TimeSpan` of four seconds as its expiry. `GetAsync` reads a key back without a client and answers a `SurlKeyContents`, whose `Info.ExpiresAt` is a time for the copy and `null` for the setting; a key that is gone, expired or never set, throws `SurlNotFoundException`, and a test that wants a miss catches that.
+
+`CurlClient` is the app{apos}s side. A `CurlRequest` is a method and a URL, `CurlAuthenticationOptions` carries the login, and the URL path is the Redis command: `GET/settings:currency` (<<curl-readme>>). The body is the value and a line feed, and null is a lone line feed, so the program takes the line feed off and prints `null` for an empty body. The first request a process makes through `Curl.Api` can take several seconds to start, so the program makes it first, with the setting, before any expiry is running; a short life must never be spent on the start-up. Only then does it set the copy, with a life of four seconds, and read it through the client and through `Keys` at once. It waits five seconds and reads again. A slow machine only waits longer, so by then the copy is surely gone: the setting still reads `EUR`, because it had no expiry, and the copy is null through the client and `no such key` through `Keys`. That is the cache-miss path, and the program ends by reading the origin file over HTTP, as the app would to refill the cache.
+
+A test that cannot wait can force the miss at once. A `DEL` through the client answers `1`, the next `GET` is null, and a second `SetAsync` puts a copy back for the app to find. `TTL` tells the keys apart without waiting: the copy has a positive number of seconds and an expiry in the future, the setting has `-1` and no expiry, and a key never seeded has `-2` and is no such key. The origin has its own misses: a file that is not in the content is `404`, which `SendAsync` answers as a `CurlResponse` whose `StatusCode` is `404` and not as an exception, and a request with no login is `401` (<<rfc9110>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-seed-a-cache-for-a-test>> for the same seed and miss on the console, with a script and `curl`.
+* <<redis-seed-a-cache-for-a-test-from-an-agent>> for an agent that seeds with `set_key` and `start_server`.
+* <<redis-expire-a-key-in-csharp>> for expiry on its own.
+* <<redis-resp>>, <<surl-readme>>, <<curl-readme>>.

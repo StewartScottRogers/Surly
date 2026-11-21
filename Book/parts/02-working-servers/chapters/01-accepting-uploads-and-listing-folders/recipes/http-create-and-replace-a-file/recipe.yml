@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-create-and-replace-a-file
+title: Creating and Replacing a File
+protocols: [http]
+tier: working-servers
+surl-options: [--directory, --allow-uploads, --user]
+curl-options: [-T, --digest, -u, -s, -f, -o, -w]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures:
+  site/drafts/outline.txt: "an outline\n"
+  report.txt: "version one\n"
+  report-v2.txt: "version two\n"
+
+# main: an account and uploads on, serving site.
+# read-only: the same account with uploads off, in memory.
+servers:
+  main:
+    command: surl --directory site --allow-uploads --user alice:s3cret http://127.0.0.1:{{port}}/
+    ready: port
+  read-only:
+    command: surl --user alice:s3cret http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three uploads on one command line are answered 201 Created for a new file, 204 No Content for the same path again, and 409 Conflict for a path whose folder does not exist; curl exits 0 and the file holds the second upload.
+    run: curl -s -w "%{http_code} %{url.path}\n" --digest -u alice:s3cret -T report.txt http://127.0.0.1:{{port}}/report.txt -T report-v2.txt http://127.0.0.1:{{port}}/report.txt -T report.txt http://127.0.0.1:{{port}}/archive/report.txt
+    expect:
+      exit: 0
+      stdout: "201 /report.txt\n204 /report.txt\n409 /archive/report.txt\n"
+      files:
+        site/report.txt: "version two\n"
+
+  - id: replaced-content
+    claim: After the 204, the server serves the replacing bytes, not the first upload's.
+    run: curl -s --digest -u alice:s3cret http://127.0.0.1:{{port}}/report.txt
+    expect:
+      exit: 0
+      stdout: "version two\n"
+
+  - id: no-folder-made
+    claim: The 409 created nothing, no folder and no file, so the path is still 404 Not Found.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret http://127.0.0.1:{{port}}/archive/report.txt
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: existing-folder
+    claim: A path into a folder that exists is created, 201 Created.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T report.txt http://127.0.0.1:{{port}}/drafts/report.txt
+    expect:
+      exit: 0
+      stdout: "201"
+      files:
+        site/drafts/report.txt: "version one\n"
+
+  - id: folder-is-not-a-file
+    claim: A PUT to a path that names a folder is 409 Conflict too; a folder is never replaced by a file.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T report.txt http://127.0.0.1:{{port}}/drafts
+    expect:
+      exit: 0
+      stdout: "409"
+
+  - id: fail-on-conflict
+    claim: To curl a 409 is a finished conversation, exit 0; with -f it exits 22.
+    run: curl -s -f -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T report.txt http://127.0.0.1:{{port}}/archive/report.txt
+    expect:
+      exit: 22
+      stdout: "409"
+
+  - id: uploads-off
+    claim: Without --allow-uploads the same logged-in PUT is answered 405 Method Not Allowed, so neither 201 nor 204 can happen.
+    run: curl -s -o {{null}} -w "%{http_code}" --digest -u alice:s3cret -T report.txt http://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "405"

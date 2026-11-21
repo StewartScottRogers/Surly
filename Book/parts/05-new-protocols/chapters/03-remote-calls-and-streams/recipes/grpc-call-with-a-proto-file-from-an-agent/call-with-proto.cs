@@ -97,12 +97,22 @@ async Task Call(params string[] arguments)
 }
 
 // get_events lists what the server saw as events; each exchange ends with the bytes it sent. A call
-// by reflection makes the server send the service's descriptor too, so it sends more.
+// by reflection makes the server send the service's descriptor too, so it sends more. The second
+// exchange can end a moment after curl returns, so ask again until both have, for up to 10 s.
 async Task Bytes()
 {
-    CallToolResult result = await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = server });
-    long[] sent = result.StructuredContent!.Value.GetProperty("events").EnumerateArray()
-        .Where(e => e.GetProperty("kind").GetString() == "exchange_ended")
-        .Select(e => e.GetProperty("sent_byte_count").GetInt64()).ToArray();
+    long[] sent = [];
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); sent.Length < 2 && waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = server });
+        sent = result.StructuredContent!.Value.GetProperty("events").EnumerateArray()
+            .Where(e => e.GetProperty("kind").GetString() == "exchange_ended")
+            .Select(e => e.GetProperty("sent_byte_count").GetInt64()).ToArray();
+    }
+    if (sent.Length < 2)
+    {
+        Console.WriteLine($"exchanges: {sent.Length} after 10 s, expected 2");
+        return;
+    }
     Console.WriteLine($"exchanges: {sent.Length}; the call by reflection made the server send more than the call with the file: {sent[1] > sent[0]}");
 }

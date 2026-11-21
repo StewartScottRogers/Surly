@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: amqp-seed-a-queue-and-browse-what-is-left
+title: Seeding a Queue and Browsing the Rest
+protocols: [amqp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlSeedRefusedException, SurlQueuePage, SurlQueueMessage, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, amqp091]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Five jobs are seeded into the queue, the worker takes job-1 and job-2 over AMQP, and browsing finds exactly job-3, job-4 and job-5 ready and none in flight; a second browse finds them all still there, and after a reset the queue is empty.
+    program: browse-left.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "worker took job-1\nworker took job-2\nleft: job-3, job-4, job-5 (ready 3, in flight 0)\nbrowsed again: ready 3\nafter reset: ready 0\n"
+
+  - id: worker-takes-too-many
+    claim: A worker that takes one job too many leaves job-4 and job-5; the test names what it wanted and exits 1.
+    program: browse-left.cs
+    args: [greedy]
+    expect:
+      exit: 1
+      stdout: "worker took job-1\nworker took job-2\nworker took job-3\nleft: job-4, job-5 (ready 2, in flight 0)\nFAIL: want job-3, job-4, job-5\n"
+
+  - id: unknown-queue
+    claim: Seeding a queue the server was not started with throws SurlSeedRefusedException, store Bus, refusal UnknownQueue.
+    program: browse-left.cs
+    args: [unknown-queue]
+    expect:
+      exit: 1
+      stdout: "seed refused: Bus, UnknownQueue: Bus: A message for queue job was refused: UnknownQueue.\n"
+
+  - id: worker-needs-plaintext
+    claim: Without AllowPlaintextAuthentication the server offers only CRAM-MD5 on amqp://, which Curl.Api does not use for AMQP, so the worker's first get throws CurlException 67.
+    program: browse-left.cs
+    args: [no-plaintext]
+    expect:
+      exit: 1
+      stdout: "worker failed: curl error 67: AMQP server offers no mechanism this client can use (it offers \"CRAM-MD5\")\n"

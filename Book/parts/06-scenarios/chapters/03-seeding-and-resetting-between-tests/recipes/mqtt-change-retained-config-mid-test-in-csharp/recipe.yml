@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt-change-retained-config-mid-test-in-csharp
+title: Changing Retained Config Mid-Test in C#
+protocols: [mqtt]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlRetainedMessage, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A config seeded with Messages.PublishAsync is what a device reads through Curl.Api on connecting, and after a second PublishAsync to the same topic the device's second read is the new config alone; ReadRetainedAsync holds the new text at QoS 0.
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/config: device reads interval=60\ndevices/lamp/config: device reads interval=15\nkept: interval=15 at QoS 0\n"
+
+  - id: replaced-twice
+    claim: Two changes in a row leave only the last, so a device that connects afterwards reads one message, the second change.
+    program: program.cs
+    args: [twice]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/door/config: device reads interval=5\n"
+
+  - id: other-topic-untouched
+    claim: A change to one topic leaves another topic's config as it was.
+    program: program.cs
+    args: [topics]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/config: device reads interval=15\ndevices/door/config: device reads interval=10\n"
+
+  - id: clear-the-config
+    claim: Seeding an empty message clears the topic, so a device that connects afterwards reads nothing and ReadRetainedAsync answers null.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "devices/lamp/config: device reads nothing\nkept: nothing\n"
+
+  - id: outside-the-filter
+    claim: A publish from a client, whose retain flag is clear, on a topic outside the --topic filter is not kept, while a message seeded with PublishAsync on the same topic is, because the seed sets the flag itself.
+    program: program.cs
+    args: [filter]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish, kept: nothing\nseeded, kept: interval=60 at QoS 0\n"
+
+  - id: no-retain-filter
+    claim: A server with no retain filter keeps no config from a client's publish, but a seeded message is kept.
+    program: program.cs
+    args: [no-retain]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "curl publish, kept: nothing\nseeded, kept: interval=60 at QoS 0\n"
+
+  - id: after-a-restart
+    claim: With a DataDirectory the retained config is on disk, so a second server started on the same directory still holds it.
+    program: program.cs
+    args: [restart]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "after the restart: interval=60\n"
+
+  - id: no-anonymous-refused
+    claim: The seed needs no login, but a device that connects to a server without AllowAnonymous is refused, and Curl.Api throws a CurlException with code 8.
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 8
+      stdout-matches: '^curl error 8: '

@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs append-log.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-append-to-a-file-from-an-agent
+title: Appending over FTP from an Agent
+protocols: [ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, read_file, get_exchanges]
+exit-codes: [0, 25, 67, 70]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two curl --append uploads through curl-mcp add their lines after the first one, exit 0, and read_file answers the whole file after each, in the order the lines were sent.
+    program: append-log.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^log\.txt: first line\\nsecond line\\n\nlog\.txt: first line\\nsecond line\\nsecond line\\n\n'
+
+  - id: appe-commands
+    claim: get_exchanges shows the server received APPE for each of the two uploads, and no STOR.
+    program: append-log.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: 'commands: APPE log\.txt, APPE log\.txt\n$'
+
+  - id: without-append-replaces
+    claim: The same upload without --append sends STOR and replaces the file, so the old contents are gone.
+    program: append-log.cs
+    args: [replace]
+    expect:
+      exit: 0
+      stdout: "replace.txt: second line\\n\ncommands: STOR replace.txt\n"
+
+  - id: edges
+    claim: Appending to a file that is not there creates it, and appending to one that does not end in a newline joins the new text to its last line.
+    program: append-log.cs
+    args: [edges]
+    expect:
+      exit: 0
+      stdout: "fresh.txt: second line\\n\nno-newline.txt: no newlinesecond line\\n\n"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads refuses the append, curl exits 25, upload failed, and read_file shows the file unchanged.
+    program: append-log.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "uploads-off: curl exit 25\nlog.txt: first line\\n\n"
+
+  - id: too-big
+    claim: A server started with --max-filesize 15 refuses an append that would take the 11-byte file past it, though the 12 bytes sent are under the limit; curl exits 70, remote disk full, and the file is unchanged.
+    program: append-log.cs
+    args: [too-big]
+    expect:
+      exit: 0
+      stdout: "too-big: curl exit 70\nlog.txt: first line\\n\n"
+
+  - id: no-login
+    claim: A server started without --allow-anonymous refuses curl's anonymous login, curl exits 67, login denied, and the file is unchanged.
+    program: append-log.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "no-login: curl exit 67\nlog.txt: first line\\n\n"

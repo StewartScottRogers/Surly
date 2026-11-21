@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs rename-and-delete.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-rename-and-delete-a-file-from-an-agent
+title: Renaming FTP Files from an Agent
+protocols: [ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, list_files, read_file]
+exit-codes: [0, 21, 67]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -Q with RNFR and RNTO renames draft.txt to final.txt, the listing in the same call already shows the new name, and list_files shows the store holds it.
+    program: rename-and-delete.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^listing: final\.txt keep\.txt scratch\.txt taken\.txt\n.*store: final\.txt keep\.txt scratch\.txt taken\.txt\n$'
+
+  - id: replies
+    claim: With -v, standard error shows RNFR answered 350 Ready for RNTO and RNTO answered 250.
+    program: rename-and-delete.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: 'replies: 350 Ready for RNTO, 250 '
+
+  - id: delete
+    claim: A DELE without a leading dash runs before the transfer, so the listing already leaves the file out; one with a dash runs after it, so the listing still shows the file and list_files, read afterwards, does not.
+    program: rename-and-delete.cs
+    args: [delete]
+    expect:
+      exit: 0
+      stdout: "listing: draft.txt keep.txt taken.txt\nlisting: draft.txt keep.txt taken.txt\nstore: keep.txt taken.txt\n"
+
+  - id: rename-over-a-file
+    claim: A rename onto a name that is taken replaces that file, so read_file of taken.txt answers what keep.txt held and keep.txt is gone.
+    program: rename-and-delete.cs
+    args: [taken]
+    expect:
+      exit: 0
+      stdout: "taken.txt: keep me\\n\nstore: draft.txt scratch.txt taken.txt\n"
+
+  - id: missing-file
+    claim: A rename of a file that is not there, a delete of one, and an RNTO with no RNFR before it each make curl exit 21, quote command failed.
+    program: rename-and-delete.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "RNFR nothere.txt: curl exit 21\nDELE nothere.txt: curl exit 21\nRNTO z.txt: curl exit 21\n"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads refuses RNFR, curl exits 21, and list_files shows every file under its old name.
+    program: rename-and-delete.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "uploads-off: curl exit 21\nstore: draft.txt keep.txt scratch.txt taken.txt\n"
+
+  - id: no-login
+    claim: A server started without --allow-anonymous refuses curl's anonymous login before any command, and curl exits 67, login denied.
+    program: rename-and-delete.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "no-login: curl exit 67\nstore: draft.txt keep.txt scratch.txt taken.txt\n"

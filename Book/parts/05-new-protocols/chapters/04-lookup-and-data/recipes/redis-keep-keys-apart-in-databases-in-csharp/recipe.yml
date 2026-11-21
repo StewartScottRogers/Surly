@@ -1,0 +1,64 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: redis-keep-keys-apart-in-databases-in-csharp
+title: Separating Redis Databases in C#
+protocols: [redis]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerKeys, SurlKeyContents, SurlKeyPage, SurlKeyInfo, SurlNotFoundException, SurlReadRefusedException, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, redis-resp]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A key named greeting set with Keys.SetAsync in database 1 and in database 2 holds a different value in each, read back through Surl.Api and through Curl.Api with the database number in the URL; database 0 holds neither, Keys.GetAsync throws SurlNotFoundException and Curl.Api's GET answers null.
+    program: program.cs
+    args: []
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "database 1: server \"from-app-one\", curl \"from-app-one\"\ndatabase 2: server \"from-app-two\", curl \"from-app-two\"\ndatabase 0: server no such key, curl null\n"
+
+  - id: delete-in-one
+    claim: A DEL through Curl.Api in database 1 answers 1 and removes the key there only; database 2 still holds its value.
+    program: program.cs
+    args: [delete]
+    expect:
+      exit: 0
+      stdout: "curl DEL in database 1: 1\ndatabase 1: server no such key, curl null\ndatabase 2: server \"from-app-two\", curl \"from-app-two\"\n"
+
+  - id: list-per-database
+    claim: Keys.ListAsync and DBSIZE each list or count one database only, so database 1 with two keys, database 2 with one and database 0 with none are told apart.
+    program: program.cs
+    args: [list]
+    expect:
+      exit: 0
+      stdout: "database 0: [], DBSIZE 0\ndatabase 1: [greeting, other], DBSIZE 2\ndatabase 2: [greeting], DBSIZE 1\n"
+
+  - id: out-of-range
+    claim: Only databases 0 to 15 exist; database 16 is an ArgumentOutOfRangeException from Keys.SetAsync, a SurlReadRefusedException from Keys.GetAsync, and a CurlException with code 8 from Curl.Api, whose message names the range.
+    program: program.cs
+    args: [range]
+    expect:
+      exit: 0
+      stdout: "Keys.SetAsync in database 16: refused\nKeys.GetAsync in database 16: refused\ncurl in database 16: error 8, message names DB index is out of range\n"
+
+  - id: no-login
+    claim: A request with no login is refused at its first command, and Curl.Api throws a CurlException with code 67 and NOAUTH in its message.
+    program: program.cs
+    args: [no-login]
+    expect:
+      exit: 67
+      stdout-matches: '^curl error 67: .*NOAUTH '
+
+  - id: plaintext-refused
+    claim: Without AllowPlaintextAuthentication the account's login over redis:// is refused, and Curl.Api throws a CurlException with code 67 and WRONGPASS in its message.
+    program: program.cs
+    args: [no-plaintext]
+    expect:
+      exit: 67
+      stdout-matches: '^curl error 67: Redis server answered HELLO with error: WRONGPASS '
