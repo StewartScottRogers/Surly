@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-seed-binary-files-from-an-agent]]
+=== Seeding Binary Files
+
+==== Problem
+
+You want your agent to seed images and archives into a server, in `start_server` and with `put_file`, and to fetch them back byte for byte. A file of bytes cannot be sent as text.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, seeds a PNG-signed image and a zip-signed archive with `files_base64` in `start_server`, fetches each with `transfer`, and compares the SHA-256 of what came back with the SHA-256 of what it seeded. It takes a case name as its argument, so each claim below runs the same file:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes its seed files in two maps. `files` maps a path to text. `files_base64` maps a path to the file's bytes in base64, which is how a binary file passes through a tool whose arguments are text. A path may be in one map only; given in both, `start_server` is refused with a tool error that names the path. `put_file` does the same for a running server: its `server_id` and `path`, then exactly one of `text` and `base64`. It answers the path and the byte count, and makes the folders on the way. Base64 that is not base64 is a tool error, which names the argument, and `put_file` with both `text` and `base64` is one too.
+
+`transfer` is the fetch of `curl-mcp`. A body that is not text comes back as base64 with `isBase64` true, and the program decodes it and compares hashes: `identical: True` is a match on all bytes, not on the length alone. `transfer` has a ceiling, though. It returns the first MiB and no more, and says so: `isTruncated` is true and `returnedBytes` is less than `totalBytes`. A hash of a truncated body is a hash of the wrong thing, so check `isTruncated` first and fetch anything larger with the `curl` tool. It takes the arguments of a `curl` command line, and `-o got/big.bin` with `--create-dirs` writes the file under `CURL_MCP_ROOT`, where the program reads it back and hashes it. The Content-Type of each answer comes from the file name's extension, not from the bytes, as the cases show: a `.bin` is `application/octet-stream` whatever it holds.
+
+`read_file` reads the store back without a client. It answers `content_type`, `byte_count` and the content as `text` when the bytes are valid UTF-8, and as `base64` when they are not, so an agent can tell a text file from a binary one by which field is there.
+
+A message to `surl-mcp` is limited to 4 MiB, and base64 adds a third to the size of what it carries. A seed larger than that does not go in one call: put it in pieces, file by file. The program seeds six files of 512 KiB this way, one `put_file` each, and fetches all six to disk intact.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-put-and-delete-files-from-an-agent>> for `put_file` and `delete_file` with text.
+* <<http-read-a-file-back-from-an-agent>> for `read_file` on a running server.
+* <<surl-readme>>, <<curl-readme>>.

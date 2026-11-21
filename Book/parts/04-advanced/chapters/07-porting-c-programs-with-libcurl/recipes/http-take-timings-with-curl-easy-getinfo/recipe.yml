@@ -1,0 +1,60 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-take-timings-with-curl-easy-getinfo
+title: Taking Timings with curl_easy_getinfo
+protocols: [http]
+tier: advanced
+surface: csharp
+surl-options: [--directory, --fault]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlEasy, CurlOption, WriteCallback, CurlCode, CurlInfo, CurlErrorText]
+exit-codes: [0, 7]
+references: [surl-readme, libcurl-api, rfc9110]
+
+fixtures:
+  site/fast.txt: "fast\n"
+  site/slow.txt: "slow\n"
+
+# The program is only the client. The server holds every request for /slow.txt 1.5 s after
+# reading it, before it answers: the delay a timer has to show, and nothing else.
+servers:
+  main:
+    command: surl --directory site --fault "delay;stage=command;path=/slow.txt;ms=1500" http://127.0.0.1:{{port}}/
+    ready: port
+
+# Times are claimed as ranges with a second or more of margin: a loaded runner is slow, never fast.
+cases:
+  - id: solution
+    role: solution
+    claim: Two URLs on one easy handle; the first opens a connection (CURLINFO_NUM_CONNECTS 1) and every timer is under 2 s; the second, /slow.txt, reuses it (NUM_CONNECTS 0, CONNECT_TIME_T 0), is ready to send in under 1 s, and its STARTTRANSFER_TIME_T is 1.5 s or more, the server's delay; the double CURLINFO_STARTTRANSFER_TIME is the same time in seconds.
+    program: timings.cs
+    args: ["http://127.0.0.1:{{port}}/fast.txt", "http://127.0.0.1:{{port}}/slow.txt"]
+    expect:
+      exit: 0
+      stdout-matches: '^/fast\.txt 200 connects 1 connect [01]\.\d{6} pretransfer [01]\.\d{6} starttransfer ([01]\.\d{6}) total [01]\.\d{6} \(\1\)\n/slow\.txt 200 connects 0 connect 0\.000000 pretransfer 0\.\d{6} starttransfer ((?:1\.[5-9]|[2-9]\.)\d+) total (?:1\.[5-9]|[2-9]\.)\d+ \(\2\)\n$'
+
+  - id: delay-is-after-the-connection
+    claim: On a new handle /slow.txt opens its own connection, and the connect and pretransfer times stay under 1 s while STARTTRANSFER_TIME_T is 1.5 s or more; the delay is between the request sent and the first byte back, which is where the server spent it.
+    program: timings.cs
+    args: ["http://127.0.0.1:{{port}}/slow.txt"]
+    expect:
+      exit: 0
+      stdout-matches: '^/slow\.txt 200 connects 1 connect 0\.\d{6} pretransfer 0\.\d{6} starttransfer (?:1\.[5-9]|[2-9]\.)\d+ total (?:1\.[5-9]|[2-9]\.)\d+ '
+
+  - id: fast-path-not-held
+    claim: The rule holds /slow.txt only; /fast.txt on the same server has its first byte in under 1 s.
+    program: timings.cs
+    args: ["http://127.0.0.1:{{port}}/fast.txt"]
+    expect:
+      exit: 0
+      stdout-matches: '^/fast\.txt 200 connects 1 connect 0\.\d{6} pretransfer 0\.\d{6} starttransfer 0\.\d{6} '
+
+  - id: nothing-listening
+    claim: A port nothing listens on is CURLE_COULDNT_CONNECT, 7; the program reports curl_easy_strerror's text, prints no timings and exits 7.
+    program: timings.cs
+    args: ["http://127.0.0.1:1/slow.txt"]
+    expect:
+      exit: 7
+      stdout: ""
+      stderr-contains: "curl_easy_perform() failed: Could not connect to server"

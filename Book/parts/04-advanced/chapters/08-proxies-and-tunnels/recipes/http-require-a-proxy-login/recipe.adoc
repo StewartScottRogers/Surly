@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-require-a-proxy-login]]
+=== Requiring a Proxy Login
+
+==== Problem
+
+Your proxy settings carry a user name and password, and the app must send them. You want a test proxy that answers 407 without them, a login with Basic or Digest, and proxy accounts kept apart from the accounts of the server behind it.
+
+==== Solution
+
+Start one `surl` that is the origin, with its own account, and two proxies, one on `http://` and one on `https://`, with one proxy account; then fetch through the `http://` proxy, logging in to each with Digest:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The origin on 8080 serves `--directory site`; `--proxy` makes 8081 a proxy over `http://` and 8082 one over `https://`, which serves the certificate in `--cert server.pem` with its key in `--key server.key`. `-x` tells `curl` which proxy to send the request to. (In the checks, `-s` silences the progress meter, `-o` sends the body away, `-w "%{http_code}"` prints the status and `-D -` prints the answer's headers.)
+
+`-U app:proxy-pw` (`--proxy-user`) gives every proxy listener of the server an account, and from then on a request through the proxy needs a `Proxy-Authorization` header. `--user web:site-pw` is a different store: the accounts of the server's own listeners, here the Hypertext Transfer Protocol (HTTP) origin on 8080. `curl` mirrors the split. `-U` and `--proxy-digest` are the login it sends to the proxy; `-u` and `--digest` the login it sends to the origin, through the proxy. The proxy checks the first and forwards the request; the origin checks the second.
+
+Without a proxy login the proxy answers `407 Proxy Authentication Required` itself and forwards nothing (<<rfc9110>>). Its `Proxy-Authenticate` headers say what it accepts: over the `http://` listener, Digest access authentication (<<rfc7616>>) three times, with `algorithm=MD5`, `SHA-256` and `SHA-512-256`, and no Basic. A wrong password is answered `407` again, the same answer as no login, so an app that sees `407` on every request has its proxy password wrong or not sent at all.
+
+Basic (<<rfc7617>>) is `curl`{apos}s default for `-U`, and it carries the password in base64, readable by anyone on the path. The proxy will not take it over `http://`: it answers `403 Forbidden` without checking the password. Over the `https://` listener the connection to the proxy is encrypted, so the `407` there offers `Basic realm="surl"` beside the Digest offers, and a Basic login is accepted. `--proxy-cacert server.pem` makes `curl` trust the proxy's certificate; it is the proxy twin of `--cacert`, which still applies to the origin. A proxy started with `--allow-plaintext-auth` takes Basic over `http://` as well; it loosens every login on that server and warns at start, so keep it to a test that must match an app with no other choice.
+
+The two account stores never stand in for each other. The origin's account `web` sent to the proxy is answered `407`; the proxy account `app` sent to the origin passes the proxy and is answered `401 Unauthorized` by the origin. An app that mixes up its proxy and server credentials therefore fails at a different hop for each mistake, and the status code says which.
+
+Do not read the proxy's `-v` log for a password test: in this build nothing on a `--proxy` listener is withheld from it, `Proxy-Authorization` included, so treat that log as a secret (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-require-a-proxy-login-in-csharp>> for the same proxy login from a C# test.
+* <<http-require-a-proxy-login-from-an-agent>> for the same proxy login driven by an agent.
+* <<http-run-a-test-proxy>> for the proxy itself and what it forwards.
+* <<rfc9110>>, <<rfc7616>>, <<rfc7617>>, <<surl-readme>>, <<curl-manual>>.

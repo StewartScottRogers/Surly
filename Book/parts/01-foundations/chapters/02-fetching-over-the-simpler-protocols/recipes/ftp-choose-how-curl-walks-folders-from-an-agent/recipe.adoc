@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-choose-how-curl-walks-folders-from-an-agent]]
+=== Choosing the FTP Method from an Agent
+
+==== Problem
+
+You want an agent to compare the three `--ftp-method` choices of `curl` against `surl`, and to list from `get_exchanges` the commands that each choice sent.
+
+==== Solution
+
+Start an FTP server through `surl-mcp`, fetch a file three folders deep through `curl-mcp` once for each method, and after each fetch read the newest exchange the server holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+An FTP server has a current folder, and `CWD` (change working directory) moves it. `curl` gets from the login folder to the file in one of three ways, and `--ftp-method` picks it (<<rfc959>>). `multicwd`, the default, sends one `CWD` for each folder, then `SIZE` and `RETR` with the bare file name. `singlecwd` sends the folder path in one `CWD`, `CWD d/e/f`. `nocwd` sends none and puts the whole path in `SIZE` and `RETR`.
+
+`start_server` of `surl-mcp` takes `listen_urls`, here `ftp://127.0.0.1:0` for a free port; `files`, a map from name to text, where a name with slashes makes the folders; and `arguments`, `surl`{apos}s own words. `--allow-anonymous` lets `curl`{apos}s anonymous login in, so it is for a test on your own machine only. `--fault "error;scheme=ftp;command=CWD;path=/locked;reply=550 CWD is not allowed here"` is a rule that answers `550` to every `CWD` under `/locked`; a fault loosens the server on purpose and is for tests only. The answer holds the `server_id` and `bound_urls`.
+
+The `curl` tool of `curl-mcp` runs real `curl` options: `args` is the list of words, and the answer holds `exitCode`, `standardOutput` and `standardError`, each with its `content`. `-s` keeps the progress meter out of `standardError`; `-v` adds the commands, so the agent can read a `> CWD d/e/f` from the client{apos}s side. A nonzero exit code is a tool error, so the program reads the answer either way.
+
+`get_exchanges` of `surl-mcp`, given the `server_id` and the last `exchange_id` seen, answers the exchanges after it: one for each control connection, so one for each `curl` call. Each exchange has `chunks`, each with a `direction`, `received` for what the server was sent and `sent` for what it answered, and `data`, text for FTP. The program keeps the `received` chunks that begin `CWD`, `SIZE` or `RETR`.
+
+The differences matter when a server refuses one of the commands. Under `/locked` every `CWD` is answered `550`. `multicwd` fails at the first, `CWD locked`, and the tool answers exit code `9`, the server denied the change of folder; no `SIZE` or `RETR` follows. `singlecwd` fails the same way, at `CWD locked/in`: one `CWD` is still a `CWD`. `nocwd` never changes folder, so the file arrives, exit code `0`. The `sent` chunks hold the refusal, `550 CWD is not allowed here`.
+
+Other failures read differently. A missing file in a folder that exists is exit code `78`, after the `CWD`s and a `SIZE`. A missing folder is `9` under `multicwd`, because its `CWD` fails, and `78` under `nocwd`, which only looked for the file.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-choose-how-curl-walks-folders>> for the same choice on the console, with `curl -v` showing the commands.
+* <<ftp-choose-how-curl-walks-folders-in-csharp>> for the same choice made in `CurlFtpOptions`.
+* <<ftp-choose-passive-or-active-mode-from-an-agent>> for choosing the data connection{apos}s mode through `curl-mcp`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

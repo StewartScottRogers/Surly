@@ -1,0 +1,101 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-require-a-proxy-login
+title: Requiring a Proxy Login
+protocols: [http]
+tier: advanced
+surl-options: [--directory, --user, --proxy, -U, --cert, --key, --allow-plaintext-auth]
+curl-options: [-x, -U, --proxy-digest, --proxy-cacert, -u, --digest, -s, -o, -w, -D]
+exit-codes: [0]
+references: [rfc9110, rfc7616, rfc7617, surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+servers:
+  # One surl: the origin on 8080 with its own account, an http proxy on 8081 and an https proxy on 8082
+  # sharing one proxy account.
+  main:
+    command: surl --directory site --user web:site-pw http://127.0.0.1:{{port}}/ --proxy http://127.0.0.1:{{port2}}/ --proxy https://127.0.0.1:{{port3}}/ --cert server.pem --key server.key -U app:proxy-pw
+    ready: port
+  # An http proxy that accepts a password sent in clear.
+  plain:
+    command: surl --proxy http://127.0.0.1:{{port4}}/ -U app:proxy-pw --allow-plaintext-auth
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl logs in to the proxy with Digest (-U, --proxy-digest) and to the origin with Digest (-u, --digest), each with its own account, and gets the file.
+    run: curl -s -x http://127.0.0.1:{{port2}}/ --proxy-digest -U app:proxy-pw --digest -u web:site-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: no-login-407
+    claim: Without a proxy login the proxy answers 407 Proxy Authentication Required and forwards nothing.
+    run: curl -s -o {{null}} -w "%{http_code}" -x http://127.0.0.1:{{port2}}/ --digest -u web:site-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "407"
+
+  - id: http-offers-digest-only
+    claim: Over the http proxy listener the 407 offers Digest with MD5, SHA-256 and SHA-512-256, and no Basic.
+    run: curl -s -o {{null}} -D - -x http://127.0.0.1:{{port2}}/ http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '^(?!.*Proxy-Authenticate: Basic)HTTP/1\.1 407 .*Proxy-Authenticate: Digest [^\n]*algorithm=MD5,.*Proxy-Authenticate: Digest [^\n]*algorithm=SHA-256,.*Proxy-Authenticate: Digest [^\n]*algorithm=SHA-512-256,'
+
+  - id: wrong-password-407
+    claim: A wrong proxy password is answered 407 again.
+    run: curl -s -o {{null}} -w "%{http_code}" -x http://127.0.0.1:{{port2}}/ --proxy-digest -U app:guess --digest -u web:site-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "407"
+
+  - id: basic-over-http-refused
+    claim: Basic, curl's default for -U, over the http proxy listener would send the password in clear, so the proxy refuses it unchecked with 403 Forbidden.
+    run: curl -s -o {{null}} -w "%{http_code}" -x http://127.0.0.1:{{port2}}/ -U app:proxy-pw --digest -u web:site-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "403"
+
+  - id: https-offers-basic
+    claim: Over the https proxy listener the 407 offers Basic as well as Digest.
+    run: curl -s -o {{null}} -D - --proxy-cacert server.pem -x https://127.0.0.1:{{port3}}/ http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: 'HTTP/1\.1 407 .*Proxy-Authenticate: Digest .*Proxy-Authenticate: Basic realm="surl"'
+
+  - id: basic-over-https
+    claim: Through the https proxy, trusted with --proxy-cacert, a Basic proxy login is accepted and the file comes back.
+    run: curl -s --proxy-cacert server.pem -x https://127.0.0.1:{{port3}}/ -U app:proxy-pw --digest -u web:site-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: plaintext-allowed
+    claim: A proxy started with --allow-plaintext-auth accepts the same Basic login over http.
+    run: curl -s -x http://127.0.0.1:{{port4}}/ -U app:proxy-pw --digest -u web:site-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: origin-account-at-the-proxy
+    claim: The origin's account is not a proxy account; the proxy answers it 407.
+    run: curl -s -o {{null}} -w "%{http_code}" -x http://127.0.0.1:{{port2}}/ --proxy-digest -U web:site-pw --digest -u web:site-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "407"
+
+  - id: proxy-account-at-the-origin
+    claim: The proxy account is not an origin account; the proxy lets the request through, and the origin answers it 401 Unauthorized.
+    run: curl -s -o {{null}} -w "%{http_code}" -x http://127.0.0.1:{{port2}}/ --proxy-digest -U app:proxy-pw --digest -u app:proxy-pw http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "401"

@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
 # faults facts
 Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), surl-mcp 1.0.0, curl-mcp 0.1.0.0, Surl.Api 1.0.0, Curl.Api 0.2.0, 2026-11-19, windows.
+batch-08 section at the end: Surl 9ad60d80c, Curl 7d167fa10a, 2026-11-21.
 surl's fault injection (`--fault`) and the HTTP request-head limit, and what curl sees. Limits and timeouts in general: `http.md`.
 
 ## Listen URLs and readiness
@@ -84,3 +85,21 @@ ftp-run-out-of-space-on-upload (+ -in-csharp, -from-an-agent), ftp-resume-a-drop
 - Git Bash rewrites `path=/x` in a `--fault` argument to a Windows path (MSYS path conversion), so the rule silently never matches: `MSYS_NO_PATHCONV=1` when probing by hand. verify runs cases under cmd, which does not.
 
 - Decided by Surl (2026-11-20): an `out-of-space` fault answers HTTP 413, reusing the "too large" answer (Surl ADR-0129 decision 3), not 507. A cancelled request under a `delay` fault keeps its connection slot until the delay ends (BL-1520/1521 open).
+
+## Refused logins, budgets, transient statuses, timings, counting rules (batch-08: ftp-retry-after-a-refused-login, http-give-up-within-a-time-budget, http-tell-transient-from-permanent-errors (each + twins), http-measure-timings-under-a-delay, http-find-the-fault-that-broke-a-run, surl-count-the-faults-that-fired; Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-21, windows)
+- FTP `refuse-login;times=1` (login stage, not spent by readiness): `530 Login incorrect`, curl exit 67 `Access denied: 530`. `--retry 3` alone: no retry (`67 0`); `--retry-all-errors`: `Warning: Problem (retrying all errors). Retrying in 1 second. 3 retries left.`, then logged in (`0 1`). Between notices curl prints `curl: (67) Access denied: 530` for each failed try. The -v log has `Login refused: ftp app` / `Login accepted: ftp app` / `PASS ****` and NO line naming the rule.
+- The password is checked BEFORE refuse-login: a wrong password is a plain refusal (`IsRefusedByFault` false, surl-mcp `is_refused_by_fault` false) and does not spend the rule (`Remaining` unchanged). Without `--allow-plaintext-auth` (Surl.Api `AllowPlaintextAuthentication`) the clear password is refused with no LoginJudged event and no `530 Login incorrect` line, curl still 67.
+- `delay;ms=N` (accept) and `error;...` (command) both act on one request (different stages). With `-f` each curl retry opens a new connection, so the accept hold repeats.
+- `--retry-max-time` in the Curl port (Curl.Core TransferRetrier): after each failed try, stop if elapsed since the first try >= the budget, else wait (not capped) and retry; so the loop may overrun by one wait plus one try. `-m 1 --retry 10 --retry-delay 1 --retry-max-time 5` on an always-503 slow server: 1 to 3 retries (2 locally). Each console curl process spends about 4 s on set-up before its first transfer (outside -m and the retry clock, but inside a script's `date` timing).
+- Transient for curl --retry (port): timeout, 408/429/500/502/503/504; 403/404/501 not retried. `--retry-all-errors` retries a 404.
+- Timings: the first transfer of a curl process had `time_connect` up to 1.2 s (cold set-up inside it); fetch an untimed URL first in the same command, then `-w` on the second (reused connection: `time_connect 0.000000`). `--next -m 1` limits only the later transfer.
+- A command-stage delay does not stop for a client that gave up: when the hold ends surl writes the 200 anyway, and surl-mcp `get_exchanges` shows `HTTP/1.1 200 OK` sent for an exchange whose client exited 28 (Windows; other platforms unprobed). Match failures from the client's side.
+- `fault_applied` events (surl-mcp) carry `exchange_id`; Surl.Api `FaultAppliedEvent(RuleId, Kind, Stage, ExchangeId, Target)` (namespace `Surl.Protocol.Abstractions`), `Kind` prints `Error`/`Delay`/`Drop`/`RefuseLogin`, `Stage` `Command`/`Login`, `Target` the path or the account.
+- `SurlFaultRule.Item` / surl-mcp `list_faults` `item` is normalised: `path=` percent-encoded (`path=%2Freport.txt`), keys reordered, `times` left out (`error;scheme=http;path=%2Freport.txt;reply=503`). Read uses left from `Remaining`.
+- verify's -q cuts failure lines at 300 characters; run without -q to see a whole stdout.
+
+- `refuse-login;times=N` counts login attempts: over SSH curl makes two per connection (password, keyboard-interactive), so refusing one connection takes `times=2`; a wrong password does not spend the rule (see `ssh.md`, sftp-refuse-the-first-login).
+
+- SMTP `drop` at accept (before the greeting) is spent by verify's readiness connection: use `ready: none` and a seed wait on another listener (batch-08, see `mail.md`); in-process and MCP `add_fault` need no such care. `path=` on an SMTP RCPT rule is the recipient address.
+
+- `--retry-max-time` matches upstream curl 8.22.0 (Curl BL-5664, measured): the elapsed time is checked only after an attempt, without weighing the coming delay, so a retry already decided on still runs and the loop can end one wait and one try past the budget. State it as curl's behaviour, not the port's.

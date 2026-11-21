@@ -1,0 +1,108 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-answer-try-later-in-csharp
+title: SMTP Try-Later Replies in C#
+protocols: [smtp]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlFaultRule, SurlServerStartException, SurlEventQuery, StoreChangedEvent, SurlMailMessage, SurlMessagePage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlContent, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+# Every case runs try-later.cs; a case's argument picks how far the test goes, and each claim reads its own lines.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first RCPT is answered 451, which the send throws as a CurlException, error 55 SendError; the same send again is accepted 250, the rule has acted once and is spent, and ann holds one message.
+    program: try-later.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "first: refused, curl error 55 SendError: RCPT failed: 451\nsecond: SMTP 250\nrule f1 remaining: 0\nann@example.com holds 1\n"
+
+  - id: one-copy
+    claim: The refused send stored nothing and the retry stored one message; ann's INBOX holds exactly one, read from the store without a client.
+    program: try-later.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: 'second: SMTP 250\n.*ann@example\.com holds 1\n$'
+
+  - id: the-retry-is-the-copy
+    claim: The stored message is the second send's; its Received line names the EHLO name second, the second path segment.
+    program: try-later.cs
+    args: [received]
+    expect:
+      exit: 0
+      stdout-matches: 'ann@example\.com holds 1\nReceived: from second\n$'
+
+  - id: log-one-refusal
+    claim: The server's log, read from a StringWriter at verbose level, records the one RCPT that fault rule f1 answered, and that nothing was stored for it.
+    program: try-later.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout-matches: 'refusals logged: 1\n'
+
+  - id: log-one-stored
+    claim: The same log records exactly one message stored.
+    program: try-later.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout-matches: 'stored logged: 1\n$'
+
+  - id: refused-recipient-abandons-the-message
+    claim: With two recipients and the first one's RCPT answered 451 (the first of two answers), the send throws error 55 with 451 and the message is abandoned; the rule has one answer left.
+    program: try-later.cs
+    args: [abandon]
+    expect:
+      exit: 0
+      stdout: "first: refused, curl error 55 SendError: RCPT failed: 451\nrule f1 remaining: 1\nann@example.com holds 0\nbob@example.com holds 0\n"
+
+  - id: nothing-for-either
+    claim: Neither mailbox holds a message after the abandoned send.
+    program: try-later.cs
+    args: [abandon]
+    expect:
+      exit: 0
+      stdout-matches: 'ann@example\.com holds 0\nbob@example\.com holds 0\n$'
+
+  - id: allowfails-delivers-to-the-rest
+    claim: With MailRecipientAllowFails the same send, ann's RCPT answered 451 again (the second answer), goes on to bob and is accepted 250; the rule is spent.
+    program: try-later.cs
+    args: [allowfails]
+    expect:
+      exit: 0
+      stdout: "first: refused, curl error 55 SendError: RCPT failed: 451\nsecond: SMTP 250\nrule f1 remaining: 0\nann@example.com holds 0\nbob@example.com holds 1\n"
+
+  - id: bob-has-it-ann-does-not
+    claim: Bob's INBOX holds the message and ann's still holds none.
+    program: try-later.cs
+    args: [allowfails]
+    expect:
+      exit: 0
+      stdout-matches: 'ann@example\.com holds 0\nbob@example\.com holds 1\n$'
+
+  - id: spent-after-two
+    claim: The rule has answered twice, so a plain send to ann is accepted, and her INBOX then holds one message.
+    program: try-later.cs
+    args: [spent]
+    expect:
+      exit: 0
+      stdout: "first: refused, curl error 55 SendError: RCPT failed: 451\nsecond: SMTP 250\nthird: SMTP 250\nrule f1 remaining: 0\nann@example.com holds 1\nbob@example.com holds 1\n"
+
+  - id: reply-needs-text
+    claim: A rule whose reply is only a code, with no text, is refused when the server starts, as a SurlServerStartException whose first line is surl's own text.
+    program: try-later.cs
+    args: [bad-reply]
+    expect:
+      exit: 0
+      stdout: "start refused: FailedInit: option --fault: key reply does not fit the smtp error shape\n"

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-several-files-at-once]]
+=== Downloading Files in Parallel
+
+==== Problem
+
+You want to fetch a dozen files at once with `--parallel` and `--parallel-max`, and see from surl's log how many connections were open together.
+
+==== Solution
+
+Serve twelve files with `surl`, holding every answer for a second so transfers that run together overlap, and keep the server's trace. Fetch the files with one `curl` command that runs at most four transfers at a time. `peak.sh` does both, then reads the trace and prints the most connections open at once and the most requests being answered at once. It needs a POSIX shell (Git Bash on Windows); the `curl` options after the port and the glob are the ones under test:
+
+[source,sh]
+----
+include::peak.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` serves the folder of twelve files, and `-s` keeps the progress meter out of the output. `--fault "delay;stage=command;ms=1000"` makes `surl` hold every request for a second before it answers. It is a fault rule, so `surl` warns at start that the server misbehaves on purpose. Here it is a measuring aid: while a request is held it is still in flight, so transfers that run together overlap and the log can see them. `--trace-ascii trace.txt` writes the server's record as it happens: a line when a connection opens (`Exchange 1 opened`), a line when a request is held, one when it is answered, and a line when a connection ends. The two `awk` commands keep a running count over those lines, up at an open or a held request and down at an end or an answer, and print the highest it reached.
+
+On the `curl` side, `"f[1-12].txt"` is a glob, and `-o "got/f#1.txt"` names each file from the number it matched, with `--create-dirs` making `got`. `--parallel` runs the transfers side by side instead of one after another, and `--parallel-max 4` caps them at four. The log agrees: four requests were answered at once, never five. The connections are counted from the other end, and the count is claimed as four or five: which connection a transfer takes when one has just finished is curl's scheduling, not something to pin to one number. The other eight transfers start as slots free up. `diff` then compares the folder `surl` serves with the folder `curl` wrote and finds nothing different, leaving out `.surl`, where `surl` keeps its own state.
+
+Without `--parallel-max`, `--parallel` allows up to 50 transfers at once (<<curl-manual>>), so all twelve files run together. The trace shows more than four connections and more than four requests at once. The exact number is curl's scheduling, so it is claimed as a range. Without `--parallel`, `curl` fetches the files in turn over one kept-alive connection, so the trace shows one of each, and `--parallel-max 1` with `--parallel` is the same: the cap is a limit on transfers in flight, and one transfer in flight is serial. The serial cases fetch three files, since twelve held for a second each would take twelve seconds.
+
+Parallel transfers are more than speed. A server that limits connections per address answers the ones past its limit with an error, and `--parallel-max` is how a client stays under that limit; <<http-download-many-files-in-parallel>> shows what happens when it does not.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-several-files-at-once-in-csharp>> for the same task from .NET code.
+* <<http-download-several-files-at-once-from-an-agent>> for the same task from an agent.
+* <<http-download-many-files-in-parallel>> for fifty files against a server that limits connections.
+* <<http-download-a-numbered-series>> for the glob and `#1` without `--parallel`.
+* <<surl-readme>>, <<curl-manual>>.

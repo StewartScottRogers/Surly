@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs retrieve-and-delete.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: pop3-retrieve-and-delete-from-an-agent
+title: Retrieving and Deleting over POP3
+protocols: [pop3, imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, curl, list_messages, read_message, get_events, list_mailboxes]
+curl-options: [-s, -v, -u, -X, --next]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc1939]
+
+fixtures: {}
+
+# Every case runs retrieve-and-delete.cs: ann has two seeded messages, Lunch and Invoice 42, and a case's argument picks what the POP3 client does.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "The curl tool retrieves message 1 over POP3 (the Lunch message), deletes it with -X \"DELE 1\", exiting 0, and list_messages then shows one message left, UID 2, the invoice."
+    program: retrieve-and-delete.cs
+    args: [delete]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "RETR 1: Subject: Lunch\nDELE 1: curl exit 0\nlist_messages: 1 message(s), UIDs 2\n"
+
+  - id: list-before
+    claim: "Before any deletion a POP3 listing numbers two messages and list_messages shows UIDs 1 and 2."
+    program: retrieve-and-delete.cs
+    args: [list]
+    expect:
+      exit: 0
+      stdout-matches: "POP3 LIST: 1 <octets> \\| 2 <octets>\nlist_messages: 2 message\\(s\\), UIDs 1, 2\n"
+
+  - id: octets-agree
+    claim: "The octet counts POP3 lists are the sizes list_messages gives."
+    program: retrieve-and-delete.cs
+    args: [list]
+    expect:
+      exit: 0
+      stdout-matches: "octets agree with list_messages sizes: True\n$"
+
+  - id: retrieve-is-the-message
+    claim: "A message number in the URL retrieves that message (RETR): the text, with its CRLF line ends, is the one read_message gives."
+    program: retrieve-and-delete.cs
+    args: [retrieve]
+    expect:
+      exit: 0
+      stdout-matches: "RETR 1: From: bob@example\\.com/To: ann@example\\.com/Subject: Lunch//About Lunch\\./\nsame as read_message: True\n"
+
+  - id: retrieve-keeps-it
+    claim: "Retrieving deletes nothing: list_messages still shows both messages."
+    program: retrieve-and-delete.cs
+    args: [retrieve]
+    expect:
+      exit: 0
+      stdout-matches: "list_messages: 2 message\\(s\\), UIDs 1, 2\n$"
+
+  - id: renumbered
+    claim: "After the deletion POP3 numbers the survivor 1, while its UID in the store is still 2."
+    program: retrieve-and-delete.cs
+    args: [renumber]
+    expect:
+      exit: 0
+      stdout: "DELE 1: curl exit 0\nPOP3 LIST: 1 <octets>\nlist_messages: 1 message(s), UIDs 2\n"
+
+  - id: rset-undeletes
+    claim: "DELE 1, a listing and RSET in one curl session delete nothing: curl exits 0 and list_messages still shows both messages."
+    program: retrieve-and-delete.cs
+    args: [rset]
+    expect:
+      exit: 0
+      stdout: "DELE 1, LIST, RSET in one session: curl exit 0\nlist_messages: 2 message(s), UIDs 1, 2\n"
+
+  - id: delete-missing
+    claim: "Deleting a message number that is not there is answered -ERR No such message and curl exits 8; the store is unchanged."
+    program: retrieve-and-delete.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "DELE 5: curl exit 8, < -ERR No such message\nlist_messages: 2 message(s), UIDs 1, 2\n"
+
+  - id: deletion-is-an-event
+    claim: "The deletion is a store_changed event, change deleted, for ann@example.com/INBOX/;UID=1, which wait_for_event answers within its bound."
+    program: retrieve-and-delete.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: "event: deleted ann@example\\.com/INBOX/;UID=1\n"
+
+  - id: imap-sees-it
+    claim: "The deleted message is gone from the one store, so an IMAP STATUS through the curl tool answers MESSAGES 1, and list_mailboxes counts one message left."
+    program: retrieve-and-delete.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: "list_mailboxes: 1 message\\(s\\) left, seen in the same store\nIMAP: \\* STATUS INBOX \\(MESSAGES 1\\)\n$"

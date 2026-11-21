@@ -307,3 +307,44 @@ imap-keep-a-mailbox-off-smtp, imap-log-in-with-an-oauth-token, pop3-log-in-with-
 
 - Decided by Surl (2026-11-20): IMAP `LOGIN` and POP3 `USER`/`PASS` stay outside `--auth` and are governed by `--allow-plaintext-auth` alone (Surl ADR-0049 decision 1); `;protocols=` closes them. POP3 `TOP n` with no line count means 0 lines (ADR-0056 decision 5). A repeated list member is reported as "member X is given twice" everywhere (ADR-0101). Only `NOOP` and the commands ADR-0055 names report new mail (`EXISTS`) to an open IMAP session; FETCH, STORE, SEARCH, COPY and MOVE do not.
 smtp-forward-mail-with-an-alias, smtp-keep-mail-across-restarts, smtp-send-to-several-recipients, imap-fail-one-command (all with twins).
+
+## SMTP faults on recipients and connections, mail events (batch-08, 2026-11-21, Surl 9ad60d80c, Curl 7d167fa10a, windows)
+- `--fault "error;scheme=smtp;command=RCPT;path=bob@example.com;reply=550 5.1.1 mailbox unavailable"`: on an SMTP RCPT the `path` key is the
+  recipient's address, so the rule refuses that one address and no other (`times` optional). Surl.Api `SurlFault.ProtocolError(reply) with { Scheme
+  = "smtp", Command = "RCPT", Path = "bob@example.com" }`. A reply with no text (`reply=451`, `ProtocolError("451")`) is refused at start: exit 2
+  `surl: option --fault: key reply does not fit the smtp error shape` (Surl.Api `SurlServerStartException`, `ExitCode` FailedInit, `Lines[0]`
+  `option --fault: ...`; MCP start_server tool error, `exit_code` 2, `exit_code_name` FailedInit, `lines[0]`). `times=0` -> exit 2 `key times must be a whole number from 1 to 1000000`.
+- RCPT answered 451 with several recipients: curl abandons the message at the refused RCPT (exit 55, `451`, nothing stored, those named after it
+  never tried) unless `--mail-rcpt-allowfails` (exit 0, `250`, delivered to the accepted ones; `Message stored: N bytes for 1 recipients`). Curl.Api: `CurlException`
+  `SendError` (55) `RCPT failed: 451`; with `MailRecipientAllowFails = true` the send returns 250. A `times=2` rule spent over two sends: the 3rd is accepted.
+- curl URL glob `smtp://h:p/{first,second}` with `-T file`: two sends in one command (`-w` prints per transfer, exit = the last's); the path names the EHLO name, so the
+  stored message's `Received: from second` shows which send was stored.
+- `drop;scheme=smtp;times=1` (accept stage, before the greeting): verify's readiness connection would spend it, so the server uses `ready: none` (schema 2 recipe) and
+  a `seed:` line waits for another listener on the same surl, listed LAST so the SMTP port is bound by then: `curl -s --retry 30 --retry-connrefused --retry-delay 1
+  -X NOOP imap://127.0.0.1:{{port2}}/` (exit 0 with no login). curl: exit 56 (`curl: (56) response reading failed (errno: 0)` on Windows; match `curl: (56)`), `-w
+  %{response_code}` `000`; `--retry N` alone does not retry it (`000 0`), `--retry 1 --retry-all-errors --retry-delay 1` does (`250 1`). Curl.Api: `CurlException`
+  `RecvError` (56). In-process (Surl.Api) and MCP `add_fault` have no readiness connection, so `Times = 1` is safe there.
+- `drop;scheme=smtp;stage=command;command=DATA;times=1`: the drop comes before the message is accepted (nothing stored; curl exit 56, `%{response_code}` still 250
+  from the earlier reply; the retry stores one copy; log `DATA dropped the connection, unanswered, by fault rule f1.`). `command=QUIT`: after `Message stored` and the 250;
+  curl exits 0, no retry, one copy (a sender that resent would leave two). `command=MAIL`: curl 56, nothing stored. The default log has `* Exchange N opened: smtp from ...`
+  per connection, also for the accept-dropped one: `grep -c "opened: smtp"` counts connections.
+- SmtpClient, one refused recipient of three (550, `path=`): `SmtpFailedRecipientException`, `FailedRecipient` `<bob@example.com>`, StatusCode MailboxUnavailable, the others
+  ARE delivered. Two refused: `SmtpFailedRecipientsException` (`InnerExceptions` each with `FailedRecipient`), the third delivered. A 451 for one of three: plain
+  `SmtpException` LocalErrorInProcessing, message `Error in processing. The server response was: 4.3.0 try later`, NOBODY gets the message. Only recipient refused: nothing delivered.
+- Surl.Api events: `server.OnEvent(query, (e, ct) => ValueTask)` calls run one at a time in order; a throwing callback does not stop the delivery, other callbacks or the
+  next delivery; Dispose stops that callback only. `StoreChangedEvent`: `Change` Delivered (SMTP), Seeded (`Mail.DeliverAsync`, name `ann@example.com/INBOX/;UID=1`), Reset
+  (`ResetAsync`, empty `Name`), also Written, Deleted ...; `ByteCount` equals the stored message length (with Return-Path/Received), `ExchangeId` set for SMTP deliveries,
+  `Account` EMPTY for a delivery, `Sequence`, `At`. `SurlEventQuery.Name = "ann@example.com"` matches by segments (bob's mail does not run it). A callback may call
+  `server.Mail.DeliverAsync` (a Seeded event; filter by Name to avoid reacting to itself). `FindEvents` needs `RecordExchanges = true` (else InvalidOperationException);
+  a witness callback is the alternative. Mail to an in-domain unknown address: no event. `server.WaitForEventAsync(query, TimeSpan, ct)` exists.
+- MCP: `list_messages` -> `{messages:[{uid,size,flags:["\Seen"],internal_date}],has_more}`; the flag string is `\Seen` (one backslash); a curl IMAP fetch of `INBOX;UID=1` sets it, an
+  APPEND (`-T file imap://h:p/Sent`) stores `\Seen`, seed_mail stores no flag. `list_mailboxes` lists mailboxes in ordinal name order with `uid_validity` positive and stable (Archive,
+  Drafts, INBOX, Sent for `folders=Sent,Drafts,Archive`); bare `ann` or unknown owner: tool error `No mailboxes for ann.`; `reset_server` keeps the folders, empties the mail.
+- MCP POP3 deleting: no delete tool; `-X "DELE 1" pop3://h:p/` through the curl tool deletes at the end of that curl run (QUIT); the store shows it at once, and a `store_changed`
+  event `change` `deleted`, `name` `ann@example.com/INBOX/;UID=1` follows (wait_for_event after_sequence). `DELE 1 --next LIST --next RSET` in one run deletes nothing. After a deletion
+  POP3 numbers the survivor 1 while its UID is 2. POP3 LIST octets equal `list_messages` `size` for CRLF messages. `DELE 5` missing: curl 8, `< -ERR No such message` (with -v).
+  `RETR` text equals `read_message` `text` (CRLF). One surl-mcp with `pop3://...:0` and `imap://...:0` lists both in `bound_urls` in that order; IMAP `STATUS` after the deletion says MESSAGES 1.
+- MCP `wait_for_event` after_sequence pattern for bounded waits: keep the last `event.sequence`; `timed_out` true means nothing came.
+- Cases of one program (C# and MCP recipes) repeat per claim with `stdout-matches` regexes; write them with json.dumps so YAML escapes survive (a regex dot is
+  `\.` in a double-quoted YAML string, i.e. two backslashes in the file). To match a flag `Seen` preceded by a backslash use `.Seen`. A regex lookahead pair `^(?=.*a)(?=.*\nb)` checks two lines whose order is not fixed (two callbacks).
+smtp-answer-try-later, smtp-resend-after-a-dropped-connection (both with twins), smtp-fail-delivery-for-one-recipient, smtp-collect-mail-with-an-event-callback, imap-list-mailboxes-and-counts-from-an-agent, pop3-retrieve-and-delete-from-an-agent (batch-08).

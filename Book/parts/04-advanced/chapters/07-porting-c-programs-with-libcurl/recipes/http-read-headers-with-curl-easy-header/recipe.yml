@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-read-headers-with-curl-easy-header
+title: Reading Headers with curl_easy_header
+protocols: [http]
+tier: advanced
+surface: csharp
+surl-options: [--directory]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlEasy, CurlOption, WriteCallback, CurlCode, CurlErrorText, CurlEasyHeaders, CurlHeader, CurlHeaderOrigin, CurlHeaderCode]
+exit-codes: [0, 7]
+references: [surl-readme, libcurl-api, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The program is only the client: the server is a surl process serving one folder.
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a GET of a served file, curl_easy_header finds Content-Type text/plain by name, as the one header of that name (amount 1, index 0), and curl_easy_nextheader walks every response header in the order surl sent them; Date, Server, Last-Modified, Content-Type, Content-Length.
+    program: headers.cs
+    args: ["http://127.0.0.1:{{port}}/hello.txt", "Content-Type"]
+    expect:
+      exit: 0
+      stdout: "before perform: 3 NoHeaders\nContent-Type: Content-Type: text/plain (amount 1, index 0)\nServer index 1: 1 BadIndex\nServer request 5: 4 NoRequest\nwalk: Date\nwalk: Server: surl\nwalk: Last-Modified\nwalk: Content-Type: text/plain\nwalk: Content-Length: 16\n"
+
+  - id: name-is-case-insensitive
+    claim: The name is matched without regard to case; content-length finds Content-Length, and the header comes back with the name as the server spelled it.
+    program: headers.cs
+    args: ["http://127.0.0.1:{{port}}/hello.txt", "content-length"]
+    expect:
+      exit: 0
+      stdout-matches: '\ncontent-length: Content-Length: 16 \(amount 1, index 0\)\n'
+
+  - id: missing-header
+    claim: A header the response does not carry is CURLHE_MISSING, 2; surl sends no ETag.
+    program: headers.cs
+    args: ["http://127.0.0.1:{{port}}/hello.txt", "ETag"]
+    expect:
+      exit: 0
+      stdout-matches: '\nETag: 2 Missing\n'
+
+  - id: no-headers-before-perform
+    claim: Before the handle has made a transfer, curl_easy_header answers CURLHE_NOHEADERS, 3; past the last index of a name it is CURLHE_BADINDEX, 1, and for a request the handle never made CURLHE_NOREQUEST, 4.
+    program: headers.cs
+    args: ["http://127.0.0.1:{{port}}/hello.txt"]
+    expect:
+      exit: 0
+      stdout-matches: '^before perform: 3 NoHeaders\nServer index 1: 1 BadIndex\nServer request 5: 4 NoRequest\n'
+
+  - id: not-found
+    claim: A 404 is still a transfer with headers; it has no Content-Type (CURLHE_MISSING) and the walk finds Date, Server and Content-Length 0.
+    program: headers.cs
+    args: ["http://127.0.0.1:{{port}}/missing.txt", "Content-Type"]
+    expect:
+      exit: 0
+      stdout-matches: '\nContent-Type: 2 Missing\n(?:.*\n)*walk: Date\nwalk: Server: surl\nwalk: Content-Length: 0\n$'
+
+  - id: nothing-listening
+    claim: A port nothing listens on is CURLE_COULDNT_CONNECT, 7, and the program reads no headers.
+    program: headers.cs
+    args: ["http://127.0.0.1:1/hello.txt", "Content-Type"]
+    expect:
+      exit: 7
+      stdout: "before perform: 3 NoHeaders\n"
+      stderr-contains: "curl_easy_perform() failed: Could not connect to server"

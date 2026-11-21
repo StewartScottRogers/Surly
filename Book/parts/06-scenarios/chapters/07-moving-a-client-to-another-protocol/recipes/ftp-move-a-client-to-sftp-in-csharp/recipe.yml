@@ -1,0 +1,118 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-move-a-client-to-sftp-in-csharp
+title: Moving a Client from FTP to SFTP
+protocols: [ftp, sftp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlException, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlSshOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+# A host key for the SSH side, made here and never kept as a fixture.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: One in-process server serves the same 3,000-byte report over FTP and over SFTP; the two copies are identical to each other and to the server's, and the log holds one FTP login and one SFTP login; exit 0.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "over ftp: 3000 bytes\nover sftp: 3000 bytes\nthe two copies are identical to each other and to the server's\nftp logins recorded: 1\nsftp logins recorded: 1\n"
+
+  - id: old-login-recorded
+    claim: The server's log, taken through SurlServerOptions.Log at LogLevel.Verbose, records the FTP login as accepted for alice, once, the old client's.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nftp logins recorded: 1\n'
+
+  - id: new-login-recorded
+    claim: The log records the SFTP login as a password login for alice, once, the new client's, so the record tells the two apart.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsftp logins recorded: 1\n$'
+
+  - id: same-size
+    claim: Both transfers return the 3000 bytes the file holds.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^over ftp: 3000 bytes\nover sftp: 3000 bytes\n'
+
+  - id: ftp-listing
+    claim: A GET on the root folder lists its names over FTP, in order; the program reads the last word of each line of the long listing.
+    program: move.cs
+    args: [listing]
+    expect:
+      exit: 0
+      stdout-matches: '^ftp: notes\.txt report\.bin\n'
+
+  - id: sftp-listing
+    claim: The same request over SFTP lists the same names in the same order.
+    program: move.cs
+    args: [listing]
+    expect:
+      exit: 0
+      stdout-matches: '\nsftp: notes\.txt report\.bin\n$'
+
+  - id: missing-file
+    claim: A missing file throws a CurlException with code RemoteFileNotFound, 78, over both protocols, so a handler that catches it survives the move.
+    program: move.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "ftp: 78 RemoteFileNotFound\nsftp: 78 RemoteFileNotFound\n"
+
+  - id: wrong-password
+    claim: A wrong password throws a CurlException with code LoginDenied, 67, over both protocols.
+    program: move.cs
+    args: [password]
+    expect:
+      exit: 0
+      stdout: "ftp: 67 LoginDenied\nsftp: 67 LoginDenied\n"
+
+  - id: host-key-pinned
+    claim: SFTP can be pinned to the server's host key with CurlSshOptions.HostPublicKeySha256, worked out from host_key.pub; with the right fingerprint the report arrives identical. FTP has nothing to pin.
+    program: move.cs
+    args: [pin]
+    expect:
+      exit: 0
+      stdout: "pinned sftp: 3000 bytes\nidentical to the server's\n"
+
+  - id: wrong-host-key
+    claim: A fingerprint that is not the server's throws a CurlException with code PeerFailedVerification, 60.
+    program: move.cs
+    args: [wrong-pin]
+    expect:
+      exit: 0
+      stdout: "pinned sftp: 60 PeerFailedVerification\n"
+
+  - id: cutover-refuses-ftp
+    claim: On a server started without AllowPlaintextAuthentication the old client's password is refused, even the right one, and the GET throws LoginDenied, 67.
+    program: move.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '^ftp: 67 LoginDenied\n'
+
+  - id: cutover-serves-sftp
+    claim: The new client is unaffected on the same server, and the report it fetches is identical to the server's.
+    program: move.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\nsftp: 3000 bytes\nidentical to the server''s\n$'

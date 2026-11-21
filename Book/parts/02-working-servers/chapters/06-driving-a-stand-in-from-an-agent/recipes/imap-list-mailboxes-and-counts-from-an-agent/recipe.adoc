@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-list-mailboxes-and-counts-from-an-agent]]
+=== Listing Mailboxes and Counts
+
+==== Problem
+
+You want an agent to report each mailbox of an account on an Internet Message Access Protocol (IMAP) stand-in, with its message count and its unread count, using `list_mailboxes`, and to trust the numbers while mail arrives and is read.
+
+==== Solution
+
+The agent starts `surl-mcp` with an account that has three folders, seeds three orders into its `INBOX`, files two sent mails with the `curl` tool of `curl-mcp`, and asks `list_mailboxes` for the account. The program takes the case to run as its argument; the first case, `report`, prints the report:
+
+include::report.cs[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `imap://127.0.0.1:0` for a free port, and `arguments`, which are `surl`{apos}s own words: `--mail-domain example.com` and a `--mailbox` for each account. `--mailbox "ann@example.com:annpass;folders=Sent,Drafts,Archive"` gives Ann three folders besides her `INBOX`, and Bob, with no `folders=`, gets an `INBOX` alone (<<surl-readme>>). The answer carries the `server_id` and the `bound_urls`.
+
+`list_mailboxes` takes the `server_id` and the `owner`, which is the whole address, `ann@example.com`, as in `--mailbox`. It answers `mailboxes`, one entry for each mailbox in name order, with the `name`, the `message_count`, the `unseen_count` and the `uid_validity`. Ann{apos}s report is `Archive` and `Drafts` empty, `INBOX` with three messages all unseen and `Sent` with two messages none unseen; the empty folders are listed as they were made, before any mail is filed. A mailbox{apos}s `uid_validity` is a positive number that stays the same from one call to the next, the value that tells an IMAP client its saved unique identifiers (UIDs) are still good (<<rfc9051>>). An owner that has no mailbox, the bare name `ann` or an address nobody has, is a tool error whose text is `No mailboxes for` the owner; the agent should pass the address.
+
+The counts come from the store, so they have to be read after the mail has arrived. `seed_mail` puts a message into a mailbox as SMTP would, and the delivery is an event: the program calls `wait_for_event` with `kinds` `store_changed`, the `after_sequence` of the last event it saw and a `timeout_ms` of ten seconds after each seed, so a message that does not arrive fails the run instead of hanging it. The seeded orders are new, so they are unseen. The two mails in `Sent` come from the `curl` tool, which runs `curl`{apos}s own arguments (<<curl-manual>>): `-u` is Ann{apos}s login, `-T sent1.eml` uploads a file from the folder `curl-mcp` is confined to, and the IMAP URL ends in the folder, `Sent`, which makes `curl` send an `APPEND`. An appended message is stored as seen, so `Sent` has two messages and none unseen. `-s` keeps the progress meter out.
+
+Reading changes the unread count, and how it is read matters. When the `curl` tool fetches `INBOX;UID=1` the server sets `\Seen` on the message, and `list_mailboxes` then says three messages and two unseen. `list_messages` shows the same thing a message at a time: each entry has its `uid` and its `flags`, and the flags of the three orders are `\Seen`, none and none, while both messages in `Sent` have `\Seen`. The unseen count is the number of messages without `\Seen`. `read_message` is different: it gives the agent the exact text of message 2 and sets no flag, so the `INBOX` still has three messages and three unseen. An agent that reports counts without wanting to change them reads with `read_message`.
+
+The account is the unit, not the server: Bob{apos}s report is an `INBOX` with no messages, and Ann{apos}s is unchanged. `reset_server` returns the server{apos}s mail to its state at the start: after it Ann{apos}s four mailboxes are still listed, each with no messages and none unseen.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-check-unread-counts-from-an-agent>> for the same counts compared with `STATUS` over IMAP.
+* <<imap-start-a-mailbox-with-folders-from-an-agent>> for how the folders are made.
+* <<smtp-seed-mail-from-an-agent>> for seeding mail and waiting for it.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-answer-try-later-from-an-agent]]
+=== SMTP Try-Later Replies from an Agent
+
+==== Problem
+
+Your mailer must keep a message and retry when the server says `451`, try later, and you want your agent to start a Simple Mail Transfer Protocol (SMTP) server that answers one recipient command with that temporary error and then accepts the retry, and to see what the server did.
+
+==== Solution
+
+The agent starts `surl-mcp` with a fault rule on `RCPT`, sends the same mail twice with the `curl` tool of `curl-mcp`, and reads what the server kept with `surl-mcp`{apos}s own tools. The program takes the case to run as its argument; the first case, `retry`, is the retry itself:
+
+include::try-later.cs[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `smtp://127.0.0.1:0` for a free port, and `arguments`, which are `surl`{apos}s own words: `--mail-domain example.com`, a `--mailbox` for the app, Ann and Bob, and `--fault "error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=1"`. `error` answers a command with the reply the rule names instead of carrying it out, `command=RCPT` limits the rule to the recipient command, and `times=1` spends it after one answer (<<surl-readme>>). The answer carries the `server_id` and the `bound_urls`. A reply must be a code and text: with `reply=451` alone `start_server` is a tool error, and its structured answer has `exit_code` `2`, `exit_code_name` `FailedInit` and `lines` whose first entry is `option --fault: key reply does not fit the smtp error shape`.
+
+A reply that starts with `4` is a temporary failure, and the client keeps the message and tries again later (<<rfc5321>>). The app is the `curl` tool, which runs `curl`{apos}s own arguments (<<curl-readme>>): `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T order.eml` the message from the folder `curl-mcp` is confined to, `--crlf` turns line feeds into the carriage return and line feed a message is made of, `-s` keeps the progress meter out, and `-w "%{response_code}"` puts the server{apos}s last reply in `standardOutput`. The URL{apos}s path is the name the client gives in its greeting. The first send answers `exitCode` `55` with reply `451`; the same send again answers `exitCode` `0` with reply `250`. A failing `curl` call still answers its JSON, so the agent reads `exitCode` and the reply rather than relying on `isError`.
+
+What the server kept is read without a client. `list_mailboxes` with the owner `ann@example.com` gives each mailbox with its `message_count`: one, the refused send having stored none. `read_message` gives the stored message as `text`, and its `Received` line names `second`, the greeting name of the retry. `list_faults` gives the rule with its `fault_id`, `f1`, and `remaining`: `0` once spent, `1` after one answer of two. `get_events` with `kinds` `fault_applied` shows the rule acted once, and with `store_changed` shows one message stored; `get_exchanges` for `smtp` has the bytes of the conversation, and the `451 4.3.0 try later` is in them once.
+
+Mail is delivered asynchronously, so the agent does not read the store at once after an accepted send. `wait_for_event` with `kinds` `store_changed`, the `after_sequence` of the last delivery it saw and a `timeout_ms` of ten seconds answers with the delivery event, or with `timed_out` true if none comes, so a lost message fails the test rather than hanging it. A refused send delivers nothing, so it does not wait.
+
+The refusal hits one recipient command, and what the send does with the rest of the message depends on one `curl` option. A second server answers the first two `RCPT` commands `451`, `times=2`. Sent to Ann and Bob, in that order, the message is abandoned: Ann{apos}s `RCPT` is refused, `curl` exits `55` with reply `451`, one answer is left on the rule, and neither mailbox holds anything. With `--mail-rcpt-allowfails` the same send carries on after Ann{apos}s refusal, the rule{apos}s second answer; Bob{apos}s `RCPT` is accepted, `curl` exits `0` with reply `250`, and the message is in Bob{apos}s mailbox alone. A mailer that sends to several people has to remember who was refused, since the server will not say so again. The rule is now spent, and a plain send to Ann is accepted: her `INBOX` holds one message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-answer-try-later>> for the same test on the console.
+* <<smtp-answer-try-later-in-csharp>> for the same test in C#.
+* <<smtp-survive-a-temporary-rcpt-failure-from-an-agent>> for an agent that retries on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>.

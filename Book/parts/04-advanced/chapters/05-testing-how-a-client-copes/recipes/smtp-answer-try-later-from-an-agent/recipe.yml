@@ -1,0 +1,108 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs try-later.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-answer-try-later-from-an-agent
+title: SMTP Try-Later Replies from an Agent
+protocols: [smtp]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_faults, list_mailboxes, read_message, get_events, get_exchanges]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, --mail-rcpt-allowfails, -T, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc5321]
+
+fixtures:
+  order.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Order 1042 has shipped\r\n\r\nYour order is on its way.\r\n"
+
+# Every case runs try-later.cs; a case's argument picks how far the test goes, and each claim reads its own lines.
+cases:
+  - id: solution
+    role: solution
+    claim: "The first RCPT is answered 451, so the curl tool's send exits 55 with reply 451; the same send again exits 0 with reply 250, the rule is spent after acting once, and ann has one message."
+    program: try-later.cs
+    args: [retry]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "first: curl exit 55, reply 451\nsecond: curl exit 0, reply 250\nlist_faults: f1 remaining 0\nlist_mailboxes: ann@example.com holds 1\n"
+
+  - id: one-copy
+    claim: "The refused send stored nothing and the retry stored one message; list_mailboxes shows ann's INBOX holding exactly one, read without a client."
+    program: try-later.cs
+    args: [retry]
+    expect:
+      exit: 0
+      stdout-matches: "second: curl exit 0, reply 250\n.*ann@example\\.com holds 1\n$"
+
+  - id: the-retry-is-the-copy
+    claim: "The stored message is the second send's; read_message shows a Received line naming the EHLO name second, the second path segment."
+    program: try-later.cs
+    args: [received]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 1\nReceived: from second\n$"
+
+  - id: one-refusal-on-record
+    claim: "get_events shows one fault_applied event, for rule f1, and get_exchanges shows the 451 sent once on the wire."
+    program: try-later.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: "get_events: 1 fault_applied, rule f1\n"
+
+  - id: one-stored
+    claim: "get_events shows exactly one store_changed event, one message stored."
+    program: try-later.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: "get_events: 1 store_changed\nget_exchanges: 1 451 sent\n$"
+
+  - id: refused-recipient-abandons-the-message
+    claim: "With two recipients and the first one's RCPT answered 451 (the first of two answers), the send exits 55 with reply 451 and the message is abandoned; the rule has one answer left."
+    program: try-later.cs
+    args: [abandon]
+    expect:
+      exit: 0
+      stdout: "first: curl exit 55, reply 451\nlist_faults: f1 remaining 1\nlist_mailboxes: ann@example.com holds 0\nlist_mailboxes: bob@example.com holds 0\n"
+
+  - id: nothing-for-either
+    claim: "Neither mailbox holds a message after the abandoned send."
+    program: try-later.cs
+    args: [abandon]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 0\nlist_mailboxes: bob@example\\.com holds 0\n$"
+
+  - id: allowfails-delivers-to-the-rest
+    claim: "With --mail-rcpt-allowfails the same send, ann's RCPT answered 451 again (the second answer), goes on to bob and exits 0 with reply 250; the rule is spent."
+    program: try-later.cs
+    args: [allowfails]
+    expect:
+      exit: 0
+      stdout: "first: curl exit 55, reply 451\nsecond: curl exit 0, reply 250\nlist_faults: f1 remaining 0\nlist_mailboxes: ann@example.com holds 0\nlist_mailboxes: bob@example.com holds 1\n"
+
+  - id: bob-has-it-ann-does-not
+    claim: "Bob's INBOX holds the message and ann's still holds none."
+    program: try-later.cs
+    args: [allowfails]
+    expect:
+      exit: 0
+      stdout-matches: "ann@example\\.com holds 0\nlist_mailboxes: bob@example\\.com holds 1\n$"
+
+  - id: spent-after-two
+    claim: "The rule has answered twice, so a plain send to ann is accepted, and her INBOX then holds one message."
+    program: try-later.cs
+    args: [spent]
+    expect:
+      exit: 0
+      stdout: "first: curl exit 55, reply 451\nsecond: curl exit 0, reply 250\nthird: curl exit 0, reply 250\nlist_faults: f1 remaining 0\nlist_mailboxes: ann@example.com holds 1\nlist_mailboxes: bob@example.com holds 1\n"
+
+  - id: reply-needs-text
+    claim: "A rule whose reply is only a code, with no text, is refused by start_server as a tool error with exit code 2, FailedInit, and surl's own text."
+    program: try-later.cs
+    args: [bad-reply]
+    expect:
+      exit: 0
+      stdout: "start refused: 2 FailedInit: option --fault: key reply does not fit the smtp error shape\n"

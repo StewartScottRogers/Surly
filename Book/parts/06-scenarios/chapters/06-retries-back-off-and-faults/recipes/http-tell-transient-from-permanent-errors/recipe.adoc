@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-transient-from-permanent-errors]]
+=== Telling Transient from Permanent Errors
+
+==== Problem
+
+Your client{apos}s retry policy should try again after a failure that may pass, such as `503 Service Unavailable` (<<rfc9110>>), and give up at once on one that will not, such as `404 Not Found`. You want a Hypertext Transfer Protocol (HTTP) server that gives both answers, and a few more, so a test can show which ones the client retries.
+
+==== Solution
+
+Give `surl` `--fault` rules that answer some paths with chosen error statuses, and fetch each path with the same `curl -f --retry 2` command; the checked claims below then count, in `surl`{apos}s log, how often each path was asked for:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Each `--fault "error;scheme=http;reply=<status>;path=<path>"` rule answers requests for its path with that status instead of serving the file; `scheme=http` says the reply is an HTTP status, and `times=1` spends a rule after one answer. Rules are numbered in the order given: `f1` makes `/report.txt` busy, `503`, for one request; `f2` answers `/broken.txt` `500 Internal Server Error` every time; `f3` answers `/locked.txt` `403 Forbidden` every time; `f4` makes `/later.txt` busy once. `/missing.txt` needs no rule: it is not in `site`, the folder `--directory site` serves, so the server answers `404` as it would anyway. The quotes keep the semicolons from the shell.
+
+`curl --retry 2` allows two retries after a failure `curl` counts as transient: a timeout, or one of the statuses `408`, `429`, `500`, `502`, `503` and `504` (<<curl-manual>>). `--retry-delay 1` waits one second before each retry, and `-f` makes an error status a failure, exit `22`, instead of a page to save. `-s` keeps `curl` quiet, and `-w "%{http_code} %{num_retries}\n"` prints the last status and the retries made.
+
+So the same options meet four outcomes. The `503` is retried once and the file arrives, exit `0`, `200 1`. The `404` and the `403` are final at once: exit `22`, `404 0` and `403 0`. The `500` is transient to `curl` but stays: both retries meet it, and `curl` gives up with `22`, `500 2`. A test that checks only the exit code cannot tell the `500` from the `404`; the retry count can.
+
+The server keeps its own account. `-v` sets the log level to verbose, which logs each request line and what the server did with it, and `--log-file surl.log` writes the log to a file. It holds two requests for `/report.txt`, one each for `/missing.txt` and `/locked.txt`, and three `500` answers by rule `f2` for `/broken.txt`. Counting the requests per path is how a test proves a client did not hammer a server over a permanent error.
+
+`--retry-all-errors` drops the distinction: every failure becomes worth a retry, so the `404` is asked for three times and still ends in `22`, `404 2`. For a `503` it changes nothing; the retry is made either way. It suits a server known to fail in odd ways, not a client meant to tell a passing failure from a lasting one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-transient-from-permanent-errors-in-csharp>> for the same test from a C# program.
+* <<http-tell-transient-from-permanent-errors-from-an-agent>> for the same test from an agent.
+* <<http-retry-a-flaky-endpoint>> for the back-off between retries.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

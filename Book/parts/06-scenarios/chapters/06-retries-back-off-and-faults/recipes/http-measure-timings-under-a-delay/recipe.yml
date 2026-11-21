@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-measure-timings-under-a-delay
+title: Measuring Timings Under a Delay
+protocols: [http]
+tier: scenarios
+surl-options: [--directory, --fault, -v, --log-file]
+curl-options: [-s, -o, -w, -m, --next]
+exit-codes: [0, 28]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  site/slow/report.txt: "report ready\n"
+  site/slowness.txt: "not under /slow\n"
+
+# One server: every request under /slow is held 1.5 s before it is answered; every other path is
+# answered at once. The rule acts at the command stage, once the request has arrived, so the
+# readiness check, which sends nothing, is not held. It has no times, so it is never spent.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --fault "delay;stage=command;ms=1500;path=/slow" http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: After an untimed warm-up request for /hello.txt, the request for /slow/report.txt reuses the connection (time_connect 0), is sent in under a second (time_pretransfer) and gets its first byte back only after the 1.5 s hold (time_starttransfer at least 1.5); the whole transfer (time_total) is no shorter.
+    run: curl -s -o {{null}} http://127.0.0.1:{{port}}/hello.txt -o {{null}} -w "%{url.path} connect %{time_connect} pretransfer %{time_pretransfer} starttransfer %{time_starttransfer} total %{time_total}\n" http://127.0.0.1:{{port}}/slow/report.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: "/slow/report\\.txt connect 0\\.000000 pretransfer 0\\.\\d{6} starttransfer (1\\.[5-9]|[2-9]\\.)\\d+ total (1\\.[5-9]|[2-9]\\.)\\d+\\n$"
+
+  - id: fast-path
+    claim: The same measurement for a path the rule does not cover gets its first byte back in under a second.
+    run: curl -s -o {{null}} http://127.0.0.1:{{port}}/hello.txt -o {{null}} -w "%{url.path} starttransfer %{time_starttransfer}\n" http://127.0.0.1:{{port}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: "/hello\\.txt starttransfer 0\\.\\d{6}\\n$"
+
+  - id: whole-segments
+    claim: path=/slow matches whole segments, so /slowness.txt is not held either.
+    run: curl -s -o {{null}} http://127.0.0.1:{{port}}/hello.txt -o {{null}} -w "%{url.path} starttransfer %{time_starttransfer}\n" http://127.0.0.1:{{port}}/slowness.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: "/slowness\\.txt starttransfer 0\\.\\d{6}\\n$"
+
+  - id: over-budget
+    claim: A one-second budget on the slow request, -m 1 after --next so the warm-up is not timed, ends it with exit 28 and status 000.
+    run: curl -s -o {{null}} http://127.0.0.1:{{port}}/hello.txt --next -s -m 1 -o {{null}} -w "%{http_code} %{exitcode}\n" http://127.0.0.1:{{port}}/slow/report.txt
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "000 28\n"
+
+  - id: within-budget
+    claim: The same budget on the fast path is met, status 200, exit 0.
+    run: curl -s -o {{null}} http://127.0.0.1:{{port}}/hello.txt --next -s -m 1 -o {{null}} -w "%{http_code} %{exitcode}\n" http://127.0.0.1:{{port}}/hello.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "200 0\n"
+
+  - id: server-held
+    claim: The server's verbose log names the rule each time it held a request under /slow, the one curl gave up on included.
+    run: grep -c "GET held for 1.5 s by fault rule f1" surl.log
+    expect:
+      exit: 0
+      stdout: "2\n"

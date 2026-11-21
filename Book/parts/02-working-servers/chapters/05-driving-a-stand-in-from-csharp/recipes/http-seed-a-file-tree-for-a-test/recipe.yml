@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-seed-a-file-tree-for-a-test
+title: Seeding a File Tree for a Test
+protocols: [http, ftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFolderPage, SurlFolderEntry, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: []
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Files.PutAsync called after the server has started builds a tree three folders deep, and an HTTP client gets every file at once, each 200 with the bytes that were put."
+    program: program.cs
+    args: ["solution"]
+    expect:
+      exit: 0
+      stdout: "/readme.txt: 200 10 bytes\n/reports/2026/q1.csv: 200 22 bytes\n/reports/2026/q2.csv: 200 22 bytes\n/reports/2027/plan.txt: 200 10 bytes\n/reports/index.txt: 200 8 bytes\n"
+
+  - id: list-tree
+    claim: "The folders were made by the files in them: Files.ListAsync walks the tree one level at a time, in name order, a folder as IsFolder and a file with its ByteCount."
+    program: program.cs
+    args: ["list"]
+    expect:
+      exit: 0
+      stdout: "readme.txt (10 bytes)\nreports/\n  2026/\n    q1.csv (22 bytes)\n    q2.csv (22 bytes)\n  2027/\n    plan.txt (10 bytes)\n  index.txt (8 bytes)\n"
+
+  - id: ftp-listing
+    claim: "An FTP client lists the same tree: the root, a folder and a folder inside it, each as the names that were put."
+    program: program.cs
+    args: ["ftp-listing"]
+    expect:
+      exit: 0
+      stdout: "/: readme.txt reports/\n/reports/: 2026/ 2027/ index.txt\n/reports/2026/: q1.csv q2.csv\n"
+
+  - id: ftp-file
+    claim: "An FTP client downloads a file from the nested folder, byte for byte."
+    program: program.cs
+    args: ["ftp-file"]
+    expect:
+      exit: 0
+      stdout: "region,total\nnorth,10\n"
+
+  - id: http-folder
+    claim: "HTTP serves no page for a folder: asked for /reports/ or /reports/2026/, it answers 404."
+    program: program.cs
+    args: ["http-folder"]
+    expect:
+      exit: 0
+      stdout: "/reports/: 404\n/reports/2026/: 404\n"
+
+  - id: overwrite
+    claim: "Putting a path that already exists replaces its content, and the next fetch gets the new text."
+    program: program.cs
+    args: ["overwrite"]
+    expect:
+      exit: 0
+      stdout: "revised\n"
+
+  - id: relative-path
+    claim: "A path without its leading slash is refused with an ArgumentException that names NotRooted."
+    program: program.cs
+    args: ["relative"]
+    expect:
+      exit: 0
+      stdout: "ArgumentException: The request path is not one a request may name (NotRooted). (Parameter 'requestPath')\n"
+
+  - id: ftp-needs-anonymous
+    claim: "Without AllowAnonymous the same tree is still served over HTTP, which serves GET with no login, but an FTP client is refused: CurlException 67, LoginDenied."
+    program: program.cs
+    args: ["no-login"]
+    expect:
+      exit: 0
+      stdout: "HTTP: 200\nCurlException 67 LoginDenied\n"
+
+  - id: ftp-listing-off
+    claim: "With ListDirectories off, Files.ListAsync still lists the store, but an FTP listing of a folder fails with CurlException 19, FtpCouldntRetrFile."
+    program: program.cs
+    args: ["listings-off"]
+    expect:
+      exit: 0
+      stdout: "2026/\n  q1.csv (22 bytes)\n  q2.csv (22 bytes)\n2027/\n  plan.txt (10 bytes)\nindex.txt (8 bytes)\nCurlException 19 FtpCouldntRetrFile\n"
+

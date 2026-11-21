@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-resend-after-a-dropped-connection-in-csharp]]
+=== Resending After a Dropped Connection in C#
+
+==== Problem
+
+Your app sends mail over Simple Mail Transfer Protocol (SMTP), and the first connection to the server is dropped before the server says a word. You want a C# test in which the sender connects again and sends the message, and which proves exactly one copy was delivered.
+
+==== Solution
+
+Start a `SurlServer` with a fault rule that drops the first SMTP connection, send with `Curl.Api`, try again after an error, and count what the server{apos}s store holds. The program takes the case to run as its argument; the first case, with no argument, is the resend itself:
+
+include::resend.cs[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `smtp://` listen URL on port `0`, `MailDomains` for `--mail-domain example.com`, and a `Mailboxes` entry, `--mailbox`, for the app and for Ann. `Faults` holds the fault rules, `--fault`. `SurlFault.DropConnection()` is `drop`, which closes a connection without answering; with no stage it acts when the connection is accepted, before the greeting, and `with { Scheme = "smtp", Times = 1 }` limits it to the SMTP listener and spends it after one connection (<<surl-readme>>). Started in the process, the server has no readiness check that connects to it, so nothing spends the rule before the app does. `Stage`, a `FaultStage`, set to `FaultStage.Command` with `Command = "DATA"` or `"QUIT"` drops the connection later, at that command.
+
+The sender is a loop around `CurlClient.SendAsync`: a `CurlRequest` with `HttpMethod.Put` to the SMTP URL, `CurlAuthenticationOptions` with the app{apos}s login, `CurlMailOptions` with the envelope, and the message as `CurlContent.FromStream`. A dropped connection throws a `CurlException` whose `Code` is `RecvError`, `56`; there is no response and so no reply code. The loop waits a second and tries again, up to the number of retries it is given. An accepted send returns a `CurlResponse`, and its `StatusCode` is the last reply, `250` (<<rfc5321>>). The first send fails, the retry succeeds, and the store agrees: `server.Mail.ListMessagesAsync("ann@example.com", "INBOX")` returns a `SurlMessagePage` whose `Messages` holds one message, the dropped connection having stored none. The server{apos}s log, written to a `StringWriter` through `Log` at `LogLevel.Verbose`, shows two `opened: smtp` lines, the dropped connection and the retry, and one `Message stored:` line.
+
+Mail is delivered asynchronously, so the test does not read the store at once after an accepted send. `OnEvent` with a `SurlEventQuery` for `StoreChanged` events in the mail store runs a callback for every delivery, which releases a `SemaphoreSlim`; after an accepted send the test waits on it for at most ten seconds, so a lost message fails the test rather than hanging it. A dropped connection delivers nothing, so it does not wait.
+
+Where the connection drops matters, and three more servers show it. The `twice` case drops the first two connections (`Times = 2`). A send with no retry throws once and Ann holds nothing; a second send, with one retry, is dropped again, its retry is the third connection and is accepted, and Ann holds one message: three connections, two dropped, one copy. The `data` case drops the connection at `DATA`, when the sender asks to send the message, before the server has taken it. The message is not stored, the retry is accepted, and one copy arrives. The `quit` case drops the connection at `QUIT`, after the server has stored the message and answered `250`. The send returns `250` with no retry, and Ann holds one message. A sender that read the dropped goodbye as a failed send, and sent again, would leave two; a test that wants one copy has to tell a drop before the reply from a drop after it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-resend-after-a-dropped-connection>> for the same test on the console.
+* <<smtp-resend-after-a-dropped-connection-from-an-agent>> for the same test from an agent.
+* <<smtp-survive-a-temporary-rcpt-failure-in-csharp>> for a recipient refused with a try-later reply.
+* <<http-recover-from-a-dropped-connection-in-csharp>> for the same fault over HTTP.
+* <<surl-readme>>, <<rfc5321>>.

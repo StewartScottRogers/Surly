@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-publish-a-retained-reading-in-process]]
+=== Publishing a Retained Reading in Process
+
+==== Problem
+
+Your C# test needs a sensor's last reading to be waiting on the broker when the code under test subscribes. You want to publish it with `Messages.PublishAsync` and have curl subscribe to it.
+
+==== Solution
+
+Start a Message Queuing Telemetry Transport (MQTT) broker in the test process with `Surl.Api`, call `server.Messages.PublishAsync` with the retain flag set, and subscribe with `Curl.Api`. The program takes a case name as its argument, so each claim below runs the same file:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A retained message is one the broker keeps for a topic and sends to every client that subscribes later. `PublishAsync(topic, payload, true, token)` publishes as a client with the retain flag set would, but with no client and no login: the call sets the flag itself, so the reading is kept even though the broker has no `--topic` filter and nothing in `SurlServerOptions.Topics` names the topic, and it is kept by the time the call returns, so nothing needs to wait. The payload is bytes, so a JSON text, a block of binary and a hundred thousand random bytes all arrive unchanged. The last reading on a topic replaces the one before, and a publish with an empty payload takes the reading away.
+
+`CurlClient` is the subscriber. A `CurlRequest` with `HttpMethod.Get` on `mqtt://` is a subscribe; the `Body` of the `CurlResponse` is every retained message the topic or filter matches, each as a two-byte length, the topic and the payload, and the call ends by itself once they are sent. `ReadRetainedAsync` reads the store without a client, and answers a `SurlRetainedMessage` with `Payload` and `QualityOfService`, or `null` when nothing is kept. The reading is at QoS 0, since a seeded message carries the quality of service of the call. In a filter, a `#` is written `%23`, because a plain one is a URL fragment and is not sent. The messages of a wildcard subscribe come back one after another without a separator, so the program checks which topics are in the answer and how many bytes there are, not their order.
+
+The test's publish is not a client's publish. A client's has the retain flag clear, and a broker with no filter keeps nothing of it. The program sends one with `CurlRequest` and `HttpMethod.Post`, the body from `CurlContent.FromBytes`, and the broker accepts it and does not keep it. The publish is not acknowledged, so the call can return before the broker has dealt with it, and a read of the store straight after could see the old reading either way. The program waits for the broker's own record, `WaitForEventAsync` with a `SurlEventQuery` for the next `ExchangeEnded` after the one it saw last, with a ten second bound, and only then reads the store. `RecordExchanges = true` is what makes the broker keep that record.
+
+`AllowAnonymous = true` is the property for `--allow-anonymous`. It is a loosening, and `surl` warns at start, because it lets a client connect with no user name. Without it a subscriber is refused: `CurlException` in `Curl.Api.Errors`, whose `Code` is `WeirdServerReply`, curl's exit 8. The seed, which is the test's own, goes in either way.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-keep-a-retained-message-in-csharp>> for retained messages kept from a client's publish, with a `--topic` filter.
+* <<mqtt-subscribe-with-a-wildcard-in-csharp>> for wildcard filters.
+* <<mqtt-read-a-retained-message-from-an-agent>> for the same reading from an agent.
+* <<surl-readme>>, <<curl-readme>>.

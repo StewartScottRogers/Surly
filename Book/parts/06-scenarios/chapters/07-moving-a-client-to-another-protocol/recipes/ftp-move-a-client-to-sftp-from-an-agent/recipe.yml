@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs move.cs, a C# program on the official MCP SDK that
+# starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-move-a-client-to-sftp-from-an-agent
+title: Moving a Client from FTP to SFTP
+protocols: [ftp, sftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent fetches the same 3,000-byte report over FTP and over SFTP through curl-mcp from one surl-mcp server; the two copies are identical to each other and to the server's, and the server's events hold one accepted login for alice on each scheme; exit 0.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "over ftp: 3000 bytes\nover sftp: 3000 bytes\nthe two copies are identical to each other and to the server's\nftp logins accepted for alice: 1\nsftp logins accepted for alice: 1\n"
+
+  - id: old-login-recorded
+    claim: get_events, asked for login_judged on the ftp scheme, holds one login accepted for alice, the old client's.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nftp logins accepted for alice: 1\n'
+
+  - id: new-login-recorded
+    claim: The same query on the sftp scheme holds one accepted login, the new client's, so the record tells the two apart.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsftp logins accepted for alice: 1\n$'
+
+  - id: same-size
+    claim: Both transfers return the 3000 bytes the file holds.
+    program: move.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^over ftp: 3000 bytes\nover sftp: 3000 bytes\n'
+
+  - id: ftp-listing
+    claim: curl -l lists the folder's names over FTP, one a line, in order.
+    program: move.cs
+    args: [listing]
+    expect:
+      exit: 0
+      stdout-matches: '^ftp: notes\.txt report\.bin\n'
+
+  - id: sftp-listing
+    claim: The same command over SFTP lists the same names in the same order.
+    program: move.cs
+    args: [listing]
+    expect:
+      exit: 0
+      stdout-matches: '\nsftp: notes\.txt report\.bin\n$'
+
+  - id: missing-file
+    claim: A missing file is exit code 78 over both protocols, so a handler that tests for it survives the move.
+    program: move.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "ftp: exit 78\nsftp: exit 78\n"
+
+  - id: wrong-password
+    claim: A wrong password is exit code 67 over both protocols.
+    program: move.cs
+    args: [password]
+    expect:
+      exit: 0
+      stdout: "ftp: exit 67\nsftp: exit 67\n"
+
+  - id: host-key-pinned
+    claim: SFTP can be pinned to the server's host key with --hostpubsha256, worked out from host_key.pub; with the right fingerprint the report arrives identical. FTP has nothing to pin.
+    program: move.cs
+    args: [pin]
+    expect:
+      exit: 0
+      stdout: "pinned sftp: 3000 bytes\nidentical to the server's\n"
+
+  - id: wrong-host-key
+    claim: A fingerprint that is not the server's is refused, exit code 60.
+    program: move.cs
+    args: [wrong-pin]
+    expect:
+      exit: 0
+      stdout: "pinned sftp: exit 60\n"
+
+  - id: cutover-refuses-ftp
+    claim: On a server started without --allow-plaintext-auth the old client's password is refused, even the right one, and the tool answers exit code 67.
+    program: move.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '^ftp: exit 67\n'
+
+  - id: cutover-serves-sftp
+    claim: The new client is unaffected on the same server, and the report it fetches is identical to the server's.
+    program: move.cs
+    args: [cutover]
+    expect:
+      exit: 0
+      stdout-matches: '\nsftp: 3000 bytes\nidentical to the server''s\n$'

@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-several-files-at-once-from-an-agent]]
+=== Downloading Files in Parallel from an Agent
+
+==== Problem
+
+You want your agent to download a dozen files at once with a limit on parallel transfers, and to check from the server's own record how many connections were open together.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, calls `start_server` with a fault rule that holds every answer for a second, runs one `curl` call with `--parallel` and `--parallel-max`, and reads the server's connections from `get_events`. It takes a scenario name as its argument, so each claim below runs the same file with different options:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `listen_urls`, here `http://127.0.0.1:0` for a free port, `files`, a map from name to text held in memory, and `arguments`, the `surl` options as a list. `["--fault", "delay;stage=command;ms=1000"]` holds each request for a second, so transfers that run together overlap. It is a fault on purpose, a measuring aid, and `surl` says so at start. The answer carries `server_id` and `bound_urls`.
+
+`curl` takes `args`, the arguments of a `curl` command line, and runs them confined to `CURL_MCP_ROOT`. `"f[1-12].txt"` in the URL is a glob, and `-o "got/f#1.txt"` with `--create-dirs` writes each file under the root, named from the number it matched. `--parallel` runs the transfers side by side, and `--parallel-max 4` caps them at four. The answer is JSON text; its `exitCode` is `0`, and the program reads the files back from the root to check each holds the text the server holds. Without `--parallel-max`, `--parallel` allows up to 50 transfers at once (<<curl-manual>>), so the twelve run together; without `--parallel`, they go one after another over one connection, and a cap of 1 does the same.
+
+`get_events` takes the `server_id` and `kinds`, here `exchange_started` and `exchange_ended`, and answers the events in order with a `kind` each. An exchange is a connection, so counting up at a start and down at an end gives the most connections open together: four for the capped run, never five. Uncapped, the count is more than four, and the exact number is curl's scheduling, so it is claimed as a range. `curl` has exited by the time the events are read, but the server sees the connections close a moment later, so the program asks again, for at most ten seconds, until every one has ended.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-several-files-at-once>> for the same task on the console.
+* <<http-download-several-files-at-once-in-csharp>> for the same task from .NET code.
+* <<surl-readme>>, <<curl-readme>>.

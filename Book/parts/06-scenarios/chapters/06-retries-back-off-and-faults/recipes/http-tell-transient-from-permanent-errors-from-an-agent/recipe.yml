@@ -1,0 +1,105 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs retry-policy.cs, a C# program on the official MCP SDK that starts both hosts from PATH,
+# with one scenario and one label (the second argument): it prints only that label's lines.
+schema: 2
+key: http-tell-transient-from-permanent-errors-from-an-agent
+title: Telling Transient from Permanent Errors
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, transfer, get_exchanges, get_events]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the curl tool and -f --retry 2, the 503 is retried once and the file arrives, exit 0.
+    program: retry-policy.cs
+    args: [curl, curl report.txt]
+    expect:
+      exit: 0
+      stdout: "curl report.txt: exit 0, 200 1\n"
+
+  - id: not-found-is-final
+    claim: The 404 is final at once, exit 22 and no retry.
+    program: retry-policy.cs
+    args: [curl, curl missing.txt]
+    expect:
+      exit: 0
+      stdout: "curl missing.txt: exit 22, 404 0\n"
+
+  - id: forbidden-is-final
+    claim: The 403 is final at once too.
+    program: retry-policy.cs
+    args: [curl, curl locked.txt]
+    expect:
+      exit: 0
+      stdout: "curl locked.txt: exit 22, 403 0\n"
+
+  - id: transient-that-stays
+    claim: The 500 is retried twice and stays, exit 22.
+    program: retry-policy.cs
+    args: [curl, curl broken.txt]
+    expect:
+      exit: 0
+      stdout: "curl broken.txt: exit 22, 500 2\n"
+
+  - id: rules-added
+    claim: add_fault answers the three rules' IDs, f1, f2 and f3.
+    program: retry-policy.cs
+    args: [curl, f1]
+    expect:
+      exit: 0
+      stdout: "f1 f2 f3 added\n"
+
+  - id: server-counts-requests
+    claim: get_exchanges shows two, one, one and three requests for the four paths.
+    program: retry-policy.cs
+    args: [curl, requests]
+    expect:
+      exit: 0
+      stdout: "requests: report.txt 2, missing.txt 1, locked.txt 1, broken.txt 3\n"
+
+  - id: server-counts-rules
+    claim: The fault_applied events count rule f1 once, f3 once and f2 three times.
+    program: retry-policy.cs
+    args: [curl, fault_applied]
+    expect:
+      exit: 0
+      stdout: "fault_applied: f1 1, f3 1, f2 3\n"
+
+  - id: retry-all-errors
+    claim: --retry-all-errors drops the distinction, so the 404 is asked for three times with the same answer.
+    program: retry-policy.cs
+    args: [all, curl missing.txt]
+    expect:
+      exit: 0
+      stdout: "curl missing.txt: exit 22, 404 2\n"
+
+  - id: retry-all-errors-503
+    claim: For the 503 --retry-all-errors makes no difference; it is retried once either way.
+    program: retry-policy.cs
+    args: [all, curl report.txt]
+    expect:
+      exit: 0
+      stdout: "curl report.txt: exit 0, 200 1\n"
+
+  - id: transfer-loop
+    claim: transfer makes one attempt per call and an error status is an answer to read; an agent that retries only the transient statuses retries the 503 once and gets the file.
+    program: retry-policy.cs
+    args: [transfer, transfer report.txt]
+    expect:
+      exit: 0
+      stdout: "transfer report.txt: 200, retries 1\n"
+
+  - id: transfer-loop-counts
+    claim: That agent leaves the same request counts on the server as the curl tool.
+    program: retry-policy.cs
+    args: [transfer, requests]
+    expect:
+      exit: 0
+      stdout: "requests: report.txt 2, missing.txt 1, locked.txt 1, broken.txt 3\n"

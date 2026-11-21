@@ -1,0 +1,103 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: smtp-answer-try-later
+title: Answering SMTP with Try Later
+protocols: [smtp, imap]
+tier: advanced
+surl-options: [--mail-domain, --mailbox, --fault, -v, --log-file]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, --mail-rcpt-allowfails, -T, -s, -w, -X]
+exit-codes: [0, 2, 55]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+fixtures:
+  order.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Order 1042 has shipped\r\n\r\nYour order is on its way.\r\n"
+
+# once: the first RCPT is answered 451. twice: the first two are. Each rule acts on the RCPT
+# command, so the readiness check, which connects and sends nothing, does not spend it.
+servers:
+  once:
+    command: surl -v --log-file surl.log --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --fault "error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=1" smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+  twice:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --fault "error;scheme=smtp;command=RCPT;reply=451 4.3.0 try later;times=2" smtp://127.0.0.1:{{port3}}/ imap://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The same send twice in one command, the URL's {first,second} making two transfers; the first RCPT is answered 451, the second send is accepted 250, and curl exits 0, the last transfer's code.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml -w "%{response_code}\n" "smtp://127.0.0.1:{{port}}/{first,second}"
+    expect:
+      exit: 0
+      stdout: "451\n250\n"
+
+  - id: one-copy
+    claim: The refused send stored nothing and the retry stored one message; ann's INBOX holds exactly one.
+    run: 'curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: the-retry-is-the-copy
+    claim: The stored message is the second send's; its Received line names the EHLO name second, the second path segment.
+    run: 'curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(RECEIVED)"'
+    expect:
+      exit: 0
+      stdout-matches: '^Received: from second \(\[127\.0\.0\.1\]\) by surl with ESMTPA; '
+
+  - id: log-one-refusal
+    claim: The server's log records the one RCPT that fault rule f1 answered, and that nothing was stored for it.
+    run: 'grep -c "RCPT answered with the chosen error of fault rule f1; nothing was stored." surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: log-one-stored
+    claim: The same log records exactly one message stored.
+    run: 'grep -c "Message stored: " surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: refused-recipient-abandons-the-message
+    claim: With two recipients and the first one's RCPT answered 451 (the first of twice's two), curl abandons the message; it exits 55 with reply 451 and neither ann nor bob has anything.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt bob@example.com -T order.eml -w "%{response_code}\n" smtp://127.0.0.1:{{port3}}/example.com
+    expect:
+      exit: 55
+      stdout: "451\n"
+
+  - id: nothing-for-either
+    claim: Neither mailbox holds a message after the abandoned send.
+    run: 'curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/ --next -s -u bob@example.com:bobpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n* STATUS INBOX (MESSAGES 0)\n"
+
+  - id: allowfails-delivers-to-the-rest
+    claim: With --mail-rcpt-allowfails the same send, ann's RCPT answered 451 again (twice's second), goes on to bob and exits 0; the message is delivered to bob alone.
+    run: curl -s --mail-rcpt-allowfails --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt bob@example.com -T order.eml -w "%{response_code}\n" smtp://127.0.0.1:{{port3}}/example.com
+    expect:
+      exit: 0
+      stdout: "250\n"
+
+  - id: bob-has-it-ann-does-not
+    claim: Bob's INBOX holds the message and ann's still holds none.
+    run: 'curl -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/ --next -s -u bob@example.com:bobpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: spent-after-two
+    claim: The rule has now answered twice, so a plain send to ann is accepted, and her INBOX then holds one message.
+    run: 'curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml -w "%{response_code}\n" smtp://127.0.0.1:{{port3}}/example.com --next -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/'
+    expect:
+      exit: 0
+      stdout: "250\n* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: reply-needs-text
+    claim: A rule whose reply is only a code, with no text, is refused at start with exit 2 and surl's text, since an SMTP reply is a code and text.
+    run: surl --fault "error;scheme=smtp;command=RCPT;reply=451" smtp://127.0.0.1:{{port5}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --fault: key reply does not fit the smtp error shape"

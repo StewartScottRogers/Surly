@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: mqtt-read-a-retained-message-from-an-agent
+title: Reading a Retained Message
+protocols: [mqtt]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, publish_message, read_retained_message, wait_for_event, curl]
+exit-codes: [0]
+references: []
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A message published with publish_message and retain true is read back by read_retained_message as text at QoS 0, and a subscriber, curl-mcp curl tool with no -d, is sent the same text after the topic."
+    program: program.cs
+    args: ["solution"]
+    expect:
+      exit: 0
+      stdout: "store: text {\"on\":true}, QoS 0\nsubscriber: topic devices/lamp/state, payload {\"on\":true}\n"
+
+  - id: binary
+    claim: "A payload given as payload_base64 that is not text is read back by read_retained_message as base64, and the subscriber is sent the same bytes."
+    program: program.cs
+    args: ["binary"]
+    expect:
+      exit: 0
+      stdout: "store: base64 AP8QgA==, QoS 0\nsubscriber: topic devices/lamp/state, payload hex 00FF1080\n"
+
+  - id: large
+    claim: "A payload of 100,000 bytes is kept and sent whole, to the store read and to the subscriber alike."
+    program: program.cs
+    args: ["large"]
+    expect:
+      exit: 0
+      stdout: "store identical: True\nsubscriber: exit 0, 100000 bytes, identical: True\n"
+
+  - id: rooms
+    claim: "Each topic keeps its own message: a subscriber to home/# is sent all three, 65 bytes in all."
+    program: program.cs
+    args: ["rooms"]
+    expect:
+      exit: 0
+      stdout: "subscriber: 65 bytes\nhome/cellar/temp: True\nhome/hall/temp: True\nhome/kitchen/temp: True\n"
+
+  - id: replaced
+    claim: "A second publish_message on the topic replaces the first, in the store and for the subscriber."
+    program: program.cs
+    args: ["replaced"]
+    expect:
+      exit: 0
+      stdout: "store: text off, QoS 0\nsubscriber: topic devices/lamp/state, payload off\n"
+
+  - id: nothing
+    claim: "For a topic with no message, read_retained_message answers retained false, not a tool error, and the subscriber is sent nothing and its curl call still exits 0."
+    program: program.cs
+    args: ["nothing"]
+    expect:
+      exit: 0
+      stdout: "store: nothing kept\nsubscriber: nothing sent\n"
+
+  - id: cleared
+    claim: "A publish_message with an empty payload takes the message away."
+    program: program.cs
+    args: ["cleared"]
+    expect:
+      exit: 0
+      stdout: "store: nothing kept\nsubscriber: nothing sent\n"
+
+  - id: not-retained
+    claim: "A publish_message with retain false reaches only the subscribers connected at the time, so nothing is kept."
+    program: program.cs
+    args: ["not-retained"]
+    expect:
+      exit: 0
+      stdout: "store: nothing kept\nsubscriber: nothing sent\n"
+
+  - id: curl-publish-not-kept
+    claim: "A curl publish has the retain flag clear, so after the broker has finished with its connection the store still holds the earlier message."
+    program: program.cs
+    args: ["curl-publish"]
+    expect:
+      exit: 0
+      stdout: "curl publish: exit 0\nstore: text on, QoS 0\n"
+
+  - id: login-needed
+    claim: "Without --allow-anonymous the seeded message is still kept, but the subscriber curl call exits 8 with Expected 0000 but got 0005."
+    program: program.cs
+    args: ["closed"]
+    expect:
+      exit: 0
+      stdout: "store: text on, QoS 0\nsubscriber: curl exit 8, curl: (8) Expected 0000 but got 0005\n"
+

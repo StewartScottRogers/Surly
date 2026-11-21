@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-an-interrupted-download-from-an-agent]]
+=== Resuming an FTP Download from an Agent
+
+==== Problem
+
+You want an agent to resume a broken File Transfer Protocol (FTP) download through `curl-mcp` and to read `get_exchanges` to confirm the `REST` offset that `curl` sent.
+
+==== Solution
+
+Start an FTP server through `surl-mcp`, leave the first 65,536 bytes of the file in the agent{apos}s root as a cut-off download does, run `curl` through `curl-mcp` with `-C -`, and read the server{apos}s exchange:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` of `surl-mcp` takes `listen_urls`, here `ftp://127.0.0.1:0` for a free port; `files`, a map from name to text, here a 200,000-character file of numbered lines; and `arguments`, `surl`{apos}s own words. `--allow-anonymous` lets `curl`{apos}s anonymous login in, so it is for a test on your own machine only. The answer holds the `server_id` and `bound_urls`.
+
+The `curl` tool of `curl-mcp` runs real `curl` options: `args` is the list of words, and the answer holds `exitCode`, `standardOutput` and `standardError`, each with its `content`. `-C -` (`--continue-at -`) makes `curl` take the size of the file named by `-o`, 65,536 bytes, as the offset and ask the server to start there: over FTP the ask is `REST` (<<rfc959>>, <<rfc3659>>). `-w "%{size_download}"` puts the bytes fetched in `standardOutput`: 134,464, not 200,000. `curl-mcp` is confined to its root, the folder named by `CURL_MCP_ROOT`, so the file is there for the program to read back, and the joined text is identical to the one the server holds.
+
+`get_exchanges` of `surl-mcp`, given the `server_id`, answers the exchanges recorded: one for each control connection. Each has `chunks`, each with a `direction`, `received` for what the server was sent and `sent` for what it answered, and `data`, text for FTP. The agent keeps the `received` chunks that begin `REST` or `RETR` and finds `REST 65536` immediately before `RETR update.iso`, and in the `sent` chunks `350 Restarting at 65536`. With `-v` the tool answers `curl`{apos}s own record in `standardError`, so the agent can read the same `> REST 65536` from the client{apos}s side (<<rfc3659>>).
+
+With no local file there is nothing to resume: `-C -` sends no `REST`, the whole 200,000 bytes arrive and the server sent no `350`. Without `-C` the same fetch starts at byte `0` over the partial copy. `-C` takes a number, too: `-C 100000` receives the last 100,000 bytes, whatever is on disk.
+
+The partial file is trusted, not checked. `REST` carries a length, not a checksum. A partial copy of 65,536 other bytes is resumed as readily as the real one: 134,464 bytes arrive, the tool answers exit code `0`, and only the comparison of the joined file with the server{apos}s text finds the difference. That comparison is the check. A download cut off by a dropped connection, with a retry, is in <<ftp-resume-a-dropped-download-from-an-agent>>.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-an-interrupted-download>> for the resume on the console with `curl -C -`.
+* <<ftp-resume-an-interrupted-download-in-csharp>> for the same task from C#.
+* <<ftp-resume-a-dropped-download-from-an-agent>> for a download cut off by the server, with a retry.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

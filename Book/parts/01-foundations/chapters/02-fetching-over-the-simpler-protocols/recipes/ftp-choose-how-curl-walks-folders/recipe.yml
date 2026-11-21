@@ -1,0 +1,123 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 1
+key: ftp-choose-how-curl-walks-folders
+title: Choosing How curl Walks FTP Folders
+protocols: [ftp]
+tier: foundations
+surl-options: [--allow-anonymous, --directory, --fault, -v, --log-file]
+curl-options: [--ftp-method, -v, -s, -S, -o, --next]
+exit-codes: [0, 9, 78]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures:
+  site/a/b/c/one.txt: "one\n"
+  site/d/e/f/two.txt: "two\n"
+  site/g/h/i/three.txt: "three\n"
+  site/locked/in/there.txt: "there\n"
+
+# One server. Its fault rule answers 550 to any CWD under /locked, as a server that dislikes
+# changing folders would; everywhere else CWD works.
+servers:
+  main:
+    command: surl --allow-anonymous --directory site -v --log-file site/surl.log --fault "error;scheme=ftp;command=CWD;path=/locked;reply=550 CWD is not allowed here" ftp://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command fetches three files, each three folders down, each from a folder of its own and one with each --ftp-method, and all three arrive, exit 0.
+    run: curl -sS --ftp-method multicwd ftp://127.0.0.1:{{port}}/a/b/c/one.txt --next -sS --ftp-method singlecwd ftp://127.0.0.1:{{port}}/d/e/f/two.txt --next -sS --ftp-method nocwd ftp://127.0.0.1:{{port}}/g/h/i/three.txt
+    expect:
+      exit: 0
+      stdout: "one\ntwo\nthree\n"
+
+  - id: single-cwd-path
+    claim: The server's log shows that singlecwd put the whole folder path in one CWD, CWD d/e/f.
+    run: grep -c "< CWD d/e/f" site/surl.log
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: nocwd-path
+    claim: nocwd asked for the file by its whole path, RETR g/h/i/three.txt.
+    run: grep -c "< RETR g/h/i/three.txt" site/surl.log
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: nocwd-no-cwd
+    claim: nocwd sent no CWD into the folders g, h or i; grep finds none and exits 1.
+    run: grep -c "< CWD [ghi]" site/surl.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: multicwd-steps
+    claim: multicwd sends one CWD for each folder, a then b then c, and then asks for the bare file name.
+    run: curl -sS -v -o {{null}} --ftp-method multicwd ftp://127.0.0.1:{{port}}/a/b/c/one.txt
+    expect:
+      exit: 0
+      stderr-contains: "> CWD a\n\n< 250 Directory changed\n\n> CWD b\n\n< 250 Directory changed\n\n> CWD c\n"
+
+  - id: default-is-multicwd
+    claim: With no --ftp-method, curl behaves as multicwd and sends a CWD for each folder.
+    run: curl -sS -v -o {{null}} ftp://127.0.0.1:{{port}}/a/b/c/one.txt
+    expect:
+      exit: 0
+      stderr-contains: "> CWD c\n"
+
+  - id: singlecwd-steps
+    claim: singlecwd sends the folder path in one CWD, then asks for the bare file name.
+    run: curl -sS -v -o {{null}} --ftp-method singlecwd ftp://127.0.0.1:{{port}}/d/e/f/two.txt
+    expect:
+      exit: 0
+      stderr-contains: "> CWD d/e/f\n"
+
+  - id: nocwd-steps
+    claim: nocwd sends no CWD and names the whole path in SIZE.
+    run: curl -sS -v -o {{null}} --ftp-method nocwd ftp://127.0.0.1:{{port}}/g/h/i/three.txt
+    expect:
+      exit: 0
+      stderr-contains: "> SIZE g/h/i/three.txt\n"
+
+  - id: multicwd-refused
+    claim: Under /locked the server answers every CWD 550, so by default curl stops at the first one with exit 9.
+    run: curl -sS -v -o {{null}} ftp://127.0.0.1:{{port}}/locked/in/there.txt
+    expect:
+      exit: 9
+      stderr-contains: "< 550 CWD is not allowed here"
+
+  - id: singlecwd-refused
+    claim: singlecwd has the same trouble, since one CWD is still a CWD; exit 9.
+    run: curl -sS --ftp-method singlecwd ftp://127.0.0.1:{{port}}/locked/in/there.txt
+    expect:
+      exit: 9
+      stderr-contains: "Server denied you to change to the given directory"
+
+  - id: nocwd-works-around
+    claim: nocwd never changes folder, so the same file under /locked arrives; exit 0.
+    run: curl -sS --ftp-method nocwd ftp://127.0.0.1:{{port}}/locked/in/there.txt
+    expect:
+      exit: 0
+      stdout: "there\n"
+
+  - id: missing-file
+    claim: A missing file in a folder that exists is exit 78 under multicwd, file not found.
+    run: curl -sS --ftp-method multicwd ftp://127.0.0.1:{{port}}/a/b/c/nope.txt
+    expect:
+      exit: 78
+
+  - id: missing-folder
+    claim: A missing folder is exit 9 under multicwd, because the CWD fails.
+    run: curl -sS --ftp-method multicwd ftp://127.0.0.1:{{port}}/a/nope/x.txt
+    expect:
+      exit: 9
+
+  - id: missing-folder-nocwd
+    claim: The same missing folder under nocwd is exit 78, file not found.
+    run: curl -sS --ftp-method nocwd ftp://127.0.0.1:{{port}}/a/nope/x.txt
+    expect:
+      exit: 78

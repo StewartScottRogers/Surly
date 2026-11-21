@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-collect-mail-with-an-event-callback]]
+=== Collecting Mail with an Event Callback
+
+==== Problem
+
+Your C# test runs an app that sends mail over Simple Mail Transfer Protocol (SMTP), and you want to react the moment mail is delivered rather than poll the mailbox. You want an event callback on the server{apos}s mail store.
+
+==== Solution
+
+Start a `SurlServer` in the test and register a callback with `OnEvent` for changes to its mail store. The server calls it for every delivery, and the callback can read the message and act on it. The program takes the case to run as its argument; the first case, with no argument, is one delivery:
+
+include::on-delivery.cs[]
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `smtp://` listen URL on port `0`, `MailDomains` for `--mail-domain example.com`, and a `Mailboxes` entry, `--mailbox`, for the app, for Ann and Bob, and for a support desk (<<surl-readme>>). `SurlServer.StartAsync` returns once the server is bound, and `BoundUrl` is its URL.
+
+`OnEvent` takes a `SurlEventQuery` and a callback, and calls the callback for every event the query matches from then on. The `IDisposable` it returns stops it. The query here has `Kind` `SurlEventKind.StoreChanged` and `Store` `StoreKind.Mail`: a change to the mail store. Each event is a `StoreChangedEvent`, and its `Change`, a `StoreChange`, says what happened: `Delivered` for mail that arrived over SMTP. The callback runs one event at a time, in the order the changes happened. A callback that throws is contained: the delivery, the other callbacks and the next delivery are not affected.
+
+For a delivery the event is enough to find the message. `Name` is the owner, the mailbox and the unique identifier (UID), `ann@example.com/INBOX/;UID=1`; `ByteCount` is the size of the stored message, which is the length of what `SurlServer.Mail`, a `SurlServerMail`, reads back; `ExchangeId` names the connection that made the delivery. The callback splits the name and calls `ReadMessageAsync`, which returns a `SurlMailMessage` holding the exact `Bytes`, without a client and without setting a flag, and takes the `Subject` line from them. `Name` on the `SurlEventQuery` narrows what the server calls the callback for: it matches by whole segments, so `ann@example.com` catches everything delivered to Ann and nothing delivered to Bob. Two callbacks on the same query are both called, and three deliveries to Ann are three calls, at UIDs 1, 2 and 3.
+
+A callback is also told about the store{apos}s other changes. `DeliverAsync` on `SurlServerMail`, which puts a message into a mailbox without SMTP, is a `Seeded` change, and `ResetAsync` is a `Reset`, which has no name; a callback that reads a message tests `Change` first. A callback may act, too. Here a delivery to the support desk makes the callback deliver an acknowledgement into the sender{apos}s mailbox, and the filter on the desk{apos}s name keeps it from reacting to its own delivery.
+
+The test does not poll. Each callback releases a `SemaphoreSlim`, and the test waits on it for each call it expects, for at most ten seconds, so a missing mail fails the test instead of hanging it. A callback that has been disposed is not called: after the first delivery the test disposes it, sends again, and a second callback that stayed registered hears both. Mail to `nobody@example.com`, inside the domain but with no mailbox, is accepted `250` and discarded, as `surl` does not tell a sender which addresses exist (<<rfc5321>>); no delivery happens and no event comes, so that case waits two seconds and finds no call. The app sends with `Curl.Api`: one `CurlClient`, and for each mail a `CurlRequest` with `HttpMethod.Put` to the SMTP URL, `CurlAuthenticationOptions` with the app{apos}s login, `CurlMailOptions` with the envelope, and the message as `CurlContent.FromStream`. The `CurlResponse` `StatusCode` is the server{apos}s last reply, `250`. `SurlMessagePage` is what `ListMessagesAsync` returns, and the test uses it to count what the app holds after the callback{apos}s reply arrives.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-collect-mail-as-it-arrives>> for a list the callback fills, so a test asserts on it afterwards.
+* <<smtp-wait-for-an-apps-mail>> for an agent waiting on the same delivery event.
+* <<imap-poll-until-the-mail-arrives>> for waiting on the console by searching the mailbox.
+* <<surl-readme>>, <<rfc5321>>.

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-relay-through-a-socks-proxy-from-an-agent]]
+=== Relaying through SOCKS5 from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to stand up a SOCKS5 server that resolves names for its clients, relay a request through it to a test origin, and show a SOCKS4 client turned away with a clear refusal, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it calls `start_server` with an origin on `localhost` and a `socks5h://` listen URL, `transfer` through the SOCKS server, then `get_exchanges` to read the SOCKS request and reply:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument after `--` picks the scenario.
+
+SOCKS is a proxy protocol below the Hypertext Transfer Protocol (HTTP): the client asks the server for a connection to a host and port, and the server then relays bytes both ways. `start_server` takes a SOCKS listen URL in `listen_urls` like any other, so one server holds the origin, `http://localhost:0` with its file from `files`, and the SOCKS5 server, `socks5h://127.0.0.1:0`. `bound_urls` gives each its port.
+
+`transfer`{apos}s `proxy` field takes the scheme that says who resolves names. With `socks5h://` the client hands the server the name. `get_exchanges` with the SOCKS server's `listen_url` shows it: its chunks are `base64` until the relay starts, and the request chunk, `05 01`, carries address type `03`, a name, `localhost`; the reply is `05 00`, success. After that the server only relays, and the plain HTTP request it carried, `GET /hello.txt`, is in the exchange as text (<<rfc9110>>): SOCKS hides nothing from whoever runs the server.
+
+`transfer` has no field for `curl --resolve`, so the program uses the `curl` tool, whose `args` are `curl`{apos}s own words, to show the other scheme. `--resolve origin.test:<port>:127.0.0.1` teaches the client a name nobody else knows, `-x` names the proxy, `-s` silences the progress meter, `-S` keeps the error line and `--max-time` bounds the wait. Through `socks5://` the client resolves the name itself and the request carries an address, `127.0.0.1`; the file comes back. Through `socks5h://` the name goes to the server, which cannot resolve it and replies `05 04`; `exitCode` is 97, `curl`{apos}s code for every SOCKS failure, with `cannot complete SOCKS5 connection to origin.test. (4)`.
+
+The server is surly about versions. A `socks4://` proxy URL makes `transfer` send a SOCKS4 request, which the SOCKS5 server answers `00 5B` at once, the SOCKS4 refusal; `failure` holds `exitCode` 97 and `(91), request rejected or failed.`, and the answer is a tool error. The server also connects only to loopback origins: `192.0.2.1` is replied `05 02`, not allowed.
+
+`-U app:socks-pw` in `arguments` gives every proxy listener an account, and SOCKS5 then offers only username and password: a proxy URL with no login gets `05 FF`, `No authentication method was acceptable.`, and no request follows. A login goes in the proxy URL, `socks5h://app:socks-pw@...`, but SOCKS5 carries it in clear, so the server rejects even the right one unchecked, `01 01`. `--allow-plaintext-auth` in `arguments` accepts it, loosening every login on that server. `get_exchanges` keeps raw bytes by design, so with accounts its chunks hold the password; do not paste them into a shared report (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-relay-through-a-socks-proxy>> for the same relay on the console.
+* <<socks5-relay-through-a-socks-proxy-in-csharp>> for the same relay from a C# test.
+* <<http-run-a-test-proxy-from-an-agent>> for an HTTP proxy instead of SOCKS.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

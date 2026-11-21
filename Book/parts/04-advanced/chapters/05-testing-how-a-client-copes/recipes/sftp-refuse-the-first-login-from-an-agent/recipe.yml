@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs refuse-first-login.cs, a C# program on the official
+# MCP SDK that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: sftp-refuse-the-first-login-from-an-agent
+title: Refusing the First Login from an Agent
+protocols: [sftp]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, read_file, get_events, list_faults]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc4252]
+
+fixtures:
+  release.txt: "build 42\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An SFTP server started with --fault "refuse-login;times=2" refuses curl's first connection; the curl tool with --retry 1 --retry-all-errors retries once, exitCode 0, the file is stored, and get_events shows password and keyboard-interactive refused by the rule on exchange 1 and the password accepted on exchange 2, with the rule spent.
+    program: refuse-first-login.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "curl: exitCode 0, retries 1, tool error no\ncurl stderr: curl: (67) Login denied\nread_file: build 42\nlogin_judged: exchange 1, password alice, refused by the rule\nlogin_judged: exchange 1, keyboard-interactive alice, refused by the rule\nlogin_judged: exchange 2, password alice, accepted\nlist_faults: refuse-login remaining 0\n"
+
+  - id: retry-alone
+    claim: --retry without --retry-all-errors makes no retry of a refused login; the curl tool answers exitCode 67 as a tool error, and read_file finds nothing stored.
+    program: refuse-first-login.cs
+    args: [retry-alone]
+    expect:
+      exit: 0
+      stdout: "curl: exitCode 67, retries 0, tool error yes\ncurl stderr: curl: (67) Login denied\nread_file: No file at /release.txt.\nlogin_judged: exchange 1, password alice, refused by the rule\nlogin_judged: exchange 1, keyboard-interactive alice, refused by the rule\nlist_faults: refuse-login remaining 0\n"
+
+  - id: one-attempt
+    claim: With times=1 the password attempt spends the rule and the keyboard-interactive attempt on the same exchange is accepted, so curl uploads at the first try with no retry.
+    program: refuse-first-login.cs
+    args: [one-attempt]
+    expect:
+      exit: 0
+      stdout: "curl: exitCode 0, retries 0, tool error no\ncurl stderr: \nread_file: build 42\nlogin_judged: exchange 1, password alice, refused by the rule\nlogin_judged: exchange 1, keyboard-interactive alice, accepted\nlist_faults: refuse-login remaining 0\n"
+
+  - id: wrong-password
+    claim: A wrong password is retried too and refused on both exchanges by the account check, not the rule, which keeps both its refusals; exitCode 67, nothing stored.
+    program: refuse-first-login.cs
+    args: [wrong-password]
+    expect:
+      exit: 0
+      stdout: "curl: exitCode 67, retries 1, tool error yes\ncurl stderr: curl: (67) Login denied\nread_file: No file at /release.txt.\nlogin_judged: exchange 1, password alice, refused\nlogin_judged: exchange 1, keyboard-interactive alice, refused\nlogin_judged: exchange 2, password alice, refused\nlogin_judged: exchange 2, keyboard-interactive alice, refused\nlist_faults: refuse-login remaining 2\n"

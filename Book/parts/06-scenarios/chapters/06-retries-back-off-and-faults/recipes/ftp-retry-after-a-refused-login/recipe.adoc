@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-retry-after-a-refused-login]]
+=== Retrying After a Refused Login
+
+==== Problem
+
+Your client is meant to try a File Transfer Protocol (FTP) login again when the server refuses it, as a server does while an account is being set up or a password changed. You want a server that refuses one login with `530` and accepts the next, so a test can show that the client sees the refusal, waits and logs in on its second try.
+
+==== Solution
+
+Give `surl` one account and a `--fault` rule that refuses its first login, and fetch a file with `curl --retry 3 --retry-all-errors`; the checked claims below then count, in `surl`{apos}s log, the logins the server judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--user app:s3cret` gives the server one account, and `--directory site` serves the files in `site`. `--allow-plaintext-auth` lets it check a password sent in clear, as every password over plain `ftp://` is; without it the server refuses the login unread, with no rule at all. `--fault "refuse-login;times=1"` is one fault rule: `refuse-login` refuses a login whatever the password, and `times=1` spends it after one refusal. It acts when a login arrives, so a connection that sends nothing does not spend it. `surl` writes a warning on start for each loosening option, the rule included.
+
+`-u app:s3cret` gives `curl` the account. It sends `USER app` and `PASS s3cret`; the server answers `530 Login incorrect` (<<rfc959>>). `curl` reports `Access denied: 530` and exit `67`, login denied. `--retry` alone does not retry that: `curl` retries a timeout, some Hypertext Transfer Protocol (HTTP) statuses and a `4xx` FTP reply, a passing failure, but `530` is a `5xx`, a permanent one (<<curl-manual>>), so `--retry 3` by itself exits `67` with no retry. `--retry-all-errors` makes every failure worth a retry. With no `--retry-delay` the first wait is one second, and `curl` says so on standard error, which `--no-progress-meter` keeps free of the progress bar: `Retrying in 1 second. 3 retries left.` The retry logs in again. The rule is spent, so the server accepts the login and serves the file; `curl` exits `0`, and `-w "%{exitcode} %{num_retries}\n"` prints `0 1` after it.
+
+The server keeps its own account. `-v` logs every command and reply and every login judged, and `--log-file surl.log` writes the log to a file. From that one command it records one `Login refused: ftp app`, one `Login accepted: ftp app` and one `530 Login incorrect` sent. The password itself shows in the log as `PASS ****`. The rule leaves no line of its own: a login refused by the rule looks like any refused login, and only the start-up warning says a rule is there.
+
+`--retry-all-errors` retries a refusal that will not pass as readily as one that will. A wrong password is refused with the same `530` each time: `--retry 2 --retry-all-errors` retries twice and exits `67`, so a client that retries a refused login needs a small limit. So is a password over plain `ftp://` to a server without `--allow-plaintext-auth`. `--retry-delay 2` sets the wait: against a rule with `times=2`, `curl` waits two seconds before each of two retries and logs in on its third try.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-retry-after-a-refused-login-in-csharp>> for the same test from a C# program.
+* <<ftp-retry-after-a-refused-login-from-an-agent>> for the same test from an agent.
+* <<http-stop-a-client-hammering-a-refused-login>> for a client that must not retry a refused login.
+* <<http-retry-a-flaky-endpoint>> for a retry after a `503` over HTTP.
+* <<surl-readme>>, <<curl-manual>>, <<rfc959>>.

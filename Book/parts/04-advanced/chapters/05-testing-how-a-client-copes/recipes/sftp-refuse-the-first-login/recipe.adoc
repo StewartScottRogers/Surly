@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-refuse-the-first-login]]
+=== Refusing the First Login Only
+
+==== Problem
+
+Your deploy script must retry a login that fails once, as flaky Secure Shell (SSH) servers make it. You want the first login refused with the right password and the second accepted.
+
+==== Solution
+
+Start `surl` as an SSH File Transfer Protocol (SFTP) server with a fault rule that refuses the first two login attempts, then upload with `curl`, telling it to retry every error once:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "refuse-login;times=2"` makes `surl` refuse a login whatever the password, as a wrong password is refused, for the first two attempts it judges; after that the rule is spent and the account logs in as usual. `--fault` loosens the server on purpose, so `surl` warns on every start that its rules make it misbehave. `-u alice:s3cret` is the one account, `--allow-uploads` lets it write, `--directory deploy` is where the upload lands, and `--throwaway-hostkey` serves a host key made for this run, which `curl` accepts unchecked with `-k`. `-T release.txt` uploads the file to the path the URL names.
+
+The count is of login attempts, not connections, and that is why the rule says two. An SSH client may try several authentication methods on one connection (<<rfc4252>>): `curl` offers the password as a `password` request and, when that is refused, sends it again as `keyboard-interactive`. With `times=1` the password attempt spends the rule, the keyboard-interactive attempt is accepted, and the upload succeeds on the first connection; the deploy script's retry is never exercised. The log that server writes with `-v` and `--log-file once.log` shows the two attempts on the one connection. `times=2` refuses both, so the whole first connection fails as a flaky server's does.
+
+A refused login is `curl` exit 67, `Login denied`. `--retry 1` alone does not retry it: `curl` treats a refused login as permanent, which it usually is, and exits 67 with no retry made. `--retry-all-errors` widens `--retry` to every error, so the second connection logs in with the same password; `--retry-delay 1` waits a second between, and `-w "%{num_retries}\n"` prints how many retries it took. `-s` keeps the progress meter off and `-S` still prints the first try's `curl: (67) Login denied` line, so the log of a deploy still shows the server was flaky.
+
+Retrying every error has a price: a wrong password is retried too, and fails again with 67 after the wait. A script that wants to choose what it retries can do the retry itself: a second `curl` after `||` runs only when the first failed, and the server accepts its connection. The case below chains a third `curl` after `&&` that fetches the file back, so the test sees the upload arrived.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-refuse-the-first-login-in-csharp>> for the same server and client in one .NET program.
+* <<sftp-refuse-the-first-login-from-an-agent>> for the same test from an agent.
+* <<http-lock-out-one-account>> for `refuse-login` scoped to one account over HTTP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4252>>.

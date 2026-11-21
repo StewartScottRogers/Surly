@@ -1,0 +1,87 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-post-a-form-with-curl-mime]]
+=== Posting a Form with curl_mime
+
+==== Problem
+
+Your C program posts a multipart form with `curl_mime`, a text field and a file, and you want the port to C# to send the same parts, with a test that reads them back from what the server recorded.
+
+==== Solution
+
+Port the program call for call with `Libcurl`{apos}s `CurlMime`, post to `surl` with `--trace-ascii`, and read the parts back from the trace:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program the port starts from:
+
+[source,c]
+----
+#include <stdio.h>
+#include <curl/curl.h>
+
+static size_t discard(char *data, size_t size, size_t nmemb, void *userdata)
+{
+  return size * nmemb;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *curl;
+  CURLcode res;
+  curl_mime *mime;
+  curl_mimepart *part;
+  long code;
+  curl_off_t sent;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  mime = curl_mime_init(curl);
+  part = curl_mime_addpart(mime);
+  curl_mime_name(part, "title");
+  curl_mime_data(part, "November", CURL_ZERO_TERMINATED);
+  part = curl_mime_addpart(mime);
+  curl_mime_name(part, "file");
+  res = curl_mime_filedata(part, argv[2]);
+  if(res != CURLE_OK) {
+    fprintf(stderr, "curl_mime_filedata() failed: %s\n", curl_easy_strerror(res));
+    return (int)res;
+  }
+  curl_mime_type(part, "text/csv");
+  curl_easy_setopt(curl, CURLOPT_URL, argv[1]);
+  curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard);
+  res = curl_easy_perform(curl);
+  if(res != CURLE_OK) {
+    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    return (int)res;
+  }
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+  curl_easy_getinfo(curl, CURLINFO_SIZE_UPLOAD_T, &sent);
+  printf("response code %ld, %" CURL_FORMAT_CURL_OFF_T " bytes sent\n", code, sent);
+  curl_mime_free(mime);
+  curl_easy_cleanup(curl);
+  curl_global_cleanup();
+  return 0;
+}
+----
+
+`CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, `CurlGlobalFlags` holding libcurl{apos}s flag values, and its `CurlLibrary` makes the `CurlEasy` handle. One call moves: `curl_mime_init` takes the easy handle in C, and in C# it is `library.MimeInit()`, on the library, because the Multipurpose Internet Mail Extensions (MIME) handle does not belong to one easy handle; it returns a `CurlMime`, and disposing it is `curl_mime_free`. `AddPart` is `curl_mime_addpart` and returns a `CurlMimePart`, whose setters are the `curl_mime_*` part calls, each answering a `CurlCode`: `SetName` is `curl_mime_name`, `SetData` with a string is `curl_mime_data` with `CURL_ZERO_TERMINATED`, `SetFileData` is `curl_mime_filedata`, which also takes the file name from the path, and `SetType` is `curl_mime_type`. `SetOption` is `curl_easy_setopt`, with a `CurlOption` named after its `CURLOPT_` constant: `CurlOption.Mimepost` is `CURLOPT_MIMEPOST`, which makes the transfer a POST with a `multipart/form-data` body (<<rfc2045>>). The write callback is a `WriteCallback` that drops the response body; `GetInfo` with `CurlInfo.ResponseCode` and `CurlInfo.SizeUploadT` reads the status and the bytes sent; `CurlErrorText.Easy` is `curl_easy_strerror`.
+
+`surl` serves no form handler: once a request is read, a POST is answered `405 Method Not Allowed` with `Allow: GET, HEAD` (<<rfc9110>>). That is enough for this test, because what is checked is what the client sent, not what a server did with it. `--trace-ascii trace.txt` writes every byte of every exchange to `trace.txt`, the request head and body line by line, each line prefixed with its offset and cut at 64 bytes, with each line end inside a body shown as a dot. `--allow-anonymous` lets the POST through without a login, so it reaches the 405 instead of a `401`; `surl` warns on start that it accepts every request.
+
+The trace shows the port sent what the C program sends. The head is `POST /reports`, a `Content-Length` of 325, the whole body, and `Content-Type: multipart/form-data` with a boundary libcurl chose; there is no `User-Agent`, because libcurl, unlike the `curl` tool, sends one only when `CURLOPT_USERAGENT` asks it to. The body has the parts in the order they were added, each with a `Content-Disposition: form-data` naming it, the file part with `filename="nov.csv"` and `Content-Type: text/csv`, then the contents: `November`, and the file{apos}s two lines. A test that matches the parts must leave the boundary out: it is random per transfer.
+
+`curl_mime_filedata` checks the file can be read when it is called, so a path that cannot be read is `CURLE_READ_ERROR`, 26, before anything is sent. A port nothing listens on is `CURLE_COULDNT_CONNECT`, 7, from `Perform`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-read-headers-with-curl-easy-header>> for the response side of a ported program.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc2045>>, <<rfc9110>>.

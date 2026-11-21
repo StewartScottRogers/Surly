@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-fault-that-broke-a-run]]
+=== Finding the Fault That Broke a Run
+
+==== Problem
+
+A test set several fault rules on a Hypertext Transfer Protocol (HTTP) server and a run failed in more than one place. You want an artificial intelligence (AI) agent to say, for each failed request, which rule broke it, or that none did and the failure was the server{apos}s own, using Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the MCP software development kit (SDK): it sets four rules with `add_fault`, runs six requests through `curl-mcp`{apos}s `curl` tool, then matches each failed request to its exchange in `get_exchanges` and to the faults `get_events` says were applied there:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent{apos}s own client. The argument after `--` picks what it reports. `start_server` holds four files in memory and answers with `server_id` and `bound_urls`. One untimed `transfer` comes first: the first transfer `curl-mcp` makes pays a one-time set-up, and the run that follows allows each request one second.
+
+`add_fault` adds the rules a test might set, each written as `surl`{apos}s `--fault` takes it: `f1` answers `/orders.json` `503` (<<rfc9110>>), `f2` holds every request under `/reports` three seconds, `f3` drops the connection for `/export.csv` without answering, and `f4` answers `/admin` `500`. The run is one `curl` tool call per request, so each is its own connection and its own exchange on the server. `-m 1` bounds each call, `-s` keeps the progress meter out of the answer, `-o -` writes the body to standard output and `-w "\n%{http_code} %{exitcode}"` adds the status and `curl`{apos}s exit code (<<curl-manual>>). Four of the six fail: `503` with exit `0`, since without `-f` a status is not a failure to `curl`; `000 28`, the one-second limit; `000 56`, the connection reset; and `404` for a file that is not there.
+
+The server{apos}s side is two lists. `get_exchanges` gives each exchange{apos}s ID and the bytes in each direction; the first line of the `received` chunks is the request line and the first line of the `sent` chunks the status line, if any. `get_events` with `kinds` `fault_applied` gives an event each time a rule acted, with `rule_id`, `fault_kind` and the `exchange_id` it acted on. The program finds each failed request{apos}s exchange by its request line, in order, and lists the faults with that exchange ID. The `503` was `f1`, the timeout `f2`, the reset `f3`, with nothing sent. The `404` had no fault: the server{apos}s own answer, and the one failure no rule explains.
+
+Start from the client{apos}s failures, not the server{apos}s answers. A delay does not stop the server: when the hold ends it answers, and on Windows `get_exchanges` showed the `200 OK` it wrote to a client that had already given up. Listing the exchanges the server did not answer `2xx` finds the `503`, the drop and the `404`, but not the timeout. `list_faults` gives the other half: every rule with its `fault_id` and `item`, and counting events per rule shows `f4` never fired, since the run never asked for `/admin`. A rule that never fired is a test that did not test what it set up.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-count-the-faults-that-fired>> for the same count from a C# test.
+* <<http-retry-a-flaky-endpoint-from-an-agent>> for one rule and a client that retries.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

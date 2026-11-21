@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-give-up-within-a-time-budget-from-an-agent]]
+=== Giving Up Within a Time Budget from an Agent
+
+==== Problem
+
+A client retries, but the job that calls it must finish in bounded time, however many retries it is allowed. You want an artificial intelligence (AI) agent to set up a Hypertext Transfer Protocol (HTTP) server that is slow and always failing, run a client with a retry time budget against it, and show that the whole loop ends near that budget, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the MCP software development kit (SDK): it starts a server with `start_server`, makes one untimed warm-up `transfer`, adds two rules with `add_fault`, then times a `curl` tool call with `--retry 10 --retry-max-time 5` and counts the rules{apos} uses with `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent{apos}s own client. The argument after `--` picks the scenario. `start_server` holds one file in memory and answers with `server_id` and `bound_urls`.
+
+The first transfer `curl-mcp` makes pays a one-time set-up, so the program makes one `transfer` before any rule and before its clock starts. Then `add_fault` adds `delay;ms=1500`, which holds each new connection 1.5 seconds before the server reads from it, and `error;scheme=http;reply=503`, which answers every request `503 Service Unavailable` (<<rfc9110>>). Neither has `times`, so retries cannot help.
+
+The `curl` tool runs a `curl` command line in-process and answers its `exitCode` and output as JavaScript Object Notation (JSON) text. `--retry 10` allows ten retries after a failure `curl` counts as transient, and `503` is one (<<curl-manual>>); `-f` makes it exit `22`, `-s` keeps the progress meter out of the answer, and `--retry-delay 1` waits a second before each retry. `--retry-max-time 5` is the budget: after each failed try `curl` checks the time since the first try began, and once five seconds have passed it makes no more retries. Here it gives up after one to three retries, which `-w "%{http_code} %{num_retries}"` prints, and the call takes from five to under fifteen seconds. Without the budget, `--retry 3` makes all three retries, and four slow tries and three waits take at least nine seconds. The counts and times are ranges because they depend on the machine.
+
+The budget bounds the loop, not a try. Against a server that holds every request five seconds, `delay;stage=command;ms=5000`, `-m 1` ends each try after a second with exit `28`, and `--retry-max-time 3` stops the retries after one to three. `transfer` has no retry of its own: one attempt per call, bounded by `timeoutSeconds`, whose failure is exit `28`. An agent that keeps the budget itself, stopping once three seconds have passed and otherwise waiting a second and calling again, ends in the same range.
+
+The server keeps count. `get_events` with `kinds` `fault_applied` returns an event each time a rule acted, with its `rule_id`; each rule acted once per try, retries plus one, so the server and the client agree on how many tries were made. A second argument, a label such as `retries`, makes the program print only the lines that start with it, so each checked claim below looks at one line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-give-up-within-a-time-budget>> for the same test on the console.
+* <<http-give-up-within-a-time-budget-in-csharp>> for the same test from a C# program.
+* <<http-time-out-a-hanging-server-from-an-agent>> for a time limit on a single request.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

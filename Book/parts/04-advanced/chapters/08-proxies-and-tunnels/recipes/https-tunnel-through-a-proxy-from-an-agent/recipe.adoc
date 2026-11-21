@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-tunnel-through-a-proxy-from-an-agent]]
+=== Tunnelling through a Proxy from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to stand up a Transport Layer Security (TLS) origin and a proxy, fetch the origin's Hypertext Transfer Protocol Secure (HTTPS) URL through a `CONNECT` tunnel, and show the `CONNECT` in what the proxy recorded, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it calls `start_server` with an `https://` origin and two proxies in `arguments`, `transfer` with the proxy and the origin's certificate, then `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `setup:` writes the certificate and key there with `openssl`. The argument after `--` picks the scenario.
+
+`start_server` has no proxy or TLS fields, so `arguments` carries `surl`{apos}s own words: `--proxy` twice, an `http://` and an `https://` proxy listener, and `--cert server.pem` with `--key server.key` for every TLS listener, the origin in `listen_urls` included. `bound_urls` lists the origin, then the proxies. `files` gives the origin its one file.
+
+`transfer` with `proxy` set sends an `https://` URL through a tunnel, as `curl -x` does: `CONNECT 127.0.0.1:<port> HTTP/1.1` to the proxy, which connects to the origin, answers `200 Connection established`, and relays bytes both ways from then on (<<rfc9110>>). The client then runs its TLS handshake with the origin through the tunnel (<<rfc8446>>), and `caFile` trusts the origin's certificate. The answer is the origin's, `statusCode` 200.
+
+`get_exchanges` is the record an agent reads in place of a log file, since `start_server` refuses `--log-file`. Each exchange names its `listen_url` and `scheme`, and each chunk has a `direction` and an `encoding`. The proxy's first `received` chunk is the `CONNECT` head as text, and its first `sent` chunk the `200`. Every chunk after those two is `base64`: TLS records, not text, and the `GET /hello.txt` the client sent is in none of them. The origin's exchange is `https`, and its first `received` chunk, decoded, starts with `PRI * HTTP/2.0`: client and origin agreed on HTTP/2 (<<rfc9113>>) in a handshake the proxy only relayed.
+
+The certificate check runs end to end. Without `caFile` the tunnel opens, but the client does not trust the origin: `failure` holds `exitCode` 60, `PeerFailedVerification`, and the answer is a tool error. An `https://` proxy adds its own TLS session, and `transfer`{apos}s `caFile` is the origin's only, so through that proxy it fails with the same 60. The `curl` tool takes `curl`{apos}s own words, `-x` for the proxy, `--proxy-cacert server.pem` to trust it and `--cacert server.pem` to trust the origin, and gets the file through TLS inside TLS; `-s` keeps the progress meter out of its answer.
+
+A proxy can refuse the tunnel. `--fault error;scheme=http-proxy;command=CONNECT;reply=503` in `arguments` answers every `CONNECT` with `503`, and `transfer` fails with `exitCode` 7, `CouldntConnect`: what an app sees from a proxy that will not let it out.
+
+`get_exchanges` keeps raw bytes by design, so once the proxy asks for a login its chunks hold the `Proxy-Authorization` header in clear; do not paste them into a shared report (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-tunnel-through-a-proxy>> for the same tunnel on the console.
+* <<https-tunnel-through-a-proxy-in-csharp>> for the same tunnel from a C# test.
+* <<http-run-a-test-proxy-from-an-agent>> for requests the proxy forwards instead of tunnelling.
+* <<rfc9110>>, <<rfc8446>>, <<rfc9113>>, <<surl-readme>>, <<curl-readme>>.

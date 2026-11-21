@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-download-every-file-in-a-folder]]
+=== Downloading a Whole FTP Folder
+
+==== Problem
+
+You want every file of a folder on a File Transfer Protocol (FTP) server: list the names with `-l`, then fetch each one, and skip the subfolders.
+
+==== Solution
+
+Run `surl` serving a directory and allowed to list folders, then run a short script that lists the folder, drops the subfolders and fetches the rest in one `curl` command:
+
+include::.generated/solution.adoc[]
+
+The script:
+
+include::fetch-folder.sh[]
+
+It needs a POSIX shell (Git Bash on Windows). Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` serves `site` (`--directory`), and `--allow-anonymous` lets `curl` log in without an account. `--list-directories` lets a client list a folder, which `surl` refuses unless asked: without it `curl -l` on the folder is exit `19`, and a script has no names to work from.
+
+`-l` (`--list-only`) on a URL that ends in `/` prints the names only, one a line, in order (<<rfc959>>). That is what a script wants to loop over, but it is also all it gets: a subfolder is a name like any other, `archive` here. `surl` does not serve dot files, so `.hidden` is neither listed nor fetchable. Without `-l` the listing is the long one, as `ls -l` prints it, and a folder{apos}s line starts with `d` where a file{apos}s starts with a dash. The script asks for the long listing once, keeps the names on `d` lines, and skips those names when it loops over the `-l` names. Asking for a subfolder as a file does not work: `curl -o never.txt ftp://.../pub/archive` is exit `78`, the file does not exist, and writes nothing.
+
+The script builds one `curl` command line, an `-o` and a URL for each file, so one process fetches however many files there are; `$dir/$name` is where each lands. `-w "get %{url.path} %{exitcode}\n"` prints a line after each transfer with its path on the server and its own exit code; `-s` hides the progress meter and `-S` still prints errors. FTP ends its lines with a carriage return and a line feed, so `tr -d '\r'` strips the first before the names are used.
+
+A name that is listed may be gone by the time it is fetched. That transfer fails, here with `78`. Without `--fail-early` `curl` goes on to the next file and exits with the last one{apos}s code, which can hide the failure; `--fail-early` stops at the first failure and exits with its code, and the files after it are not fetched.
+
+A subfolder is downloaded by running the script again on its own URL; the script does not descend, since which folders a caller wants is a decision. The names are split on white space, so a name with a space is not handled.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-download-every-file-in-a-folder-in-csharp>> for the same job in C# with `Curl.Api`.
+* <<ftp-download-every-file-in-a-folder-from-an-agent>> for an agent doing it.
+* <<ftp-mirror-a-folder-with-a-script>> for the upload direction.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

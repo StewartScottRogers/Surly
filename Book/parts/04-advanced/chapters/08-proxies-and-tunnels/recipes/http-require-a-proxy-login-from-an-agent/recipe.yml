@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs proxy-login.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-require-a-proxy-login-from-an-agent
+title: Requiring a Proxy Login from an Agent
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, transfer, get_events]
+surl-options: [--user, --proxy, --cert, --key, -U, --allow-plaintext-auth]
+curl-options: [-s, -o, -w, -D, -x, -U, --proxy-digest, --proxy-cacert, -u, --digest]
+exit-codes: [0]
+references: [rfc9110, rfc7616, rfc7617, surl-readme, curl-readme]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool with -x, --proxy-digest -U for the proxy and --digest -u for the origin logs in to each hop with its own account and gets the file, exitCode 0.
+    program: proxy-login.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "exitCode 0: hello from surl\n"
+
+  - id: no-login-407
+    claim: transfer through the proxy with no login gets the proxy's own 407, an answer with failure null and no tool error, offering Digest with MD5, SHA-256 and SHA-512-256 and no Basic.
+    program: proxy-login.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "statusCode: 407, failure: null, tool error: no\noffers: Digest MD5\noffers: Digest SHA-256\noffers: Digest SHA-512-256\n"
+
+  - id: wrong-password-407
+    claim: A wrong proxy password is answered 407 again.
+    program: proxy-login.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout: "exitCode 0: 407\n"
+
+  - id: basic-over-http-refused
+    claim: transfer has no proxy login field; a user and password in its proxy URL are sent as Basic, which the http proxy refuses unchecked with 403.
+    program: proxy-login.cs
+    args: [basic-http]
+    expect:
+      exit: 0
+      stdout: "statusCode: 403, failure: null, tool error: no\n"
+
+  - id: https-offers-basic
+    claim: The https proxy listener, trusted with --proxy-cacert, offers Basic in its 407 as well as Digest.
+    program: proxy-login.cs
+    args: [https-offers]
+    expect:
+      exit: 0
+      stdout: "exitCode 0: HTTP/1.1 407 Proxy Authentication Required\noffers: Digest MD5\noffers: Digest SHA-256\noffers: Digest SHA-512-256\noffers: Basic\n"
+
+  - id: basic-over-https
+    claim: Through the https proxy a Basic proxy login is accepted and the file comes back.
+    program: proxy-login.cs
+    args: [basic-https]
+    expect:
+      exit: 0
+      stdout: "exitCode 0: hello from surl\n"
+
+  - id: plaintext-allowed
+    claim: With --allow-plaintext-auth in arguments, log_lines begin with surl's warning, and the http proxy accepts the same Basic login.
+    program: proxy-login.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "surl: warning: --allow-plaintext-auth: passwords and tokens are accepted over unencrypted connections\nexitCode 0: hello from surl\n"
+
+  - id: accounts-kept-apart
+    claim: The origin's account sent to the proxy is answered 407; the proxy's account sent to the origin passes the proxy and is answered 401 by the origin.
+    program: proxy-login.cs
+    args: [swapped]
+    expect:
+      exit: 0
+      stdout: "origin account at the proxy: exitCode 0: 407\nproxy account at the origin: exitCode 0: 401\n"
+
+  - id: events-per-listener
+    claim: get_events with kinds login_judged and a listen_url shows each hop's logins of one fetch apart, Digest app accepted on the proxy and Digest web accepted on the origin.
+    program: proxy-login.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout-matches: '^(proxy: Digest app accepted\n)+origin: Digest web accepted\n$'

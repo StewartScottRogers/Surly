@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-retry-after-a-refused-login-from-an-agent]]
+=== Retrying After a Refused Login from an Agent
+
+==== Problem
+
+Your client tries a File Transfer Protocol (FTP) login again when the server refuses it. You want an artificial intelligence (AI) agent to set up a server that refuses one login with `530` and accepts the next, fetch a file with retries, and check from the server{apos}s side which login was refused and why, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the MCP software development kit (SDK): it starts an FTP server with one account through `start_server`, adds a `refuse-login` rule with `add_fault`, fetches with `curl-mcp`{apos}s `curl` tool and `--retry 3 --retry-all-errors`, then reads the logins the server judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside the recipe is the same configuration for an agent{apos}s own client. The argument after `--` picks the scenario. `start_server` takes `surl`{apos}s options in `arguments`: `--user app:s3cret` is the one account, and `--allow-plaintext-auth` lets the server check a password sent in clear, as every password over plain `ftp://` is. It answers with `server_id`, which every other `surl-mcp` tool takes, and `bound_urls`.
+
+`add_fault` adds `refuse-login;times=1` to the running server and answers its ID, `f1`. The rule refuses a login whatever the password, once. The server answers `530` (<<rfc959>>), and the `curl` tool, which runs a `curl` command line in-process and answers its `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON) text, reports `curl: (67) Access denied: 530`. `--retry` alone does not retry that: `curl` counts a `530` as permanent (<<curl-manual>>), so with `--retry 3` the answer is exit `67`, no retry, and a tool error. `--retry-all-errors` makes every failure worth a retry: `curl` waits one second, says so on standard error, logs in on its second try and exits `0` with one retry, which `-w "%{exitcode} %{num_retries}\n"` prints. `--retry-delay 2` against a rule with `times=2` waits two seconds before each of two retries.
+
+`transfer` takes the account in the URL, `ftp://app:s3cret@...`, and makes one attempt per call. A refused login is a tool error whose `failure` has `exitCode` `67`; an agent that wants to retry waits and calls again, and here the second call gets the file.
+
+The server{apos}s side says which refusal was which. `get_events` with `kinds` `login_judged` lists each login judged, with `is_accepted` and `is_refused_by_fault`, and `list_faults` shows each rule with its `remaining` uses. After a retry they read: refused by the rule, accepted, and `f1` with `0` left. A wrong password is different: the server checks the password before the rule, so three logins with a wrong one are three plain refusals, `--retry 2 --retry-all-errors` ends in exit `67`, and `f1` still has its one use. A server started without `--allow-plaintext-auth` refuses the clear password unread: exit `67` each time and no `login_judged` event at all. A second argument, a label such as `retries`, makes the program print only the lines that start with it, so each checked claim below looks at one line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-retry-after-a-refused-login>> for the same test on the console.
+* <<ftp-retry-after-a-refused-login-in-csharp>> for the same test from a C# program.
+* <<http-stop-a-client-hammering-a-refused-login-from-an-agent>> for a client that must not retry a refused login.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc959>>.

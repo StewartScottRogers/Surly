@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs socks.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: socks5-relay-through-a-socks-proxy-from-an-agent
+title: Relaying through SOCKS5 from an Agent
+protocols: [socks5h, http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, transfer, curl, get_exchanges]
+surl-options: [-U, --allow-plaintext-auth]
+curl-options: [-s, -S, --max-time, --resolve, -x]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: transfer with a socks5h:// proxy fetches from the origin by its name, and get_exchanges shows the SOCKS5 request carried the name, localhost, answered 05 00.
+    program: socks.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "transfer: statusCode 200, hello from surl\nasked for a name, localhost; replied 05 00\nrelayed in clear: GET /hello.txt\n"
+
+  - id: relayed-in-clear
+    claim: After the reply the SOCKS server only relays, and the plain HTTP request it carried, GET /hello.txt, is in its exchange as text.
+    program: socks.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout-matches: '\nrelayed in clear: GET /hello\.txt\n$'
+
+  - id: socks5-resolves-locally
+    claim: The curl tool with --resolve and a socks5:// proxy resolves origin.test itself, so the request carries an address, 127.0.0.1, and the file comes back.
+    program: socks.cs
+    args: [local]
+    expect:
+      exit: 0
+      stdout: "curl tool: exitCode 0, hello from surl\nasked for an address, 127.0.0.1; replied 05 00\nrelayed in clear: GET /hello.txt\n"
+
+  - id: socks5h-cannot-use-the-clients-name
+    claim: Through socks5h:// the same name goes to the server, which cannot resolve origin.test and replies 05 04; the curl tool answers exitCode 97.
+    program: socks.cs
+    args: [remote-name]
+    expect:
+      exit: 0
+      stdout: "curl tool: exitCode 97, curl: (97) cannot complete SOCKS5 connection to origin.test. (4)\nasked for a name, origin.test; replied 05 04\nrelayed in clear: nothing\n"
+
+  - id: socks4-turned-away
+    claim: A socks4:// proxy URL makes transfer send a SOCKS4 request, which the SOCKS5 server answers 00 5B at once; transfer fails with exitCode 97, a tool error.
+    program: socks.cs
+    args: [socks4]
+    expect:
+      exit: 0
+      stdout: "transfer: exitCode 97, [SOCKS] cannot complete SOCKS4 connection to 0.0.0.0:0. (91), request rejected or failed., tool error: yes\nasked for a SOCKS4 request; replied 00 5B\nrelayed in clear: nothing\n"
+
+  - id: outside-loopback-refused
+    claim: An origin outside loopback, 192.0.2.1, is replied 05 02, not allowed.
+    program: socks.cs
+    args: [outside]
+    expect:
+      exit: 0
+      stdout: "transfer: exitCode 97, cannot complete SOCKS5 connection to 192.0.2.1. (2), tool error: yes\nasked for an address, 192.0.2.1; replied 05 02\nrelayed in clear: nothing\n"
+
+  - id: login-needed
+    claim: With -U in arguments the server offers only username and password, so a proxy URL with no login is told no authentication method was acceptable, and no request follows.
+    program: socks.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout-matches: '^transfer: exitCode 97, No authentication method was acceptable\., tool error: yes\nno SOCKS request; the server''s last reply: 05FF\n$'
+
+  - id: password-in-clear-refused
+    claim: The right login in the proxy URL is rejected unchecked, since SOCKS5 sends it in clear.
+    program: socks.cs
+    args: [in-clear]
+    expect:
+      exit: 0
+      stdout-matches: '^transfer: exitCode 97, User was rejected by the SOCKS5 server \(1 1\)\., tool error: yes\nno SOCKS request; the server''s last reply: 0101\n$'
+
+  - id: plaintext-allowed
+    claim: With --allow-plaintext-auth in arguments the same login is accepted and the request relayed.
+    program: socks.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "transfer: statusCode 200, hello from surl\nasked for a name, localhost; replied 05 00\nrelayed in clear: GET /hello.txt\n"

@@ -1,0 +1,111 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs report.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-list-mailboxes-and-counts-from-an-agent
+title: Listing Mailboxes and Counts
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, curl, list_mailboxes, list_messages, read_message, reset_server]
+curl-options: [-s, -u, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  sent1.eml: "From: ann@example.com\r\nTo: shop@example.com\r\nSubject: Where is order 1?\r\n\r\nPlease send news.\r\n"
+  sent2.eml: "From: ann@example.com\r\nTo: shop@example.com\r\nSubject: Thanks for order 2\r\n\r\nIt arrived.\r\n"
+
+# Every case runs report.cs: ann has the folders Sent, Drafts and Archive, three seeded orders in her INBOX
+# and two mails her client filed in Sent over IMAP; a case's argument picks what happens next.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "list_mailboxes for ann answers each of her four mailboxes with its message_count and unseen_count, in name order: Archive and Drafts empty, the INBOX 3 messages all unseen, Sent 2 messages none unseen."
+    program: report.cs
+    args: [report]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann@example.com Archive: 0 messages, 0 unseen\nann@example.com Drafts: 0 messages, 0 unseen\nann@example.com INBOX: 3 messages, 3 unseen\nann@example.com Sent: 2 messages, 0 unseen\n"
+
+  - id: empty-folders
+    claim: "The folders made by folders= at start answer 0 messages and 0 unseen before any mail is filed."
+    program: report.cs
+    args: [report]
+    expect:
+      exit: 0
+      stdout-matches: "Archive: 0 messages, 0 unseen\n.*Drafts: 0 messages, 0 unseen\n"
+
+  - id: seeded-mail-is-unseen
+    claim: "Three orders put in with seed_mail, each waited for by its delivery event, are 3 messages and 3 unseen in the INBOX."
+    program: report.cs
+    args: [report]
+    expect:
+      exit: 0
+      stdout-matches: "INBOX: 3 messages, 3 unseen\n"
+
+  - id: filed-mail-is-seen
+    claim: "Two mails filed in Sent by the curl tool's IMAP APPEND are 2 messages and 0 unseen: an appended message is stored as seen."
+    program: report.cs
+    args: [report]
+    expect:
+      exit: 0
+      stdout-matches: "Sent: 2 messages, 0 unseen\n$"
+
+  - id: uid-validity
+    claim: "Every mailbox has a positive uid_validity, and a second call to list_mailboxes answers the same values."
+    program: report.cs
+    args: [validity]
+    expect:
+      exit: 0
+      stdout: "uid_validity positive on every mailbox: True\nuid_validity the same on a second call: True\n"
+
+  - id: curl-read-lowers-unseen
+    claim: "After the curl tool reads message 1 of the INBOX, list_mailboxes says 3 messages and 2 unseen: reading over IMAP sets the \\Seen flag."
+    program: report.cs
+    args: [curl-read]
+    expect:
+      exit: 0
+      stdout-matches: "INBOX: 3 messages, 2 unseen\n"
+
+  - id: flags-agree
+    claim: "list_messages gives each message its flags: after that read, UID 1 of the INBOX has \\Seen and UIDs 2 and 3 have none, so two unseen; both Sent messages have \\Seen."
+    program: report.cs
+    args: [messages]
+    expect:
+      exit: 0
+      stdout-matches: "list_messages INBOX UID 1: flags \\[.Seen\\]\nlist_messages INBOX UID 2: flags \\[\\]\nlist_messages INBOX UID 3: flags \\[\\]\nlist_messages Sent UID 1: flags \\[.Seen\\]\nlist_messages Sent UID 2: flags \\[.Seen\\]\n"
+
+  - id: read-message-sets-no-flag
+    claim: "read_message gives the agent message 2's text and sets no flag: the INBOX still has 3 messages and 3 unseen."
+    program: report.cs
+    args: [read-message]
+    expect:
+      exit: 0
+      stdout-matches: "read_message UID 2: Subject: Order 2 shipped\n.*INBOX: 3 messages, 3 unseen\n"
+
+  - id: each-owner-its-own
+    claim: "The owner is the whole address: bob, with no folders=, lists an INBOX alone, with 0 messages, while ann's counts are unchanged."
+    program: report.cs
+    args: [owners]
+    expect:
+      exit: 0
+      stdout: "bob@example.com INBOX: 0 messages, 0 unseen\nann@example.com Archive: 0 messages, 0 unseen\nann@example.com Drafts: 0 messages, 0 unseen\nann@example.com INBOX: 3 messages, 3 unseen\nann@example.com Sent: 2 messages, 0 unseen\n"
+
+  - id: no-mailboxes
+    claim: "An owner with no mailbox, the bare name ann or an address nobody has, is a tool error, No mailboxes for the owner."
+    program: report.cs
+    args: [unknown]
+    expect:
+      exit: 0
+      stdout: "ann: tool error, No mailboxes for ann.\nnobody@example.com: tool error, No mailboxes for nobody@example.com.\n"
+
+  - id: reset-keeps-the-folders
+    claim: "After reset_server the mail is gone but the mailboxes stay: Archive, Drafts, INBOX and Sent are listed with 0 messages and 0 unseen."
+    program: report.cs
+    args: [reset]
+    expect:
+      exit: 0
+      stdout: "ann@example.com Archive: 0 messages, 0 unseen\nann@example.com Drafts: 0 messages, 0 unseen\nann@example.com INBOX: 0 messages, 0 unseen\nann@example.com Sent: 0 messages, 0 unseen\n"

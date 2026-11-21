@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-move-a-client-to-sftp-in-csharp]]
+=== Moving a Client from FTP to SFTP
+
+==== Problem
+
+In a C# test: you are replacing File Transfer Protocol (FTP) with the Secure Shell (SSH) File Transfer Protocol (SFTP). You want one server serving both from the same files, so that the old client{apos}s download and the new client{apos}s compare byte for byte, and a way to see that the old one can be turned off.
+
+==== Solution
+
+Host one `SurlServer` with an FTP and an SFTP listener, fetch the report over each with `Curl.Api`, and compare the copies with each other and with the bytes the server was given:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `ftp://` and an `sftp://` URL, each on port 0 for a free one; both are Transmission Control Protocol (TCP), so each gets a port of its own, and `server.BoundUrls` lists them in the order given. `Files` is the in-memory store, shared by both listeners, so `report.bin` is the same file at the same path under both. The report is 3,000 bytes of random data from a seeded generator, so a copy that differs by one byte cannot pass for the real one. This is what makes the test fair: the only thing that changes between the two fetches is the protocol.
+
+`Accounts` holds the one account, `SurlAccount("alice", "s3cret")`. The SFTP listener needs a host key, `HostKeyFiles.Add("host_key")`, made in the setup with `ssh-keygen`. FTP sends the password in clear, which `surl` refuses unless told it is acceptable: `AllowPlaintextAuthentication`, `--allow-plaintext-auth`, lets the old client log in. `ListDirectories` lets either client list a folder. `Log` takes a `TextWriter` that receives the lines `surl` would write, at `LogLevel.Verbose`, as `-v` does.
+
+Each fetch is a `CurlRequest` `GET`, sent through one `CurlClient`, and its `CurlResponse` body is read to the end. `CurlAuthenticationOptions` carries the user name and password for both schemes. For SFTP `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `VerifyPeer` is false is `curl -k`: it skips the check of the server{apos}s host key, which is for a key you made yourself. Both responses are read to the end and the arrays compared (<<rfc959>>).
+
+Where FTP has nothing to check, SFTP can be pinned to the server{apos}s host key. `CurlSshOptions.HostPublicKeySha256` takes the fingerprint, the SHA-256 of the key{apos}s blob in base64 without padding, which the program works out from `host_key.pub`; with it the report arrives identical. A fingerprint that is not the server{apos}s throws `CurlException` with `Code` `PeerFailedVerification`, `curl`{apos}s exit `60`.
+
+A `GET` on the root folder lists its names, and the program reads the last word of each line of the long listing, in order: the same two names over both protocols. The two logins leave different marks in the server{apos}s log. The FTP login is `Login accepted: ftp alice`; the SFTP one is `Login accepted: password alice`. Counting them is how to see which clients still use the old protocol, and it is the evidence to collect before turning it off.
+
+What changes for the code around the fetch is mostly nothing. `SendAsync` throws `CurlException` where `curl` would exit with a number, and a missing file is `RemoteFileNotFound`, `78`, and a wrong password `LoginDenied`, `67`, over both, so a handler that catches them survives the move.
+
+Turning the old protocol off is the failure path. A server started without `AllowPlaintextAuthentication` refuses the old client{apos}s password, even the right one: the `GET` throws `LoginDenied`. The SFTP listener of the same server serves the same report, identical to the server{apos}s bytes.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-move-a-client-to-sftp>> and <<ftp-move-a-client-to-sftp-from-an-agent>> for the same move on the console and from an agent.
+* <<tftp-move-a-firmware-fetch-to-http-in-csharp>> for another move between protocols.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

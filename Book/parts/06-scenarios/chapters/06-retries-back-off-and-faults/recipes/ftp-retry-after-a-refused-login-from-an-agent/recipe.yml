@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs retry-login.cs, a C# program on the official MCP SDK that starts both hosts from PATH,
+# with one scenario and one label (the second argument): it prints only that label's lines.
+schema: 2
+key: ftp-retry-after-a-refused-login-from-an-agent
+title: Retrying After a Refused Login
+protocols: [ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, transfer, get_events, list_faults]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-manual, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: With a rule that refuses the first login, the curl tool with --retry 3 --retry-all-errors reports exit 67 for it, waits one second, logs in on its second try and exits 0 with one retry.
+    program: retry-login.cs
+    args: [curl, curl]
+    expect:
+      exit: 0
+      stdout: "curl: exit 0, tool error: no\n  hello from surl\n  0 1\n  curl: (67) Access denied: 530\n  Warning: Problem (retrying all errors). Retrying in 1 second. 3 retries left.\n"
+
+  - id: rule-added
+    claim: add_fault answers the new rule's ID, f1.
+    program: retry-login.cs
+    args: [curl, add_fault]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\n"
+
+  - id: server-judged-two
+    claim: get_events shows the rule's refusal and then an accepted login.
+    program: retry-login.cs
+    args: [curl, get_events]
+    expect:
+      exit: 0
+      stdout: "get_events: refused by the rule, accepted\n"
+
+  - id: rule-spent
+    claim: list_faults shows the rule with no uses left.
+    program: retry-login.cs
+    args: [curl, list_faults]
+    expect:
+      exit: 0
+      stdout: "list_faults: f1 remaining 0\n"
+
+  - id: retry-alone-does-not
+    claim: curl does not count a 530 as transient, so --retry 3 alone makes no retry and the tool's answer is exit 67 and a tool error; the rule is spent, so the next call logs in.
+    program: retry-login.cs
+    args: [retry-only, curl]
+    expect:
+      exit: 0
+      stdout: "curl: exit 67, tool error: yes\n  67 0\n  curl: (67) Access denied: 530\ncurl: exit 0, tool error: no\n  hello from surl\n  0 0\n"
+
+  - id: retry-alone-server
+    claim: The server judged the same two logins, refused by the rule and then accepted.
+    program: retry-login.cs
+    args: [retry-only, get_events]
+    expect:
+      exit: 0
+      stdout: "get_events: refused by the rule, accepted\n"
+
+  - id: wrong-password-stays-refused
+    claim: A wrong password is refused with 530 every time, so two retries end in exit 67.
+    program: retry-login.cs
+    args: [wrong, curl]
+    expect:
+      exit: 0
+      stdout: "curl: exit 67, tool error: yes\n  67 2\n  curl: (67) Access denied: 530\n  Warning: Problem (retrying all errors). Retrying in 1 second. 2 retries left.\n  curl: (67) Access denied: 530\n  Warning: Problem (retrying all errors). Retrying in 1 second. 1 retry left.\n  curl: (67) Access denied: 530\n"
+
+  - id: wrong-password-not-the-rule
+    claim: The server checks the password before the rule, so none of the three refusals is the rule's.
+    program: retry-login.cs
+    args: [wrong, get_events]
+    expect:
+      exit: 0
+      stdout: "get_events: refused, refused, refused\n"
+
+  - id: wrong-password-keeps-rule
+    claim: The rule keeps its one use after three logins with a wrong password.
+    program: retry-login.cs
+    args: [wrong, list_faults]
+    expect:
+      exit: 0
+      stdout: "list_faults: f1 remaining 1\n"
+
+  - id: longer-wait
+    claim: With a rule that refuses two logins and --retry-delay 2, curl waits two seconds before each retry and logs in on its third try.
+    program: retry-login.cs
+    args: [slow, curl]
+    expect:
+      exit: 0
+      stdout: "curl: exit 0, tool error: no\n  hello from surl\n  0 2\n  curl: (67) Access denied: 530\n  Warning: Problem (retrying all errors). Retrying in 2 seconds. 3 retries left.\n  curl: (67) Access denied: 530\n  Warning: Problem (retrying all errors). Retrying in 2 seconds. 2 retries left.\n"
+
+  - id: transfer-loop
+    claim: transfer makes one attempt per call; the refused login is a tool error with failure exit code 67, and an agent that waits a second and calls again logs in.
+    program: retry-login.cs
+    args: [transfer, transfer]
+    expect:
+      exit: 0
+      stdout: "transfer 1: tool error: yes, exit code 67, waiting 1 s\ntransfer 2: tool error: no, hello from surl\n"
+
+  - id: plaintext-refused
+    claim: A server started without --allow-plaintext-auth refuses a password sent in clear over ftp://, with no rule, so the retry meets the same refusal.
+    program: retry-login.cs
+    args: [strict, curl]
+    expect:
+      exit: 0
+      stdout: "curl: exit 67, tool error: yes\n  67 1\n  curl: (67) Access denied: 530\n  Warning: Problem (retrying all errors). Retrying in 1 second. 1 retry left.\n  curl: (67) Access denied: 530\n"
+
+  - id: plaintext-not-judged
+    claim: A password refused for being sent in clear is refused unread, so no login_judged event exists.
+    program: retry-login.cs
+    args: [strict, get_events]
+    expect:
+      exit: 0
+      stdout: "get_events: \n"

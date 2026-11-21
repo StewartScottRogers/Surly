@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-count-the-faults-that-fired]]
+=== Counting the Faults That Fired
+
+==== Problem
+
+A test sets several fault rules on a server, each to make the client meet one kind of failure, and passes. You want it to prove the client met each failure: count, from the server{apos}s side, which rules fired and how often, so a rule that never fired fails the test instead of passing it unnoticed.
+
+==== Solution
+
+Start one in-process `SurlServer` on a Hypertext Transfer Protocol (HTTP) and a File Transfer Protocol (FTP) listener with four `SurlFault` rules, run the client, then match the server{apos}s `FaultApplied` events to its rules:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server listens on `http://` and `ftp://` from one `SurlServerOptions`, so both share one `SurlAccount`, `app`, and one set of files; `server.BoundUrls` gives the two URLs in that order. `AllowPlaintextAuthentication = true` lets it check a password sent in clear, as it is over both plain listeners. Rules in `SurlServerOptions.Faults` are numbered in the order added:
+
+* `f1`, `SurlFault.ProtocolError("503")` with `Scheme = "http"`, `Path = "/report.txt"` and `Times = 2`, answers the first two requests for that path `503 Service Unavailable` (<<rfc9110>>).
+* `f2`, `SurlFault.Delay` with `Stage`, a `FaultStage`, set to `Command` and `Path = "/slow"`, holds every request under `/slow` 300 milliseconds and then serves it.
+* `f3`, `SurlFault.RefuseLogin()` with `Scheme = "ftp"` and `Times = 1`, refuses the first FTP login, `530` (<<rfc959>>).
+* `f4`, `SurlFault.DropConnection()` at the command stage with `Path = "/export.csv"`, closes the connection instead of answering.
+
+The client is a stand-in for the one under test: each request comes from a new `CurlClient`, with the account in `CurlAuthenticationOptions` on the `CurlRequest`. A `503` and a `200` are statuses on the `CurlResponse`; the refused login and the dropped connection throw a `CurlException`, `LoginDenied` and `RecvError`. The program prints what it saw, but that alone does not prove much: a delay of 300 milliseconds looks like a normal answer, and a test that never asked for `/export.csv` would see no failure to miss.
+
+The server{apos}s count does. `RecordExchanges = true` keeps every event, and `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.FaultApplied` returns a `FaultAppliedEvent` each time a rule acted: `RuleId`, `Kind`, `Stage`, and `Target`, the request path for an HTTP rule and the account for a refused login. `server.Faults.List()` returns every rule as a `SurlFaultRule`: `Id`, `Item`, the rule written as `surl --fault` takes it, and `Remaining`, the uses left, `0` once a `Times` rule is spent and null with no limit. Counting events per rule ID gives `f1` two and the others one each. The program counts after `StopAsync`, when every exchange has ended.
+
+The check that matters is the zero. A run that never asks for `/export.csv` behaves the same in every request it makes, but `f4` has fired `0` times; the program names it, `never fired: f4`, and exits `1`. `Item` shows a path percent-encoded, `path=%2Freport.txt`, and leaves out `times`; `Remaining` is the way to read what is left of a rule.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-fault-that-broke-a-run>> for an agent matching applied faults to failed exchanges.
+* <<http-retry-a-flaky-endpoint-in-csharp>> for one rule and a client that retries.
+* <<ftp-retry-after-a-refused-login-in-csharp>> for the refused login on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc959>>.

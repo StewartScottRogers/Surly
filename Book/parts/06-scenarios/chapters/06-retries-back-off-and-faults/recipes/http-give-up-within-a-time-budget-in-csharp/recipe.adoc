@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-give-up-within-a-time-budget-in-csharp]]
+=== Giving Up Within a Time Budget in C#
+
+==== Problem
+
+Your .NET client retries, but the job that calls it must finish in bounded time, however many retries it is allowed. In a test, you want an in-process Hypertext Transfer Protocol (HTTP) server that is slow and always failing, and a retry loop with a time budget, so the test proves the whole loop ends near that budget instead of running through every retry.
+
+==== Solution
+
+Start a `SurlServer`, warm the client up, add two `SurlFault` rules that hold every connection and answer every request `503`, and run a `CurlClient` retry loop that stops once its budget has passed; time it and count the rules{apos} uses:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServer.StartAsync` starts the server from `SurlServerOptions`: one file in memory and no rules yet. The first Curl.Api request in a process pays a one-time set-up of a few seconds, so the program makes one request before any rule is in place and before the clock starts. Then `server.Faults.Add` adds the rules to the running server. `SurlFault.Delay` at its default stage holds each new connection 1.5 seconds before the server reads from it, as `surl --fault delay;ms=1500` does, and `SurlFault.ProtocolError("503") with { Scheme = "http" }` answers every request `503 Service Unavailable` (<<rfc9110>>). Neither has `Times`, so retries cannot help.
+
+The loop is the program{apos}s, since Curl.Api has no retry option. It keeps the rule `curl --retry-max-time` keeps (<<curl-manual>>): after each failed try, stop if no retries are left or the budget has passed since the first try began; otherwise wait one second and try again. Each try uses a new `CurlClient`, so it opens a new connection, which is held again. A `503` is an answer, not an exception: `SendAsync`, given a `CurlRequest`, returns a `CurlResponse` with that `StatusCode`. With ten retries allowed and a five-second budget, the loop gives up after one to three retries and takes from five to under ten seconds by a `Stopwatch`; the program exits `22`, the code `curl -f` exits with. The retry count is a range because it depends on the machine; the budget does not. A retry already decided on still runs, so the loop can end after the budget by one wait and one try.
+
+Without a budget the retry count alone sets the time: three retries are all made, and four 1.5-second tries and three waits take at least nine seconds.
+
+The budget bounds the loop, not a try. Against a server that holds every request five seconds, `SurlFault.Delay` with its `Stage`, a `FaultStage`, set to `Command`, a try would wait the five seconds. `CurlClientOptions.Timeout`, given to `CurlClient.Create`, limits each try to one second, after which `SendAsync` throws a `CurlException` whose `Code` is `OperationTimedOut`, `28`, and a three-second budget stops the loop after one to three retries, from three to under eight seconds. A client that wants bounded time needs both limits.
+
+The server keeps count. `RecordExchanges = true` keeps every event, and `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.FaultApplied` returns a `FaultAppliedEvent` each time a rule acted, with the rule{apos}s ID in `RuleId`. Each rule acted once per try, retries plus one, so the server and the client agree on how many tries were made. A second argument, a label such as `retries`, makes the program print only the lines that start with it, so each checked claim below looks at one line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-give-up-within-a-time-budget>> for the same test on the console, with `curl --retry-max-time`.
+* <<http-give-up-within-a-time-budget-from-an-agent>> for the same test from an agent.
+* <<http-time-out-a-hanging-server-in-csharp>> for a time limit on a single request.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

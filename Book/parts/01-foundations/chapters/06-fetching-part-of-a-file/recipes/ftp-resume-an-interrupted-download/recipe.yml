@@ -1,0 +1,108 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-resume-an-interrupted-download
+title: Resuming an FTP Download
+protocols: [ftp]
+tier: foundations
+surl-options: [--allow-anonymous, --directory]
+curl-options: [-C, -o, -w, -v, -s, -S]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, rfc3659]
+
+fixtures: {}
+
+# A 200,000-byte image of random bytes, and what a download cut off at 65,536 bytes leaves behind: the
+# first 65,536 bytes, under a name for each case. bad.iso is 65,536 zeros, the right length and the wrong bytes.
+setup:
+  - mkdir site
+  - head -c 200000 /dev/urandom > site/update.iso
+  - head -c 65536 site/update.iso > update.iso
+  - head -c 65536 site/update.iso > second.iso
+  - head -c 65536 site/update.iso > third.iso
+  - head -c 65536 site/update.iso > fourth.iso
+  - head -c 65536 /dev/zero > bad.iso
+
+servers:
+  main:
+    command: surl --allow-anonymous --directory site ftp://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With -C -, curl measures the partial update.iso, asks the server to start after its 65,536 bytes and fetches only the other 134,464; exit 0.
+    run: curl -sS -C - -o update.iso -w "%{size_download}\n" ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stdout: "134464\n"
+
+  - id: joined-matches
+    claim: The joined file is the server's file, byte for byte.
+    run: cmp update.iso site/update.iso && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: rest-offset
+    claim: The command that asked is REST with the size of the partial file, 65536, and surl answers 350 Restarting at 65536 before it sends the rest.
+    run: curl -sS -v -C - -o second.iso ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stderr-contains: "> REST 65536\n\n< 350 Restarting at 65536\n"
+
+  - id: rest-before-retr
+    claim: REST comes right before RETR, so the server is told where to start and the next command asks for the file.
+    run: curl -sS -v -C - -o third.iso ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stderr-contains: "> REST 65536\n\n< 350 Restarting at 65536\n\n> RETR update.iso\n"
+
+  - id: no-partial-file
+    claim: With no local file there is nothing to resume, and the same command line fetches the whole 200,000 bytes; exit 0.
+    run: curl -sS -C - -o fresh.iso -w "%{size_download}\n" ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stdout: "200000\n"
+
+  - id: without-C-starts-over
+    claim: Without -C, curl starts again from byte 0 over the partial file, 200,000 bytes, and the result is still the server's file.
+    run: curl -sS -o fourth.iso -w "%{size_download}\n" ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stdout: "200000\n"
+
+  - id: explicit-offset
+    claim: -C with a number instead of - asks for everything after that byte, here 100000, and receives the last 100,000 bytes.
+    run: curl -sS -C 100000 -o tail.bin -w "%{size_download}\n" ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stdout: "100000\n"
+
+  - id: tail-is-the-tail
+    claim: The first 100,000 bytes of the server's file followed by the bytes received are the whole file.
+    run: head -c 100000 site/update.iso > joined.iso && cat tail.bin >> joined.iso && cmp joined.iso site/update.iso && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: wrong-prefix-trusted
+    claim: curl counts the bytes of the partial file and does not compare them; a 65,536-byte file of zeros is resumed as readily, 134,464 bytes arrive, exit 0.
+    run: curl -sS -C - -o bad.iso -w "%{size_download}\n" ftp://127.0.0.1:{{port}}/update.iso
+    expect:
+      exit: 0
+      stdout: "134464\n"
+
+  - id: wrong-prefix-shows
+    claim: The result has the right length, 200,000 bytes, so the length check passes.
+    run: wc -c < bad.iso
+    expect:
+      exit: 0
+      stdout-matches: '^\s*200000\s*$'
+
+  - id: wrong-prefix-differs
+    claim: cmp finds the zeros that were never the server's bytes.
+    run: cmp bad.iso site/update.iso
+    expect:
+      exit: 1
+      stdout-matches: 'differ'

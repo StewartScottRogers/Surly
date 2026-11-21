@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-require-a-proxy-login-from-an-agent]]
+=== Requiring a Proxy Login from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to stand up a proxy that needs a login, show a 407 without it, log in with Basic or Digest, and show proxy accounts kept apart from the accounts of the server behind it, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent's side as a C# program on the official MCP software development kit (SDK): it calls `start_server` with an origin account, two proxy listeners and one proxy account in `arguments`, then the `curl` tool with a proxy login and an origin login:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `setup:` writes the certificate there with `openssl`. The argument after `--` picks the scenario.
+
+`start_server` has no proxy or account fields, so `arguments` carries `surl`{apos}s own words. `--user web:site-pw` is the account of the Hypertext Transfer Protocol (HTTP) origin in `listen_urls`, which serves the file in `files`. `--proxy` twice adds an `http://` and an `https://` proxy listener, the second serving `--cert server.pem` with `--key server.key`, and `-U app:proxy-pw` is the account of every proxy listener. `bound_urls` lists the origin, then the proxies in that order.
+
+`transfer` has a `proxy` field but no field for a proxy login. Through the `http://` proxy with no login it gets the proxy's own `407 Proxy Authentication Required` (<<rfc9110>>): an answer, `failure` null and no tool error, whose `Proxy-Authenticate` headers offer Digest access authentication (<<rfc7616>>) with `MD5`, `SHA-256` and `SHA-512-256`, and no Basic. A user and password written into the `proxy` URL are sent as Basic (<<rfc7617>>), which carries the password in base64; the `http://` proxy refuses that unchecked with `403`. So the program logs in with the `curl` tool, whose `args` are `curl`{apos}s own words: `-x` names the proxy, `-U` with `--proxy-digest` is the proxy login, and `-u` with `--digest` the origin login. Its answer has `exitCode` and `standardOutput`; `-s` keeps the progress meter out, `-o out.txt` keeps a body out, `-w "%{http_code}"` prints the status and `-D -` the headers. A wrong proxy password is answered `407` again.
+
+Over the `https://` proxy listener the connection is encrypted, so its `407` offers Basic as well, and a Basic login there gets the file; `--proxy-cacert server.pem` trusts the proxy's certificate, as `--cacert` trusts the origin's. `--allow-plaintext-auth` in `arguments` makes the `http://` proxy accept Basic too; `log_lines` then begin with the warning `surl` writes for it, so an agent can see it started a looser server.
+
+The two account stores never stand in for each other. The origin's `web` sent as the proxy login is answered `407`; the proxy's `app` sent as the origin login passes the proxy and is answered `401` by the origin. `get_events` with `kinds` `login_judged` and a `listen_url` answers each hop's logins apart: `Digest app` accepted on the proxy, `Digest web` accepted on the origin. That is the evidence an agent reads; it holds no passwords, whereas in this build a verbose log of a proxy listener withholds nothing, `Proxy-Authorization` included (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-require-a-proxy-login>> for the same proxy login on the console.
+* <<http-require-a-proxy-login-in-csharp>> for the same proxy login from a C# test.
+* <<http-rotate-a-proxy-account>> for changing proxy accounts while the server runs.
+* <<rfc9110>>, <<rfc7616>>, <<rfc7617>>, <<surl-readme>>, <<curl-readme>>.

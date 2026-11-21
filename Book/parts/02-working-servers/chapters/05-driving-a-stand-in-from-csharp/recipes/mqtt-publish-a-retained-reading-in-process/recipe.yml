@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: mqtt-publish-a-retained-reading-in-process
+title: Publishing a Retained Reading in Process
+protocols: [mqtt]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlRetainedMessage, SurlEventQuery, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0]
+references: []
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Messages.PublishAsync with retain set keeps a JSON reading on a broker that has no --topic filter at all, and a subscriber that connects afterwards is sent it at once, as the topic and the payload; the store holds it at QoS 0."
+    program: program.cs
+    args: ["solution"]
+    expect:
+      exit: 0
+      stdout: "subscriber: home/kitchen/temp {\"room\":\"kitchen\",\"celsius\":21.5}\nstore: {\"room\":\"kitchen\",\"celsius\":21.5} at QoS 0\n"
+
+  - id: binary-payload
+    claim: "A payload of bytes that are not text reaches the subscriber unchanged, a zero byte included."
+    program: program.cs
+    args: ["binary"]
+    expect:
+      exit: 0
+      stdout: "subscriber: 00FF1080\n"
+
+  - id: large-payload
+    claim: "A payload of 100,000 bytes is kept and sent whole."
+    program: program.cs
+    args: ["large"]
+    expect:
+      exit: 0
+      stdout: "subscriber: 100000 bytes, identical: True\n"
+
+  - id: replaced
+    claim: "A second reading on the same topic replaces the first: the subscriber gets one message, the later one."
+    program: program.cs
+    args: ["replaced"]
+    expect:
+      exit: 0
+      stdout: "subscriber: 35 bytes, {\"celsius\":22.0}\n"
+
+  - id: rooms
+    claim: "Each topic keeps its own reading: a subscriber with the filter home/# is sent all three, 65 bytes in all."
+    program: program.cs
+    args: ["rooms"]
+    expect:
+      exit: 0
+      stdout: "subscriber: 65 bytes\nhome/cellar/temp: True\nhome/hall/temp: True\nhome/kitchen/temp: True\n"
+
+  - id: cleared
+    claim: "A publish with an empty payload takes the reading away: the store holds nothing and a later subscriber is sent nothing."
+    program: program.cs
+    args: ["cleared"]
+    expect:
+      exit: 0
+      stdout: "subscriber: 0 bytes\nstore: nothing\n"
+
+  - id: never-published
+    claim: "A subscriber to a topic nothing was published on is sent nothing, and its call ends all the same."
+    program: program.cs
+    args: ["never"]
+    expect:
+      exit: 0
+      stdout: "subscriber: 0 bytes\nstore: nothing\n"
+
+  - id: client-publish-not-kept
+    claim: "A client's publish, which has the retain flag clear, is accepted but not kept on a broker with no filter: after the broker has finished with the exchange, the store still holds the seeded reading."
+    program: program.cs
+    args: ["curl-publish"]
+    expect:
+      exit: 0
+      stdout: "store: 21.5 at QoS 0\nsubscriber: 21.5\n"
+
+  - id: login-needed
+    claim: "Without AllowAnonymous the seeded reading is still kept, since a seed is no client, but a subscriber is refused: CurlException 8, WeirdServerReply."
+    program: program.cs
+    args: ["closed"]
+    expect:
+      exit: 0
+      stdout: "store: 21.5 at QoS 0\nsubscriber: CurlException 8 WeirdServerReply\n"
+

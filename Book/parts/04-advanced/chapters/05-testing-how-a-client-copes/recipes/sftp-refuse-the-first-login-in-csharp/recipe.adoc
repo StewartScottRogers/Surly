@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-refuse-the-first-login-in-csharp]]
+=== Refusing the First Login in C#
+
+==== Problem
+
+Your .NET deploy step uploads over SSH File Transfer Protocol (SFTP) and must retry a login that fails once, as flaky Secure Shell (SSH) servers make it. You want a test server in the same program that refuses the first login with the right password, accepts the next, and tells you what it judged.
+
+==== Solution
+
+Start a `SurlServer` on `sftp://127.0.0.1:0` with a `RefuseLogin` fault that applies twice, upload with a `CurlClient` that retries a refused login once, then read the stored file and the server's login events:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ThrowawayHostKey` is `--throwaway-hostkey`, a host key made for this run; `Accounts` holds one `SurlAccount`, `-u alice:s3cret`; `AllowUploads` is `--allow-uploads`. `RecordExchanges` keeps the server's record so `FindEvents` can be asked about it; without it `FindEvents` throws `InvalidOperationException`. The server keeps files in memory, so the test reads the upload back with `server.Files.ReadAsync`, which answers a `SurlFileContents` (its `Bytes`) or throws `SurlNotFoundException` when nothing was stored.
+
+`SurlFault.RefuseLogin()` is `--fault refuse-login`: a login is refused whatever its password. `with { Times = 2 }` is `times=2`, and the count is of login attempts, not connections. An SSH client may try several methods on one connection (<<rfc4252>>), and `Curl.Api` does: it offers the password as a `password` login and, refused, again as `keyboard-interactive`. So `Times = 1` is spent by the first method and the second is accepted on the same connection; the upload succeeds at the first try and the retry under test is never run. `Times = 2` refuses both, and the first connection fails as a flaky server's does. `server.Faults.List()` shows what is left of the rule as `Remaining`.
+
+The client is the `curl -k -u alice:s3cret -T` of the console twin. `CurlClient.Create()` makes the one client every try shares. `CurlRequest` with `HttpMethod.Put` and a `Body` to an `sftp://` URL is an upload, and `SendAsync` answers a `CurlResponse` once the server has taken it; `CurlAuthenticationOptions` carries the user and password; `CurlTlsOptions` with an `Origin` of `CurlTlsPeerOptions { VerifyPeer = false }` is `-k`, which for SFTP skips the host key check. A refused login throws `CurlException` with `Code` `CurlCode.LoginDenied`, 67, the code `curl` exits with. `Curl.Api` has no retry option, so the deploy step retries in its own loop: it catches only `LoginDenied`, waits a second, and tries once more, so any other failure stays final.
+
+`SurlEventQuery` with `SurlEventKind.LoginJudged` gives a `LoginJudgedEvent` for every login the server judged, in order: `Mechanism`, `Account`, `IsAccepted`, and `IsRefusedByFault` when it was the rule, not the password, that said no. That is how the test proves the retry was needed and that the same password was right the second time.
+
+A wrong password never reaches the rule: the account check refuses it first, so both tries and both methods are plain refusals, nothing is stored, and the rule still has both its refusals left. The rule makes a right password fail, and a wrong password does not use it up.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-refuse-the-first-login>> for the same test on the console with `curl --retry-all-errors`.
+* <<sftp-refuse-the-first-login-from-an-agent>> for the same test from an agent.
+* <<http-stop-a-client-hammering-a-refused-login-in-csharp>> for a retry policy that should not retry a refused login.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4252>>.

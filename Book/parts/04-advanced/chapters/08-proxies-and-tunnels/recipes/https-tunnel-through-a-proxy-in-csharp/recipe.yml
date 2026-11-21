@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: https-tunnel-through-a-proxy-in-csharp
+title: Tunnelling through a Proxy in C#
+protocols: [https, http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlClientOptions, CurlProxyOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [rfc9110, rfc8446, rfc9113, surl-readme, curl-readme]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A CurlClient whose CurlProxyOptions name the http proxy fetches the https:// origin's file through a CONNECT tunnel, trusting the origin with CurlTlsOptions.Origin, 200.
+    program: tunnel.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "200, hello from surl\n"
+
+  - id: proxy-received-connect
+    claim: The proxy's recorded exchange starts with the CONNECT the client sent, naming the origin's address and port.
+    program: tunnel.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nthe proxy received: CONNECT 127\.0\.0\.1:\d+ HTTP/1\.1\n'
+
+  - id: proxy-never-sees-the-request
+    claim: Nothing in the bytes the proxy received is the GET /hello.txt the client sent; inside the tunnel it relays only TLS records.
+    program: tunnel.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nGET /hello\.txt in the proxy''s bytes: no\n'
+
+  - id: origin-speaks-with-the-client
+    claim: The origin's exchange is https and its decrypted bytes start with the HTTP/2 preface, PRI * HTTP/2.0, which client and origin agreed on in their own TLS handshake through the tunnel.
+    program: tunnel.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nthe origin received over https: PRI \* HTTP/2\.0\n'
+
+  - id: log-shows-the-tunnel
+    claim: Log at LogLevel.Verbose holds, under the proxy's exchange number, the CONNECT line received and Tunnelling to the origin, answered 200.
+    program: tunnel.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\n#(\d+) < CONNECT 127\.0\.0\.1:\d+ HTTP/1\.1\\r\\n\n#\1 \* Tunnelling to 127\.0\.0\.1:\d+; answered 200\.\n$'
+
+  - id: certificate-checked-end-to-end
+    claim: Without CertificateAuthorityFile on the origin's TLS settings the tunnel still opens, but the client does not trust the origin and SendAsync throws CurlException 60, PeerFailedVerification.
+    program: tunnel.cs
+    args: [untrusted]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 60 PeerFailedVerification: '
+
+  - id: https-proxy
+    claim: Through the https proxy, with CurlTlsOptions.Proxy trusting the proxy's certificate and CurlTlsOptions.Origin the origin's, TLS runs inside TLS and the file comes back.
+    program: tunnel.cs
+    args: [https-proxy]
+    expect:
+      exit: 0
+      stdout: "200, hello from surl\n"
+
+  - id: proxy-trust-is-separate
+    claim: Trusting the origin does not trust the https proxy; with nothing in CurlTlsOptions.Proxy SendAsync throws CurlException 60.
+    program: tunnel.cs
+    args: [proxy-only]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 60 PeerFailedVerification: '
+
+  - id: tunnel-refused
+    claim: A proxy whose fault rule answers CONNECT with 503 opens no tunnel, and SendAsync throws CurlException 7, CouldntConnect, CONNECT tunnel failed, response 503.
+    program: tunnel.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "CurlException 7 CouldntConnect: CONNECT tunnel failed, response 503\n"
