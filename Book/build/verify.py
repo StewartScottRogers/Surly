@@ -368,10 +368,17 @@ def main():
                         help="print only broken recipes (each failure cut to 300 characters) and a one-line total")
     parser.add_argument("--no-write", action="store_true",
                         help="write no verified.yml (a check against a local, unreleased build)")
+    parser.add_argument("--shard", metavar="I/N",
+                        help="run only every Nth recipe starting at the Ith (1-based), so N machines share the book")
     opts = parser.parse_args()
     jobs, wanted = opts.jobs, set(opts.keys)
     WRITE[0] = not opts.no_write
     selected = [(recipe, spec) for _, _, recipe, spec in recipes(wanted or None)]
+    if opts.shard:
+        i, n = (int(x) for x in opts.shard.split("/"))
+        if not 1 <= i <= n:
+            sys.exit(f"--shard {opts.shard}: I must be between 1 and N")
+        selected = selected[i - 1::n]
     bins = {t: binary(t) for t in sorted(set().union(*(tools(spec) for _, spec in selected)))}
     BINS.update(bins)
     tool_versions = {k: version(v) for k, v in bins.items() if k not in MCP_HOSTS.values()}

@@ -20,6 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        shard: [1, 2, 3, 4]          # each job verifies every 4th recipe, so a run stays well under the time limit
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -65,15 +66,15 @@ jobs:
           "$B/curl/curl" --version | head -1
       - name: Verify every recipe
         shell: bash
-        run: python3 Book/build/verify.py -j 4 | tee verify.log; exit "${PIPESTATUS[0]}"
+        run: python3 Book/build/verify.py -j 4 --shard ${{ matrix.shard }}/4 | tee verify.log; exit "${PIPESTATUS[0]}"
         continue-on-error: true
       - name: Summary
         if: always()
         shell: bash
         run: |
           {
-            echo "### ${{ matrix.os }}: Surl ${SURL_REF}, Curl ${CURL_REF}"
-            echo "Verified: $(grep -c ': verified$' verify.log || true) of $(find Book/parts -name recipe.yml | wc -l)"
+            echo "### ${{ matrix.os }} shard ${{ matrix.shard }}/4: Surl ${SURL_REF}, Curl ${CURL_REF}"
+            echo "Verified: $(grep -c ': verified$' verify.log || true) of this shard's $(grep -c -E ': (verified|broken)$' verify.log || true)"
             echo '```'
             grep -v ': verified$' verify.log | head -200 || true
             echo '```'
@@ -81,7 +82,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: verified-${{ matrix.os }}
+          name: verified-${{ matrix.os }}-${{ matrix.shard }}
           path: |
             verify.log
             Book/parts/**/verified.yml
