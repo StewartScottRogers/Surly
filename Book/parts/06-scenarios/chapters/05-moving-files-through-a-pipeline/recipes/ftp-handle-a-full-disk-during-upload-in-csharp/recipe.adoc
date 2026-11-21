@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-handle-a-full-disk-during-upload-in-csharp]]
+=== Handling a Full Disk During Upload
+
+==== Problem
+
+In a C# test, a pipeline step uploads tonight{apos}s export over File Transfer Protocol (FTP) and the next step reads it over Hypertext Transfer Protocol (HTTP). You want one upload path to report out of space, so the test proves the uploader reports the failure and leaves no half-written file for the next step.
+
+==== Solution
+
+Host one server in the test that takes FTP uploads and serves the same store over HTTP, with `/archive` out of space by fault rule; upload with `Curl.Api`, read the path back over HTTP, and look in the store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `ftp://` and an `http://` listener on free ports, both serving one store, so what the uploader writes is what the next step reads; `BoundUrls` lists them in that order. `AllowAnonymous` (`--allow-anonymous`) lets the client log in with no account, `AllowUploads` (`--allow-uploads`) turns on writing, and `MaxFileSize` (`--max-filesize`) gives every file 100,000 bytes of room. `Faults` takes `SurlFault.OutOfSpace()` with `Path` `/archive`: every store under that folder fails as a full disk would, as `--fault "out-of-space;path=/archive"` does. A fault loosens the server on purpose and is for tests only. `Files` holds last night{apos}s export and an `/incoming` folder.
+
+The uploader is a `CurlRequest` `PUT` with the export as `Body`, sent on a `CurlClient`; on an `ftp://` URL that is `STOR`. Into `/archive` it throws `CurlException` with `Code` `UploadFailed`, `curl`{apos}s exit 25, and the message carries the server{apos}s `552`, the reply FTP keeps for exceeded storage (<<rfc959>>). The program reports it by exiting 1. The next step{apos}s `GET` over HTTP returns a `CurlResponse` with `StatusCode` 404 and throws nothing: a missing file is an answer, not an error (<<rfc9110>>). A next step that does not check the status would carry on with nothing.
+
+The check reads the store without a request: `server.Files` is the `SurlServerFiles`, and `ReadAsync` returns a `SurlFileContents` or throws `SurlNotFoundException`. Nothing is at `/archive/2026-11-20.csv`, and last night{apos}s export there is still served whole. `Log` with `LogLevel` `Verbose` (`-v`) writes the server{apos}s log to a `StringWriter`; it records the refusal as `the partial upload was deleted`, the same words it uses for the size limit, naming no rule. The same export to `/incoming` is stored, read back over HTTP byte for byte, and its 22 bytes are in the store.
+
+A 300,000-byte export to `/incoming` runs out of room partway: the server stops it at 100,000 bytes, answers `552` and resets the data connection. The exception{apos}s `Code` is a race: `RemoteDiskFull`, `curl`{apos}s exit 70, when the client reads the `552` first; `SendError`, exit 55, when it meets the reset while still sending. A test should take any `CurlException` from an upload as a failed upload, and this one does. Either way the server kept nothing: the next step gets 404, the store has no `big.csv`, and the log records the partial upload deleted.
+
+The rule is on the path, not the listener: a `PUT` of the export into `/archive` over the `http://` listener returns a `CurlResponse` with `StatusCode` 413, and nothing is stored.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-handle-a-full-disk-during-upload>> for the pipeline on the console.
+* <<ftp-handle-a-full-disk-during-upload-from-an-agent>> for an agent running it.
+* <<ftp-run-out-of-space-on-upload-in-csharp>> for the out-of-space rule on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc9110>>.

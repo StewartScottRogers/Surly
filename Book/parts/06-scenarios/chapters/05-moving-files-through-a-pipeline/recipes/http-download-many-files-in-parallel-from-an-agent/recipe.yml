@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs parallel.cs, a C# program on the official MCP SDK
+# that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: http-download-many-files-in-parallel-from-an-agent
+title: Downloading Many Files in Parallel
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts a server with --max-connections-per-address 4 and fifty files, and one curl tool call with --parallel --parallel-max 4 saves all fifty, each 200, each byte for byte the file served; curl exits 0.
+    program: parallel.cs
+    args: [capped]
+    expect:
+      exit: 0
+      stdout: "curl: exit 0, tool error: no\n200: 50, 503: 0\nsaved and whole: 50 of 50\n"
+
+  - id: uncapped
+    claim: With --parallel alone the curl tool runs up to 50 transfers at once, the server answers those past its four connections 503, curl exits 22 because of -f, the call is a tool error, and fewer than fifty files are saved.
+    program: parallel.cs
+    args: [uncapped]
+    expect:
+      exit: 1
+      stdout-matches: '^curl: exit 22, tool error: yes\n200: (\d|[1-4]\d), 503: [1-9]\d?\nsaved and whole: (\d|[1-4]\d) of 50\n$'
+
+  - id: written-to-disk
+    claim: The capped call leaves the fifty files on disk inside CURL_MCP_ROOT, out/f1.txt to out/f50.txt.
+    program: parallel.cs
+    args: [capped]
+    expect:
+      exit: 0
+      files:
+        out/f1.txt: null
+        out/f25.txt: null
+        out/f50.txt: null
+
+  - id: lost-without-fail
+    claim: Without -f the uncapped call exits 0 and is not a tool error although some transfers were answered 503, so an agent that reads only exitCode misses the lost files; the comparison still finds fewer than fifty whole.
+    program: parallel.cs
+    args: [no-fail]
+    expect:
+      exit: 1
+      stdout-matches: '^curl: exit 0, tool error: no\n200: (\d|[1-4]\d), 503: [1-9]\d?\nsaved and whole: (\d|[1-4]\d) of 50\n$'
+
+  - id: retry-recovers
+    claim: With --retry 10 --retry-delay 1 and no cap, curl counts each 503 as transient and sends it again until all fifty are 200 and saved whole.
+    program: parallel.cs
+    args: [retry]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "curl: exit 0, tool error: no\n200: 50, 503: 0\nsaved and whole: 50 of 50\n"

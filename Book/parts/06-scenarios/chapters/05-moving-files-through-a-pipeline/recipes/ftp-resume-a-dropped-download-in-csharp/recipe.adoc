@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-a-dropped-download-in-csharp]]
+=== Resuming a Dropped Download in C#
+
+==== Problem
+
+In a C# test, a download over File Transfer Protocol (FTP) loses its connection partway; you want the server to drop it on purpose, then your code to resume where it stopped, not from the start, and end with the whole file.
+
+==== Solution
+
+Host the FTP server in the test with a fault rule that drops the first `RETR`, then loop: send `REST` with the length already on disk, append what arrives, and try again after a dropped connection:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `AllowAnonymous` is `--allow-anonymous`, so the client logs in with no account; `Files` holds the 200,000-byte image in memory. `Faults` takes the rule: `SurlFault.DropConnection()` with `Stage` `FaultStage.Command`, `Command` `RETR`, `Path` `/image.iso` and `Times` 1 closes the connection, unanswered, the first time a client asks for the image, as `--fault "drop;stage=command;command=RETR;path=/image.iso;times=1"` would. A fault loosens the server on purpose and is for tests only. `Log` with `LogLevel` `Verbose` (`-v`) writes every reply to a `StringWriter`, which the test reads at the end.
+
+Before the first try the program writes the image{apos}s first 65,536 bytes to disk itself: what a download cut off there leaves behind. The rule then drops the connection at the next request, the moment a resume has to survive.
+
+`Curl.Api` has no option for `curl -C -`, so the program spells the resume out. Each try is a `CurlRequest` `GET`, sent on one `CurlClient`, whose `CurlFtpOptions.PreQuote` holds `REST <bytes on disk>`: `PreQuote` is sent after the transfer type is set, just before `RETR`, and the server answers `350 Restarting at 65536` and sends only the rest (<<rfc3659>>). `CurlHttpOptions.IgnoreContentLength`, `--ignore-content-length`, applies to FTP too: it stops the client checking the bytes against the size `SIZE` reported, which is the whole file{apos}s, not the rest{apos}s. The `CurlResponse` body is appended to the file.
+
+The first try{apos}s connection is dropped: `SendAsync` throws `CurlException` with `Code` `CurlCode.RecvError`, `curl`{apos}s exit 56. The drop adds nothing: the copy on disk is still 65,536 bytes. The program counts only that exception as worth another try, so the second try asks from the same byte and gets the other 134,464, not 200,000. The file is identical to the server{apos}s image. The server{apos}s log holds two `350` replies, one per try, and one line naming the drop and its rule: `RETR dropped the connection, unanswered, by fault rule f1` (<<rfc959>>).
+
+Resuming is safe to repeat: a copy that is already whole asks from byte 200000, gets 0 bytes, and stays identical.
+
+Leave out `IgnoreContentLength` and the client expects 200,000 bytes after the restart: the second try throws `PartialFile` although every missing byte arrived and the file is whole. A test that trusted the exception would call a good resume a failure.
+
+A local file longer than the server{apos}s, another file under the same name, is not resumed. The server answers `REST 300000` with `350`, then refuses the `RETR`: `FtpCouldntRetrFile`. The program stops there, since that is no dropped connection, and the comparison fails, exit 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-a-dropped-download>> for the resume on the console with `curl -C -`.
+* <<ftp-resume-a-dropped-download-from-an-agent>> for an agent running it.
+* <<http-recover-from-a-dropped-connection-in-csharp>> for a dropped connection over HTTP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

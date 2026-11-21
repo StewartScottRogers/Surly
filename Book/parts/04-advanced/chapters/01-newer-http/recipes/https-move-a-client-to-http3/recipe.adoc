@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-move-a-client-to-http3]]
+=== Moving a Client to HTTP/3
+
+==== Problem
+
+Your client should switch to HTTP/3 when the server advertises it, as browsers do. You want the server's Alt-Svc answer saved by the first request and the second request carried over QUIC.
+
+==== Solution
+
+Serve `https` with `surl --http3`, and make two requests with `curl --alt-svc` naming the same file, the second with `--http3`, here with `-w` to print the version each answer came in:
+
+include::.generated/solution.adoc[]
+
+This works the same on Linux, macOS and Windows. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Hypertext Transfer Protocol version 3 (HTTP/3) runs over QUIC, a transport on User Datagram Protocol (UDP), and a client cannot know a server has it until the server says so. The server says so over HTTP/1.1 or HTTP/2 with an `Alt-Svc` header, an alternative service: `h3=":8080"; ma=86400` means HTTP/3 on port `8080` of the same host, good for 86400 seconds, a day. A client that remembers it can use QUIC for later connections (<<rfc9114>>). `--http3` makes `surl` serve HTTP/3 on UDP at the same port as its Transmission Control Protocol (TCP) listener and put that header on every answer it gives over TCP (<<surl-readme>>, <<https-serve-http3>>); `-w "%header{alt-svc}"` prints it.
+
+`--alt-svc alt-svc.txt` is `curl`{apos}s memory. Before a request `curl` reads the file, and after it writes back every `Alt-Svc` header it learned (<<curl-readme>>). The first request has nothing to go on and goes over HTTP/2; afterwards the file holds, after two comment lines, one entry: from `h2` on `127.0.0.1` and the server's port to `h3` on the same host and port, with the date and time it expires. `grep -v "^#"` prints that line alone. The second request reads the entry and goes over QUIC: `second: HTTP/3`.
+
+That second request carries `--http3` because of Windows, where this `curl` behaves as `curl`{apos}s own Windows build does. That build has no HTTP/3, and this one, like it, ignores a saved `h3` entry for a request with no version option; given `--http3`, it uses the entry on Windows as everywhere. On Linux and macOS the second request needs no `--http3`: reading the entry, it goes over HTTP/3 by itself, as a browser does. On Windows, without `--http3`, it stays on HTTP/2, though the file is written the same. `--http1.1` is the other way round: `curl` then looks only for entries learned over HTTP/1.1, finds none in this file, and stays on HTTP/1.1.
+
+The second request races. An entry that names the origin's own host and port makes `curl` try QUIC and TCP side by side and take whichever connects first. `--happy-eyeballs-timeout-ms 4000` holds TCP back for longer than the default fraction of a second, so on a busy machine a QUIC handshake that is slow to finish still wins; it is there to make the claim hold, not because a client needs it.
+
+An answer that comes over HTTP/3 carries no `Alt-Svc` at all, since the client is already on the alternative; `--http3-only` with `-w "[%header{alt-svc}]"` prints nothing between the brackets. `-s` keeps `curl` quiet and `-o` throws the body away (`/dev/null`, or `NUL` on Windows). The two requests are joined with `&&`, which runs the second once the first has succeeded, in a Portable Operating System Interface (POSIX) shell and in Windows' `cmd.exe` alike.
+
+`--cert server.pem` and `--key server.key` are the certificate and key `surl` serves on both transports, made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting it; `--directory site` serves the files under `site`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-move-a-client-to-http3-in-csharp>> for the same task in C#.
+* <<https-move-a-client-to-http3-from-an-agent>> for the same task from an agent.
+* <<https-serve-http3>> for serving HTTP/3 with `--http3`.
+* <<https-fall-back-when-http3-is-missing>> for a client that falls back when UDP is blocked.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9114>>, <<rfc9000>>.

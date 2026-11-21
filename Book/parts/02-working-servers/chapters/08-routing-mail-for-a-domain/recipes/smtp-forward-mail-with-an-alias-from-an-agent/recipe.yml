@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs forward-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-forward-mail-with-an-alias-from-an-agent
+title: Forwarding with an Alias from an Agent
+protocols: [smtp, imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_messages, read_message, seed_mail]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 2]
+references: [surl-readme, rfc5321, rfc9051]
+
+# The form's message, with the carriage return and line feed a message is made of, so the curl tool needs no --crlf.
+fixtures:
+  help.eml: "From: form@example.com\r\nTo: support@example.com\r\nSubject: Cannot log in\r\n\r\nPlease reset my password.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool mails support@ as the form and exits 0; two store_changed events name Ann's and Bob's INBOX, UID 1 each, and each mailbox holds the message.
+    program: forward-mail.cs
+    args: [forward]
+    expect:
+      exit: 0
+      stdout: "support@: curl exit 0\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\n"
+
+  - id: to-field-kept
+    claim: Each copy is the message as sent; its To field still names the alias, and neither Ann's nor Bob's address is in it.
+    program: forward-mail.cs
+    args: [to-field]
+    expect:
+      exit: 0
+      stdout: "support@: curl exit 0\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nTo: support@example.com\nmentions ann or bob: False\n"
+
+  - id: sender-has-none
+    claim: Only the alias's targets receive the mail; the sending account's own mailbox holds none.
+    program: forward-mail.cs
+    args: [sender]
+    expect:
+      exit: 0
+      stdout: "support@: curl exit 0\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nform@example.com holds 0\n"
+
+  - id: one-copy-per-mailbox
+    claim: A second message to support@ and ann@ together reaches Ann once, not twice, so Ann and Bob hold two messages each; the marker delivered after it, to the form, shows nothing was still on its way.
+    program: forward-mail.cs
+    args: [one-copy]
+    expect:
+      exit: 0
+      stdout: "support@: curl exit 0\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nsupport@ and ann@: curl exit 0\nmarker: curl exit 0\nthen delivered: ann@example.com/INBOX/;UID=2, bob@example.com/INBOX/;UID=2, form@example.com/INBOX/;UID=1\nann@example.com holds 2\nbob@example.com holds 2\nform@example.com holds 1\n"
+
+  - id: seed-through-the-alias
+    claim: seed_mail to support@ delivers as SMTP would after RCPT, the alias included, so a test can fill both mailboxes without a client.
+    program: forward-mail.cs
+    args: [seed]
+    expect:
+      exit: 0
+      stdout: "delivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\n"
+
+  - id: alias-is-not-an-account
+    claim: An alias is an address, not an account; the curl tool's IMAP login as support@example.com exits 67.
+    program: forward-mail.cs
+    args: [login]
+    expect:
+      exit: 0
+      stdout: "login as support@example.com: curl exit 67\n"
+
+  - id: alias-is-also-a-mailbox
+    claim: An alias for an address that is a mailbox makes start_server a tool error with surl's exit_code 2, FailedInit, and its message.
+    program: forward-mail.cs
+    args: [also-mailbox]
+    expect:
+      exit: 2
+      stdout: "start_server refused: 2 FailedInit: option --mail-alias: alias ann@example.com is also a mailbox\n"
+
+  - id: target-must-be-a-mailbox
+    claim: An alias whose target names no mailbox, a typo such as anne@example.com, is refused the same way, so the mail cannot vanish silently.
+    program: forward-mail.cs
+    args: [no-mailbox]
+    expect:
+      exit: 2
+      stdout: "start_server refused: 2 FailedInit: (2) option --mail-alias: target anne@example.com names no mailbox\n"
+
+  - id: target-inside-the-domain
+    claim: An alias cannot forward outside every mail domain; a target at elsewhere.org is refused the same way.
+    program: forward-mail.cs
+    args: [outside]
+    expect:
+      exit: 2
+      stdout: "start_server refused: 2 FailedInit: (2) option --mail-alias: target ann@elsewhere.org is not in any --mail-domain\n"

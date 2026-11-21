@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# The planned task was ETags; the pinned surl sends Last-Modified only, so this recipe syncs by date (see review.md).
+schema: 2
+key: http-skip-unchanged-files-with-etags
+title: Skipping Unchanged Files by Date
+protocols: [http]
+tier: scenarios
+surl-options: [--directory]
+curl-options: [-z, -R, -f, -s, -o, -w, -v]
+exit-codes: [0, 22]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/a.txt: "alpha\n"
+  site/b.txt: "beta\n"
+  sync.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # A sync job: fetches each file only when the server's copy is newer than the local one.
+    # Usage: sh sync.sh <base URL> <file>...
+    base=$1; shift
+    mkdir -p local
+    for f in "$@"; do
+      curl -s -f -R -z "local/$f" -o "local/$f" -w "%{http_code} $f\n" "$base$f"
+    done
+
+setup:
+  - touch -t 202401021504.05 site/a.txt site/b.txt
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first run has no local copies, so curl fetches both files, 200 each, and saves them.
+    run: sh sync.sh http://127.0.0.1:{{port}}/ a.txt b.txt
+    expect:
+      exit: 0
+      stdout: "200 a.txt\n200 b.txt\n"
+      files:
+        local/a.txt: "alpha\n"
+        local/b.txt: "beta\n"
+
+  - id: second-run-skips
+    claim: A second run with nothing changed takes no new copy of either file, and curl reports each as 304 Not Modified.
+    run: sh sync.sh http://127.0.0.1:{{port}}/ a.txt b.txt
+    expect:
+      exit: 0
+      stdout: "304 a.txt\n304 b.txt\n"
+      files:
+        local/a.txt: "alpha\n"
+        local/b.txt: "beta\n"
+
+  - id: changed-file-fetched
+    claim: When a.txt is rewritten on the server, its date moves past the local copy's, so the next run fetches a.txt again (200) and still skips b.txt (304).
+    fixtures:
+      site/a.txt: "alpha, revised\n"
+    run: sh sync.sh http://127.0.0.1:{{port}}/ a.txt b.txt
+    expect:
+      exit: 0
+      stdout: "200 a.txt\n304 b.txt\n"
+      files:
+        local/a.txt: "alpha, revised\n"
+        local/b.txt: "beta\n"
+
+  - id: older-date-missed
+    claim: A file whose content changes but whose date goes back, as a restore from a backup can do, is skipped (304) and the stale local copy is kept; a date comparison cannot see that change.
+    fixtures:
+      site/b.txt: "beta, restored\n"
+    run: touch -t 202301010000 site/b.txt && sh sync.sh http://127.0.0.1:{{port}}/ b.txt
+    expect:
+      exit: 0
+      stdout: "304 b.txt\n"
+      files:
+        local/b.txt: "beta\n"
+
+  - id: deleted-file-kept
+    claim: A file gone from the server is answered 404; with -f curl exits 22 without touching the local copy, so the job keeps its last good copy.
+    run: rm site/a.txt && sh sync.sh http://127.0.0.1:{{port}}/ a.txt
+    expect:
+      exit: 22
+      stdout: "404 a.txt\n"
+      files:
+        local/a.txt: "alpha, revised\n"
+
+  - id: without-fail-clobbers
+    claim: Without -f, the same fetch of a file the server does not have writes the empty 404 body over the local copy.
+    fixtures:
+      local/old.txt: "kept\n"
+    run: curl -s -R -z local/old.txt -o local/old.txt -w "%{http_code}" http://127.0.0.1:{{port}}/old.txt
+    expect:
+      exit: 0
+      stdout: "404"
+      files:
+        local/old.txt: ""
+
+  - id: sends-if-modified-since
+    claim: With -z and a local file, curl sends an If-Modified-Since header carrying the local file's date; after the skipped fetch of the restored b.txt, -R had set that date back to the server's, 1 January 2023.
+    run: curl -s -v -R -z local/b.txt -o {{null}} http://127.0.0.1:{{port}}/b.txt
+    expect:
+      exit: 0
+      stderr-contains: "> If-Modified-Since: Sun, 01 Jan 2023 "

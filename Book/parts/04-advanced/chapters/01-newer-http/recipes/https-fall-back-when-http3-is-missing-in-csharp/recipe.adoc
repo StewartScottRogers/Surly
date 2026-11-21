@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-fall-back-when-http3-is-missing-in-csharp]]
+=== Falling Back without HTTP/3 in C#
+
+==== Problem
+
+Your .NET client prefers HTTP/3 but must still work behind networks that block UDP. You want a test that shows a request that may fall back to TCP succeed against a server with no HTTP/3, and one that insists on HTTP/3 fail with an error the test can name.
+
+==== Solution
+
+Start a `SurlServer` on `https` without `--http3`, and send one `CurlRequest` with `HttpVersion.Http3`, which may fall back, or `HttpVersion.Http3Only`, which may not:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Hypertext Transfer Protocol version 3 (HTTP/3) runs over QUIC, a transport on User Datagram Protocol (UDP) rather than Transmission Control Protocol (TCP) (<<rfc9114>>, <<rfc9000>>). A network that blocks UDP blocks HTTP/3 with it, while HTTP/2 over TCP still gets through.
+
+`SurlServerOptions` gives the server an `https` listen URL on a free port, `CertificateFile` and `KeyFile` for the certificate and key made by the `openssl` line in setup (`surl --cert` and `--key`), and `hello.txt` in `Files`. With no `--http3`, the server listens on TCP alone, so a QUIC packet to its port is turned away. On the client, `CurlClientOptions.Tls` holds a `CurlTlsOptions` whose `Origin` is a `CurlTlsPeerOptions` with `CertificateAuthorityBlob`, the bytes of `server.pem`: `curl --cacert server.pem`, so the client trusts that one certificate on either transport.
+
+`CurlHttpOptions.HttpVersion` picks the client's behaviour. `HttpVersion.Http3` is `curl --http3`: try QUIC first, start TCP beside it if QUIC is slow to answer, and take whichever succeeds (<<curl-readme>>). Against this server the QUIC attempt fails, and the answer comes over TCP: a `CurlResponse` with `Version` `2.0` and `StatusCode` `200`. `HttpVersion.Http3Only` is `curl --http3-only`, QUIC and nothing else; it has nowhere to go, and `SendAsync` throws a `CurlException` whose `Code` is `RecvError`, a failure receiving network data, `curl`{apos}s exit code `56`, which the program returns as its own. The exception's message is the operating system's wording, so the program prints only the code.
+
+A firewall that drops UDP does not turn the packet away; it stays silent. With the `swallowed` argument, the program starts a second `SurlServer` on a `tftp://` listen URL with the HTTPS server's port number, on UDP. A UDP port can be taken while the TCP port of the same number is free, so on a `SurlServerStartException` it starts both again on another port, up to five times. QUIC packets then reach a listener that does not speak QUIC, which records them as exchanges (`RecordExchanges = true`; its `Exchanges` list is not empty afterwards) and never gives a QUIC answer. `Http3` falls back all the same and gets HTTP/2. `Http3Only` hears nothing it can use; `CurlNetworkOptions.ConnectTimeout`, two seconds here (`curl --connect-timeout 2`), ends the wait with `Code` `OperationTimedOut`, exit code `28`. A client that insists on HTTP/3 needs that limit: without it libcurl, the library `curl` is built on, waits its own 300 seconds (<<curl-readme>>). `CurlRequest.Network` sets these network options for the one request.
+
+`Http3` still prefers HTTP/3. With `h3`, the server gets `--http3` through `AdditionalArguments`, since `SurlServerOptions` has no property for it, and the same request comes back with `Version` `3.0`. `CurlNetworkOptions.HappyEyeballsTimeout` of four seconds is there only to make the claim hold on a busy machine: it holds TCP back while QUIC finishes its handshake, where the default is a fraction of a second.
+
+The first request a `Curl.Api` program makes pays a one-time set-up of a few seconds, and on a busy machine the first QUIC handshake is slow too, slow enough to lose the race to TCP. So the program first makes one request on a client of its own, and with `h3` one over `HttpVersion.Http3Only` as well, then disposes of that client, so that the request that counts neither waits nor finds a connection to reuse.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-fall-back-when-http3-is-missing>> for the same task on the console.
+* <<https-fall-back-when-http3-is-missing-from-an-agent>> for the same task from an agent.
+* <<https-move-a-client-to-http3-in-csharp>> for moving a client to HTTP/3 when the server advertises it.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9114>>, <<rfc9000>>.

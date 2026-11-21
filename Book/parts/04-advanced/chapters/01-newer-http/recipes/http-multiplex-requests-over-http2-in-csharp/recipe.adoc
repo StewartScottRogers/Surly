@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-multiplex-requests-over-http2-in-csharp]]
+=== Multiplexing Requests over HTTP/2 in C#
+
+==== Problem
+
+Your .NET client fetches many small files and should send them all on one HTTP/2 connection. You want a test that starts several requests at once on one connection and proves it from the server's record of its connections.
+
+==== Solution
+
+Start a `SurlServer` that records its exchanges, start five requests together on one `CurlClient` with HTTP/2 prior knowledge and `PipeWait`, and count the connections the server accepted:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Hypertext Transfer Protocol version 2 (HTTP/2) carries each request and its answer on a stream of its own, and many streams share one connection at once; that is multiplexing (<<rfc9113>>). An `http` listener answers HTTP/2 with prior knowledge as it answers HTTP/1.1, each request on its own stream (<<surl-readme>>). `SurlServerOptions` holds the listen URL on port 0, a free port, and `Files` the five files in memory. `RecordExchanges = true` makes the server keep what each client sent and was sent; `SurlServer.Exchanges` is then the list of those exchanges, one per connection the server accepted, oldest first. The program counts them before and after the five requests, and the difference is the connections the five used.
+
+`CurlRequest` takes a `CurlHttpOptions` in `Http`. `HttpVersion = HttpVersion.Http2PriorKnowledge` is `curl --http2-prior-knowledge`: the connection opens with HTTP/2 instead of asking to upgrade. `PipeWait = true` is `CURLOPT_PIPEWAIT` in libcurl, the library `curl` is built on: a request that finds a connection still being opened waits for it, to see whether it can multiplex, rather than open another (<<curl-readme>>). The five `SendAsync` calls go to one `CurlClient` and are awaited together with `Task.WhenAll`, so they are in flight at once, as `curl -Z` runs the transfers of one command line. `Task.WhenAll` hands the answers back in the order the requests were made, so the program prints them in order: five `CurlResponse`s with `Version` `2.0` and `StatusCode` `200`, then `connections: 1`.
+
+Parallel is a claim about time. With the `slow` argument the server starts with a `SurlFault`, `SurlFault.Delay` with `Stage = FaultStage.Command`, which is `surl --fault "delay;stage=command;ms=2000"`: every request is held two seconds before it is answered. The five then take two to four seconds in all on the one connection, so they waited out their two seconds together; one after another they would take ten. The first request a `Curl.Api` program makes pays a one-time set-up of a few seconds, so the program makes one on a client of its own first, before anything is counted or timed.
+
+Without `PipeWait`, the five requests do not wait: each finds no connection ready and opens its own, all still in HTTP/2, and the server accepts five. That is why the property matters to a client that starts its requests together. Over HTTP/1.1 (`HttpVersion.Http11`), `PipeWait` has nothing to wait for, since HTTP/1.1 cannot put two requests on one connection at once, and five parallel requests make five connections.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-multiplex-requests-over-http2>> for the same task on the console.
+* <<http-multiplex-requests-over-http2-from-an-agent>> for the same task from an agent.
+* <<http-choose-the-http-version-in-csharp>> for the other `HttpVersion` values.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9113>>.

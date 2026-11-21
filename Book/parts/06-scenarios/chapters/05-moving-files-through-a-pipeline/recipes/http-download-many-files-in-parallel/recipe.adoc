@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-many-files-in-parallel]]
+=== Downloading Many Files in Parallel
+
+==== Problem
+
+You fetch fifty files at once from a server that limits connections per address; you want every file complete and no transfer lost to the limit.
+
+==== Solution
+
+Serve fifty files with `surl` limited to eight connections from one address, and fetch them with one `curl` command that runs the transfers in parallel, never more than eight at a time. `make-site.sh` makes the fifty files, 100,000 random bytes each; it needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::make-site.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` serves the folder `make-site.sh` filled, and `--max-connections-per-address 8` tells `surl` to hold at most eight connections from one client address at once; the default is 100. It does not loosen anything: it is a limit, and a connection past it is not queued. `surl` answers it at once with `503 Service Unavailable` and an empty body.
+
+On the `curl` side, `"f[1-50].bin"` is a glob: `curl` expands it to fifty URLs, and `-o "out/f#1.bin"` names each file from the number that glob matched, with `--create-dirs` making `out`. `--parallel` runs the transfers side by side instead of one after another. By default it runs up to 50 at once, and fifty transfers then ask for more connections than the server allows: some are answered `503`. `--parallel-max 8` caps the transfers in flight at eight, the server{apos}s limit, so the next transfer starts only when one has finished. `-w "%{http_code} %{size_download}\n"` prints one line per transfer as it ends, in the order they end, and `-s` keeps the progress meter out of it: fifty lines of `200 100000` say every file arrived whole. `diff -r` then compares the two folders, leaving out `.surl`, where `surl` keeps its own state, and finds nothing different.
+
+`-f` matters as much as the cap. Without it, `curl` treats a `503` as a finished conversation and still exits `0`, so a script that checks only the exit code reports success with files missing. With `-f` the same run exits `22`.
+
+If the limit is not known in advance, `--retry` is the other cure. `curl` counts `503` as a transient error, so `--retry 10` with no cap sends each refused transfer again, up to ten times, and `--retry-delay 1` waits a second between tries, until it gets its `200`. That works, but it keeps hitting the limit on purpose; a cap that matches the server{apos}s limit asks only for what the server will give.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-many-files-in-parallel-in-csharp>> for the same task from .NET code.
+* <<http-download-many-files-in-parallel-from-an-agent>> for the same task from an agent.
+* <<http-download-a-numbered-series>> for the glob and `#1` without `--parallel`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

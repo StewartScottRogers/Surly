@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-forward-mail-with-an-alias-in-csharp
+title: Forwarding Mail with an Alias in C#
+protocols: [smtp, imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlEventQuery, StoreChangedEvent, SurlMailMessage, SurlMessagePage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlContent, CurlException]
+exit-codes: [0, 2]
+references: [surl-readme, rfc5321, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The form mails support@ with Curl.Api and is answered 250; two store-changed events name Ann's and Bob's INBOX, UID 1 each, and each mailbox holds the message.
+    program: forward-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "support@: SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\n"
+
+  - id: property
+    claim: The alias given through the MailAliases property does the same as the one given through AdditionalArguments.
+    program: forward-mail.cs
+    args: [property]
+    expect:
+      exit: 0
+      stdout: "support@: SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nann@example.com: Cannot log in\nbob@example.com: Cannot log in\n"
+
+  - id: to-field-kept
+    claim: Each copy is the message as sent; its To field still names the alias, and neither Ann's nor Bob's address is in it.
+    program: forward-mail.cs
+    args: [to-field]
+    expect:
+      exit: 0
+      stdout: "support@: SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nTo: support@example.com\nmentions ann or bob: False\n"
+
+  - id: sender-has-none
+    claim: Only the alias's targets receive the mail; the sending account's own mailbox holds none.
+    program: forward-mail.cs
+    args: [sender]
+    expect:
+      exit: 0
+      stdout: "support@: SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nform@example.com holds 0\n"
+
+  - id: one-copy-per-mailbox
+    claim: A second message to support@ and ann@ together reaches Ann once, not twice, so Ann and Bob hold two messages each, and a marker mail delivered after it shows nothing was still on its way.
+    program: forward-mail.cs
+    args: [one-copy]
+    expect:
+      exit: 0
+      stdout: "support@: SMTP 250\nsupport@ and ann@: SMTP 250\nmarker: SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1\nann@example.com holds 2\nbob@example.com holds 2\nform@example.com holds 1\n"
+
+  - id: alias-is-not-an-account
+    claim: An alias is an address, not an account; an IMAP login as support@example.com throws CurlException, code 67, LoginDenied.
+    program: forward-mail.cs
+    args: [login]
+    expect:
+      exit: 0
+      stdout: "login as support@example.com: curl error 67 LoginDenied\n"
+
+  - id: alias-is-also-a-mailbox
+    claim: An alias for an address that is a mailbox stops StartAsync with SurlServerStartException, ExitCode FailedInit (2).
+    program: forward-mail.cs
+    args: [also-mailbox]
+    expect:
+      exit: 2
+      stdout: "refused: FailedInit: option --mail-alias: alias ann@example.com is also a mailbox\n"
+
+  - id: target-must-be-a-mailbox
+    claim: An alias whose target names no mailbox, a typo such as anne@example.com, is refused the same way, so the mail cannot vanish silently.
+    program: forward-mail.cs
+    args: [no-mailbox]
+    expect:
+      exit: 2
+      stdout: "refused: FailedInit: (2) option --mail-alias: target anne@example.com names no mailbox\n"
+
+  - id: target-inside-the-domain
+    claim: An alias cannot forward outside every mail domain; a target at elsewhere.org is refused the same way.
+    program: forward-mail.cs
+    args: [outside]
+    expect:
+      exit: 2
+      stdout: "refused: FailedInit: (2) option --mail-alias: target ann@elsewhere.org is not in any --mail-domain\n"

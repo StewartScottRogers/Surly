@@ -1,0 +1,48 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs busy.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-retry-through-a-busy-server-from-an-agent
+title: Retrying a Busy Server from an Agent
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, transfer, get_exchanges, get_events, list_faults]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: With a rule added by add_fault that makes /report.txt busy for two requests, the curl tool with --retry 2 --retry-delay 1 waits one second before each retry, gets the file on its third request and exits 0 with two retries, in between two and twenty seconds; the server's exchanges show three requests, and its rule has acted twice and has none left.
+    program: busy.cs
+    args: [curl]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ncurl: exit 0, tool error: no\n  report ready\n  200 2\n  Warning: Problem : HTTP error. Retrying in 1 second. 2 retries left.\n  Warning: Problem : HTTP error. Retrying in 1 second. 1 retry left.\nwaited between 2 and 20 s: True\nget_exchanges: 3 requests for /report.txt\nget_events: 2 fault_applied\nlist_faults: f1 remaining 0\n"
+
+  - id: one-retry-is-too-few
+    claim: With -f --retry 1 the one retry meets the second busy answer too, and the curl tool's answer is exit code 22 and a tool error; the server saw two requests and the rule is spent all the same.
+    program: busy.cs
+    args: [curl-few]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ncurl: exit 22, tool error: yes\n  503 1\n  curl: (22) The requested URL returned error: 503\n  Warning: Problem : HTTP error. Retrying in 1 second. 1 retry left.\n  curl: (22) The requested URL returned error: 503\nget_exchanges: 2 requests for /report.txt\nget_events: 2 fault_applied\nlist_faults: f1 remaining 0\n"
+
+  - id: other-path-never-busy
+    claim: The rule is scoped to /report.txt, so health.txt is answered at once with no retry; the warm-up request and the fetch make two requests for it, and the rule is untouched.
+    program: busy.cs
+    args: [health]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ncurl: exit 0, tool error: no\n  up\n  200 0\nget_exchanges: 2 requests for /health.txt\nget_events: 0 fault_applied\nlist_faults: f1 remaining 2\n"
+
+  - id: transfer-loop
+    claim: transfer makes one attempt per call and a busy answer is a 503 with failure null and no tool error; an agent that waits one second and calls again gets the file on its third call, in between two and twenty seconds.
+    program: busy.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ntransfer 1: 503, failure null, tool error: no, waiting 1 s\ntransfer 2: 503, failure null, tool error: no, waiting 1 s\ntransfer 3: 200, failure null, tool error: no, report ready\nwaited between 2 and 20 s: True\nget_exchanges: 3 requests for /report.txt\nget_events: 2 fault_applied\nlist_faults: f1 remaining 0\n"

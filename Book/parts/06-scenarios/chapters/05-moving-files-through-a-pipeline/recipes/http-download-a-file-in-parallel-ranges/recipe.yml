@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-download-a-file-in-parallel-ranges
+title: Downloading a File in Parallel Ranges
+protocols: [http]
+tier: scenarios
+surl-options: [--directory, --fault]
+curl-options: [-I, -r, --parallel, --parallel-immediate, --next, -f, -s, -o, -w]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  fetch-in-ranges.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Fetches a file as four byte ranges at once, then joins and checks them.
+    # Usage: sh fetch-in-ranges.sh <url>
+    url=$1
+
+    # The size, from a HEAD request.
+    size=$(curl -s -f -I -o /dev/null -w "%header{content-length}" "$url")
+    part=$(( (size + 3) / 4 ))
+
+    # Four ranges, the last one cut at the end of the file; one curl, four transfers at once.
+    r0="0-$(( part - 1 ))"
+    r1="$part-$(( 2 * part - 1 ))"
+    r2="$(( 2 * part ))-$(( 3 * part - 1 ))"
+    r3="$(( 3 * part ))-$(( size - 1 ))"
+    w="%{http_code} %header{content-range} %{num_connects}\n"
+    curl --parallel --parallel-immediate \
+      -s -f -w "$w" -r "$r0" -o part0 "$url" --next \
+      -s -f -w "$w" -r "$r1" -o part1 "$url" --next \
+      -s -f -w "$w" -r "$r2" -o part2 "$url" --next \
+      -s -f -w "$w" -r "$r3" -o part3 "$url" > ranges.txt || exit
+    sort ranges.txt
+
+    sh check.sh part0 part1 part2 part3
+  check.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Joins the parts in the order given and compares the result with the original.
+    # Usage: sh check.sh <part>...
+    cat "$@" > joined
+    echo "joined: $(wc -c < joined) bytes"
+    if cmp -s joined site/big.bin; then echo "identical"; else echo "differs"; exit 1; fi
+
+  site/.keep: ""
+  slow-site/.keep: ""
+
+setup:
+  - head -c 1000000 /dev/urandom > site/big.bin
+  - cp site/big.bin slow-site/big.bin
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  slow:
+    command: surl --directory slow-site --fault "delay;stage=command;ms=1000" http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Four ranges of a 1,000,000-byte file, fetched at once, are each answered 206 Partial Content with the Content-Range asked for, and joined in order they are identical to the original.
+    run: sh fetch-in-ranges.sh http://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 0
+      stdout-matches: '^206 bytes 0-249999/1000000 [01]\n206 bytes 250000-499999/1000000 [01]\n206 bytes 500000-749999/1000000 [01]\n206 bytes 750000-999999/1000000 [01]\njoined: 1000000 bytes\nidentical\n$'
+
+  - id: side-by-side
+    claim: Against a server that holds every request for a second, all four transfers open a connection of their own (num_connects 1 each), because none has finished when the next starts.
+    run: sh fetch-in-ranges.sh http://127.0.0.1:{{port2}}/big.bin
+    expect:
+      exit: 0
+      stdout: "206 bytes 0-249999/1000000 1\n206 bytes 250000-499999/1000000 1\n206 bytes 500000-749999/1000000 1\n206 bytes 750000-999999/1000000 1\njoined: 1000000 bytes\nidentical\n"
+
+  - id: one-after-another
+    claim: The same four ranges from that server without --parallel run one after another over one connection, num_connects 1 and then 0, 0, 0.
+    run: curl -s -f -o {{null}} -w "%{num_connects}\n" -r 0-249999 http://127.0.0.1:{{port2}}/big.bin --next -s -f -o {{null}} -w "%{num_connects}\n" -r 250000-499999 http://127.0.0.1:{{port2}}/big.bin --next -s -f -o {{null}} -w "%{num_connects}\n" -r 500000-749999 http://127.0.0.1:{{port2}}/big.bin --next -s -f -o {{null}} -w "%{num_connects}\n" -r 750000-999999 http://127.0.0.1:{{port2}}/big.bin
+    expect:
+      exit: 0
+      stdout: "1\n0\n0\n0\n"
+
+  - id: doubled-part
+    claim: A part joined twice in place of another gives a file of the right size that is not the original, so the size alone would not catch it.
+    run: sh check.sh part0 part1 part1 part3
+    expect:
+      exit: 1
+      stdout: "joined: 1000000 bytes\ndiffers\n"
+
+  - id: lost-part
+    claim: A part left out gives a file 250000 bytes short, and the comparison fails.
+    run: sh check.sh part0 part1 part3
+    expect:
+      exit: 1
+      stdout: "joined: 750000 bytes\ndiffers\n"

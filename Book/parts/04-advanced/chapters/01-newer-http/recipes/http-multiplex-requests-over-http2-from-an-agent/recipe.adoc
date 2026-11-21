@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-multiplex-requests-over-http2-from-an-agent]]
+=== Multiplexing Requests over HTTP/2 from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to check that a client fetching many small files sends them all, in parallel, on one HTTP/2 connection, and to read the proof from the server rather than take the client's word for it.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with five files, runs `curl -Z` with HTTP/2 prior knowledge through the `curl` tool, and asks `list_servers` how many connections the server accepted:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Hypertext Transfer Protocol version 2 (HTTP/2) carries each request and its answer on a stream of its own, and many streams share one connection at once; that is multiplexing (<<rfc9113>>). An `http` listener answers HTTP/2 with prior knowledge, each request on its own stream (<<surl-readme>>). The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder it runs in. The argument after `--` picks the scenario.
+
+`start_server` starts the server: `listen_urls` is `http://127.0.0.1:0`, a free port, `files` holds `f1.txt` to `f5.txt` in memory, and `bound_urls` in the answer names the port it got. `arguments` passes `surl` options; it is empty here and holds the fault in the timed scenario below.
+
+`curl-mcp` has two ways to fetch. `transfer` makes one request described by fields, with no field for the HTTP version, so this recipe uses the `curl` tool, whose `args` are `curl`{apos}s command line. `--http2-prior-knowledge` opens with HTTP/2 instead of asking to upgrade; `-Z` runs the transfers of the command line at the same time; `f[1-5].txt` is a glob for five URLs, and `-o got/f#1.txt` with `--create-dirs` saves each under `got/` inside `CURL_MCP_ROOT`. `-w "%{http_version} %{num_connects}\n"` prints one line per transfer in the answer's `standardOutput`, which the program splits and tallies, since the lines come in the order the transfers finish. Every transfer answers in HTTP/2; one opened the connection and four went as streams on it (<<curl-readme>>).
+
+The server's count is the proof. `list_servers` answers each server's `exchange_count`, and for HTTP an exchange is one connection the server accepted: one, for five requests. `surl-mcp` makes no readiness probe of its own, so the count is the client's connections and nothing else.
+
+Parallel is a claim about time. With `slow`, `start_server` gets `arguments` `--fault` `delay;stage=command;ms=2000`, which holds each request two seconds before answering it. The five then take two to four seconds with `-Z`, timed around the `curl` tool call, so they waited out their two seconds together, and ten seconds or more without `-Z`, one after another. Each of those two command lines used one connection, and the server counts two. With `--http1.1`, which cannot put two requests on one connection, `-Z` still runs the five at once but on more than one connection; how many depends on timing, and the server counts the same number.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-multiplex-requests-over-http2>> for the same task on the console.
+* <<http-multiplex-requests-over-http2-in-csharp>> for the same task in C#.
+* <<http-choose-the-http-version-from-an-agent>> for choosing a version with the `curl` tool.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9113>>.

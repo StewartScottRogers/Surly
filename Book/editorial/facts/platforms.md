@@ -42,6 +42,8 @@ Linux case shows the password was not checked.
 - gRPC `-m` (Curl 7d167fa10a): curl also sends it as `grpc-timeout`, and surl ends the call `DEADLINE_EXCEEDED` when it passes, so `-m 1` against a reply held back 3 s races the two timers: exit 28 on Windows and Linux, but curl-mcp on macOS got exit 22 `grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded` (CI run 44835381862). `-H "grpc-timeout:"` keeps the header off, so only curl stops: exit 28 everywhere (`grpc-test-a-failing-call-from-an-agent`). The console twin `grpc-test-a-failing-call` has the same fix; the C# twin sends no `grpc-timeout` (HttpClient with its own cancellation), so it has no race.
 - HTTP/3 and WebTransport use the port's own QUIC TLS 1.3 on both sides and pass on macOS.
 
+- Alt-Svc `h3` entries (batch-07, Curl 7d167fa10a, Windows probed): with no version option, Windows `curl`, Curl.Api and curl-mcp never act on an `h3` entry naming the origin (Curl ADR-1313, as the Schannel build, which has no HTTP/3); Linux and macOS race QUIC against TCP (ADR-1309). The `https-move-a-client-to-http3` triplet's solutions pass `--http3` (`HttpVersion.Http3`) and run everywhere; a `[linux, macos]` case shows the switch with no version option (not yet seen in CI) and a `[windows]` case the stay on HTTP/2.
+
 ## UDP and QUIC to a port where nothing listens
 - Windows: the ICMP port unreachable comes back to the socket; curl exits 7 at once (CoAP, WebTransport,
   HTTP/3).
@@ -64,6 +66,8 @@ Linux case shows the password was not checked.
 - A trapped signal interrupts `wait` at once but waits for a foreground command: run the tests with `&` and
   `wait` so a TERM to the script acts at once (`surl-start-and-stop-in-a-shell-script`).
 
+- Git Bash (MSYS) converts arguments that look like POSIX paths, `path=/backups` included, into Windows paths before a native program sees them; a `--fault` scoped by `path=` then never matches. Set `MSYS_NO_PATHCONV=1` (2026-11-20, `ftp-run-out-of-space-on-upload`). Recipe scripts that pass such arguments need it on Windows.
+
 ## Unacknowledged writes
 - MQTT QoS 0 through curl or curl-mcp: curl returns before the broker keeps the message, and on macOS a
   `read_retained_message` straight after answered the previous value or nothing (CI run 44835381862). After each
@@ -75,5 +79,7 @@ Linux case shows the password was not checked.
 ## Recipes
 ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope, ldaps-search-over-tls
 (and twins), https-refuse-clients-below-tls-1-3 (and twins), coap-get-a-resource, webtransport-open-a-stream,
-surl-start-and-stop-in-a-shell-script, surl-run-a-test-server-in-ci, https-serve-a-certificate-chain (and twins),
+surl-start-and-stop-in-a-shell-script, surl-run-a-test-server-in-ci, https-serve-a-certificate-chain (and twins), https-move-a-client-to-http3 (and twins),
 grpc-test-a-failing-call-from-an-agent, mqtt5-check-a-retained-message-from-an-agent, mqtt-check-retained-state-after-a-run.
+
+- Alt-Svc on Windows (Curl ADR-1313, confirmed by the Curl session 2026-11-20): with no version option, curl, Curl.Api and curl-mcp ignore a stored h3 or h2 Alt-Svc entry, as the Windows reference curl 8.22.0 (Schannel) does. With `--http3` (or `--http2`; Curl.Api `Http3`) given, a stored h3 entry is used on Windows too, so a recipe that moves a client to HTTP/3 through Alt-Svc passes `--http3` on every platform.

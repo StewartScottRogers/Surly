@@ -1,0 +1,51 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-multiplex-requests-over-http2-in-csharp
+title: Multiplexing Requests over HTTP/2 in C#
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, CurlClient, CurlRequest, CurlResponse, CurlHttpOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9113]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Five requests started together on one CurlClient with Http2PriorKnowledge and PipeWait all come back 200 over HTTP/2, and the server accepted one connection for all five.
+    program: multiplex.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "f1.txt: HTTP/2.0 200 file 1\nf2.txt: HTTP/2.0 200 file 2\nf3.txt: HTTP/2.0 200 file 3\nf4.txt: HTTP/2.0 200 file 4\nf5.txt: HTTP/2.0 200 file 5\nconnections: 1\n"
+
+  - id: overlapped
+    claim: Against a server that holds every request 2 s, the five take 2 to 4 s in all on that one connection, so they ran at the same time.
+    program: multiplex.cs
+    args: [slow]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\nconnections: 1\ntook [2-4] s\n$'
+
+  - id: without-pipewait
+    claim: Without PipeWait, each request takes a connection of its own at once, still over HTTP/2, and the server accepts five.
+    program: multiplex.cs
+    args: [separate]
+    expect:
+      exit: 0
+      stdout-matches: '^(?:f\d\.txt: HTTP/2\.0 200 file \d\n){5}connections: 5\n$'
+
+  - id: http1-1-cannot-share
+    claim: Over HTTP/1.1, PipeWait has nothing to multiplex on, and the five parallel requests need five connections.
+    program: multiplex.cs
+    args: [http1.1]
+    expect:
+      exit: 0
+      stdout-matches: '^(?:f\d\.txt: HTTP/1\.1 200 file \d\n){5}connections: 5\n$'

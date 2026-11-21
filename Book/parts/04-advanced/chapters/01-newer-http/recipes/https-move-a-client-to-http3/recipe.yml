@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: https-move-a-client-to-http3
+title: Moving a Client to HTTP/3
+protocols: [https]
+tier: advanced
+surl-options: [--directory, --cert, --key, --http3]
+curl-options: [--alt-svc, --cacert, --happy-eyeballs-timeout-ms, --http3, --http3-only, --http1.1, -s, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9114, rfc9000]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# ready: port waits for the TCP listener; surl opens the UDP one before it.
+# Each case keeps its own alt-svc file, since the cases share one folder.
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key --http3 https://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first request with --alt-svc goes over HTTP/2 and saves the server's h3 entry; the second, reading it with --http3, goes over HTTP/3, on every platform.
+    run: 'curl --alt-svc alt-svc.txt --cacert server.pem -s -o {{null}} -w "first: HTTP/%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt && curl --alt-svc alt-svc.txt --http3 --happy-eyeballs-timeout-ms 4000 --cacert server.pem -s -o {{null}} -w "second: HTTP/%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "first: HTTP/2\nsecond: HTTP/3\n"
+
+  - id: no-version-option-switches
+    platforms: [linux, macos]
+    claim: On Linux and macOS, the second request needs no --http3 either; reading the entry, it goes over HTTP/3.
+    run: 'curl --alt-svc alt-svc-plain.txt --cacert server.pem -s -o {{null}} -w "first: HTTP/%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt && curl --alt-svc alt-svc-plain.txt --happy-eyeballs-timeout-ms 4000 --cacert server.pem -s -o {{null}} -w "second: HTTP/%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "first: HTTP/2\nsecond: HTTP/3\n"
+
+  - id: windows-ignores-without-a-version
+    platforms: [windows]
+    claim: On Windows, this curl does as curl's own Windows build and ignores the entry for a request with no version option, so without --http3 the second request stays on HTTP/2.
+    run: 'curl --alt-svc alt-svc-windows.txt --cacert server.pem -s -o {{null}} -w "first: HTTP/%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt && curl --alt-svc alt-svc-windows.txt --happy-eyeballs-timeout-ms 4000 --cacert server.pem -s -o {{null}} -w "second: HTTP/%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "first: HTTP/2\nsecond: HTTP/2\n"
+
+  - id: advertised
+    claim: surl's answers over TCP carry Alt-Svc naming h3 on the same port, good for 86400 seconds, a day.
+    run: curl --cacert server.pem -s -o {{null}} -w "%{http_version} %header{alt-svc}\n" https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout-matches: '^2 h3=":\d+"; ma=86400\n$'
+
+  - id: entry-saved
+    claim: The alt-svc file holds one line after curl's comments, from h2 on the origin's host and port to h3 on the same host and port, with an expiry date and time.
+    run: curl --alt-svc saved.txt --cacert server.pem -s -o {{null}} https://127.0.0.1:{{port}}/hello.txt && grep -v "^#" saved.txt
+    expect:
+      exit: 0
+      stdout-matches: '^h2 127\.0\.0\.1 (\d+) h3 127\.0\.0\.1 \1 "\d{8} \d\d:\d\d:\d\d" 0 0\n$'
+
+  - id: http1-1-ignores-it
+    claim: With the saved entry and --http1.1, curl looks for HTTP/1.1 entries only, finds none, and stays on HTTP/1.1.
+    run: curl --alt-svc saved.txt --http1.1 --cacert server.pem -s -o {{null}} -w "%{http_version}\n" https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "1.1\n"
+
+  - id: none-over-http3
+    claim: Answers over HTTP/3 carry no Alt-Svc header; the alternative is already in use.
+    run: curl --http3-only --cacert server.pem -s -o {{null}} -w "%{http_version} [%header{alt-svc}]\n" https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "3 []\n"

@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-fall-back-when-http3-is-missing]]
+=== Falling Back without HTTP/3
+
+==== Problem
+
+Your client prefers HTTP/3 but must still work behind networks that block UDP. You want to see a client that tries HTTP/3 fall back to TCP, and one that insists on HTTP/3 fail.
+
+==== Solution
+
+Serve `https` with `surl` and no `--http3`, so nothing answers on UDP, and fetch with `curl --http3`, here with `-w` to print the version the answer came in:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run two more `surl` processes: one on port `8081` with a Trivial File Transfer Protocol (TFTP) listener on the same port number, to stand in for a network that swallows UDP, and one on port `8082` with `--http3`, for the contrast. You do not need them. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Hypertext Transfer Protocol version 3 (HTTP/3) runs over QUIC, a transport on User Datagram Protocol (UDP) rather than Transmission Control Protocol (TCP) (<<rfc9114>>, <<rfc9000>>). A network that blocks UDP blocks HTTP/3 with it, while HTTP/2 over TCP still gets through. A client that wants HTTP/3 where it can, and an answer everywhere, has to try QUIC and be ready to give it up.
+
+`--http3` is that client. `curl` tries QUIC first and, if QUIC has not answered within its happy-eyeballs time, starts a TCP connection beside it, and takes whichever succeeds (<<curl-readme>>). Here `surl` has no `--http3`, so it has no UDP listener at all: the operating system turns the QUIC packet away, the attempt fails, and `curl` goes on over TCP. `-v` shows that second road on standard error as an ordinary Transport Layer Security (TLS) handshake, with `ALPN: server accepted h2`, Application-Layer Protocol Negotiation settling HTTP/2. `-w "HTTP/%{http_version}\n"` prints `HTTP/2` after the body; in the checked claims `-s` keeps `curl` quiet and `-o` throws the body away (`/dev/null`, or `NUL` on Windows).
+
+`--http3-only` is the client that insists. It speaks QUIC and nothing else, so against the same server it has nowhere to go: it fails receiving network data, exit `56`, with nothing on standard output.
+
+A firewall that drops UDP does not turn the packet away; it stays silent. The second `surl` stands in for that: its `tftp://` listen URL holds the same port number on UDP, so QUIC packets reach a listener that does not speak QUIC and never get a QUIC answer. `--trace-ascii swallowed.txt` logs every exchange it opens, and after one `curl --http3`, `grep -c` counts at least one `opened: tftp` line there, the QUIC attempt arriving. `--http3` falls back all the same and gets HTTP/2. The `&&` runs `grep` once `curl` has succeeded, in a Portable Operating System Interface (POSIX) shell and in Windows' `cmd.exe` alike. `--http3-only` against that listener hears nothing it can use and waits; `--connect-timeout 2` gives up after two seconds, exit `28`, operation timed out. A client that insists on HTTP/3 needs a connect timeout of its own, or a silent network holds it as long as `curl`{apos}s default allows.
+
+`--http3` still prefers HTTP/3. Against the third `surl`, which has `--http3`, the same request comes back over HTTP/3. `--happy-eyeballs-timeout-ms 4000` is in that command only to make the claim hold on a busy machine: it gives QUIC more time before TCP joins the race, where the default is a fraction of a second, and on a loaded test runner TCP can win a short race against a QUIC handshake that is slow to finish (<<https-serve-http3>>).
+
+`--cert server.pem` and `--key server.key` are the certificate and key each `surl` serves, made by the `openssl` line in setup, and `--cacert server.pem` is `curl` trusting it; `--directory` gives each `surl` its own folder, since two `surl` processes cannot share one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-fall-back-when-http3-is-missing-in-csharp>> for the same task in C#.
+* <<https-fall-back-when-http3-is-missing-from-an-agent>> for the same task from an agent.
+* <<https-serve-http3>> for serving HTTP/3 with `--http3`.
+* <<https-move-a-client-to-http3>> for moving a client to HTTP/3 when the server advertises it.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9114>>, <<rfc9000>>.

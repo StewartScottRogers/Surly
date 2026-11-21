@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-many-files-in-parallel-from-an-agent]]
+=== Downloading Many Files in Parallel
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to fetch fifty files at once from a server that limits connections per address, with every file complete and none lost to the limit.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit: it starts a server through `surl-mcp`{apos}s `start_server` with `--max-connections-per-address 4` and fifty files, makes one call to `curl-mcp`{apos}s `curl` tool with `--parallel --parallel-max 4`, and compares every saved file with the one it served:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a Hypertext Transfer Protocol (HTTP) server that answers as `surl` with the same options would. `arguments` carries `surl`{apos}s own options: `--max-connections-per-address 4` lets one client address hold four connections at once, and a connection past that is answered `503 Service Unavailable`. It is a limit, not a queue, and the agent cannot see it from the answer; an agent driving a real server would have to be told the number. `files` puts fifty files of 50,000 characters in the server{apos}s memory, and the answer{apos}s `bound_urls` names the port it got.
+
+The `transfer` tool makes one request per call, so fifty files would be fifty calls, one after another. The `curl` tool takes a whole `curl` command line in `args` and runs it inside `CURL_MCP_ROOT`, so one call can do what <<http-download-many-files-in-parallel>> does on the console. `"f[1-50].txt"` is a glob that `curl` expands to fifty URLs. `-o "out/f#1.txt"` names each saved file from the number the glob matched, a name the tool checks against its root before `curl` runs, and `--create-dirs` makes `out`. `--parallel` runs the transfers side by side, `--parallel-max 4` keeps no more than four in flight, the server{apos}s limit, `-f` makes a `503` a failure, and `-w "%{http_code}\n"` prints one status per transfer into `standardOutput`, which the program counts. `-s` keeps the progress meter out of it.
+
+The answer is JavaScript Object Notation (JSON) text with `exitCode` and the two output streams. The agent checks two things: that `exitCode` is `0`, and that every file it saved is, byte for byte, the file it served. Without `--parallel-max`, `curl` runs up to 50 transfers at once, some are refused `503`, `curl` exits `22` because of `-f`, the call comes back a tool error, and fewer than fifty files are saved. Without `-f` the same call exits `0` and is not a tool error, though some transfers were refused: an agent that reads only `exitCode` would report success with files missing, which is why the program compares what it saved with what it served whatever the exit code says. The saved files stay in `out` under `CURL_MCP_ROOT` for the next step to use.
+
+If the limit is not known, `--retry 10 --retry-delay 1` is the other cure: `curl` counts a `503` as a transient error and sends each refused transfer again a second later, up to ten times, until all fifty are `200` and saved whole. It keeps hitting the limit on purpose, though; a cap that matches the server{apos}s limit asks only for what the server will give.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-many-files-in-parallel>> for the same task on the console.
+* <<http-download-many-files-in-parallel-in-csharp>> for the same task from .NET code.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

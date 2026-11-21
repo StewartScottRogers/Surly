@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp (ADR-0008).
+schema: 2
+key: ftp-upload-and-fetch-over-http-from-an-agent
+title: Uploading over FTP, Fetching over HTTP
+protocols: [ftp, http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, read_file, get_exchanges]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Before the upload the file is 404 over HTTP; one curl tool call with --next uploads it over FTP and fetches it over HTTP from the same server, and read_file finds it in the one store.
+    program: share.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "schemes: ftp http\nGET over http: exit 0, tool error: no, 404\nSTOR then GET: exit 0, tool error: no, uploaded over ftp\nread_file /notes.txt: uploaded over ftp\n"
+
+  - id: fetch-over-ftp-too
+    claim: The uploaded file is also there over FTP; there is one store, not one per protocol.
+    program: share.cs
+    args: [ftp-too]
+    expect:
+      exit: 0
+      stdout: "schemes: ftp http\nGET over http: exit 0, tool error: no, 404\nSTOR then GET: exit 0, tool error: no, uploaded over ftp\nGET over ftp: exit 0, tool error: no, uploaded over ftp\nread_file /notes.txt: uploaded over ftp\n"
+
+  - id: http-put-read-over-ftp
+    claim: The other way round, an HTTP PUT with -T is answered 201 Created and the file is downloaded over FTP; the server, with no account, accepts both because of --allow-anonymous and --allow-uploads.
+    program: share.cs
+    args: [http-put]
+    expect:
+      exit: 0
+      stdout: "schemes: ftp http\nPUT over http: exit 0, tool error: no, 201\nGET over ftp: exit 0, tool error: no, uploaded over http\n"
+
+  - id: each-listener-sees-its-own
+    claim: get_exchanges with a scheme answers what each listener received, the STOR on the ftp one and the GET for the file on the http one.
+    program: share.cs
+    args: [exchanges]
+    expect:
+      exit: 0
+      stdout-matches: '^schemes: ftp http\nGET over http: [^\n]*\nSTOR then GET: [^\n]*\nread_file /notes\.txt: uploaded over ftp\nftp received: STOR notes\.txt\nhttp received: GET /notes\.txt HTTP/1\.1, GET /notes\.txt HTTP/1\.1\n$'
+
+  - id: uploads-off
+    claim: Without --allow-uploads the FTP upload is refused, curl exit 25, a tool error.
+    program: share.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "schemes: ftp http\nSTOR over ftp: exit 25, tool error: yes\n"
+
+  - id: anonymous-refused
+    claim: Without --allow-anonymous curl's anonymous login is refused, curl exit 67, a tool error.
+    program: share.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "schemes: ftp http\nSTOR over ftp: exit 67, tool error: yes\n"

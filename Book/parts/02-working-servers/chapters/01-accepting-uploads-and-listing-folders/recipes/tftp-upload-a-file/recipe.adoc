@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-upload-a-file]]
+=== Uploading over TFTP
+
+==== Problem
+
+A device pushes its configuration over Trivial File Transfer Protocol (TFTP). You want `surl` to accept the write, and to see what it answers when uploads are off.
+
+==== Solution
+
+Start `surl` with `--allow-uploads`, and send the file with `curl -T`:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+TFTP has no login, no folders and no listing: a client reads or writes one file by name, over the User Datagram Protocol (UDP), in blocks of 512 bytes, and the transfer ends with the first block shorter than that (<<rfc1350>>). A write is a request to create the file; with `curl -T file URL`, the name in the URL is the name the server keeps, and the local name does not matter. `surl` keeps it under `--directory`, here `site`, and the claim looks in that folder to see the file there with its content. The listener is UDP, so there is no TCP port to wait for; the claims use `ready: none`, and a read-back that would fail if the server were not up.
+
+A write is a change to the server{apos}s files, so `surl` refuses it unless it is started with `--allow-uploads`. Without the option the server answers the write request with an error packet, TFTP error 2, access violation, which `curl` reports as `curl: (69) TFTP: Access Violation` and exit `69`; `-v` prints the packet as `TFTP error: Access violation`. The server keeps nothing: a read of the same name afterwards is TFTP error 1, `File Not Found`, and exit `68`. A read needs no such option, which is why a server meant only to be read from is safe to leave as it is.
+
+With uploads on, `surl` still holds the line on names. A name in a folder, `configs/r1.cfg`, and a name beginning with a dot are both refused with error 2 and exit `69`: TFTP has no folders to make, and a dot file is one `surl` never serves. A name that exists is replaced, as an upload to a file server is. A file of 1,300 bytes, three blocks, goes up in whole and reads back as 1,300 bytes.
+
+`--max-filesize 1000` limits what an upload may be: the 1,300-byte file is refused, `curl` exits `70` (`Disk full or allocation exceeded`), and nothing is kept, so a read of it is exit `68`. The third server in the claims has no `--directory`: two `surl` processes cannot share one directory, and a server without it keeps its files in memory.
+
+On the `curl` side, `-T` is the upload, naming the local file to send; `-s` hides the progress meter and `-S` still shows an error; `-o` names the file a read is saved to, here the null device, and `-w` prints a value after the transfer, here `size_download`, the bytes read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-upload-a-file-in-csharp>> and <<tftp-upload-a-file-from-an-agent>> for the same task from a C# program and from an agent.
+* <<tftp-download-a-file>> for the read side.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>.

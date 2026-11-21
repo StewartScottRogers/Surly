@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs keep-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-keep-mail-across-restarts-from-an-agent
+title: Keeping Mail Across Restarts from an Agent
+protocols: [smtp, imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, stop_server, curl, wait_for_event, list_messages, read_message, list_mailboxes]
+curl-options: [-s, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0]
+references: [surl-readme, rfc5321, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool delivers the shop's mail, exit 0, and a store_changed event names UID 1; after stop_server and a second start_server on the same directory, list_messages and read_message show the same message, UID 1.
+    program: keep-mail.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 1 message(s): UID 1 Order 1042 has shipped\n"
+
+  - id: on-disk
+    claim: While the server runs, the folder holds the lock file and the mail index under .surl; both are still there after stop_server, and the stale lock is no obstacle to a restart.
+    program: keep-mail.cs
+    args: [on-disk]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, delivered ann@example.com/INBOX/;UID=1\nrunning: lock True, index True\nstopped: lock True, index True\n"
+
+  - id: uids-carry-on
+    claim: After the restart a new message to Ann becomes UID 2, not UID 1 again, so a client that remembers UIDs need not start over.
+    program: keep-mail.cs
+    args: [uid]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 1 message(s): UID 1 Order 1042 has shipped\ncurl exit 0, delivered ann@example.com/INBOX/;UID=2\nafter the next message: 2 message(s): UID 1 Order 1042 has shipped, UID 2 Order 1043 has shipped\n"
+
+  - id: flags-kept
+    claim: A flag set before the restart is still set after it; the curl tool's fetch sets \Seen, and list_mailboxes shows the unseen count go from 1 to 0 and stay 0 in the new server.
+    program: keep-mail.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, delivered ann@example.com/INBOX/;UID=1\nunseen before the fetch: 1\nunseen after the fetch: 0\nunseen after the restart: 0\n"
+
+  - id: second-restart
+    claim: A second restart keeps what was added since the first; both messages are there.
+    program: keep-mail.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 1 message(s): UID 1 Order 1042 has shipped\ncurl exit 0, delivered ann@example.com/INBOX/;UID=2\nafter the next message: 2 message(s): UID 1 Order 1042 has shipped, UID 2 Order 1043 has shipped\nafter the second restart: 2 message(s): UID 1 Order 1042 has shipped, UID 2 Order 1043 has shipped\n"
+
+  - id: directory-in-use
+    claim: A second start_server on the directory while the first runs is a tool error with exit_code 124, DataDirectoryInUse.
+    program: keep-mail.cs
+    args: [in-use]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, delivered ann@example.com/INBOX/;UID=1\nsecond server: 124 DataDirectoryInUse, in use: True\n"
+
+  - id: memory-forgets
+    claim: With no --directory the new server starts the store over; the mailbox is back, from the arguments, and empty.
+    program: keep-mail.cs
+    args: [memory]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 0 message(s)\n"

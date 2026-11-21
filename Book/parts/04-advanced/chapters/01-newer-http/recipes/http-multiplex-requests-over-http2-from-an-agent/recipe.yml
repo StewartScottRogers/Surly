@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs multiplex.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-multiplex-requests-over-http2-from-an-agent
+title: Multiplexing Requests over HTTP/2 from an Agent
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, list_servers]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9113]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool with --http2-prior-knowledge and -Z fetches five files over HTTP/2, one transfer opens the connection and four reuse it, and list_servers counts one exchange, one connection, on the server.
+    program: multiplex.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nversions: 2\ntransfers: 5, that opened a connection: 1\nconnections: 1\n"
+
+  - id: overlapped
+    claim: Against a server started with a fault that holds every request 2 s, the five take 2 to 4 s with -Z and 10 s or more without it, both on one connection each, two in all.
+    program: multiplex.cs
+    args: [slow]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '^with -Z: [2-4] s\nwithout -Z: (?:1\d|[2-5]\d) s\nconnections: 2\n$'
+
+  - id: http1-1-needs-connections
+    claim: With --http1.1, -Z still runs the five in parallel, but on more than one connection, and the server counts as many exchanges as transfers that opened one.
+    program: multiplex.cs
+    args: [http1.1]
+    expect:
+      exit: 0
+      stdout-matches: '^exitCode: 0\nversions: 1\.1\ntransfers: 5, that opened a connection: ([2-5])\nconnections: \1\n$'

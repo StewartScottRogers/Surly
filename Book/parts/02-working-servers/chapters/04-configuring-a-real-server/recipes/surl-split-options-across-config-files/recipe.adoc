@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-split-options-across-config-files]]
+=== Splitting Options Across Config Files
+
+==== Problem
+
+Every test in a suite needs the same server: the same directory, the same account, the same loosenings. Each test also changes one thing: you want a shared base config file, a small one for the test and a few options on the command line, and to know which setting wins.
+
+==== Solution
+
+Give `surl` both files with `-K`, base first, and the listen URLs on the command line. `base.conf` holds what every test shares and `test.conf` holds what this test changes:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`-K file` reads a file in `curl`{apos}s config syntax as if its lines were options on the command line, at the place of the `-K`. Everything on the command line is read in order, and for an option that takes one value, the last one read wins. That one rule answers every question about which setting wins.
+
+Both files set `max-filesize`: `base.conf` 100 and `test.conf` 10. With `-K base.conf -K test.conf` the later file wins, so a 21-byte upload is refused with `413`, over HTTP, and with exit `70` over FTP, while an 8-byte upload is accepted. Swap the files, `-K test.conf -K base.conf`, and `base.conf` is the later one: its 100 wins and the 21-byte upload is accepted. An option on the command line after the files, `--max-filesize 5`, beats both. The same option before the files loses to them: `test.conf`{apos}s 10 applies and the 8-byte upload is accepted. A flag follows the same order, and has a form that turns it off: `--no-allow-uploads` after the files cancels the `allow-uploads` of `base.conf`, and the upload is refused with `405`. A second `--directory` on the command line wins over the one in `base.conf` in the same way, so a test can serve its own folder under a shared base.
+
+Not everything is replaced. `user` adds an account, so `test.conf` adds `second` and `tester`, from `base.conf`, still logs in. With any account configured every request needs a login, so a request without one is `401`.
+
+`directory = site` in `base.conf` is the one directory both the HTTP and the FTP server serve: an 8-byte upload over FTP lands in `site`, and the claim finds it there. Two `surl` processes cannot share a directory, so each of the other servers in the claims has its own, given with `--directory` on the command line, which is itself an example of the rule.
+
+A mistake in a file is named: `surl: bad.conf:2: option --max-filesise: is unknown`, with the file and the line, and exit `2` before anything listens. Which file a setting came from is the first thing to look for when a test behaves unlike the base, and the message says it for a mistake.
+
+The options in the files are `surl`{apos}s own, with the leading dashes dropped: `user = tester:secret` is `--user`, an account every request must then log in as; `allow-plaintext-auth` is `--allow-plaintext-auth`, which lets those logins cross plain `http://` and `ftp://`; and `allow-uploads` is `--allow-uploads`, which accepts `PUT` and `STOR`. On the `curl` side, `-u` logs in, `-T` uploads a local file, `-s` hides the progress meter and `-S` still shows an error, `-o` names the file a response is saved to, here the null device, and `-w` prints a value after the transfer, the HTTP status.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-split-options-across-config-files-in-csharp>> and <<surl-split-options-across-config-files-from-an-agent>> for the same task from a C# program and from an agent.
+* <<surl-run-a-fixture-from-a-config-file>> for a whole environment in one file.
+* <<surl-readme>>, <<curl-readme>>.

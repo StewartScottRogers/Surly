@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-keep-mail-across-restarts-in-csharp
+title: Keeping Mail Across Restarts in C#
+protocols: [smtp, imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlEventQuery, StoreChangedEvent, SurlMessagePage, SurlMessageSummary, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlContent]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The shop's mail is delivered as UID 1 and answered 250; the server is disposed and a new one started on the same DataDirectory, and Ann's INBOX holds the same message, UID 1.
+    program: keep-mail.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout: "SMTP 250, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 1 message(s): UID 1 Order 1042 has shipped\n"
+
+  - id: on-disk
+    claim: While the server runs, the folder holds the lock file and the mail index under .surl; both are still there after it stops, and the stale lock is no obstacle to a restart.
+    program: keep-mail.cs
+    args: [on-disk]
+    expect:
+      exit: 0
+      stdout: "SMTP 250, delivered ann@example.com/INBOX/;UID=1\nrunning: lock True, index True\nstopped: lock True, index True\n"
+
+  - id: uids-carry-on
+    claim: After the restart a new message to Ann becomes UID 2, not UID 1 again, so a client that remembers UIDs need not start over.
+    program: keep-mail.cs
+    args: [uid]
+    expect:
+      exit: 0
+      stdout: "SMTP 250, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 1 message(s): UID 1 Order 1042 has shipped\nSMTP 250, delivered ann@example.com/INBOX/;UID=2\nafter the next message: 2 message(s): UID 1 Order 1042 has shipped, UID 2 Order 1043 has shipped\n"
+
+  - id: flags-kept
+    claim: A flag set before the restart is still set after it; Ann's fetch sets \Seen, and the unseen count goes from 1 to 0 and stays 0 in the new server.
+    program: keep-mail.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout: "SMTP 250, delivered ann@example.com/INBOX/;UID=1\nunseen before the fetch: 1\nunseen after the fetch: 0\nunseen after the restart: 0\n"
+
+  - id: second-restart
+    claim: A second restart keeps what was added since the first; both messages are there.
+    program: keep-mail.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout: "SMTP 250, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 1 message(s): UID 1 Order 1042 has shipped\nSMTP 250, delivered ann@example.com/INBOX/;UID=2\nafter the next message: 2 message(s): UID 1 Order 1042 has shipped, UID 2 Order 1043 has shipped\nafter the second restart: 2 message(s): UID 1 Order 1042 has shipped, UID 2 Order 1043 has shipped\n"
+
+  - id: directory-in-use
+    claim: A second server on the folder while the first runs cannot start; StartAsync throws SurlServerStartException, ExitCode DataDirectoryInUse (124).
+    program: keep-mail.cs
+    args: [in-use]
+    expect:
+      exit: 0
+      stdout: "SMTP 250, delivered ann@example.com/INBOX/;UID=1\nsecond server: DataDirectoryInUse, in use: True\n"
+
+  - id: memory-forgets
+    claim: With no DataDirectory the new server starts the store over; the mailbox is back, from the options, and empty.
+    program: keep-mail.cs
+    args: [memory]
+    expect:
+      exit: 0
+      stdout: "SMTP 250, delivered ann@example.com/INBOX/;UID=1\nafter the restart: 0 message(s)\n"

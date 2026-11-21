@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-fail-one-command]]
+=== Failing One IMAP Command
+
+==== Problem
+
+Your mail app must survive a server that answers one fetch with `NO` while everything else works. You want one Internet Message Access Protocol (IMAP) command failed on purpose, and the client{apos}s error shown.
+
+==== Solution
+
+Give `surl` a `--fault` rule that answers the first `FETCH` of an account with `NO`, then fetch as that account. The order notice is mailed to six customers before the cases run; the second `seed` line only waits, bounded, until the last of them can read it. Ann{apos}s fetch fails:
+
+include::.generated/solution.adoc[]
+
+In a real test the app fetches, pointed at port `8143`, and the test reads what the app did with the error.
+
+==== Discussion
+
+`--fault "error;scheme=imap;command=FETCH;account=ann@example.com;reply=NO [SERVERBUG] fetch failed;times=1"` is one rule. `error` answers a command with the reply the rule names instead of carrying it out; `scheme=imap` says the reply is in IMAP{apos}s shape, a status of `NO` or `BAD` and text, with an optional response code in brackets; `command=FETCH` limits it to that command, and `account=` to the account that logged in. `times=1` spends it after one answer. The quotes keep the semicolons from the shell (<<surl-readme>>). The rest is a mail server for one domain: `--mail-domain example.com` serves it and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. The rules are one per account on purpose, so that no case spends another{apos}s; a real test needs only the one it is about.
+
+The mail is sent over Simple Mail Transfer Protocol (SMTP) (<<rfc5321>>) with `-u` for the login, `--mail-from` and `--mail-rcpt` for the envelope, `-T order.eml` for the message and `--crlf` to turn the file{apos}s line feeds into the carriage return and line feed a message is made of; one `--mail-rcpt` per customer. `-s` keeps `curl` quiet and `-S` lets it still print an error; `-o` throws the body away and `-w` prints one of `curl`{apos}s own values after the transfer. `--retry-delay 1` sets the wait between tries to one second. `-v` and `--log-file` make `surl` write a verbose log to a file, which the last claims read.
+
+A `NO` is a refusal of one command; the session, the login and the folder selected stay as they were (<<rfc9051>>). `curl` fetches with `UID FETCH`, so the refused command is the fetch and `curl` maps it to exit `78`, `Remote file not found`, the same exit a message that does not exist gives. `-v` shows the exchange: the `SELECT` answered `OK`, then `A004 NO [SERVERBUG] fetch failed`. A client that must tell a refused fetch from an absent message has only the response code in the text to go on, and the test can set it. The fetch again is answered normally, because the rule was spent, and everything else was never touched: a `SEARCH` in Bob{apos}s `INBOX` is answered while his rule still waits.
+
+`curl`{apos}s retries behave as they do for a temporary mail failure (<<curl-manual>>). `--retry 2` alone does not count a `NO` as transient, so Bob{apos}s fetch is not repeated: `%{num_retries}` is `0` and the exit is still `78`. `--retry-all-errors` makes every failure count, so Cy{apos}s fetch is retried after one second, `%{num_retries}` is `1` and the exit is `0`. It would retry a permanent refusal just as willingly, which is why a test of a client should fail more than once as well.
+
+A rule can name any command. Dee{apos}s rule answers her first `SELECT` with `NO [UNAVAILABLE] store busy`, and `curl` exits `67`, `Select failed`, before any fetch or search is sent.
+
+The log is the server{apos}s side of it. Run with `-v --log-file surl.log`, the server writes one line, `FETCH answered with the chosen error of fault rule f1.`, each time a rule acts, and the check counts five, one per rule that fired. `--fault` is a loosening option: it makes the server misbehave on purpose, and `surl` says so once on start, for all five rules together. A reply that does not fit the scheme, such as `reply=250 OK` for IMAP, stops the start with exit `2`, so a mistyped rule cannot start a server that fails in some other way than the test meant.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-fail-one-command-in-csharp>> for the same test in C#.
+* <<imap-fail-one-command-from-an-agent>> for the same test from an agent.
+* <<smtp-survive-a-temporary-rcpt-failure>> for the same kind of rule on an SMTP command.
+* <<http-recover-from-a-dropped-connection>> for a fault on HTTP.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

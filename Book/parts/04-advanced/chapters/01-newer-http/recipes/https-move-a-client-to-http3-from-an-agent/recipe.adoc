@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-move-a-client-to-http3-from-an-agent]]
+=== Moving Clients to HTTP/3 from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to check that a client switches to HTTP/3 once the server advertises it: the server's Alt-Svc answer saved by the first request, the second carried over QUIC, and the server's own record saying which transport each request came over.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` with `--http3`, runs two `curl` tool calls sharing one `--alt-svc` file, the second with `--http3`, and reads `get_exchanges` after each:
+
+include::.generated/solution.adoc[]
+
+This works the same on Linux, macOS and Windows.
+
+==== Discussion
+
+Hypertext Transfer Protocol version 3 (HTTP/3) runs over QUIC, a transport on User Datagram Protocol (UDP), and a client cannot know a server has it until the server says so. The server says so over HTTP/1.1 or HTTP/2 with an `Alt-Svc` header, an alternative service: `h3=":<port>"; ma=86400` is HTTP/3 on that port of the same host, good for a day, and a client that remembers it can use QUIC for later connections (<<rfc9114>>). The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder it runs in, where setup's `openssl` line made `server.pem` and `server.key`. The argument after `--` picks the scenario.
+
+`start_server` has no fields for a certificate or for HTTP/3, so `arguments` carries `surl`{apos}s own options: `--cert server.pem --key server.key --http3`. The server then serves HTTP/3 on UDP at the same port as its Transmission Control Protocol (TCP) listener and puts the `Alt-Svc` header on every answer over TCP (<<surl-readme>>).
+
+`curl-mcp`{apos}s `transfer` tool has no field for an alt-svc file or an HTTP version, so the program uses the `curl` tool, whose `args` are `curl`{apos}s command line. `--alt-svc alt-svc.txt` is `curl`{apos}s memory: before a request it reads the file, and after it writes back every `Alt-Svc` header it learned (<<curl-readme>>); the file lies in `CURL_MCP_ROOT`, where the program reads it too. `--cacert server.pem` trusts the certificate, `-o hello.txt` saves the body, and `-w` puts the version and the `alt-svc` header in `standardOutput`. The first call has nothing to go on and goes over HTTP/2; afterwards the file holds one entry after its comments, from `h2` on `127.0.0.1` to `h3` on the same host and port. The second call adds `--http3`, reads the entry, and goes over HTTP/3, its answer carrying no `Alt-Svc`, since it already came over the alternative.
+
+That second call races. An entry naming the origin's own host and port makes `curl` try QUIC and TCP side by side and take whichever connects first. `--happy-eyeballs-timeout-ms 4000` holds TCP back four seconds instead of a fraction of one, so on a busy machine a slow QUIC handshake still wins; it is there to make the claim hold.
+
+`get_exchanges` is the server's word. It answers the server's exchanges, one per connection, each with its `chunks`, the bytes that crossed it. A QUIC exchange records each stream's bytes with a `stream_id`; a TCP exchange has none. After each call the program looks at the newest exchange and prints `QUIC` when one of its chunks has a stream ID.
+
+`--http3` is there because of Windows, where this `curl` behaves as `curl`{apos}s own Windows build does. That build has no HTTP/3, and this one, like it, ignores a saved `h3` entry for a call with no version option; given `--http3`, it uses the entry on Windows as everywhere. On Linux and macOS the second call needs no `--http3`: with `none` it goes over HTTP/3 and QUIC by itself. On Windows, with `none`, the entry is saved but the second call stays on HTTP/2 over TCP. `--http1.1` is the other way round: `curl` looks only for entries learned over HTTP/1.1, finds none, and stays on HTTP/1.1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-move-a-client-to-http3>> for the same task on the console.
+* <<https-move-a-client-to-http3-in-csharp>> for the same task in C#.
+* <<https-fall-back-when-http3-is-missing-from-an-agent>> for a client that falls back when UDP is blocked.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9114>>, <<rfc9000>>.

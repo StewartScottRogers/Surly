@@ -1,0 +1,104 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-retry-through-a-busy-server
+title: Retrying through a Busy Server
+protocols: [http]
+tier: advanced
+surl-options: [--directory, --fault, -v, --log-file]
+curl-options: [--no-progress-meter, -s, -f, -w, --retry, --retry-delay]
+exit-codes: [0, 22]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/report.txt: "report ready\n"
+  site/health.txt: "up\n"
+  few/report.txt: "report ready\n"
+  timed/report.txt: "report ready\n"
+  timed.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Fetches a file busy for one request with one retry after one second, and says whether the
+    # whole command took at least one second and under thirty.
+    start=$(date +%s)
+    curl -s --retry 1 --retry-delay 1 -o /dev/null "$1"
+    end=$(date +%s)
+    elapsed=$((end - start))
+    if [ "$elapsed" -ge 1 ] && [ "$elapsed" -lt 30 ]; then echo "waited at least 1 second"; else echo "took $elapsed seconds"; fi
+
+# Each server is busy for the first two requests for /report.txt and serves every one after them,
+# and every other path at all times. The rule acts at the command stage, when a request has
+# arrived, so the readiness check, which connects and sends nothing, does not spend it. One surl
+# holds a folder at a time, so each server has its own.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --fault "error;scheme=http;reply=503;path=/report.txt;times=2" http://127.0.0.1:{{port}}/
+    ready: port
+  few:
+    command: surl --directory few --fault "error;scheme=http;reply=503;path=/report.txt;times=2" http://127.0.0.1:{{port2}}/
+    ready: port
+  timed:
+    command: surl --directory timed --fault "error;scheme=http;reply=503;path=/report.txt;times=1" http://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The server is busy for two requests; curl with --retry 2 waits one second before each retry, gets the file on its third request, exits 0 and counts two retries.
+    run: curl --no-progress-meter --retry 2 --retry-delay 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/report.txt
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "report ready\n200 2\n"
+      stderr-contains: "Warning: Problem : HTTP error. Retrying in 1 second. 2 retries left.\nWarning: Problem : HTTP error. Retrying in 1 second. 1 retry left.\n"
+
+  - id: server-saw-three
+    claim: The server's verbose log records three requests for /report.txt from that one command.
+    run: grep -c " < GET /report.txt HTTP/1.1" surl.log
+    expect:
+      exit: 0
+      stdout: "3\n"
+
+  - id: server-was-busy-twice
+    claim: The same log records that fault rule f1 answered two of them 503 Service Unavailable; the third was served from the folder.
+    run: 'grep -c "GET /report.txt: answered 503 Service Unavailable by fault rule f1" surl.log'
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: other-path-never-busy
+    claim: The rule is scoped to /report.txt, so another file on the same server was answered at once, with no retry, before and after.
+    run: curl -s --retry 2 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/health.txt
+    expect:
+      exit: 0
+      stdout: "up\n200 0\n"
+
+  - id: busy-is-spent
+    claim: The rule is spent after two answers, so a later request from a new command is served at once.
+    run: curl -s -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port}}/report.txt
+    expect:
+      exit: 0
+      stdout: "report ready\n200 0\n"
+
+  - id: one-retry-is-too-few
+    claim: With --retry 1 the one retry meets the second busy answer, and with -f curl gives up with exit 22 after one retry.
+    run: curl -s -f --retry 1 --retry-delay 1 -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port2}}/report.txt
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: "503 1\n"
+
+  - id: no-retry-no-answer
+    claim: The third request is served even for a client that gave up, since the rule counts answers, not clients; a new command after the failure gets the file.
+    run: curl -s -w "%{http_code} %{num_retries}\n" http://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "report ready\n200 0\n"
+
+  - id: waits-seconds
+    claim: With a server busy for one request and one second before the retry, the command takes at least one second, the wait, and well under thirty. This one needs a POSIX shell.
+    run: sh timed.sh http://127.0.0.1:{{port3}}/report.txt
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "waited at least 1 second\n"

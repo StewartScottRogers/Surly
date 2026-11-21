@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-run-out-of-space-on-upload-in-csharp
+title: Running Out of Space in C#
+protocols: [ftp]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlServerFiles, SurlFolderPage, SurlFolderEntry, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlException, CurlFtpOptions, FtpCreateMissingDirectories]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+# No servers: block. The program hosts its server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: An upload into /backups, out of space by fault rule, throws CurlException UploadFailed with the server's 552; /backups still holds only last night's 22-byte dump.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "upload backups/2026-11-20.dump: UploadFailed (Failed FTP upload: 552)\n/backups: 2026-11-19.dump 22 bytes\n/backups/2026: none\n/backups-old: none\n/staging: none\n"
+
+  - id: reply-is-552
+    claim: The exception's message carries the server's reply code, 552, the reply FTP keeps for exceeded storage.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^upload backups/2026-11-20.dump: UploadFailed [(]Failed FTP upload: 552[)]\n"
+
+  - id: nothing-written
+    claim: After the refusal /backups holds only last night's dump; nothing half-written was left.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\n/backups: 2026-11-19.dump 22 bytes\n"
+
+  - id: append-refused
+    claim: Appending to last night's dump is refused the same way, UploadFailed 552, and the dump keeps its 22 bytes.
+    program: program.cs
+    args: [append]
+    expect:
+      exit: 0
+      stdout: "upload backups/2026-11-19.dump: UploadFailed (Failed FTP upload: 552)\n/backups: 2026-11-19.dump 22 bytes\n/backups/2026: none\n/backups-old: none\n/staging: none\n"
+
+  - id: subfolder-full-too
+    claim: The rule covers every folder under /backups; CreateMissingDirectories still makes /backups/2026, but the file in it is refused, UploadFailed 552, and the new folder stays empty.
+    program: program.cs
+    args: [subfolder]
+    expect:
+      exit: 0
+      stdout: "upload backups/2026/2026-11-20.dump: UploadFailed (Failed FTP upload: 552)\n/backups: 2026/, 2026-11-19.dump 22 bytes\n/backups/2026: \n/backups-old: none\n/staging: none\n"
+
+  - id: staging-has-space
+    claim: The same upload to /staging, outside the rule, is stored whole, 22 bytes.
+    program: program.cs
+    args: [staging]
+    expect:
+      exit: 0
+      stdout: "upload staging/2026-11-20.dump: stored\n/backups: 2026-11-19.dump 22 bytes\n/backups/2026: none\n/backups-old: none\n/staging: 2026-11-20.dump 22 bytes\n"
+
+  - id: whole-segments
+    claim: The path matches by whole folder names; /backups-old is not under /backups, and the upload is stored, 22 bytes.
+    program: program.cs
+    args: [old]
+    expect:
+      exit: 0
+      stdout: "upload backups-old/2026-11-20.dump: stored\n/backups: 2026-11-19.dump 22 bytes\n/backups/2026: none\n/backups-old: 2026-11-20.dump 22 bytes\n/staging: none\n"
+
+  - id: disk-fills-and-frees
+    claim: A rule added while the server runs fills /staging at once (UploadFailed 552 for the next upload), and removing it frees the space, so the same upload tried again is stored.
+    program: program.cs
+    args: [fills]
+    expect:
+      exit: 0
+      stdout: "upload staging/a.dump: stored\nupload staging/b.dump: UploadFailed (Failed FTP upload: 552)\nupload staging/b.dump: stored\n/backups: 2026-11-19.dump 22 bytes\n/backups/2026: none\n/backups-old: none\n/staging: a.dump 22 bytes, b.dump 22 bytes\n"
+
+  - id: uploads-off-is-550
+    claim: A server without AllowUploads also throws UploadFailed, but the reply is 550, not 552; only the message tells a closed server from a full one.
+    program: program.cs
+    args: [closed]
+    expect:
+      exit: 0
+      stdout: "upload backups/2026-11-20.dump: UploadFailed (Failed FTP upload: 550)\n/backups: 2026-11-19.dump 22 bytes\n/backups/2026: none\n/backups-old: none\n/staging: none\n"

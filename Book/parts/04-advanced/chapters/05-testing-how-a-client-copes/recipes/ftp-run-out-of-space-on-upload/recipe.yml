@@ -1,0 +1,96 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-run-out-of-space-on-upload
+title: Running Out of Space
+protocols: [ftp]
+tier: advanced
+surl-options: [--allow-anonymous, --allow-uploads, --list-directories, --directory, --fault]
+curl-options: [-T, --append, --ftp-create-dirs, -l, -s, -S, -v]
+exit-codes: [0, 25]
+references: [surl-readme, curl-readme, rfc959]
+
+# Tonight's dump on the client's disk; last night's already on the server.
+fixtures:
+  db.dump: "pg_dump of 2026-11-20\n"
+  site/backups/2026-11-19.dump: "pg_dump of 2026-11-19\n"
+
+# full: /backups and everything under it is out of space; the rest of the disk is not.
+# closed: the same server without --allow-uploads, in memory, to tell the two refusals apart.
+servers:
+  full:
+    command: surl --allow-anonymous --allow-uploads --list-directories --directory site --fault "out-of-space;path=/backups" ftp://127.0.0.1:{{port}}/
+    ready: port
+  closed:
+    command: surl --allow-anonymous ftp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: An upload into /backups is refused as a full disk would be; curl exits 25, Failed FTP upload, with the server's reply 552.
+    run: curl -sS -T db.dump ftp://127.0.0.1:{{port}}/backups/2026-11-20.dump
+    expect:
+      exit: 25
+      stdout: ""
+      stderr-contains: "curl: (25) Failed FTP upload: 552"
+
+  - id: reply-is-552
+    claim: surl answers the STOR itself with 552 Upload exceeds the size limit, the reply RFC 959 gives for exceeded storage.
+    run: curl -sS -v -T db.dump ftp://127.0.0.1:{{port}}/backups/2026-11-20.dump
+    expect:
+      exit: 25
+      stderr-contains: "< 552 Upload exceeds the size limit"
+
+  - id: nothing-written
+    claim: The listing of /backups still holds only last night's dump; nothing half-written was left.
+    run: curl -sS -l ftp://127.0.0.1:{{port}}/backups/
+    expect:
+      exit: 0
+      stdout: "2026-11-19.dump\n"
+
+  - id: append-refused
+    claim: Appending to last night's dump is refused the same way, exit 25, and the file is unchanged.
+    run: curl -sS -T db.dump --append ftp://127.0.0.1:{{port}}/backups/2026-11-19.dump
+    expect:
+      exit: 25
+      stderr-contains: "552"
+      files:
+        site/backups/2026-11-19.dump: "pg_dump of 2026-11-19\n"
+
+  - id: subfolder-full-too
+    claim: The rule covers every folder under /backups; --ftp-create-dirs still makes /backups/2026, but the file is refused, exit 25.
+    run: curl -sS -T db.dump --ftp-create-dirs ftp://127.0.0.1:{{port}}/backups/2026/2026-11-20.dump
+    expect:
+      exit: 25
+      stderr-contains: "552"
+
+  - id: subfolder-empty
+    claim: The new folder /backups/2026 is empty.
+    run: curl -sS -l ftp://127.0.0.1:{{port}}/backups/2026/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: other-folder-has-space
+    claim: The rest of the disk has space; the same upload to /staging is stored whole, exit 0.
+    run: curl -sS -T db.dump --ftp-create-dirs ftp://127.0.0.1:{{port}}/staging/2026-11-20.dump
+    expect:
+      exit: 0
+      files:
+        site/staging/2026-11-20.dump: "pg_dump of 2026-11-20\n"
+
+  - id: whole-segments
+    claim: The path matches by whole folder names; /backups-old is not under /backups, and the upload is stored, exit 0.
+    run: curl -sS -T db.dump --ftp-create-dirs ftp://127.0.0.1:{{port}}/backups-old/2026-11-20.dump
+    expect:
+      exit: 0
+      files:
+        site/backups-old/2026-11-20.dump: "pg_dump of 2026-11-20\n"
+
+  - id: uploads-off-is-550
+    claim: On a server without --allow-uploads the same upload is also exit 25, but the reply is 550, not 552; only the reply code tells a closed server from a full one.
+    run: curl -sS -T db.dump ftp://127.0.0.1:{{port2}}/2026-11-20.dump
+    expect:
+      exit: 25
+      stderr-contains: "curl: (25) Failed FTP upload: 550"

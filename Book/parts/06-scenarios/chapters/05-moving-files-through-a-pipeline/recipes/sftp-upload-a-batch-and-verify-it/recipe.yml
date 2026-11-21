@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: sftp-upload-a-batch-and-verify-it
+title: Uploading a Batch and Verifying It
+protocols: [sftp]
+tier: scenarios
+surl-options: [--hostkey, --user, --allow-uploads, --list-directories]
+curl-options: [-s, -S, -u, -T, --hostpubsha256, --ftp-create-dirs]
+exit-codes: [0, 1, 9, 60, 78]
+references: [surl-readme, curl-readme]
+
+fixtures:
+  batch/notes.txt: "release notes\n"
+  batch/config.ini: "[app]\nname = demo\n"
+  batch/data.csv: "id,name\n1,a\n2,b\n"
+  makeblobs.sh: |
+    head -c 1500 /dev/zero > batch/blob.bin
+    mkdir -p short
+    head -c 1000 /dev/zero > short/blob.bin
+  upload.sh: |
+    #!/bin/sh
+    # Usage: sh upload.sh PORT DIR [NAME...]
+    # Uploads the named files of DIR (all of them when none is named) to /inbox/ on a surl
+    # whose host key is pinned: the fingerprint comes from host_key.pub, so a different key is refused.
+    set -e
+    port=$1; dir=$2; shift 2
+    [ $# -gt 0 ] || set -- $(ls "$dir")
+    pin=$(ssh-keygen -l -f host_key.pub | cut -d' ' -f2 | sed 's/^SHA256://')
+    # One curl for the whole batch: -T takes a glob, and a URL ending in / keeps each file's name.
+    list=$(echo "$@" | tr ' ' ',')
+    curl -s -S --hostpubsha256 "$pin" -u alice:s3cret --ftp-create-dirs \
+      -T "$dir/{$list}" "sftp://127.0.0.1:$port/inbox/"
+  compare.sh: |
+    #!/bin/sh
+    # Usage: sh compare.sh PORT DIR
+    # Lists /inbox/ on the server and compares every name and size with the files of DIR.
+    set -e
+    port=$1; dir=$2
+    pin=$(ssh-keygen -l -f host_key.pub | cut -d' ' -f2 | sed 's/^SHA256://')
+    for name in $(ls "$dir"); do echo "$name $(wc -c < "$dir/$name" | tr -d ' ')"; done | LC_ALL=C sort > local.txt
+    curl -s -S --hostpubsha256 "$pin" -u alice:s3cret "sftp://127.0.0.1:$port/inbox/" > listing.txt
+    awk '{print $NF, $5}' listing.txt | LC_ALL=C sort > remote.txt
+    if diff local.txt remote.txt > diff.txt; then
+      echo "all $(wc -l < local.txt | tr -d ' ') files match"
+      cat remote.txt
+    else
+      echo "MISMATCH"
+      cat diff.txt
+      exit 1
+    fi
+
+# The host key the uploads are pinned to, and the files that are not text.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - sh makeblobs.sh
+
+servers:
+  main:
+    command: surl --hostkey host_key --user alice:s3cret --allow-uploads --list-directories sftp://127.0.0.1:{{port}}/
+    ready: port
+  partial:
+    command: surl --hostkey host_key --user alice:s3cret --allow-uploads --list-directories sftp://127.0.0.1:{{port2}}/
+    ready: port
+  read-only:
+    command: surl --hostkey host_key --user alice:s3cret --list-directories sftp://127.0.0.1:{{port3}}/
+    ready: port
+  no-listing:
+    command: surl --hostkey host_key --user alice:s3cret --allow-uploads sftp://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Four files are uploaded to /inbox/ with curl -T against a pinned host key, then the server's listing is read back and every name and size matches the local files, exit 0."
+    run: sh upload.sh {{port}} batch && sh compare.sh {{port}} batch
+    expect:
+      exit: 0
+      stdout: "all 4 files match\nblob.bin 1500\nconfig.ini 18\ndata.csv 16\nnotes.txt 14\n"
+
+  - id: wrong-pin
+    claim: "A host key that is not the pinned one is refused before any login, curl exit 60,."
+    run: curl -s -S --hostpubsha256 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA -u alice:s3cret --ftp-create-dirs -T batch/notes.txt sftp://127.0.0.1:{{port2}}/inbox/notes.txt
+    expect:
+      exit: 60
+      stderr-contains: "mismatch SHA256 fingerprint"
+
+  - id: missing-file-found
+    claim: "When one file is not uploaded, the comparison names it and fails, exit 1."
+    run: sh upload.sh {{port2}} batch notes.txt config.ini data.csv && sh compare.sh {{port2}} batch
+    expect:
+      exit: 1
+      stdout-matches: '\AMISMATCH\r?\n.*< blob\.bin 1500'
+
+  - id: wrong-size-found
+    claim: "When a file arrives short, 1,000 bytes for 1,500, the comparison shows both sizes and fails, exit 1."
+    run: sh upload.sh {{port2}} short && sh compare.sh {{port2}} batch
+    expect:
+      exit: 1
+      stdout-matches: '< blob\.bin 1500\r?\n---\r?\n> blob\.bin 1000'
+
+  - id: repaired
+    claim: "Uploading the whole batch again replaces the short file, and the comparison passes."
+    run: sh upload.sh {{port2}} batch && sh compare.sh {{port2}} batch
+    expect:
+      exit: 0
+      stdout: "all 4 files match\nblob.bin 1500\nconfig.ini 18\ndata.csv 16\nnotes.txt 14\n"
+
+  - id: uploads-off
+    claim: "A server started without --allow-uploads refuses the first upload, curl exit 9, Permission denied, and the script stops there."
+    run: sh upload.sh {{port3}} batch
+    expect:
+      exit: 9
+      stderr-contains: "Permission denied"
+
+  - id: no-listing
+    claim: "A server that takes uploads but was not given --list-directories cannot be checked; the listing is refused, curl exit 78, and the script stops with it."
+    run: sh upload.sh {{port4}} batch && sh compare.sh {{port4}} batch
+    expect:
+      exit: 78
+      stderr-contains: "Could not open directory for reading"

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-run-out-of-space-on-upload-from-an-agent]]
+=== Running Out of Space from an Agent
+
+==== Problem
+
+Your backup tool uploads over File Transfer Protocol (FTP) and must report a full disk instead of claiming success. As an agent, you want uploads to one folder refused as if the disk were full, and to see that nothing half-written was left behind.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts an FTP server with `/backups` out of space through `surl-mcp`, uploads with `curl-mcp`{apos}s `curl` tool, and checks the server with `list_files` and `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server as `surl` with the same `arguments` would: `--allow-anonymous` so the client logs in without an account, `--allow-uploads` so stores are allowed at all, and `--fault "out-of-space;path=/backups"`, which makes every store under `/backups` fail as a full disk would. A fault loosens the server on purpose and is for tests only. `files` puts last night{apos}s dump in `/backups`; `bound_urls` gives the real port, and `server_id` names the server in every later call.
+
+The `curl` tool runs one `curl` command line given as `args`, with `db.dump` read from the folder `CURL_MCP_ROOT` names. `-T db.dump` uploads it as the name in the URL, `--ftp-create-dirs` makes a missing folder on the way, and `-sS` keeps the answer to errors only. The answer is text holding JavaScript Object Notation (JSON). An upload into `/backups` answers `exitCode` 25 and is a tool error, with `curl: (25) Failed FTP upload: 552` in `standardError`: `552` is the reply FTP keeps for exceeded storage (<<rfc959>>). An agent that reports the tool error reports the full disk.
+
+`list_files` lists a folder of the server{apos}s store without a request, as `entries` with a `name`. `/backups` still holds only last night{apos}s dump: nothing half-written was left. `--append` to that dump is refused the same way, and `read_file`, which answers a file{apos}s `text` by `server_id` and `path`, finds it unchanged.
+
+The rule covers a path and everything under it, by whole folder names. `--ftp-create-dirs` still makes `/backups/2026`, since a folder is not a store, but the file in it is refused, and `list_files` shows the new folder, `kind` `folder`, empty. `/backups-old` is not under `/backups`, and the same upload there answers `exitCode` 0.
+
+A disk can fill while a server runs. `add_fault` adds a rule to the running server and answers its `fault_id`, `f2`; with `out-of-space;path=/staging`, the next upload to `/staging`, which took `a.dump` a moment before, answers `exitCode` 25 with `552`. `remove_fault` with that id frees the space, and the same upload tried again answers `exitCode` 0. `get_events` with `kinds` `fault_applied` lists every time a rule acted: its `rule_id`, its `fault_kind`, `out_of_space`, and its `target`, the path refused. One event per refused upload, none for the uploads that were stored.
+
+A server started without `--allow-uploads` refuses too, also `exitCode` 25, but with `550`. The exit code alone cannot tell a closed server from a full one; an agent that wants to say which has to read `standardError`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-run-out-of-space-on-upload>> for the same test on the console.
+* <<ftp-run-out-of-space-on-upload-in-csharp>> for the same test from C#.
+* <<ftp-handle-a-full-disk-during-upload-from-an-agent>> for a full disk in a pipeline, partway through an upload.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

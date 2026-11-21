@@ -1,0 +1,93 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-mirror-a-folder-with-a-script
+title: Mirroring a Folder over FTP
+protocols: [ftp]
+tier: scenarios
+surl-options: [--allow-anonymous, --allow-uploads, --list-directories, --directory]
+curl-options: [-T, --ftp-create-dirs, --fail-early, -w, -l, -s, -S]
+exit-codes: [0, 9]
+references: [surl-readme, curl-readme, rfc959]
+
+# The tree to mirror, and the script that mirrors it.
+fixtures:
+  site/README.txt: "mirrors land under /mirror\n"
+  public/index.html: "<h1>home</h1>\n"
+  public/css/site.css: "body { margin: 0 }\n"
+  public/docs/guide.txt: "read me first\n"
+  public/docs/2026/notes.txt: "november\n"
+  mirror.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # mirror.sh FOLDER URL: uploads every file under FOLDER to the FTP folder URL (ending in /) in one
+    # curl command, making folders as it goes and stopping at the first failure with curl's exit code;
+    # then lists each folder on the server. Names with spaces or characters a URL cannot hold are not handled.
+    src=$1; url=$2
+    set --
+    for f in $(cd "$src" && find . -type f | sort); do
+      set -- "$@" -T "$src/${f#./}" "$url${f#./}"
+    done
+    curl -sS --ftp-create-dirs --fail-early -w "put %{url.path} %{exitcode}\n" "$@" || exit
+    for d in $(cd "$src" && find . -type d | sort); do
+      d=${d#.}; d=${d#/}; d=${d:+$d/}
+      echo "listing ./$d: $(curl -sS -l "$url$d" | tr -d '\r' | sort | tr '\n' ' ')"
+    done
+
+# main: takes uploads into the served folder and lists folders.
+# closed: the same without --allow-uploads, in memory.
+servers:
+  main:
+    command: surl --allow-anonymous --allow-uploads --list-directories --directory site ftp://127.0.0.1:{{port}}/
+    ready: port
+  closed:
+    command: surl --allow-anonymous --list-directories ftp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: mirror.sh puts the four files of public/ under /mirror/ in one curl command, making /mirror and its css, docs and docs/2026 folders on the way (each put exit 0), then lists each folder on the server; exit 0.
+    run: sh mirror.sh public ftp://127.0.0.1:{{port}}/mirror/
+    expect:
+      exit: 0
+      stdout: "put /mirror/css/site.css 0\nput /mirror/docs/2026/notes.txt 0\nput /mirror/docs/guide.txt 0\nput /mirror/index.html 0\nlisting ./: css docs index.html \nlisting ./css/: site.css \nlisting ./docs/: 2026 guide.txt \nlisting ./docs/2026/: notes.txt \n"
+
+  - id: tree-arrived
+    claim: The server's folder holds every file at its path, byte for byte.
+    run: cmp public/docs/2026/notes.txt site/mirror/docs/2026/notes.txt && cmp public/css/site.css site/mirror/css/site.css && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+      files:
+        site/mirror/index.html: "<h1>home</h1>\n"
+        site/mirror/docs/guide.txt: "read me first\n"
+
+  - id: again-is-same
+    claim: Running the script again over the same tree puts each file over its old copy and prints the same, exit 0.
+    run: sh mirror.sh public ftp://127.0.0.1:{{port}}/mirror/
+    expect:
+      exit: 0
+      stdout: "put /mirror/css/site.css 0\nput /mirror/docs/2026/notes.txt 0\nput /mirror/docs/guide.txt 0\nput /mirror/index.html 0\nlisting ./: css docs index.html \nlisting ./css/: site.css \nlisting ./docs/: 2026 guide.txt \nlisting ./docs/2026/: notes.txt \n"
+
+  - id: needs-create-dirs
+    claim: Without --ftp-create-dirs, an upload into a folder the server does not have is refused; curl exits 9.
+    run: curl -sS -T public/docs/2026/notes.txt ftp://127.0.0.1:{{port}}/other/2026/notes.txt
+    expect:
+      exit: 9
+      stderr-contains: "curl: (9)"
+
+  - id: stops-on-refusal
+    claim: Against a server without --allow-uploads, making the first folder is refused; --fail-early stops curl at that first put (exit 9), and the script exits 9 without listing.
+    run: sh mirror.sh public ftp://127.0.0.1:{{port2}}/mirror/
+    expect:
+      exit: 9
+      stdout: "put /mirror/css/site.css 9\n"
+      stderr-contains: "curl: (9)"
+
+  - id: without-fail-early
+    claim: Without --fail-early the same command tries every put after the first failure, and exits with the last one's code.
+    run: curl -sS --ftp-create-dirs -w "put %{url.path} %{exitcode}\n" -T public/index.html ftp://127.0.0.1:{{port2}}/mirror/index.html -T public/css/site.css ftp://127.0.0.1:{{port2}}/mirror/css/site.css
+    expect:
+      exit: 9
+      stdout: "put /mirror/index.html 9\nput /mirror/css/site.css 9\n"

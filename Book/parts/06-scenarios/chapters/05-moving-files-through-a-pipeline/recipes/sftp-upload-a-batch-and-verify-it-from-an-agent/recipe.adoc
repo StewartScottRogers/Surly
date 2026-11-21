@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-upload-a-batch-and-verify-it-from-an-agent]]
+=== Uploading a Batch and Verifying It from an Agent
+
+==== Problem
+
+An AI agent uploads a batch of files over SSH File Transfer Protocol (SFTP) to a server whose host key it has pinned, then lists the server{apos}s side and compares every name and size with what it sent, using Model Context Protocol (MCP) tools and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts an SFTP server with `surl-mcp`, uploads the batch with one call of the `curl` tool of `curl-mcp` and `--hostpubsha256`, lists `/inbox/` with the same tool, and checks the server{apos}s store with `list_files`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts from `PATH`, confined by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` to the folder it runs in, where it writes the files to send and where `ssh-keygen` in the setup left the host key. `start_server` takes `arguments`, `surl`{apos}s own words: `--hostkey host_key`, `--user alice:s3cret`, and `--allow-uploads` and `--list-directories` unless the scenario leaves one out.
+
+The pin is the SHA-256 of the key{apos}s blob, the second field of `host_key.pub`, in base64 without padding, which is what `ssh-keygen -l` prints after `SHA256:`; the program works it out so that it cannot drift from the file. The `curl` tool runs `curl` with the arguments given and answers in text, as JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`. One call does a whole scenario, one `curl` process: each file is a `-T batch/notes.txt .../inbox/notes.txt` pair, and the folder URL `.../inbox/` at the end lists it on the same connection; a call for each step would pay `curl`{apos}s start-up again, which is seconds on a loaded machine. `curl-mcp` refuses a glob in `-T`, such as `batch/{a,b}`, because it cannot check the paths the glob would expand to. `--ftp-create-dirs` makes `/inbox/`, and a wrong pin is exit `60` before any login. A server started without `--allow-uploads` refuses the first file, exit `9`. A server without `--list-directories` takes the uploads but refuses the listing, so the call ends with exit `78`.
+
+The comparison reads the server{apos}s side as that listing: the long form, from which the program takes the last field as the name and the fifth as the size. Without `--list-directories` that listing is exit `78`, and the program reports a refused listing and not an empty folder. Every local name is then checked: absent from the listing is `missing`, a different size is `size`. A match is checked a second way, through `surl-mcp`{apos}s `list_files`, which reads the server{apos}s own store and answers `entries` with `name` and `byte_count`: the two views agree. Re-sending the whole batch replaces a file that arrived short. As elsewhere, a match of names and sizes shows that the files arrived whole, not that their bytes are the same.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-upload-a-batch-and-verify-it>> for the same task on the console, with scripts.
+* <<sftp-upload-a-batch-and-verify-it-in-csharp>> for the same task from a C# program.
+* <<sftp-list-and-make-folders-from-an-agent>> for listings from an agent.
+* <<surl-readme>>, <<curl-readme>>.

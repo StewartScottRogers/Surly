@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-a-dropped-download]]
+=== Resuming a Dropped Download
+
+==== Problem
+
+A large download over File Transfer Protocol (FTP) loses its connection partway; you want the server to drop it on purpose, then the client to resume where it stopped, not from the start, and end with the whole file.
+
+==== Solution
+
+Run `surl` with a fault rule that drops the connection at the next `RETR` of the file, then download with `-C -` so `curl` resumes from what is already on disk, and `--retry` so it tries again after the drop:
+
+include::.generated/solution.adoc[]
+
+Then compare the file with the server{apos}s. The cases below also take the drop and the resume one step at a time.
+
+==== Discussion
+
+`--fault "drop;stage=command;command=RETR;path=/update.iso;times=1"` makes `surl` close the connection, unanswered, the first time a client sends `RETR` for `update.iso`, and serve it normally after that. `stage=command` is what lets the rule name a command and a path; `times=1` spends it once. `--fault` loosens the server on purpose and is for tests only: a server that misbehaves looks broken to every other client. `--directory site` serves the folder holding the images, `--allow-anonymous` lets `curl` log in without an account, and `-v` with `--log-file surl.log` records every command and reply in that file.
+
+Setup makes what a download cut off at 65,536 bytes leaves behind: the file{apos}s first 65,536 bytes under the same name. The rule then drops the connection at the next request for the file, which is the moment a resume has to survive.
+
+`-C -` tells `curl` to look at the local file and ask the server to start after its last byte: it sends `REST 65536` before `RETR`, and `surl` answers `350 Restarting at 65536` and sends only the rest (<<rfc3659>>). `-o` names the local file that is both read for its length and appended to. `-w "%{num_retries} %{size_download}\n"` prints how many retries were made and how many bytes came this time.
+
+The drop is exit `56`, a failure to receive. `--retry 1` names how many more tries to make, and `--retry-all-errors` lets a dropped connection count as worth one. The retry measures the local file again, still 65,536 bytes, asks from the same byte, and gets the other 134,464: `1 134464`, exit `0`, and `cmp` finds the file identical to the server{apos}s. `-s` hides the progress meter and `-S` still prints errors, so the output carries the first attempt{apos}s `curl: (56)`, even though the command succeeds.
+
+Without `--retry` the same drop ends the command with exit `56` and leaves the partial file as it was. Running the command again is the resume: 134,464 bytes, not 200,000. The log shows `REST 65536` answered `350` on every attempt, and names each drop and its rule: `RETR dropped the connection, unanswered, by fault rule f1.`, then `f2` for the second image.
+
+`-C -` is safe to run again: on a file that is already whole it fetches nothing and exits `0`. It trusts the name, though. A local file longer than the server{apos}s, another file under the same name, is refused with exit `36`, `Offset (300000) was beyond file size (200000)`. `curl` compares lengths, not bytes, which is why the comparison with `cmp` belongs in the test (<<rfc959>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-a-dropped-download-in-csharp>> for the resume as a C# test.
+* <<ftp-resume-a-dropped-download-from-an-agent>> for an agent running it.
+* <<http-recover-from-a-dropped-connection>> for a dropped connection over HTTP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

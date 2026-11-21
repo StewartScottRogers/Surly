@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-resume-a-dropped-download-in-csharp
+title: Resuming a Dropped Download in C#
+protocols: [ftp]
+tier: scenarios
+surface: csharp
+api-types: [CurlCode, SurlServer, SurlServerOptions, SurlFault, FaultStage, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlException, CurlFtpOptions, CurlHttpOptions]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc959, rfc3659]
+
+fixtures: {}
+
+# No servers: block. The program hosts its server through Surl.Api and writes the partial copy itself.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A partial copy of 65,536 bytes is resumed with REST 65536; the first try loses the connection at RETR (CurlException RecvError), the second from the same byte gets the other 134,464 bytes, the file is identical to the server's, and the server answered two restarts and logged one drop; exit 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "try 1: from 65536: RecvError, copy still 65536 bytes\ntry 2: from 65536: 134464 bytes\nimage.iso: 200000 bytes, identical to the server's\nserver answered: 2 restarts\nserver dropped: 1\n"
+
+  - id: drop-leaves-partial
+    claim: The dropped first try throws CurlException RecvError and adds nothing; the copy on disk is still 65,536 bytes.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^try 1: from 65536: RecvError, copy still 65536 bytes\n"
+
+  - id: resumed-size
+    claim: The second try asks from byte 65536 and fetches only the 134,464 bytes that were missing.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\ntry 2: from 65536: 134464 bytes\n"
+
+  - id: resumed-content
+    claim: The resumed copy is 200,000 bytes, identical to the server's image.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nimage.iso: 200000 bytes, identical to the server's\n"
+
+  - id: server-saw-rest
+    claim: The server's log holds a 350 Restarting reply for each of the two tries.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nserver answered: 2 restarts\n"
+
+  - id: server-logged-drop
+    claim: The server's log names the one drop and the rule that made it, RETR dropped the connection, unanswered, by fault rule f1.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nserver dropped: 1\n$"
+
+  - id: already-whole
+    claim: A copy that is already whole, resumed after the drop, asks from byte 200000 and fetches 0 bytes; the copy stays identical and the test exits 0.
+    program: program.cs
+    args: [whole]
+    expect:
+      exit: 0
+      stdout: "try 1: from 200000: RecvError, copy still 200000 bytes\ntry 2: from 200000: 0 bytes\nimage.iso: 200000 bytes, identical to the server's\nserver answered: 2 restarts\nserver dropped: 1\n"
+
+  - id: local-copy-longer
+    claim: A local copy of 300,000 bytes, longer than the server's file, is not resumed; after the drop, surl answers REST 300000 with 350 but refuses the RETR that follows (CurlException FtpCouldntRetrFile), the program stops, the copy is left as it was, and the test exits 1.
+    program: program.cs
+    args: [longer]
+    expect:
+      exit: 1
+      stdout: "try 1: from 300000: RecvError, copy still 300000 bytes\ntry 2: from 300000: FtpCouldntRetrFile, copy still 300000 bytes\nimage.iso: 300000 bytes, DIFFERENT from the server's\nserver answered: 2 restarts\nserver dropped: 1\n"
+
+  - id: checked-against-size
+    claim: Without IgnoreContentLength the client expects the 200,000 bytes SIZE reported, so the resumed try throws CurlException PartialFile although all 134,464 missing bytes arrived and the file is identical to the server's.
+    program: program.cs
+    args: [checked]
+    expect:
+      exit: 0
+      stdout: "try 1: from 65536: RecvError, copy still 65536 bytes\ntry 2: from 65536: PartialFile, copy still 200000 bytes\nimage.iso: 200000 bytes, identical to the server's\nserver answered: 2 restarts\nserver dropped: 1\n"

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-upload-a-batch-and-verify-it]]
+=== Uploading a Batch and Verifying It
+
+==== Problem
+
+A job uploads a folder of files over SSH File Transfer Protocol (SFTP) to a server whose host key it has pinned. You want the test to list the server{apos}s side afterwards and compare every name and size with what it sent.
+
+==== Solution
+
+Two small scripts, which need a POSIX shell (Git Bash on Windows). `upload.sh` sends the files with one `curl -T` against a pinned host key; `compare.sh` lists `/inbox/` on the server and checks every name and size against the local folder. Start `surl` with `--allow-uploads` and `--list-directories`, then run them:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The host key is pinned so that the test sends its files, and its password, only to the server it means to. `ssh-keygen -l -f host_key.pub` prints the key{apos}s SHA-256 fingerprint as `SHA256:` and the hash in base64 without padding, and `curl --hostpubsha256` takes the hash without the prefix; the scripts cut it out with `cut` and `sed`. A server presenting another key is refused before any login, with exit `60`, and the claim shows it by pinning the wrong hash.
+
+`upload.sh` makes one `curl` call for the whole batch. `-T` takes a glob, `batch/{notes.txt,config.ini,data.csv,blob.bin}`, which `curl` expands itself, and a URL ending in `/` keeps each file{apos}s own name, so the four files go to `/inbox/`. `--ftp-create-dirs` makes `/inbox/` when it is not there. A server started without `--allow-uploads` refuses the first file, `curl` exits `9`, `Upload failed: Permission denied`, and the script stops with it.
+
+`compare.sh` reads the server{apos}s side with a listing of the folder, `curl .../inbox/`, in `ls -l` form, from which `awk` takes the name, the last field, and the size, the fifth. Listing needs `--list-directories`; a server without it answers as if the folder were not there, `curl` exits `78`, and the script stops with that code, so a missing option is not mistaken for a missing file. The local side is `wc -c` of each file of the folder. Both lists are sorted and compared with `diff`: no difference prints `all 4 files match` and the pairs, and any difference prints `MISMATCH` and `diff`{apos}s lines and exits `1`. A file not uploaded shows as a line of the local list with no partner, and a file that arrived short, 1,000 bytes where 1,500 were sent, as the same name with two sizes. Uploading the whole batch again replaces the short file, and the next comparison passes.
+
+A match of names and sizes is a check that the files arrived whole, not that they are the same bytes; <<ftp-check-an-upload-landed-intact>> compares content for FTP.
+
+On the `surl` side, `--hostkey host_key` is the host key and `--user alice:s3cret` the one account. On the `curl` side, `-u alice:s3cret` logs in with it, `-s` hides the progress meter and `-S` still shows an error, and `--hostpubsha256` is the pin.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-upload-a-batch-and-verify-it-in-csharp>> and <<sftp-upload-a-batch-and-verify-it-from-an-agent>> for the same task from a C# program and from an agent.
+* <<sftp-upload-and-rename>> for a single upload and `rename`.
+* <<sftp-list-and-make-folders>> for `--list-directories`.
+* <<surl-readme>>, <<curl-readme>>.

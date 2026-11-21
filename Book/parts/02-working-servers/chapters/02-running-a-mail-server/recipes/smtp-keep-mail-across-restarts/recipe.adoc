@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-keep-mail-across-restarts]]
+=== Keeping Mail Across Restarts
+
+==== Problem
+
+You want mail sent to `surl` to still be there after a restart, kept on disk under `--directory` in `.surl/mail`, and read over Internet Message Access Protocol (IMAP) from the new run.
+
+==== Solution
+
+Start `surl` with `--directory` and a folder that exists, and the mail store is kept in it. The shop mails Ann before the cases run; the server is then stopped outright and started again with the same command, and Ann{apos}s first message is still there:
+
+include::.generated/solution.adoc[]
+
+In a real test the server is yours to stop and start; the point is that the same command, on the same folder, serves the same mail.
+
+==== Discussion
+
+`--directory data` names the folder `surl` keeps its state in. `data` must exist, so a fixture puts a file in it; `surl` then writes `data/.surl/lock`, which says the folder is in use, and the mail store under `data/.surl/mail`, with an `index` in it. The other options are those of a mail server for one domain: `--mail-domain example.com` serves it, each `--mailbox` adds a mailbox and the account that logs in to it by its whole address, and the `smtp://` and `imap://` listen URLs run over one mail store (<<surl-readme>>). The shop is the sending account, Ann the one whose mail is kept.
+
+The `restart:` of a case stops the server outright, the way a crash does, and starts it again with the same command and the same ports, before the case runs. The stale lock is no obstacle. The message the shop sent, with a Simple Mail Transfer Protocol (SMTP) client (<<rfc5321>>), is still in Ann{apos}s `INBOX`, and `;SECTION=TEXT` returns its body.
+
+What is kept is the mailbox{apos}s state, not only the bytes. `-X "STATUS INBOX (MESSAGES UIDNEXT)"` asks the server for the counts without fetching anything (<<rfc9051>>): one message, and a next unique identifier (UID) of `2`, the same as before the restart, so a client that remembers UIDs need not start over. The flag the test set before the restart, with `-X "STORE 1 +FLAGS \Flagged"`, is still set, and the flagged search finds the message. New mail continues the numbering; a second message becomes UID `2`, and a second restart keeps that one too.
+
+On the `curl` side, `-u` is the login, `--mail-from` and `--mail-rcpt` are the envelope, `-T` is the message and `--crlf` turns the file{apos}s line feeds into the carriage return and line feed a message is made of. `-s` keeps `curl` quiet and `-S` lets it still print an error, `-o` throws a body away, and `--next` starts the next transfer in the same command. Delivery is asynchronous, so a command that needs a message does not assume it has arrived. `--retry 10` allows ten retries at most, `--retry-all-errors` makes every failure count, which a message not yet stored is, and `--retry-delay 1` waits a second between tries, until a fetch by UID succeeds, with no fixed sleep (<<curl-manual>>).
+
+A folder belongs to one `surl` at a time. A second `surl` started on `data` while the first runs stops with exit `124`, `Directory data is in use by another surl process`, so two servers cannot write the same store.
+
+Without `--directory` the mail store lives in memory. The second server runs the same options and holds the same message while it runs, but after a restart its mailboxes are back, from the command line, and Ann{apos}s is empty: the `STATUS` answer is `MESSAGES 0`. A test that must find mail after a restart needs the folder.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-keep-mail-across-restarts-in-csharp>> for the same task in C#.
+* <<smtp-keep-mail-across-restarts-from-an-agent>> for the same task run by an agent.
+* <<surl-restart-a-fixture-with-state-kept>> for files and mail kept together.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

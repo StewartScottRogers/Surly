@@ -70,3 +70,15 @@ http-lock-out-one-account (+ -in-csharp, -from-an-agent): `refuse-login;account=
 http-retry-a-flaky-endpoint, http-time-out-a-hanging-server, http-retry-until-the-server-is-up, surl-recover-when-a-port-is-taken (each + -in-csharp, -from-an-agent)
 smtp-survive-a-temporary-rcpt-failure (+ -in-csharp, -from-an-agent)
 http-stop-a-client-hammering-a-refused-login (+ -in-csharp, -from-an-agent): refuse-login and a client's retries, see `http-auth.md`
+ftp-run-out-of-space-on-upload (+ -in-csharp, -from-an-agent), ftp-resume-a-dropped-download (+ twins): out-of-space and drop on FTP, see `ftp.md`
+
+## Busy for exactly N requests (http-retry-through-a-busy-server and twins, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20)
+- `error;scheme=http;reply=503;path=/report.txt;times=2` + `curl --retry 2 --retry-delay 1 -w "%{http_code} %{num_retries}"`: `200 2`, stderr `Retrying in 1 second. 2 retries left.` then `... 1 retry left.`; `%{time_total}` is the last attempt only, so time the whole command in a script (`date +%s`).
+- `--retry 5 --retry-delay 3 --retry-max-time 1 -f`: the port still made one retry (`503 1`, exit 22); upstream would likely make none. Not claimed.
+- Surl.Api `Log = new StringWriter()` with `LogLevel.Verbose` holds ` < GET /x HTTP/1.1` per request: count them per path. surl-mcp `get_exchanges` `received` chunks hold each request line (one HTTP connection may carry several); `get_events fault_applied` count and `list_faults` remaining agree.
+- surl-mcp and curl-mcp are on PATH only under verify: a program that starts them cannot be run by hand.
+
+## out-of-space and after-bytes on FTP (ftp-run-out-of-space-on-upload and twins, ftp-resume-a-dropped-download, 2026-11-20)
+- `out-of-space` takes only scope keys and `times` (`stage`, `command`, `after-bytes` refused, exit 2). FTP: `552` to STOR/APPE before any data; HTTP PUT: `413`. Event `fault_applied` with `fault_kind` `out_of_space`, `target` the path. Details and the log's wording in `ftp.md`.
+- `drop;after-bytes=N` on FTP counts control-connection bytes only, so it cannot cut a download mid-file; `path=` with `after-bytes` needs a stage it cannot have (`after-bytes cannot be given with stage=command`). Use `drop;stage=command;command=RETR;path=/x;times=1` and make the partial file in setup.
+- Git Bash rewrites `path=/x` in a `--fault` argument to a Windows path (MSYS path conversion), so the rule silently never matches: `MSYS_NO_PATHCONV=1` when probing by hand. verify runs cases under cmd, which does not.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-fall-back-when-http3-is-missing-from-an-agent]]
+=== Falling Back without HTTP/3 from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to check that a client preferring HTTP/3 still gets an answer where UDP is blocked, and that a client insisting on HTTP/3 fails there with an exit code the agent can act on.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an `https` server without `--http3`, and runs `curl --http3` through the `curl` tool:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Hypertext Transfer Protocol version 3 (HTTP/3) runs over QUIC, a transport on User Datagram Protocol (UDP) rather than Transmission Control Protocol (TCP) (<<rfc9114>>, <<rfc9000>>). A network that blocks UDP blocks HTTP/3 with it, while HTTP/2 over TCP still gets through. The program is the agent's MCP client: `StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder it runs in, where setup's `openssl` line made `server.pem` and `server.key`. The argument after `--` picks the scenario.
+
+`start_server` has no fields for a certificate, so `arguments` carries `surl`{apos}s own options: `--cert server.pem --key server.key`, read from the root. With no `--http3`, the server listens on TCP alone, and a QUIC packet to its port is turned away.
+
+`curl-mcp`{apos}s `transfer` tool has no field for the HTTP version, so the program uses the `curl` tool, whose `args` are `curl`{apos}s command line. `--http3` tries QUIC first, starts TCP beside it if QUIC is slow to answer, and takes whichever succeeds (<<curl-readme>>); `--cacert server.pem` trusts the certificate; `-o hello.txt` saves the body in the root and `-w "%{http_version}"` puts the version in `standardOutput`. Against this server the answer is `exitCode` `0`, version `2`, `failure` null. `--http3-only` speaks QUIC alone and has nowhere to go: `exitCode` `56`, a failure receiving network data, `failure` text `curl exit code 56 (RecvError)`, and the call is a tool error, so an agent sees it without reading the code; `-w` still printed `0`, no version.
+
+A firewall that drops UDP does not turn the packet away; it stays silent. With `swallowed`, the program also starts a `tftp://` server on the HTTPS server's port number, on UDP. A UDP port can be taken while the TCP port of the same number is free; then `start_server` is a tool error, and the program calls `stop_server` on the HTTPS server and starts both again on another port, up to five times. QUIC packets reach a listener that does not speak QUIC; `list_servers` shows its `exchange_count` above zero afterwards, the QUIC attempt arriving, and it never gives a QUIC answer. `--http3` falls back all the same and gets HTTP/2. `--http3-only` hears nothing it can use; `--connect-timeout 2` gives up after two seconds, `exitCode` `28`, `OperationTimedOut`. An agent that insists on HTTP/3 should pass a connect timeout, or a silent network holds the call as long as `curl`{apos}s default allows.
+
+`--http3` still prefers HTTP/3: with `h3`, `arguments` adds `--http3`, and the same request answers version `3`. `--happy-eyeballs-timeout-ms 4000` is there only to make that claim hold on a busy machine, holding TCP back while QUIC finishes its handshake.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-fall-back-when-http3-is-missing>> for the same task on the console.
+* <<https-fall-back-when-http3-is-missing-in-csharp>> for the same task in C#.
+* <<https-move-a-client-to-http3-from-an-agent>> for moving a client to HTTP/3 when the server advertises it.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9114>>, <<rfc9000>>.

@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-forward-mail-with-an-alias
+title: Forwarding Mail with an Alias
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox, --mail-alias]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, --next, -s, -S, -o, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 2, 67]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+# The message a customer's form sends to the role address support@.
+fixtures:
+  help.eml: "From: form@example.com\nTo: support@example.com\nSubject: Cannot log in\n\nPlease reset my password.\n"
+
+# SMTP for the sender and IMAP for the check. support@ is an alias for ann and bob; it is not a mailbox.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox form@example.com:formpass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mail-alias "support@example.com=ann@example.com,bob@example.com" smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The form mails support@; the second line waits, bounded, until Bob can read it (the last mailbox to be filled).
+seed:
+  - curl -sS --crlf -u form@example.com:formpass --mail-from form@example.com --mail-rcpt support@example.com -T help.eml smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the form mails support@, an IMAP SEARCH finds the message in Ann's INBOX and in Bob's, each as UID 1.
+    run: 'curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Cannot%20log%20in%22" --next -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?SUBJECT%20%22Cannot%20log%20in%22"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n* SEARCH 1\n"
+
+  - id: to-field-kept
+    claim: Each copy is the message as sent; its To field still names the alias, support@example.com, and no header names Ann or Bob.
+    run: 'curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(TO)"'
+    expect:
+      exit: 0
+      stdout: "To: support@example.com\n\n"
+
+  - id: sender-has-none
+    claim: Only the alias's targets receive the mail; the sending account's own INBOX is empty.
+    run: 'curl -sS -u form@example.com:formpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: one-copy-per-mailbox
+    claim: One message to support@ and to ann@ together reaches Ann once, not twice; her INBOX goes from one message to two, and Bob's from one to two.
+    run: 'curl -sS --crlf -u form@example.com:formpass --mail-from form@example.com --mail-rcpt support@example.com --mail-rcpt ann@example.com -T help.eml smtp://127.0.0.1:{{port}}/example.com --next -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=2" --next -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?ALL" --next -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 2\n* SEARCH 1 2\n"
+
+  - id: alias-is-not-an-account
+    claim: An alias is an address, not an account; logging in to IMAP as support@example.com is denied, exit 67.
+    run: curl -sS -u support@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 67
+
+  - id: alias-is-also-a-mailbox
+    claim: An address cannot be both an alias and a mailbox; an alias for ann@example.com, which is a --mailbox, is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mail-alias ann@example.com=bob@example.com smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: option --mail-alias: alias ann@example\.com is also a mailbox\n'
+
+  - id: target-must-be-a-mailbox
+    claim: An alias whose target names no mailbox, a typo such as anne@example.com, is refused at start with exit 2, so the mail cannot vanish silently.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mail-alias support@example.com=anne@example.com smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: \(2\) option --mail-alias: target anne@example\.com names no mailbox\n'
+
+  - id: target-inside-the-domain
+    claim: An alias cannot forward outside every --mail-domain; a target at elsewhere.org is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mail-alias support@example.com=ann@elsewhere.org smtp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout-matches: '^surl: \(2\) option --mail-alias: target ann@elsewhere\.org is not in any --mail-domain\n'

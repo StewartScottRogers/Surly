@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-many-files-in-parallel-in-csharp]]
+=== Downloading Many Files in Parallel in C#
+
+==== Problem
+
+In a .NET test you fetch fifty files at once from a server that limits connections per address, and you want every file complete and no request lost to the limit.
+
+==== Solution
+
+Start a `SurlServer` holding fifty files with `MaxConnectionsPerAddress` 8, give the `CurlClient` the same cap with `MaxConnectionsPerHost`, start all fifty requests at once, save each to disk, and hash each saved file against the file the server holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.MaxConnectionsPerAddress` is `surl --max-connections-per-address`: the most connections the server holds from one client address at once, 100 by default. It is a limit, not a queue. A connection past it is answered `503 Service Unavailable`. `Files` holds the fifty files in memory, 100,000 bytes each from a seeded `Random`, and a small `warm-up.txt`.
+
+`CurlClientOptions.MaxConnectionsPerHost` is libcurl{apos}s `CURLMOPT_MAX_HOST_CONNECTIONS` for the client{apos}s multi handle (<<libcurl-api>>): the connections its concurrent requests may hold to one host. A request past it waits inside the client for a connection to free; nothing fails. Its default, 0, means no limit, and then fifty requests started together open as many connections as they can. It plays the part `curl --parallel-max` plays on the console, with one difference: `--parallel-max` caps the transfers in flight, this caps the connections, and the requests beyond it wait for one.
+
+The program first sends one request and waits for it, because the first request in a process sets up the engine and takes a few seconds. Then `Task.WhenAll` starts fifty `SendAsync` calls, each with a `CurlRequest` for one file, on the one `CurlClient` without awaiting any of them in turn, which is what runs them side by side. A `200`{apos}s `CurlResponse.Body` is copied to `out-<case>/f<n>.bin`; nothing is written for any other status. Once all fifty have ended, the program hashes each saved file and compares it with the hash of the bytes in `Files`: a `200` alone would not prove the body arrived whole.
+
+With the cap at 8, all fifty end `200`, the fifty files are on disk, and every one is whole. With no cap, some come back `503`, and fewer than fifty files are saved. `SendAsync` throws nothing for them: a `503` is a response like any other, so the program has to count status codes itself, and one that only catches exceptions would report success with files missing. It exits `22` unless all fifty arrived whole, as `curl -f` would.
+
+If the limit is not known in advance, retrying is the other cure, as `curl --retry` does on the console. In the `retry` case the program sends each `503` again a second later, up to ten times, with no cap; all fifty end `200` and whole, within 30 seconds. That works, but it keeps hitting the limit on purpose; a cap that matches the server{apos}s limit asks only for what the server will give.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-many-files-in-parallel>> for the same task on the console.
+* <<http-download-many-files-in-parallel-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<libcurl-api>>, <<rfc9110>>.

@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: http-multiplex-requests-over-http2
+title: Multiplexing Requests over HTTP/2
+protocols: [http]
+tier: advanced
+surl-options: [--directory, --trace-ascii, --fault]
+curl-options: [--http2-prior-knowledge, -Z, --http1.1, -s, -o, --create-dirs, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9113]
+
+fixtures:
+  site/f1.txt: "file 1\n"
+  site/f2.txt: "file 2\n"
+  site/f3.txt: "file 3\n"
+  site/f4.txt: "file 4\n"
+  site/f5.txt: "file 5\n"
+  site/m1.txt: "file m1\n"
+  site/m2.txt: "file m2\n"
+  site/m3.txt: "file m3\n"
+  site/m4.txt: "file m4\n"
+  site/m5.txt: "file m5\n"
+  slow/f1.txt: "file 1\n"
+  slow/f2.txt: "file 2\n"
+  slow/f3.txt: "file 3\n"
+  slow/f4.txt: "file 4\n"
+  slow/f5.txt: "file 5\n"
+  elapsed.sh: |
+    # Runs the command given as arguments, then prints how many whole seconds it took.
+    start=$(date +%s)
+    "$@" || exit
+    echo "$(( $(date +%s) - start )) s"
+
+# main is the recipe; its --trace-ascii log is the server's side of the proof.
+# slow holds every request 2 s before answering, so overlap shows in the clock;
+# it serves its own directory, since two surl processes cannot share one.
+servers:
+  main:
+    command: surl --directory site --trace-ascii trace.txt http://127.0.0.1:{{port}}/
+    ready: port
+  slow:
+    command: surl --directory slow --fault "delay;stage=command;ms=2000" http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --http2-prior-knowledge and -Z, curl fetches f1.txt to f5.txt in parallel, every answer over HTTP/2, each saved under got/, exit 0.
+    run: curl --http2-prior-knowledge -Z -s -w "%{http_version}\n" -o "got/f#1.txt" --create-dirs "http://127.0.0.1:{{port}}/f[1-5].txt"
+    expect:
+      exit: 0
+      stdout: "2\n2\n2\n2\n2\n"
+      files:
+        got/f1.txt: "file 1\n"
+        got/f5.txt: "file 5\n"
+
+  - id: one-connection
+    claim: Of the five transfers, one opens the connection (num_connects 1) and the other four ride on it (num_connects 0).
+    run: curl --http2-prior-knowledge -Z -s -w "%{num_connects}\n" -o "got/f#1.txt" --create-dirs "http://127.0.0.1:{{port}}/f[1-5].txt"
+    expect:
+      exit: 0
+      stdout-matches: '^(?=(?:\d\n){5}$)(?:0\n)*1\n(?:0\n)*$'
+
+  - id: log-shows-one-exchange
+    claim: surl's trace logs all five GET requests under one exchange number, one connection on the server's side too.
+    run: curl --http2-prior-knowledge -Z -s -o "got/m#1.txt" --create-dirs "http://127.0.0.1:{{port}}/m[1-5].txt" && grep -o "^#[0-9]* \* GET /m[1-5].txt" trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '^(#\d+) \* GET /m\d\.txt\n(?:\1 \* GET /m\d\.txt\n){4}$'
+
+  - id: overlapped
+    claim: Against a server that holds every request 2 s, the five transfers with -Z take 2 to 4 s in all, so they ran at the same time.
+    run: sh elapsed.sh curl --http2-prior-knowledge -Z -s -o "got/s#1.txt" --create-dirs "http://127.0.0.1:{{port2}}/f[1-5].txt"
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '^[2-4] s\n$'
+
+  - id: one-after-another
+    claim: Without -Z, the same five transfers go one after another on the connection and take 10 s or more.
+    run: sh elapsed.sh curl --http2-prior-knowledge -s -o "got/s#1.txt" --create-dirs "http://127.0.0.1:{{port2}}/f[1-5].txt"
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '^(?:1\d|[2-5]\d) s\n$'
+
+  - id: http1-1-needs-connections
+    claim: Over HTTP/1.1, which cannot multiplex, -Z runs the transfers in parallel on more than one connection.
+    run: curl --http1.1 -Z -s -w "%{http_version} %{num_connects}\n" -o "got/f#1.txt" --create-dirs "http://127.0.0.1:{{port}}/f[1-5].txt"
+    expect:
+      exit: 0
+      stdout-matches: '^(?=(?:1\.1 \d\n){5}$).*1\.1 1\n.*1\.1 1\n'

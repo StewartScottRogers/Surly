@@ -1,0 +1,69 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+# The planned task was ETags; the pinned surl sends Last-Modified only, so this recipe syncs by date (see review.md).
+schema: 2
+key: http-skip-unchanged-files-with-etags-in-csharp
+title: Skipping Unchanged Files by Date in C#
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlRequest, CurlResponse, TimeProvider]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first run fetches both files, the second sends only HEAD requests and fetches nothing, and after a.txt is rewritten with the server's clock five seconds on, the third run fetches a.txt alone; the server answered six HEAD and three GET requests.
+    program: sync.cs
+    args: [changed]
+    expect:
+      exit: 0
+      stdout: "run 1: a.txt fetched, b.txt fetched\nrun 2: a.txt unchanged, b.txt unchanged\na.txt rewritten 5 s later\nrun 3: a.txt fetched, b.txt unchanged\nlocal a.txt: alpha, revised\nlocal b.txt: beta\nserver answered: 6 HEAD, 3 GET\n"
+
+  - id: same-second
+    claim: A rewrite within the same second keeps the same Last-Modified, so the third run calls a.txt unchanged and the local copy stays stale.
+    program: sync.cs
+    args: [same-second]
+    expect:
+      exit: 0
+      stdout: "run 1: a.txt fetched, b.txt fetched\nrun 2: a.txt unchanged, b.txt unchanged\na.txt rewritten in the same second\nrun 3: a.txt unchanged, b.txt unchanged\nlocal a.txt: alpha\nlocal b.txt: beta\nserver answered: 6 HEAD, 2 GET\n"
+
+  - id: deleted
+    claim: A file deleted on the server answers the HEAD 404 Not Found, and the job keeps its local copy rather than overwrite it.
+    program: sync.cs
+    args: [deleted]
+    expect:
+      exit: 0
+      stdout: "run 1: a.txt fetched, b.txt fetched\nrun 2: a.txt unchanged, b.txt unchanged\nb.txt deleted\nrun 3: a.txt unchanged, b.txt gone, local copy kept\nlocal a.txt: alpha\nlocal b.txt: beta\nserver answered: 6 HEAD, 2 GET\n"
+
+  - id: written-to-disk
+    claim: Each fetched copy is written to disk, so after the changed case local-changed/a.txt holds the revised text and local-changed/b.txt the first one.
+    program: sync.cs
+    args: [changed]
+    expect:
+      exit: 0
+      files:
+        local-changed/a.txt: "alpha, revised\n"
+        local-changed/b.txt: "beta\n"
+
+  - id: older-date-fetched
+    claim: Because the job compares Last-Modified for equality, not for newer, a file rewritten with an earlier date, as a restore from a backup can do, is fetched again; curl -z on the console would skip it. b.txt is fetched again too, unchanged, because with the clock moved back its date lies ahead of the server's now, and the server sends a Last-Modified no later than its Date (15:04:00, not the 15:04:05 saved).
+    program: sync.cs
+    args: [older]
+    expect:
+      exit: 0
+      stdout-matches: 'a.txt rewritten 5 s earlier\n  a.txt: HEAD 200, Last-Modified Tue, 02 Jan 2024 15:04:00 GMT, saved Tue, 02 Jan 2024 15:04:05 GMT\n  b.txt: HEAD 200, Last-Modified Tue, 02 Jan 2024 15:04:00 GMT, saved Tue, 02 Jan 2024 15:04:05 GMT\nrun 3: a.txt fetched, b.txt fetched\nlocal a.txt: alpha, restored\nlocal b.txt: beta\nserver answered: 6 HEAD, 4 GET\n$'
+
+  - id: head-and-dates
+    claim: An unchanged file's HEAD is answered 200 with the same Last-Modified that was saved with the copy, Tue, 02 Jan 2024 15:04:05 GMT from the test's clock; after the rewrite a.txt's is 15:04:10, five seconds on.
+    program: sync.cs
+    args: [dates]
+    expect:
+      exit: 0
+      stdout-matches: 'run 1: a.txt fetched, b.txt fetched\n  a.txt: HEAD 200, Last-Modified Tue, 02 Jan 2024 15:04:05 GMT, saved Tue, 02 Jan 2024 15:04:05 GMT\n  b.txt: HEAD 200, Last-Modified Tue, 02 Jan 2024 15:04:05 GMT, saved Tue, 02 Jan 2024 15:04:05 GMT\nrun 2: a.txt unchanged, b.txt unchanged\na.txt rewritten 5 s later\n  a.txt: HEAD 200, Last-Modified Tue, 02 Jan 2024 15:04:10 GMT, saved Tue, 02 Jan 2024 15:04:05 GMT\n'

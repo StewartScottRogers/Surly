@@ -1,0 +1,68 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+schema: 2
+key: s3-audit-a-bucket-after-a-sync
+title: Auditing a Bucket After a Sync
+protocols: [s3]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_files, read_file, put_file, delete_file]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a sync that puts three files, the audit lists the bucket's store against the manifest and finds all three present and unchanged, and one extra object, old.csv, that an earlier run left behind.
+    program: audit.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "sync: exit 0, tool error: no\nstore: a.csv(24) b.csv(23) c.csv(22) old.csv(20)\naudit: extra old.csv\n"
+
+  - id: drift
+    claim: After the sync, an object changed to text of the same length, an object deleted and an object added are all found; the sizes agree for the changed one, so only reading it shows the change.
+    program: audit.cs
+    args: [drift]
+    expect:
+      exit: 0
+      stdout: "sync: exit 0, tool error: no\nstore: a.csv(24) c.csv(22) old.csv(20) z.csv(6)\naudit: changed a.csv: same size, different bytes; missing b.csv; extra old.csv; extra z.csv\n"
+
+  - id: clean
+    claim: With the stale object removed, the audit finds the bucket matches the manifest.
+    program: audit.cs
+    args: [clean]
+    expect:
+      exit: 0
+      stdout: "sync: exit 0, tool error: no\nstore: a.csv(24) b.csv(23) c.csv(22)\naudit: bucket matches the manifest, 3 objects\n"
+
+  - id: partial-sync
+    claim: A sync that names a file the source does not have puts the files before it, stops there with curl exit 26 and a tool error, and the audit finds the later files missing.
+    program: audit.cs
+    args: [partial]
+    expect:
+      exit: 0
+      stdout: "sync: exit 26, tool error: yes, curl: (26) Failed to open/read local data from file/application\nstore: a.csv(24) old.csv(20)\naudit: missing b.csv; missing c.csv; extra old.csv\n"
+
+  - id: client-view
+    claim: The listing a client gets over S3 names the same objects as the store.
+    program: audit.cs
+    args: [client-view]
+    expect:
+      exit: 0
+      stdout: "sync: exit 0, tool error: no\nclient listing: a.csv b.csv c.csv old.csv\nstore: a.csv(24) b.csv(23) c.csv(22) old.csv(20)\naudit: extra old.csv\n"
+
+  - id: no-listing
+    claim: Without --list-directories a client's listing is refused, 403 AccessDenied and curl exit 22, but the audit reads the store, so it still works.
+    program: audit.cs
+    args: [no-listing]
+    expect:
+      exit: 0
+      stdout: "sync: exit 0, tool error: no\nclient listing: exit 22, tool error: yes, curl: (22) S3 returned error 403: AccessDenied: Access Denied\nstore: a.csv(24) b.csv(23) c.csv(22) old.csv(20)\naudit: extra old.csv\n"

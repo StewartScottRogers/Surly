@@ -1,0 +1,69 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-download-many-files-in-parallel
+title: Downloading Many Files in Parallel
+protocols: [http]
+tier: scenarios
+surl-options: [--max-connections-per-address, --directory]
+curl-options: [--parallel, --parallel-max, -f, -s, -o, --create-dirs, -w, --retry, --retry-delay]
+exit-codes: [0, 22]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  make-site.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Makes site/f1.bin to site/f50.bin, 100,000 random bytes each.
+    mkdir -p site
+    i=1
+    while [ $i -le 50 ]; do
+      head -c 100000 /dev/urandom > site/f$i.bin
+      i=$((i + 1))
+    done
+
+setup:
+  - sh make-site.sh
+
+servers:
+  main:
+    command: surl --max-connections-per-address 8 --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --parallel-max 8, at most the server's per-address limit, curl fetches all fifty files at once in groups of eight, each 200 with all 100000 bytes, and exits 0.
+    run: curl -s -f --parallel --parallel-max 8 --create-dirs -o "out/f#1.bin" -w "%{http_code} %{size_download}\n" "http://127.0.0.1:{{port}}/f[1-50].bin"
+    expect:
+      exit: 0
+      stdout-matches: '^(200 100000\n){50}$'
+
+  - id: copies-match
+    claim: The fifty downloaded files are byte for byte the fifty files the server holds.
+    run: diff -r -x .surl site out
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: default-is-over-the-limit
+    claim: Without --parallel-max, curl starts up to 50 transfers at once; surl answers the connections past eight 503 Service Unavailable with an empty body, and with -f curl exits 22.
+    run: curl -s -f --parallel -o {{null}} -w "%{http_code} %{size_download}\n" "http://127.0.0.1:{{port}}/f[1-50].bin"
+    expect:
+      exit: 22
+      stdout-matches: '(?m)^503 0$'
+
+  - id: lost-without-fail
+    claim: Without -f the same command exits 0 although some transfers were answered 503, so a script that checks only the exit code misses the lost files.
+    run: curl -s --parallel --create-dirs -o "lost/f#1.bin" -w "%{http_code}\n" "http://127.0.0.1:{{port}}/f[1-50].bin"
+    expect:
+      exit: 0
+      stdout-matches: '(?m)^503$'
+
+  - id: retry-recovers
+    claim: --retry counts a 503 as a transient error, so with --retry 10 --retry-delay 1 and no cap every refused transfer is tried again until it gets its 200 and all 100000 bytes.
+    timeout: 90
+    run: curl -s -f --parallel --retry 10 --retry-delay 1 -o {{null}} -w "%{http_code} %{size_download}\n" "http://127.0.0.1:{{port}}/f[1-50].bin"
+    expect:
+      exit: 0
+      stdout-matches: '^(200 100000\n){50}$'

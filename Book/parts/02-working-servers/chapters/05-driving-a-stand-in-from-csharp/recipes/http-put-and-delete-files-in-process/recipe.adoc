@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-put-and-delete-files-in-process]]
+=== Putting and Deleting Files in Process
+
+==== Problem
+
+A .NET test runs against a stand-in Hypertext Transfer Protocol (HTTP) server in its own process, and it needs to put a file in place on the running server for one test and take it away for the next, and see the client under test follow.
+
+==== Solution
+
+Start a `SurlServer`, put a file with `Files.PutAsync`, fetch it with a `CurlClient`, delete it with `Files.DeleteAsync` and fetch it again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A `SurlServer`, started from `SurlServerOptions` with `SurlServer.StartAsync`, listens on a free port that `server.BoundUrl` holds, and a `CurlClient` sends each `CurlRequest` to it and gets a `CurlResponse`. `server.Files`, a `SurlServerFiles`, is the server{apos}s store seen from the test, the same store the clients are served from. `PutAsync` takes a path that starts with a slash and the bytes, and `DeleteAsync` takes the path. Neither is a request, so neither needs a login or `AllowUploads`: they are the test acting on its own server, and a client{apos}s `PUT` or `DELETE` is a different matter. A client{apos}s `DELETE` of `hello.txt` with no login is answered `401`, and the file stays; `DeleteAsync` from the test takes it away. A `CurlClient` then asks again, and every `GET` is a new request, so it sees whatever the store holds at that moment: `200` and the text, and after the delete `404` (<<rfc9110>>).
+
+`PutAsync` on a path that holds a file replaces it, so a test can change what the next client sees without restarting anything. A put makes the folders on its path, `reports` here, and a delete takes only the file: the folder stays and `ListAsync`, which returns a `SurlFolderPage` of entries with a name and `IsFolder`, shows it empty.
+
+`RecordExchanges = true` makes the server record its events as well as its exchanges, and `FindEvents` with a `SurlEventQuery` whose `Store` is `StoreKind.Content` finds them as `StoreChangedEvent`s with a `Change` and a `Name`. The put made two, `Seeded` for the folder and `Seeded` for the file, and the delete one, `Deleted`. A test that cannot see what the code under test did can read what the store did.
+
+The refusals are exceptions, `SurlSeedRefusedException`, with a `Refusal` that the message names. `DeleteAsync` of a path with no file, or of a folder, is `Absent`, and nothing changes. A path whose name starts with a dot is never served, so `PutAsync` refuses it, `NotPermitted`, rather than store a file no client could fetch.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-put-and-delete-files-from-an-agent>> for the same task from an agent, with `put_file` and `delete_file`.
+* <<http-wait-for-an-upload-in-process>> for waiting on the store change a client{apos}s upload makes.
+* <<http-reset-and-snapshot-in-process>> for putting the store back between tests.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

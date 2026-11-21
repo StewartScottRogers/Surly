@@ -260,6 +260,34 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   commits; the same client still lists the old numbers.
 - reset_server (and presumably ResetAsync) RESTORES a start folder a client deleted, as well as emptying mailboxes.
 
+## IMAP faults, several recipients, kept mail, alias forwarding (2026-11-20, Surl 9ad60d80c, Curl 7d167fa10a, windows)
+- IMAP fault: `--fault "error;scheme=imap;command=FETCH;account=ann@example.com;reply=NO [SERVERBUG] fetch failed;times=1"` (`account=` is the whole
+  address; a rule per account lets one server serve many cases). curl's `UID FETCH n BODY[...]` answered NO -> exit 78 `curl: (78) Remote file not found`
+  (BAD too); a SEARCH answered NO -> exit 21 `Quote command returned error`; `command=SELECT` -> exit 67 `Select failed`. `--retry 2` alone: no retry
+  (`-w %{num_retries}` prints 0, exit 78); `--retry-all-errors`: one retry, exit 0. `curl -v` shows `A004 NO [SERVERBUG] fetch failed` after `A003 OK
+  [READ-WRITE] SELECT completed`. `-v` log: `FETCH answered with the chosen error of fault rule f1.`; start warning `surl: warning: --fault: N fault rule(s)
+  make this server misbehave on purpose` once for all N. `reply=250 OK` for imap: exit 2 `surl: option --fault: key reply does not fit the imap error shape`.
+- Surl.Api: `SurlFault.ProtocolError("NO [SERVERBUG] fetch failed") with { Scheme = "imap", Command = "FETCH", Times = 1 }`; `Faults.Add(rule)` returns the id string
+  (`f1`), `Remove(id)` true; `Log` (StringWriter) with `LogLevel.Verbose` (`using Surl.Output;`) holds the warning and the fault line; `server.Exchanges[i].Sent` is
+  `byte[]` (server to client). Curl.Api: NO to the fetch is `CurlException`, `Code` `RemoteFileNotFound` (78); NO to SELECT is `LoginDenied` (67) `Select failed`. MCP curl
+  tool: a failing answer still carries `-w` output in `standardOutput`; `start_server` `log_lines` holds the fault warning; `get_events` `fault_applied` gives `rule_id`,
+  `fault_kind` `error`, `stage` `command`; `list_faults` `remaining`.
+- One message, several `--mail-rcpt`: each recipient gets a copy, the stored message is unchanged (its `To:` names whom the headers name; no header names a Bcc-like
+  recipient), `-v` log `Message stored: N bytes for 3 recipients` once. A refused recipient (outside every domain): exit 55 `RCPT failed: 550`, nothing delivered, also to
+  those named before it; `--mail-rcpt-allowfails`: exit 0, the rest delivered. An unknown in-domain address: 250 (`-w %{response_code}`), discarded, no event. An address
+  named twice is delivered once. Curl.Api `CurlMailOptions.MailRecipientAllowFails = true`; a refusal is `CurlException` `SendError` (55) `RCPT failed: 550`. MCP `get_exchanges`
+  `received` chunks: three `RCPT TO:<` and one `DATA`. Proving "not delivered twice" needs a marker: deliveries are in order, so wait for the event of a mailbox named last.
+- Kept mail: `--directory data` (must exist; a fixture `data/readme.txt` makes it) keeps `data/.surl/lock` and `data/.surl/mail/{index,messages/}`; flags (\Flagged, \Seen),
+  UIDNEXT and the messages survive a `restart:` (kill) and a clean dispose; the lock file stays after a clean stop and the next start ignores it. Second surl on the folder: exit 124
+  `surl: (124) Directory data is in use by another surl process`; Surl.Api `SurlServerStartException.ExitCode` `DataDirectoryInUse`, `Lines[0]` `(124) Directory <full path> is in use by
+  another surl process`; MCP `start_server` tool error `exit_code` 124 `DataDirectoryInUse`. Without a directory a restart empties the mail and the `--mailbox` mailboxes return.
+  MCP: `stop_server` then a second `start_server` with the same `arguments` (`--directory` inside SURL_MCP_ROOT, made by the program); a new server's event sequence starts empty.
+  Surl.Api: `Mail.ListMailboxesAsync(owner)` `UnseenCount` 1 -> 0 after a Curl.Api IMAP fetch, still 0 after a restart.
+- Alias, ground rules (smtp-forward-mail-with-an-alias): Surl.Api `AdditionalArguments.Add("--mail-alias"); AdditionalArguments.Add("support@example.com=ann@example.com,bob@example.com")` is the
+  same as `MailAliases.Add(...)`; refusals `refused.Lines[0]`: `option --mail-alias: alias ann@example.com is also a mailbox` (no `(2)` prefix), `(2) option --mail-alias: target anne@example.com names no
+  mailbox`, `(2) option --mail-alias: target ann@elsewhere.org is not in any --mail-domain`; MCP the same with `exit_code` 2. A login as the alias: curl 67 / `LoginDenied`.
+  The alias's stored copy has `To:` as sent, so the alias does not appear in the target's mailbox name.
+
 ## Recipes
 smtp-send-and-read-it-over-imap, pop3-retrieve-and-delete-a-message, smtp-serve-a-mail-domain,
 smtp-check-the-mail-an-app-sent (+ -in-csharp, -from-an-agent), smtp-catch-every-address-in-one-mailbox
@@ -278,3 +306,4 @@ imap-keep-a-mailbox-off-smtp, imap-log-in-with-an-oauth-token, pop3-log-in-with-
 - Do not use Curl.Api `UseSsl.All` (or Try/Control) in a recipe until Curl BL-5640 lands: on `ftp://` it sends USER and PASS in clear with no AUTH TLS, and on `imap://` the STARTTLS login fails 67. Use the implicit-TLS scheme (`ftps://`, `imaps://`, `pop3s://`, `smtps://`) instead (Curl session, 2026-11-20).
 
 - Decided by Surl (2026-11-20): IMAP `LOGIN` and POP3 `USER`/`PASS` stay outside `--auth` and are governed by `--allow-plaintext-auth` alone (Surl ADR-0049 decision 1); `;protocols=` closes them. POP3 `TOP n` with no line count means 0 lines (ADR-0056 decision 5). A repeated list member is reported as "member X is given twice" everywhere (ADR-0101). Only `NOOP` and the commands ADR-0055 names report new mail (`EXISTS`) to an open IMAP session; FETCH, STORE, SEARCH, COPY and MOVE do not.
+smtp-forward-mail-with-an-alias, smtp-keep-mail-across-restarts, smtp-send-to-several-recipients, imap-fail-one-command (all with twins).

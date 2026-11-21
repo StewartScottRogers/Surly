@@ -1,0 +1,96 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-handle-a-full-disk-during-upload
+title: Handling a Full Disk During Upload
+protocols: [ftp, http]
+tier: scenarios
+surl-options: [--allow-anonymous, --allow-uploads, --max-filesize, --directory, --fault, -v, --log-file]
+curl-options: [-T, -f, -s, -S, -w]
+exit-codes: [0, 22, 25, 55, 70]
+references: [surl-readme, curl-readme, rfc959, rfc9110]
+
+# Tonight's export, and last night's already published.
+fixtures:
+  export.csv: "id,total\n1,1200\n2,950\n"
+  site/archive/2026-11-19.csv: "id,total\n1,1180\n2,940\n"
+  site/incoming/README.txt: "drop exports here\n"
+
+# A 300,000-byte export, bigger than the room the server has left.
+setup:
+  - head -c 300000 /dev/urandom > big.csv
+
+# One server, one folder: the uploader writes over FTP, the next step reads over HTTP.
+# /archive is out of space from the start; everywhere else has 100,000 bytes of room per file.
+servers:
+  main:
+    command: surl --allow-anonymous --allow-uploads --max-filesize 100000 --directory site -v --log-file surl.log --fault "out-of-space;path=/archive" ftp://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Tonight's export uploaded to /archive, which is out of space, is refused with 552; curl exits 25, so the uploader reports the failure.
+    run: curl -sS -T export.csv ftp://127.0.0.1:{{port}}/archive/2026-11-20.csv
+    expect:
+      exit: 25
+      stdout: ""
+      stderr-contains: "curl: (25) Failed FTP upload: 552"
+
+  - id: nothing-to-read
+    claim: The next step, reading over HTTP, finds no file for tonight; 404, exit 22 with -f.
+    run: curl -sS -f -w "%{http_code}\n" http://127.0.0.1:{{port2}}/archive/2026-11-20.csv
+    expect:
+      exit: 22
+      stdout: "404\n"
+
+  - id: last-night-intact
+    claim: Last night's export is still served whole over HTTP.
+    run: curl -sS -f http://127.0.0.1:{{port2}}/archive/2026-11-19.csv
+    expect:
+      exit: 0
+      stdout: "id,total\n1,1180\n2,940\n"
+
+  - id: other-path-works
+    claim: The same export to /incoming, which has room, is stored, exit 0.
+    run: curl -sS -T export.csv ftp://127.0.0.1:{{port}}/incoming/2026-11-20.csv
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/incoming/2026-11-20.csv: "id,total\n1,1200\n2,950\n"
+
+  - id: other-path-readable
+    claim: The next step reads it back over HTTP byte for byte.
+    run: curl -sS -f http://127.0.0.1:{{port2}}/incoming/2026-11-20.csv
+    expect:
+      exit: 0
+      stdout: "id,total\n1,1200\n2,950\n"
+
+  - id: fills-partway
+    claim: A 300,000-byte export to /incoming runs out of room partway; surl stops it at 100,000 bytes, answers 552 and resets the data connection, and the upload fails. curl exits 70 (Exceeded storage allocation) when it reads the 552 first and 55 (Send failure) when it meets the reset first, a race, so the case checks only that it failed.
+    run: curl -sS -T big.csv ftp://127.0.0.1:{{port}}/incoming/big.csv || echo upload failed
+    expect:
+      exit: 0
+      stdout: "upload failed\n"
+
+  - id: partial-deleted
+    claim: Nothing half-written is left; the next step finds no big.csv, 404.
+    run: curl -sS -f -w "%{http_code}\n" http://127.0.0.1:{{port2}}/incoming/big.csv
+    expect:
+      exit: 22
+      stdout: "404\n"
+
+  - id: server-says-deleted
+    claim: surl's log records both FTP refusals in the same words, the upload grew past the limit of 100000 bytes and the partial upload was deleted; the line for the fault rule's refusal does not name the rule.
+    run: grep -c "The upload grew past the limit of 100000 bytes; the partial upload was deleted" surl.log
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: http-put-refused-too
+    claim: The rule covers the path on every listener; an HTTP PUT into /archive is refused, 413, exit 22 with -f.
+    run: curl -sS -f -T export.csv -w "%{http_code}\n" http://127.0.0.1:{{port2}}/archive/2026-11-20.csv
+    expect:
+      exit: 22
+      stdout: "413\n"

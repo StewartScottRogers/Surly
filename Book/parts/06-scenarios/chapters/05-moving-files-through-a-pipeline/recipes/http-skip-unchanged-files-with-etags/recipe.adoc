@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-skip-unchanged-files-with-etags]]
+=== Skipping Unchanged Files by Date
+
+==== Problem
+
+A sync job should fetch only what changed: the first run takes every file, the next run skips the ones the server has not changed, and a file changed between runs is fetched again.
+
+==== Solution
+
+Serve the files with `surl`, and fetch each one with `curl -R -z`, which compares the server{apos}s date for the file with the local copy{apos}s and takes a new copy only when the server{apos}s is newer. The loop is a short script and needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::sync.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` with `--directory site` serves the two files and sends each with a `Last-Modified` header, the file{apos}s modification time to the second (<<rfc9110>>). The setup dates both files 2 January 2024 with `touch`, so the dates in this recipe do not depend on when it runs.
+
+Two `curl` options make the job. `-z local/a.txt` names a local file whose date is the condition: `curl` sends `If-Modified-Since` with that date (`-v` shows the header) and takes the body only if the server{apos}s copy is newer. When the local file does not exist yet, as on the first run, `curl` drops the condition and fetches the file; `-s` keeps quiet about it. `-R` gives the saved file the server{apos}s `Last-Modified` as its own date instead of the time it was written, so the next run compares the server{apos}s date with the server{apos}s date, and no clock on the client takes part. `-w "%{http_code} $f\n"` prints one line per file. When `curl` does not take a new copy it reports `304 Not Modified` and leaves the local file as it was (<<curl-manual>>).
+
+The first run prints `200` for both files and saves them. The second prints `304` for both and changes nothing. After `a.txt` is rewritten on the server, its date is now, later than 2024, so the third run fetches `a.txt` again and still skips `b.txt`.
+
+A date is a weak test of change, and the recipe shows where it fails. A file restored from a backup can come back with new content and an older date; `-z` then sees nothing newer and keeps the stale copy. `-R` even moves the local copy{apos}s date back to the server{apos}s older one, so later runs go on skipping it. Two changes within one second have the same `Last-Modified` too. An entity tag (ETag), a validator the server changes whenever the content changes, would catch both (<<rfc9110>>); Surl is adding entity tags and conditional requests, and until a recipe shows them, this one relies on dates alone.
+
+`-f` protects the copy the job already has. A file deleted on the server is answered `404 Not Found`. Without `-f`, `-o` writes the empty `404` body over the local copy; with it, `curl` exits `22` and leaves the local file alone, and the job can decide what a deletion means.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-skip-unchanged-files-with-etags-in-csharp>> for the same job from .NET code.
+* <<http-skip-unchanged-files-with-etags-from-an-agent>> for the same job from an agent.
+* <<http-resume-an-interrupted-download>> for `If-Range`, the other place `surl` compares `Last-Modified`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

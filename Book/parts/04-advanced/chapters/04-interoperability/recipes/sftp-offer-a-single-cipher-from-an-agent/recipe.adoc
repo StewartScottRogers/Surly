@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-offer-a-single-cipher-from-an-agent]]
+=== Offering One SSH Cipher from an Agent
+
+==== Problem
+
+A security review says only one Secure Shell (SSH) cipher and Message Authentication Code (MAC) are allowed. An AI agent has to start an SSH File Transfer Protocol (SFTP) server that offers only those and confirm what it offers, with Model Context Protocol (MCP) tools and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it calls `start_server` with `--ssh-ciphers` and `--ssh-macs` among its arguments, fetches a file with the `curl` tool, and reads the server{apos}s offer from `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts from `PATH`, confined by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` to the folder it runs in, where `ssh-keygen` in the setup left a host key and a client key. The argument after `--` picks the scenario. `start_server` takes `arguments`, `surl`{apos}s own words: `--hostkey host_key`, `--authorized-keys alice:client_key.pub` and the two algorithm options.
+
+The `curl` tool logs in with `-u alice: --key client_key --pubkey client_key.pub` (`-k` skips the host-key check) and fetches `hello.txt` from the narrowed server, which is what the claim that it still serves its files reads. Each end of an SSH connection lists the algorithms it will use, and they settle on the first of the client{apos}s that the server also offers (<<rfc4251>>). `get_exchanges` answers with the exchange as chunks, each with a `direction` and its `data`; the program joins the ones the server sent, skips the version line, a four-byte length, a padding byte, the message type and a 16-byte cookie, and reads six name lists, each a four-byte length and a comma-separated string. The third is the ciphers, the fifth the MACs. Narrowed to `aes256-ctr` and `hmac-sha2-256`, each holds that one name; `aes128-ctr` and `hmac-sha2-512` are absent, so a client that allows only those finds nothing in common. `curl` has no option that narrows its own list, so the agent cannot play that client; the console recipe does with OpenSSH{apos}s `sftp`, whose message names the server{apos}s offer.
+
+With no options the list starts with `chacha20-poly1305@openssh.com`, includes `aes256-ctr`, offers several MACs, the first `hmac-sha2-256-etm@openssh.com`, and no cipher in CBC mode. `--ssh-ciphers` takes a comma-separated list, offered in the order given. A name `surl` does not offer, `bogus`, makes `start_server` a tool error whose text is `surl`{apos}s own line, naming the option, as does a weak cipher such as `aes128-cbc`; adding `--allow-weak-ssh-algorithms` makes it the whole offer.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-offer-a-single-cipher>> for the same task on the console, with the agreed algorithms shown.
+* <<sftp-offer-a-single-cipher-in-csharp>> for the same task from a C# program.
+* <<sftp-give-each-user-their-key-from-an-agent>> for `--authorized-keys` from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4251>>, <<rfc4252>>.

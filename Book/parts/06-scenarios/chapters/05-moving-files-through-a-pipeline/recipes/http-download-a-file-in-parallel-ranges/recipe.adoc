@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-download-a-file-in-parallel-ranges]]
+=== Downloading a File in Parallel Ranges
+
+==== Problem
+
+You want a large file fetched as four byte ranges at once, the parts joined, and the result compared with the original to prove nothing was lost or doubled.
+
+==== Solution
+
+Serve the file with `surl`, and run a short script that asks for its size, fetches four ranges with one `curl` command running them side by side, then joins the parts and compares them with the original. The scripts need a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::fetch-in-ranges.sh[]
+----
+
+[source,sh]
+----
+include::check.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` with `--directory site` serves `site/big.bin`, 1,000,000 random bytes, and answers ranges without being asked to: a `GET` with one `Range` header is answered `206 Partial Content` with a `Content-Range` naming the bytes sent and the whole length (<<surl-readme>>, <<rfc9110>>).
+
+The script first sends a `HEAD` request with `-I`, which returns the headers without the body; `-o /dev/null` throws the headers away and `-w "%header{content-length}"` prints the one it wants, the size. It splits the size into four parts, rounding up, and cuts the last range at the last byte. `-r 0-249999` is `curl`{apos}s spelling of `Range: bytes=0-249999`; both ends count, so four ranges of 250,000 bytes cover the file with no byte asked for twice.
+
+`--next` starts a new set of options for the next URL: `-r`, `-o`, `-w`, `-s` and `-f` do not carry past it, so each of the four repeats them. `-o part0` to `-o part3` save each range to its own file, `-s` keeps the progress meter quiet and `-f` makes an error status fail the command. `--parallel` runs all four transfers at once (<<curl-manual>>). `--parallel-immediate` makes each one open its own connection at once; without it, `curl` holds the later transfers back to see whether the first connection could carry them all, which over Hypertext Transfer Protocol (HTTP) version 1.1 it cannot (<<curl-manual>>). `-w` prints each transfer{apos}s status, its `Content-Range` and `%{num_connects}`, 1 when the transfer opened a connection and 0 when it reused one. The lines come out in the order the transfers end, so the script sorts them.
+
+Over loopback a 250,000-byte range can be done before the next has started, so the `num_connects` column in the Solution may show a 0. Against a second server, started with `--fault "delay;stage=command;ms=1000"` to hold every request a second as a slow server would, all four show 1: they ran side by side, each on its own connection. The same four ranges without `--parallel` go one after another over one connection, 1 then 0, 0, 0. `--fault` makes `surl` misbehave on purpose, which is why it is never on by default.
+
+`check.sh` is the proof. It joins the parts in the order given, prints the joined size and compares the result with the original with `cmp -s`, which prints nothing and only sets its exit code. Joined in order, the parts are identical. The size alone proves little: a part joined twice in place of its neighbour gives exactly 1,000,000 bytes and still differs, and a part left out comes up 250,000 bytes short. Either way `check.sh` prints `differs` and exits 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-download-a-byte-range>> for one range and what `surl` answers to ranges it cannot serve.
+* <<http-resume-an-interrupted-download>> for ranges that finish a partial file.
+* <<http-download-many-files-in-parallel>> for `--parallel` across many files.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

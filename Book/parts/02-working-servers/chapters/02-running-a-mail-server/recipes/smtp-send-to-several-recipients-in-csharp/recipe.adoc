@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-to-several-recipients-in-csharp]]
+=== Sending to Several Recipients in C#
+
+==== Problem
+
+Your C# app sends one notice to several people over Simple Mail Transfer Protocol (SMTP). You want to send it with `Curl.Api` and check each mailbox with `Mail.ListMessagesAsync`.
+
+==== Solution
+
+Start a `SurlServer` for your domain, let the app send one `CurlRequest` whose `CurlMailOptions` name every recipient, wait for the three deliveries the server announces, then count the messages in each mailbox in the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `smtp://` URL on port 0, so the system picks a free port; `MailDomains` is `--mail-domain`, the domain mail is served for, and `Mailboxes` is `--mailbox`, one address and password per entry, each a mailbox and the account that logs in to it. `Log` and `LogLevel.Verbose` give the log a console run writes to `--log-file` (<<surl-readme>>).
+
+The app is played by `Curl.Api`: a `CurlClient`, and a `CurlRequest` with `HttpMethod.Put` on the bound `smtp://` URL. `CurlMailOptions` carries the envelope (<<rfc5321>>), `MailFrom` for the sender and `MailRecipients`, one entry per recipient, the same as one `--mail-rcpt` each. `CurlAuthenticationOptions` is the app{apos}s login and `CurlContent.FromStream` is the message. `CurlResponse.StatusCode` is the server{apos}s last reply, `250` when the mail was taken. No loosening option is needed: without Transport Layer Security the server offers only `CRAM-MD5`, a login that never sends the password, and `Curl.Api` uses it.
+
+Delivery is asynchronous, so the test does not count messages when the `250` comes. Every delivery is an event: `OnEvent` with a `SurlEventQuery` of kind `StoreChanged` in the mail store calls back with a `StoreChangedEvent` whose `Name` is `ann@example.com/INBOX/;UID=1`, the mailbox, the folder and the unique identifier (UID). The program waits, with a bound of ten seconds and never a fixed sleep, for the event of the last recipient; deliveries happen in order, so those before it have been dealt with. Then `server.Mail.ListMessagesAsync` returns a mailbox{apos}s `SurlMessagePage` and the program counts: one message each for Ann, Bob and Cy. `ReadMessageAsync` returns one as a `SurlMailMessage` with its exact bytes, and neither call sets a flag.
+
+The recipients are the envelope{apos}s, not the headers{apos}. The message says `To: ann@example.com`, and Bob{apos}s copy says so too; nothing in it names him. The server stores the message once and lists the three recipients on it, and the verbose log has a single `Message stored` line for three recipients.
+
+A refused recipient decides the whole message, by default. When Carol, whose address is outside every mail domain, is named after Dee, `SendAsync` throws a `CurlException` whose `Code` is `SendError`, curl{apos}s 55, with the message `RCPT failed: 550`; the message is not sent and Dee, who was accepted, holds nothing. `MailRecipientAllowFails = true` changes that: the send goes to the recipients that were accepted, is answered `250`, and Fay receives her copy. Which an app should want is a decision, and each has a case.
+
+A recipient inside the domain who has no mailbox is a different case. The server answers `250` for `nobody@example.com` and discards that copy, with no delivery event, so a sender cannot use it to learn which addresses exist; Gus still receives his. An address named twice gets one copy: Hal is named twice, Ivy once, there is one event for each of them, and Hal holds one message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-to-several-recipients>> for the same task on the console.
+* <<smtp-send-to-several-recipients-from-an-agent>> for the same task run by an agent.
+* <<smtp-fail-a-test-on-a-wrong-recipient-in-csharp>> for a recipient refused for good.
+* <<surl-readme>>, <<rfc5321>>.

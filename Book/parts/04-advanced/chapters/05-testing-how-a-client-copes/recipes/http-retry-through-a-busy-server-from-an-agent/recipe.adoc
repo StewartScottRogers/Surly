@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-retry-through-a-busy-server-from-an-agent]]
+=== Retrying a Busy Server from an Agent
+
+==== Problem
+
+Your client should retry when a server answers `503 Service Unavailable`, a set number of times, and then succeed. You want an artificial intelligence (AI) agent to make a Hypertext Transfer Protocol (HTTP) server busy for exactly two requests, fetch a file with retries, and check from the server{apos}s side that it saw three requests, all with Model Context Protocol (MCP) tool calls.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the MCP software development kit (SDK): it starts a server with `start_server`, makes a file busy with `add_fault`, fetches it with `curl-mcp`{apos}s `curl` tool and `--retry 2`, then asks the server what it saw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`. The argument after `--` picks the scenario. `start_server` answers in structured content with `server_id`, which every other `surl-mcp` tool takes, and `bound_urls`, the URL with the port the system chose.
+
+`add_fault` adds one rule to the running server, written as `surl`{apos}s `--fault` takes it, and answers its ID, `f1`. `error` answers a request with the reply the rule names instead of serving it, `reply=503` is the busy answer, `path=/report.txt` makes only that file busy and `times=2` spends the rule after two answers. The rule is added after the server started, so nothing else had a chance to spend it.
+
+The `curl` tool runs a `curl` command line in-process and answers its `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON) text. `--retry 2` allows two retries after a failure `curl` counts as transient, and `503` (<<rfc9110>>) is one (<<curl-manual>>); `--retry-delay 1` makes each wait one second, and `curl` says so on standard error, which `--no-progress-meter` keeps free of the progress bar. The third request is served: exit `0`, and `-w "%{http_code} %{num_retries}\n"` prints `200 2` after the file. The program times the call with a `Stopwatch` and claims a range, between two and twenty seconds, never an exact time. Before it starts the clock it makes one `transfer` to `/health.txt`, which is never busy, so the one-time set-up of the first request is not counted. With `-f --retry 1` the one retry meets the second `503` too; `curl` exits `22` and the tool marks its answer a tool error.
+
+`transfer` makes exactly one attempt per call, and a busy answer is an answer, not a failure: `statusCode` is `503`, `failure` is null and the call is not a tool error. An agent that wants to retry reads the status and calls again. This one waits one second each time and gets the file on its third call.
+
+The server{apos}s side says the same in its own words. `get_exchanges` returns what the server received, and its `received` chunks hold each request line, so the program counts `GET /report.txt HTTP/1.1` three times. `get_events` with `kinds` `fault_applied` lists each time the rule acted, and `list_faults` shows `f1` with `remaining` `0`. The rule is scoped to a path: a fetch of `/health.txt` is answered at once, `200 0`, the rule has acted no time and has two uses left.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-through-a-busy-server>> for the same test on the console.
+* <<http-retry-through-a-busy-server-in-csharp>> for the same test from a C# program.
+* <<http-retry-a-flaky-endpoint-from-an-agent>> for a doubling wait on the same kind of rule.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.
