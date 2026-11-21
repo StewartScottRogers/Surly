@@ -11,3 +11,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. `--cacert inter.pem` (trusting the intermediate alone) verifies on Windows; not claimed.
 3. Twin of `https-serve-a-certificate-chain`: it carries the console recipe's claims that this surface can show, each in its own words; a claim only the console can show is said so in the Discussion.
 4. CI run 44835381862: `no-trust` was 77 on Linux and macOS because `cond ? null : File.ReadAllBytes(...)` made an empty, non-null `CertificateAuthorityBlob`; the no-trust branch now passes a real null (60 everywhere).
+- CI (batch 5): with no CA blob, Curl.Api on Linux and macOS throws 77 SslCacertBadfile where Windows throws 60; the no-trust case is split by platform. Reported to Curl.
