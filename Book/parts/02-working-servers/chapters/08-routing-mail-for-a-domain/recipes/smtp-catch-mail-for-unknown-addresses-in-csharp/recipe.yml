@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-catch-mail-for-unknown-addresses-in-csharp
+title: Catching Mail for Unknown Addresses in C#
+protocols: [smtp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlEventQuery, StoreChangedEvent, SurlServerMail, SurlMessagePage, SurlMessageSummary, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlContent, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With MailCatchAlls, mail to anne@ and bob.smith@example.com, which have no mailbox, is accepted 250 and delivered to catchall@example.com as UIDs 1 and 2, ann's mail to ann; the test waits for ann's delivery event, then finds both strays in the catch-all by their To headers.
+    program: stray-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "sent to anne@example.com: 250\nsent to bob.smith@example.com: 250\nsent to ann@example.com: 250\ndelivered: catchall@example.com/INBOX/;UID=1, catchall@example.com/INBOX/;UID=2, ann@example.com/INBOX/;UID=1\ncaught UID 1: To: anne@example.com\ncaught UID 2: To: bob.smith@example.com\nstray messages caught: 2\n"
+
+  - id: no-catch-all
+    claim: Without MailCatchAlls the same three sends are all accepted 250, but only ann's is delivered; the two strays are discarded with no event, and the catch-all holds nothing.
+    program: stray-mail.cs
+    args: [no-catch-all]
+    expect:
+      exit: 1
+      stdout: "sent to anne@example.com: 250\nsent to bob.smith@example.com: 250\nsent to ann@example.com: 250\ndelivered: ann@example.com/INBOX/;UID=1\nstray messages caught: 0\n"
+
+  - id: letter-case
+    claim: An address that has a mailbox is not caught, whatever its letter case; mail to Ann@Example.COM is delivered to ann@example.com and the catch-all holds nothing.
+    program: stray-mail.cs
+    args: [letter-case]
+    expect:
+      exit: 1
+      stdout: "sent to Ann@Example.COM: 250\ndelivered: ann@example.com/INBOX/;UID=1\nstray messages caught: 0\n"
+
+  - id: alias-not-caught
+    claim: An alias is not unknown either; with MailAliases support@example.com=ann@example.com, mail to support@ is delivered to ann and the catch-all holds nothing.
+    program: stray-mail.cs
+    args: [alias]
+    expect:
+      exit: 1
+      stdout: "sent to support@example.com: 250\ndelivered: ann@example.com/INBOX/;UID=1\nstray messages caught: 0\n"
+
+  - id: per-domain
+    claim: The catch-all serves example.com only; one message to stray@ and team@example.org, a domain with no catch-all, is accepted 250, delivered to team alone, and the stray copy is discarded.
+    program: stray-mail.cs
+    args: [other-domain]
+    expect:
+      exit: 1
+      stdout: "sent to stray@example.org, team@example.org: 250\ndelivered: team@example.org/INBOX/;UID=1\nstray messages caught: 0\n"
+
+  - id: envelope-only-address
+    claim: The caught copy does not record which address it was for; a message sent to jo@example.com whose To header names ann is caught, and its To still says ann@example.com.
+    program: stray-mail.cs
+    args: [envelope-only]
+    expect:
+      exit: 1
+      stdout: "sent to jo@example.com: 250\ndelivered: catchall@example.com/INBOX/;UID=1\ncaught UID 1: To: ann@example.com\nstray messages caught: 1\n"
+
+  - id: outside
+    claim: An address outside every mail domain is not caught but refused at RCPT TO, and Curl.Api throws CurlException with code 55.
+    program: stray-mail.cs
+    args: [outside]
+    expect:
+      exit: 1
+      stdout: "sent to someone@example.net: curl error 55, RCPT failed: 550\n"
+
+  - id: one-per-domain
+    claim: Two MailCatchAlls for example.com make StartAsync throw SurlServerStartException, FailedInit, catch-all domain example.com is given twice.
+    program: stray-mail.cs
+    args: [twice]
+    expect:
+      exit: 1
+      stdout: "refused at start: FailedInit, option --mail-catch-all: catch-all domain example.com is given twice\n"

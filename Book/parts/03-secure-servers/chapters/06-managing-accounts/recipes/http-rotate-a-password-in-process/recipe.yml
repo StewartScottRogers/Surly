@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-rotate-a-password-in-process
+title: Rotating a Password in Process
+protocols: [http]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerAccounts, SurlEventQuery, SurlEventKind, LoginJudgedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7616, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; its argument picks the app's behaviour.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Mid-test, Accounts.Remove and Accounts.Add change app's password and the test writes the new one to the app's secret file; the app's next call is answered 401, it rereads the file and its second attempt is answered 200, all on one connection.
+    program: pick-up-password.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "before: 200 after 1 attempt(s)\nAccounts.Add for app: ArgumentException, the account exists\nAccounts.Remove app: True\nafter: 200 after 2 attempt(s)\nserver, after the change: refused, accepted\nexchanges: 1\n"
+
+  - id: add-does-not-change
+    claim: Accounts.Add for an account that exists throws ArgumentException, so a password is changed by Remove, which returns true, then Add.
+    program: pick-up-password.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nAccounts.Add for app: ArgumentException, the account exists\nAccounts.Remove app: True\n'
+
+  - id: every-request-logs-in
+    claim: The refusal and the new login came on the connection the app opened before the change, a single exchange, because over HTTP each request logs in again.
+    program: pick-up-password.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nserver, after the change: refused, accepted\nexchanges: 1\n$'
+
+  - id: cached-password-fails
+    claim: An app that read its password once at start keeps sending the old one and is answered 401, and the server judged one refused login after the change.
+    program: pick-up-password.cs
+    args: [caches]
+    expect:
+      exit: 0
+      stdout: "before: 200 after 1 attempt(s)\nAccounts.Add for app: ArgumentException, the account exists\nAccounts.Remove app: True\nafter: 401 after 1 attempt(s)\nserver, after the change: refused\nexchanges: 1\n"

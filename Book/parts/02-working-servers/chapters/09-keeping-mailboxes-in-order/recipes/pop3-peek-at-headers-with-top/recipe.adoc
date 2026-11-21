@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-peek-at-headers-with-top]]
+=== Peeking at Headers with TOP
+
+==== Problem
+
+You want to see a message{apos}s headers, and perhaps its first lines, over Post Office Protocol version 3 (POP3) without retrieving the whole message, and to know each message by an identifier that does not change when others are deleted.
+
+==== Solution
+
+Ask for the unique identifiers with `UIDL` and for one message{apos}s header with `TOP`, two `curl -X` transfers in one session:
+
+include::.generated/solution.adoc[]
+
+The two seed lines stand in for the mail arriving: a shop sends `ann` three orders, and the second line waits until the third is in.
+
+==== Discussion
+
+One `surl` with an `smtp://` and a `pop3://` listen URL serves both over one mail store (<<surl-readme>>). `--mail-domain example.com` serves mail for the domain, and each `--mailbox` adds a mailbox with the account that logs in to it by its whole address, which `curl` gives with `-u`. The first seed line sends the three order files in one Simple Mail Transfer Protocol (SMTP) session: `-T "order[1-3].eml"` is a `curl` glob, `--crlf` gives each line the carriage return and line feed mail needs, and `--mail-from` and `--mail-rcpt` are the envelope. Delivery is asynchronous, so the second line waits for the third message instead of pausing a fixed time: `-X "LIST 3"` fails while there is no message 3, `--retry 10` allows ten more tries, `--retry-all-errors` lets it retry an error that is not a network one, and `--retry-delay 1` spaces them a second apart.
+
+`-X` replaces the command `curl` would send. `UIDL` with no argument answers one line per message, its number and its unique identifier; `surl`{apos}s identifiers are a number the mailbox{apos}s messages share, a dot, and the message{apos}s own number in the store, as in `1795220321.2`. `TOP 2 0` answers message 2{apos}s header, the blank line that ends it and zero lines of body (<<rfc1939>>). The header is the message as stored: `surl` added `Return-Path` and a dated `Received` line at the top, and the `From`, `To` and `Subject` are the shop{apos}s. `--next` starts the second transfer in the same `curl`, with its own options, and both run in one POP3 session. The logins need no loosening option: without Transport Layer Security `surl` offers only `CRAM-MD5`, which never sends the password, and `curl` uses it.
+
+The second number is how many body lines to add. `TOP 2 2` stops after the first two, enough to see what the message is about; `TOP 2 99`, more lines than the body has, prints all of it, down to its last line. The command and its arguments can also be split: `-X TOP` with the URL path `/2%200` sends `TOP 2 0`, because `curl` appends the path, decoded, to the command. That is the form for a client that takes the command as one word.
+
+`UIDL 2` asks about one message, and the answer, `+OK 2` and the identifier, is a single line that `curl` does not print; `-v` shows it on standard error, with `-s` keeping the progress meter off. The identifiers are what to remember between sessions, because message numbers are not. After `-X "DELE 1"` the session still lists messages `2` and `3` under their old numbers; the deletion takes effect when the session ends with `QUIT`, and the next session numbers the two that are left `1` and `2`. Their identifiers, ending `.2` and `.3`, are the ones they had before. A message that is not there, `TOP 9 0`, is answered `-ERR No such message`, and `curl` exits `8`, its code for a reply it did not expect; `-S` keeps `curl`{apos}s error line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-peek-at-headers-with-top-in-csharp>> for the same from C#.
+* <<pop3-peek-at-headers-with-top-from-an-agent>> for an agent that picks a message by its header.
+* <<pop3-retrieve-and-delete-a-message>> for retrieving and deleting in full.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>.

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-log-in-with-apop]]
+=== Logging In to POP3 with APOP
+
+==== Problem
+
+An old mail client logs in to Post Office Protocol version 3 (POP3) with APOP, which `surl` does not accept until it is told to. You want to see APOP refused by default, then accepted once the server names it, and know what that loosens.
+
+==== Solution
+
+Name APOP with `--auth`. The server then greets with a timestamp, and `curl` logs in with it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+APOP is the login of the POP3 specification that keeps the password off the wire without a challenge command (<<rfc1939>>). The server{apos}s greeting ends in a timestamp, a string that will not repeat. The client sends `APOP user digest`, where the digest is the Message Digest 5 (MD5) hash of the timestamp followed by the password. The server computes the same digest and compares. The script `check-digest.sh` logs in once with `-v`, recomputes the digest from the greeting and the password with `openssl`, and compares it with the one `curl` sent; it needs a POSIX shell (Git Bash on Windows):
+
+include::check-digest.sh[]
+
+The default server does not offer APOP. Its greeting is a bare `+OK surl ready`, with no timestamp, and an `APOP` command sent regardless is answered `-ERR Unsupported authentication mechanism`. Against it `curl` logs in with CRAM-MD5 and sends no APOP. Nothing there loosens security.
+
+`--auth` sets the methods the server accepts and offers, and apop is a word in its list that the default leaves out (<<surl-readme>>). It is also the loosening: `--auth` replaces the defaults, so `--auth apop` leaves APOP as the only POP3 login. The case `apop-only` shows `USER` and `PASS` refused, and `CAPA` has no `SASL` line. `surl` warns on every start while `--auth` is given. The option is shared with SMTP and Internet Message Access Protocol (IMAP), whose logins it narrows the same way, and with HTTP; on a surl that serves other protocols from the same command line, name every method they still need. `--auth apop,cram-md5` keeps CRAM-MD5 beside it; the greeting keeps its timestamp, and `curl` still prefers CRAM-MD5.
+
+The reference documentation gives the reason APOP is off by default: its MD5 construction leaks password characters to anyone who can choose the timestamp it signs (<<surl-readme>>). No case here shows that; the cases show that the password itself is not sent. Use APOP for the one client that cannot do anything better, on a test server, and let new clients use CRAM-MD5 or TLS.
+
+A wrong password fails the APOP login, and `curl` exits 67.
+
+`--mail-domain` serves mail for a domain and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. On the `curl` side, `-u` is the login, `-s` keeps the progress meter out, `-S` keeps error messages in, and `-T` uploads a fixture to a `telnet://` URL, which writes it to the port as it is, for the raw commands.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-log-in-with-apop-in-csharp>> for the same check in C#.
+* <<pop3-log-in-with-apop-from-an-agent>> for the same check run by an agent.
+* <<smtp-log-in-with-cram-md5>> for the login the default server offers.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1939>>.

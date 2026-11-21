@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: s3-sign-a-run-of-s3-requests-in-csharp
+title: Signing a Run of S3 Requests
+protocols: [s3, https]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerFiles, SurlFolderPage, CurlClient, CurlRequest, CurlResponse, CurlException, CurlAuthenticationOptions, CurlNetworkOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api, rfc9110]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the right secret the run puts reports/2026-q3.csv (200), lists both reports, deletes 2026-q2.csv over https signed with AwsSigV4 (204 No Content) and lists again, and the server's store then holds 2026-q3.csv alone.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n-- secret s3cret\nput: 200\nlist: 200 2026-q2\.csv 2026-q3\.csv\ndelete: 204\nlist: 200 2026-q3\.csv\nstore: 2026-q3\.csv\n$'
+
+  - id: wrong-secret
+    claim: With the right access key and a wrong secret, the s3:// put and listings throw CurlException HttpReturnedError, S3 returned error 403 SignatureDoesNotMatch, the https DELETE is answered 403 with the code SignatureDoesNotMatch in its body, and the store still holds 2026-q2.csv alone.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^-- secret wrong\nput: HttpReturnedError S3 returned error 403: SignatureDoesNotMatch: [^\n]*\nlist: HttpReturnedError S3 returned error 403: SignatureDoesNotMatch: [^\n]*\ndelete: 403 SignatureDoesNotMatch\nlist: HttpReturnedError S3 returned error 403: SignatureDoesNotMatch: [^\n]*\nstore: 2026-q2\.csv\n'
+
+  - id: no-delete-over-s3
+    claim: A DELETE on an s3:// URL throws CurlException NotBuiltIn before anything is sent, because the s3:// scheme sends only GET, or PUT with a body.
+    program: program.cs
+    args: [s3-delete]
+    expect:
+      exit: 0
+      stdout: "delete over s3://: NotBuiltIn s3:// does not support -X DELETE; it sends only GET, or PUT with -T\n"
+
+  - id: uploads-off
+    claim: With AllowUploads off, a correctly signed put throws 403 AccessDenied and the signed DELETE is answered 403 AccessDenied, while signed listings are served; the store keeps 2026-q2.csv.
+    program: program.cs
+    args: [read-only]
+    expect:
+      exit: 0
+      stdout-matches: '\n-- secret s3cret\nput: HttpReturnedError S3 returned error 403: AccessDenied: Access Denied\nlist: 200 2026-q2\.csv\ndelete: 403 AccessDenied\nlist: 200 2026-q2\.csv\nstore: 2026-q2\.csv\n$'

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-stop-a-client-hammering-a-refused-login-from-an-agent]]
+=== Stopping a Client Retrying a Bad Login
+
+==== Problem
+
+A client that retries a refused login with the same password gets accounts locked. You want your artificial intelligence (AI) agent to have logins for one account refused, to prove the client stops at the first 401 instead of hammering the server with the same password.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts a server through `surl-mcp`, adds a rule with `add_fault` that refuses one account, runs the client through `curl-mcp`{apos}s `curl` tool, and counts the judged logins with `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s own options in `arguments`: two `--user` accounts, `app` and `other`; `files` puts the file in memory. `add_fault` with `fault` `refuse-login;account=app` adds the rule `--fault` would: every login of `app` is refused, with its right password too, and answered `401 Unauthorized` as a wrong password is (<<rfc9110>>). The answer's `fault_id`, `f1`, names the rule for `remove_fault`. A fault is for tests only (<<surl-readme>>). The rule touches nothing else: `other` logs in and is answered `200`.
+
+The client is `curl`, run by the `curl` tool with the argument list given, its own process and connection each call. `--digest` with `-u app:s3cret` logs in with Digest access authentication (<<rfc7616>>). `-f` makes a status of 400 or above an error, exit 22, which the answer carries as `exitCode`, and `-s` with `-S` keeps only that error on stderr. `--retry 3` retries up to three times, but only errors it counts as transient; a `401` is not one, so `curl` stops at once. `-w "%{http_code} %{num_retries}"` puts `401 0` in `standardOutput`, and `-o hello.out` keeps the body out of it. `--retry-delay 1` keeps the waits short.
+
+What proves the client stopped is what the server saw. `get_events` with `kinds` `login_judged` and `account` `app` answers each login judged for `app`; `is_refused_by_fault` is `true` when the rule, not the password, refused it. The careful client leaves one.
+
+`--retry-all-errors` is the hammering client: it retries every error, the `401` that `-f` made included, so the same password goes out three more times. `get_events` then counts four logins for `app`, all refused by the rule. After `remove_fault` with the rule's `fault_id`, the careful client logs in as `app` at the first try: one login judged, none refused by the rule. An agent that checks a client this way reads the count, not the client's own report.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-stop-a-client-hammering-a-refused-login>> for the same check on the console.
+* <<http-stop-a-client-hammering-a-refused-login-in-csharp>> for the same check from a C# test.
+* <<http-find-who-failed-to-log-in-from-an-agent>> for reading failed logins when the account is not known.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc9110>>.

@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-check-unread-counts-in-csharp
+title: Checking Unread Counts in C#
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlMailboxInfo, SurlMailMessage, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three delivered messages are all unseen both over IMAP (SEARCH UNSEEN through Curl.Api answers 1 2 3) and in the store (UnseenCount 3); after the client fetches UID 1 both say 2.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^before: IMAP \* SEARCH 1 2 3; store 3 messages, 3 unseen\nafter reading UID 1: IMAP \* SEARCH 2 3; store 3 messages, 2 unseen\n'
+
+  - id: header-fetch-marks-seen
+    claim: Fetching only UID 2's Subject header through Curl.Api marks it read too; SEARCH UNSEEN then names 3 alone and the store says 1 unseen.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nUID 2 header: Subject: Order 2 shipped\nafter reading UID 2''s header: IMAP \* SEARCH 3; store 3 messages, 1 unseen\n'
+
+  - id: read-message-sets-no-flag
+    claim: ReadMessageAsync returns UID 3's 86 bytes and sets no flag; both counts still say 1 unseen.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nReadMessageAsync UID 3: 86 bytes\nafter ReadMessageAsync UID 3: IMAP \* SEARCH 3; store 3 messages, 1 unseen\n'
+
+  - id: kept-connection-misses-new-mail
+    claim: After a fourth delivery the store says 4 messages, 2 unseen, but the CurlClient that kept its connection with INBOX selected still searches 1 2 3 and reports 3 alone unseen; a new CurlClient sees 3 4.
+    program: unread-counts.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter a fourth delivery: IMAP \* SEARCH 3; store 4 messages, 2 unseen\nsame client, ALL: \* SEARCH 1 2 3\nnew client, UNSEEN: \* SEARCH 3 4\n$'
+
+  - id: no-status-in-curl-api
+    claim: Curl.Api 0.2.0 cannot send IMAP STATUS; a CurlRequest method is one HTTP token, and new HttpMethod("STATUS INBOX (MESSAGES UNSEEN)") throws FormatException before anything is sent.
+    program: unread-counts.cs
+    args: [status]
+    expect:
+      exit: 1
+      stdout: "FormatException: The format of the HTTP method is invalid.\n"
+
+  - id: no-such-folder
+    claim: Searching a folder ann does not have fails to select it, and Curl.Api throws CurlException with code 67, Select failed.
+    program: unread-counts.cs
+    args: [no-folder]
+    expect:
+      exit: 1
+      stdout: "Archive: curl error 67, Select failed\n"
+
+  - id: unknown-owner
+    claim: ListMailboxesAsync for an account that does not exist throws SurlNotFoundException, No mailboxes for nobody@example.com.
+    program: unread-counts.cs
+    args: [unknown-owner]
+    expect:
+      exit: 1
+      stdout: "SurlNotFoundException: No mailboxes for nobody@example.com.\n"

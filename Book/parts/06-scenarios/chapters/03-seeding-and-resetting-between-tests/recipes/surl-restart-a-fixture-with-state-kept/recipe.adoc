@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-restart-a-fixture-with-state-kept]]
+=== Restarting a Fixture with State Kept
+
+==== Problem
+
+You want a test fixture whose files and mail survive the server being stopped and started again, so a test can prove your client copes with the server going away and coming back, and finds its data where it left it.
+
+==== Solution
+
+Give `surl` a data directory with `--directory`, put a file and a message in it, stop `surl` and start it again with the same command line, then read both back:
+
+include::.generated/solution.adoc[]
+
+The read runs after the restart; the cases below stop and start the server between steps the same way.
+
+==== Discussion
+
+One `surl` serves Hypertext Transfer Protocol (HTTP), Simple Mail Transfer Protocol (SMTP) and Internet Message Access Protocol (IMAP) from one command line. `--user alice:s3cret` and `--allow-uploads` let `alice` upload over HTTP, logging in with `--digest -u`. `--mail-domain example.com` and `--mailbox ann@example.com:s3cret` give `ann` a mailbox: `curl` with `-u`, `--mail-from`, `--mail-rcpt` and `-T order.eml` sends her a message over SMTP (<<rfc5321>>), and the IMAP URL `INBOX;UID=1;SECTION=TEXT` reads its body back (<<rfc9051>>). `-s` hides the progress meter, `-S` still prints an error, and `--next` lets one command carry both reads, each with its own login.
+
+`--directory data` is what makes a restart survivable. Without it `surl` keeps everything in memory. With it, the upload is the plain file `data/notes.txt`, and the mail store lives in `data/.surl/mail`, beside the lock file `surl` holds while it runs. The test stops the server outright, the way a crash would, and starts it again with the same command on the same ports: the stale lock does not stop the new one, the file is served and the message is read as before.
+
+What a client remembers stays true. After the restart `STATUS` (sent with `-X`) reports one message and a next unique identifier (UID) of 2, so a client that cached UID 1 need not resynchronise; a message sent after the restart gets UID 2, and the replaced file is answered `204 No Content` as any replacement is (<<rfc9110>>). A second restart keeps those changes as well: `-w "%{size_download}"` shows the replaced file{apos}s 30 bytes.
+
+The same command line without `--directory` behaves differently, which is the point of the comparison. While it runs it holds the same file and message; restarted, it starts empty: the file is `404 Not Found` and `INBOX` has no messages. The mailbox itself is back, because it comes from the command line, not from the store. `-o` sends a body nowhere, so only the status shows.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-keep-files-across-restarts>> for files on disk on their own.
+* <<surl-reset-by-copying-a-clean-directory>> for starting each test from a clean copy instead.
+* <<surl-seed-a-mailbox-before-a-test>> for seeding mail before a test.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9051>>, <<rfc9110>>.

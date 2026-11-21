@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-log-in-to-mail-with-a-token-from-an-agent]]
+=== Logging In to Mail with a Token from an Agent
+
+==== Problem
+
+Your mail client logs in with OAUTHBEARER or XOAUTH2; with an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp`, you want a server that accepts only those and a test that sends and reads mail with the token.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts a server with `start_server`, sends as Bob and reads as Ann with the `curl` tool and the token, tries every way in that should stay shut, and asks `surl-mcp` what the server stored and judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The `openssl` line of the recipe made `server.pem` and `server.key` there.
+
+`start_server` takes four listen URLs on port 0, `smtps` and `imaps` over Transport Layer Security (TLS) and `smtp` and `imap` without, over one mail store, so the refusals have somewhere to happen. In `arguments`, `--user :tok-abc123` is the token: an account with an empty user name whose password is the token (<<surl-readme>>, <<rfc6750>>); `surl` issues no tokens and checks none against an identity provider. `--auth oauthbearer,xoauth2` names the only logins the server accepts and offers; it is a loosening option, and `surl` warns when it is on. The two mailboxes end in `;protocols=http`, so their passwords receive mail but are not accepted on any mail protocol; the console recipe has a case that shows why the key is needed.
+
+The `curl` tool runs `curl`{apos}s arguments and answers in text that is JavaScript Object Notation (JSON), with an `exitCode`, the output and the error text. Bob sends `lunch.eml` over `smtps` with `-u`, `--oauth2-bearer`, `--mail-from`, `--mail-rcpt` and `-T` (<<rfc5321>>). The agent does not read at once: `wait_for_event` with `kinds` `store_changed`, `store` `mail` and a timeout of ten seconds returns the delivery event, whose `name` is `ann@example.com/INBOX/;UID=1`, or `{"timed_out":true}`; `after_sequence` makes a second wait skip the first delivery. Ann reads the body over `imaps` with `;SECTION=TEXT` (<<rfc9051>>). `read_message` returns the stored message as `text`: it begins with the `Return-Path` of the envelope sender, and its `Received` line says `with ESMTPSA`, SMTP with TLS and a login. A second send passes `--login-options AUTH=XOAUTH2`.
+
+The failure paths each end in a non-zero `exitCode`. A password is refused over `smtps` and `imaps`, `67`. A wrong token is refused, `67`. Over plain `smtp` the server offers no token login, `curl` sends none and the mail is refused at `MAIL` with `530`, `55`; over plain `imap` the token is refused, `67`. A recipient outside `example.com` is refused `550` at `RCPT`, `55`, even with the token logged in: it does not open a relay. `list_mailboxes` for `ann@example.com` reports `message_count` 2, the two that were sent, so the refused sends stored nothing. `get_events` with `kinds` `login_judged` lists six logins with `scheme`, `mechanism`, `account` and `is_accepted`: the token is the account `bearer token`, never the token itself, and one is Ann{apos}s password over `imaps`, refused. The password over `smtps` and the token over the plain ports judged nothing, since no mechanism was offered for them.
+
+In the `curl` arguments, `-s` keeps the progress meter out, `-S` keeps error messages in, `--cacert` makes `curl` trust `server.pem`, `--crlf` gives the uploaded file the line ends mail needs, and `-w` prints the last reply code.
+
+The argument `why` starts the same server with ordinary mailboxes, without `;protocols=http`. Ann{apos}s password then logs in over `imaps`, and `curl` lists her mailboxes with exit `0`: `--auth` names mechanisms, and `curl` falls back to the IMAP `LOGIN` command when the server advertises none it can use. That command is not a mechanism the list closes; the key `protocols=http` closes it by making the account a mail account no longer. Each claim above is a case of its own.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-log-in-to-mail-with-a-token>> for the same flow on the console.
+* <<imap-log-in-to-mail-with-a-token-in-csharp>> for the same flow in C#.
+* <<imap-log-in-with-an-oauth-token-from-an-agent>> for the IMAP side alone, with the loosening.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9051>>, <<rfc6750>>.

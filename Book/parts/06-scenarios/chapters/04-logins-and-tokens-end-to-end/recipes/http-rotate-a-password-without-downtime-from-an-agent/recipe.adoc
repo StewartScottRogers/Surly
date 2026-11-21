@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-password-without-downtime-from-an-agent]]
+=== Rotating a Password Without Downtime
+
+==== Problem
+
+Your clients share a password that must change, and no client may be locked out while they move. You want your artificial intelligence (AI) agent to add the new password, move clients over and remove the old one, and see from the judged logins which clients still use it.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts a server through `surl-mcp`, adds the new password as a second account with `add_account`, moves each client through `curl-mcp`{apos}s `curl` tool, asks `get_events` which logins still name the old account, and calls `remove_account` last:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s own options in `arguments`. The server listens for Hypertext Transfer Protocol Secure (HTTPS) and the File Transfer Protocol (FTP); `--cert server.pem` and `--key server.key` name a certificate and key, made with `openssl` and never committed, read from the folder `SURL_MCP_ROOT` names. `--user app-v1:old-secret` adds the account both clients share, and an account logs in on every scheme the server serves. The answer holds `server_id` and `bound_urls`, one per listener.
+
+`surl` holds one password per account, so the overlap a rotation needs is two accounts. `add_account` with `user` and `password` adds `app-v2` to the running server and answers `{"user":"app-v2"}`, never the password. From the next login on either password works: the web client, a `curl` call with `-u app-v2:new-secret` (Basic, <<rfc7617>>) and `--cacert server.pem` to trust the certificate, is answered `200`, while the FTP job, still on `app-v1`, downloads `hello.txt` with `--ssl-reqd`, which makes `curl` switch the connection to Transport Layer Security (TLS) before it sends the password (<<rfc959>>, <<rfc4217>>, <<rfc8446>>). In the web call, `-o hello.out` keeps the body out of the answer, `-w "%{http_code}"` puts the status in `standardOutput`, and `-s` keeps the progress meter out of `standardError`. Each `curl` call is its own process and its own connection.
+
+`get_events` with `kinds` `login_judged` and `account` `app-v1` answers the old account's judged logins, each with `scheme`, `mechanism` and `is_accepted`. After the web client moved there is one, an accepted `password` login on `ftp`, which names the FTP job as the client still to move. The events never carry a password. Once the job logs in as `app-v2`, `remove_account` answers `{"user":"app-v1"}`, and from the next login on `app-v1` is refused on both schemes: `401 Unauthorized` over HTTPS, and over FTP a `curl` exit code of 67, login denied, in the answer's `exitCode`. `app-v2` logs in on both as before.
+
+Two shortcuts fail. `add_account` for a name that exists is a tool error, `user app-v1 already has an account`, and changes nothing: the old password still logs in and the new one does not. And removing the last account opens the server rather than closing it: `remove_account` answers with a `warning`, `server s1 has no account left and now needs no login`, and a `GET` with no login is answered `200`. An agent should add first and read that warning as a stop. `remove_account` for a name the server does not hold is a tool error naming the server and the account.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-rotate-a-password-without-downtime>> for the same rotation on the console, through the control endpoint.
+* <<http-rotate-a-password-without-downtime-in-csharp>> for the same rotation from a C# test.
+* <<http-rotate-a-proxy-account>> for rotating a proxy account from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc959>>, <<rfc4217>>, <<rfc8446>>.

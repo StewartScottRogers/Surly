@@ -1,0 +1,64 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smb-grant-each-user-their-share-in-csharp
+title: Per-User Share Rights in C#
+protocols: [smb]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, ms-smb]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: With Shares and ShareAccess "reports=reader:r,writer:rw", the writer's Curl.Api PUT stores the file in the share folder and the reader reads it; the reader's PUT throws CurlException 9, RemoteAccessDenied, and writes nothing.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: '^writer uploads: stored\non disk: q2 numbers\nreader reads: q1 numbers\nreader reads new: q2 numbers\nreader uploads: CurlException 9 RemoteAccessDenied\non disk: no file\n'
+
+  - id: unlisted-account
+    claim: An account the grant does not name, carol, gets CurlException 78, RemoteFileNotFound, for a read or an upload in the share, as if it were not there.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: 'carol reads: CurlException 78 RemoteFileNotFound\ncarol uploads: CurlException 78 RemoteFileNotFound\n'
+
+  - id: ungranted-share-stays-open
+    claim: A share that no grant names stays open, so carol reads other and, with AllowUploads on, uploads into it.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: 'carol reads other: open to all\ncarol uploads other: stored\non disk: unfinished\n'
+
+  - id: wrong-password
+    claim: A grant is not a login; the writer with a wrong password throws CurlException 67, LoginDenied.
+    program: program.cs
+    args: ["grants"]
+    expect:
+      exit: 0
+      stdout-matches: 'wrong password: CurlException 67 LoginDenied\n$'
+
+  - id: rw-still-needs-allow-uploads
+    claim: With AllowUploads off, the rw account{apos}s upload throws CurlException 9 as well, and the reader still reads.
+    program: program.cs
+    args: ["no-uploads"]
+    expect:
+      exit: 0
+      stdout: "writer uploads: CurlException 9 RemoteAccessDenied\nreader uploads: CurlException 9 RemoteAccessDenied\nreader reads: q1 numbers\n"
+
+  - id: group-grants-rw
+    claim: A Groups entry "editors=writer" and the grant "@editors:rw" let the group's member upload, while the account outside the group is refused with 9.
+    program: program.cs
+    args: ["group"]
+    expect:
+      exit: 0
+      stdout: "writer uploads: stored\nreader uploads: CurlException 9 RemoteAccessDenied\nreader reads: q1 numbers\n"

@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-mail-for-unknown-addresses-in-csharp]]
+=== Catching Mail for Unknown Addresses in C#
+
+==== Problem
+
+Your C# app may send mail to addresses no test set up, a typo or a generated name, and the server would quietly discard it; you want a catch-all mailbox so the test sees every stray message.
+
+==== Solution
+
+Add the domain{apos}s catch-all to `MailCatchAlls`, let the app send, wait for the delivery events, and read the catch-all from the store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds one `smtp://` URL on port 0; `MailDomains` is `--mail-domain`, here `example.com` and `example.org`; `MailAliases` is `--mail-alias`, `support@example.com=ann@example.com`; each `Mailboxes` entry is a `--mailbox`, whose address is also its login; `MailCatchAlls` is `--mail-catch-all`, `example.com=catchall@example.com`, which delivers mail for any address of the domain that has no mailbox to the catch-all (<<surl-readme>>). Without it, such mail is accepted and discarded, because a server that told a sender which addresses exist would give the list away. The app never hears about its typo either way: the Simple Mail Transfer Protocol (SMTP) answer is `250`.
+
+The app is a `CurlClient` sending one `CurlRequest` per address: `HttpMethod.Put` on the SMTP URL, whose path is the greeting name, `CurlMailOptions` with the envelope{apos}s `MailFrom` and `MailRecipients` (<<rfc5321>>), the message as `CurlContent`, and `CurlAuthenticationOptions` for the app{apos}s login. Without Transport Layer Security `surl` offers only `CRAM-MD5`, which Curl.Api uses, so no loosening option is set. Each `CurlResponse` has `StatusCode` `250`.
+
+Delivery is asynchronous, so the test does not read straight after sending. `server.OnEvent` with a `SurlEventQuery` for mail store changes calls back once per delivery with a `StoreChangedEvent`, whose `Name` is the owner, the folder and the UID. Deliveries happen in order, and the app sends to `ann`, who has a mailbox, last; the program waits for her event, ten seconds at most, and by then the two strays have been delivered or discarded. With the catch-all the events are `catchall@example.com/INBOX/;UID=1` and `UID=2`, then `ann`{apos}s. Without it there is only `ann`{apos}s: a discarded message raises no event.
+
+`server.Mail`, a `SurlServerMail`, reads the catch-all without a client. `ListMessagesAsync` returns a `SurlMessagePage` of `SurlMessageSummary` entries, and `ReadMessageAsync` each one as a `SurlMailMessage` with its exact `Bytes`. The message is as the app sent it, so its `To` header says which address it was meant for: `anne@example.com`, `bob.smith@example.com`. That header is all there is: `surl` adds no line naming the envelope address, so a message sent to `jo@example.com` whose `To` names `ann`, as a blind copy would be, is caught with `To: ann@example.com` and nothing about `jo`. The program exits 0 when it finds two strays, 1 otherwise, its own choice; each case below waits for the delivery it knows comes last before it counts.
+
+Only unknown addresses are caught. Addresses are matched without regard to letter case, so `Ann@Example.COM` is delivered to `ann@example.com`; the alias `support@example.com` is delivered to `ann` too; and in both cases the catch-all holds nothing. A catch-all is for one domain: `example.org` has none, so one message to `stray@example.org` and `team@example.org` is accepted `250`, delivered to `team` alone, and the copy for `stray` is discarded. A second `MailCatchAlls` entry for `example.com` makes `StartAsync` throw `SurlServerStartException`, `ExitCode` `FailedInit`, with `catch-all domain example.com is given twice`.
+
+The catch-all takes only the served domains{apos} own addresses. `someone@example.net`, outside every mail domain, is refused `550` at `RCPT TO`, and Curl.Api throws `CurlException` with `Code` 55, `RCPT failed: 550`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-mail-for-unknown-addresses>> for the same server on the console.
+* <<smtp-catch-mail-for-unknown-addresses-from-an-agent>> for an agent that reads the catch-all.
+* <<smtp-catch-every-address-in-one-mailbox-in-csharp>> for counting generated addresses in a catch-all.
+* <<surl-readme>>, <<rfc5321>>.

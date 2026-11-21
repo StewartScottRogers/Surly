@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-rotate-a-password-without-downtime
+title: Rotating a Password Without Downtime
+protocols: [https, ftp]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --cert, --key, --user, --control, --control-token-file]
+curl-options: [-s, -o, -w, --json, -H, -X, --next, --cacert, -u, --ssl-reqd]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc7617, rfc959, rfc4217, rfc8446]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  single/hello.txt: "hello from surl\n"
+  token.txt: "control-token-0123456789abcdefghij\n"
+  app-v2.json: "{\"user\":\"app-v2\",\"password\":\"new-secret\"}"
+  app-changed.json: "{\"user\":\"app\",\"password\":\"new-secret\"}"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: one account, app-v1, used by a web client over HTTPS and a nightly job over
+# FTP with explicit TLS, and a control endpoint to add and remove accounts while it serves.
+# single has one account, app, and shows what changing a password in place, and removing the
+# last account, do instead.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --cert server.pem --key server.key --user app-v1:old-secret --control http://127.0.0.1:{{port3}} --control-token-file token.txt https://127.0.0.1:{{port}}/ ftp://127.0.0.1:{{port2}}/
+    ready: port
+  single:
+    command: surl --directory single --cert server.pem --key server.key --user app:old-secret --control http://127.0.0.1:{{port5}} --control-token-file token.txt https://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Adding the account app-v2 through the control endpoint is answered 204; at once the web client logs in over HTTPS as app-v2 (200) while the FTP job still logs in as app-v1 (226), so both passwords work together.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" --json @app-v2.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port3}}/v1/accounts --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app-v2:new-secret https://127.0.0.1:{{port}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --ssl-reqd --cacert server.pem -u app-v1:old-secret ftp://127.0.0.1:{{port2}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "http 204\nhttps 200\nftp 226\n"
+
+  - id: who-still-uses-the-old-password
+    claim: The judged logins for app-v1 are a single event, an accepted password login on the ftp scheme, so the FTP job is the one client left on the old password.
+    run: 'curl -s -H "Authorization: Bearer control-token-0123456789abcdefghij" "http://127.0.0.1:{{port3}}/v1/events?kind=login_judged&account=app-v1"'
+    expect:
+      exit: 0
+      stdout-matches: '^\{"events":\[\{"sequence":\d+,"at":"[^"]+","kind":"login_judged","exchange_id":\d+,"scheme":"ftp","account":"app-v1","mechanism":"password","is_accepted":true,"is_refused_by_fault":false\}\],"has_more":false,'
+
+  - id: ftp-job-moved
+    claim: The FTP job, moved to app-v2, logs in over explicit TLS and downloads hello.txt.
+    run: curl -s --ssl-reqd --cacert server.pem -u app-v2:new-secret ftp://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: old-account-removed
+    claim: Deleting app-v1 is answered 204, and from the next login on app-v1 is refused on both schemes, 401 over HTTPS and 530 over FTP, curl exit 67.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" -X DELETE -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port3}}/v1/accounts/app-v1 --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app-v1:old-secret https://127.0.0.1:{{port}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --ssl-reqd --cacert server.pem -u app-v1:old-secret ftp://127.0.0.1:{{port2}}/hello.txt'
+    expect:
+      exit: 67
+      stdout: "http 204\nhttps 401\nftp 530\n"
+
+  - id: new-account-unaffected
+    claim: After the removal, app-v2 still logs in on both schemes, 200 over HTTPS and 226 over FTP.
+    run: curl -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app-v2:new-secret https://127.0.0.1:{{port}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --ssl-reqd --cacert server.pem -u app-v2:new-secret ftp://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "https 200\nftp 226\n"
+
+  - id: log-shows-the-refusals
+    claim: With -v the log ends with app-v1's refused logins, Basic over HTTPS then ftp, and app-v2's accepted ones; it names accounts, never passwords.
+    run: grep -E "Login (accepted|refused)" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '\* Login refused: Basic app-v1\n#\d+ \* Login refused: ftp app-v1\n#\d+ \* Login accepted: Basic app-v2\n#\d+ \* Login accepted: ftp app-v2\n$'
+
+  - id: in-place-change-cuts-off
+    claim: Posting a new password for the existing account app replaces it at once (204), so the next login with the old password is refused (401) and the new one is accepted (200); a client not yet moved fails from that moment.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" --json @app-changed.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port5}}/v1/accounts --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app:old-secret https://127.0.0.1:{{port4}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem -u app:new-secret https://127.0.0.1:{{port4}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "http 204\nhttps 401\nhttps 200\n"
+
+  - id: last-account-opens-the-server
+    claim: Deleting the server's last account is answered 204, and from then on a GET with no login at all is answered 200, because a server with no account needs no login.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" -X DELETE -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port5}}/v1/accounts/app --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem https://127.0.0.1:{{port4}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "http 204\nhttps 200\n"

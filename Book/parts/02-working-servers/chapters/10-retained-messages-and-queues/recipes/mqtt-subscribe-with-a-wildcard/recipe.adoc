@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-subscribe-with-a-wildcard]]
+=== Subscribing with a Wildcard
+
+==== Problem
+
+Your sensors publish to topics such as `sensors/kitchen/temp`, and you want one subscription to receive the retained reading of every topic that matches `sensors/+/temp`, another to receive those of `sensors/#`, and to know which topics each one misses.
+
+==== Solution
+
+Keep the readings with `--topic "sensors/#;retain"`, then subscribe with a filter in place of a topic. The seed lines publish six readings first; the filter follows:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A Message Queuing Telemetry Transport (MQTT) subscription names a topic filter, and two characters in it stand for more than themselves (<<mqtt311>>). A plus sign stands for exactly one level, a level being the text between two slashes, so `sensors/+/temp` matches `sensors/hall/temp` and `sensors/kitchen/temp`. A hash sign stands for any number of levels, including none, and has to be last, so `sensors/#` matches every topic under `sensors/` and also `sensors` itself, and `sensors/kitchen/#` takes the oven{apos}s `sensors/kitchen/oven/temp` along with the rest of the kitchen. The retained readings of every matching topic arrive on connecting, one message after another, each as the topic{apos}s length in two bytes, the topic and the payload; the recipe checks that the messages it names are there and how many bytes came, because it does not rely on their order.
+
+Which topics a filter misses follows from the same rules. `sensors/+/temp` misses `sensors/temp` and `sensors/kitchen/oven/temp`, whose levels are fewer or more, and `sensors/kitchen/humidity`, whose last level differs. `sensors/kitchen/+` matches the kitchen{apos}s temperature and humidity but not the oven, a level deeper; `sensors/+/+` matches the three topics exactly two levels down and misses the others. A filter that matches no retained topic is not an error: the subscription receives nothing and `curl` exits `0`.
+
+`-s` keeps the progress meter quiet, `-S` brings an error message back, and `-d` publishes a message instead of subscribing; the seed lines use it (<<curl-readme>>). Two things about the command line. `curl` takes a plain `#` in a URL as the start of a fragment and does not send it, so `sensors/#` as written receives nothing, which is why the case for the whole tree writes `%23`. A plain `+` is sent as it is. And a filter the broker cannot accept, a `#` that is not last, as in `sensors/%23/temp`, or a `+` that does not fill its level, as in `sensors/k+/temp`, is refused in the `SUBACK`; `curl` exits `8` with `Weird server reply`.
+
+None of the hash signs in `--topic "sensors/#;retain"` is a subscription. `--topic` declares which topics `surl` keeps, and its filter is more liberal than a subscription{apos}s: there a hash sign may stand at any level, as <<mqtt-grant-a-topic>> shows. `curl` publishes with the retain flag clear, so without that filter the seed readings would not be kept, and there would be nothing to receive (<<mqtt-keep-a-retained-message>>). The server runs with `--allow-anonymous`, which accepts any login or none and warns on start; that is a loosening for a test.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-subscribe-with-a-wildcard-in-csharp>> for the same filters from a C# test.
+* <<mqtt-subscribe-with-a-wildcard-from-an-agent>> for the same filters from an agent.
+* <<mqtt-keep-a-retained-message>> for what makes a reading retained.
+* <<mqtt-grant-a-topic>> for granting an account a filter.
+* <<surl-readme>>, <<mqtt311>>.

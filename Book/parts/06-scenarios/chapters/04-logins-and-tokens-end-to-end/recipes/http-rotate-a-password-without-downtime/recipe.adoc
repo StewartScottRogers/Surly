@@ -1,0 +1,55 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-password-without-downtime]]
+=== Rotating a Password Without Downtime
+
+==== Problem
+
+Your clients share one password, and you must change it without a moment when some of them are locked out. You want to add the new password, move clients over and remove the old one, and see from the judged logins which clients still use it.
+
+==== Solution
+
+Give the new password to a second account beside the old one, through `surl`{apos}s control endpoint, move each client to it, ask the server which logins still name the old account, and remove the old account last. Here the web client moves first, and the File Transfer Protocol (FTP) job still logs in with the old password:
+
+include::.generated/solution.adoc[]
+
+`token.txt` holds the control endpoint's token on its first line, and `app-v2.json` is the new account: `{"user":"app-v2","password":"new-secret"}`. To see which clients still log in as the old account:
+
+[source,shell]
+----
+curl -s -H "Authorization: Bearer control-token-0123456789abcdefghij" "http://127.0.0.1:8082/v1/events?kind=login_judged&account=app-v1"
+----
+
+Once that shows no new logins, delete the old account:
+
+[source,shell]
+----
+curl -X DELETE -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:8082/v1/accounts/app-v1
+----
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` holds one password per account, so the overlap a rotation needs is two accounts: `app-v1` with the old password and `app-v2` with the new one. While both exist, a client with either password logs in, and no client is ever refused for being early or late. Changing the password in place, shown at the end, has no such overlap.
+
+The server listens on two schemes. `--cert server.pem` and `--key server.key` give it a certificate and its key, made in the first line with `openssl` and never committed, for Hypertext Transfer Protocol Secure (HTTPS) and for FTP with explicit Transport Layer Security (TLS) (<<rfc959>>, <<rfc4217>>, <<rfc8446>>). Each `--user name:password` adds an account that logs in on every scheme the server serves, so one account covers both clients. `--directory site` serves the files, and `-v` with `--log-file surl.log` keeps a verbose log.
+
+`--control http://127.0.0.1:8082` opens a control endpoint on loopback, and `--control-token-file token.txt` names the file whose first line is the bearer token each request to it must carry. It lets a test change the running server over plain Hypertext Transfer Protocol (HTTP) and JavaScript Object Notation (JSON) (<<surl-readme>>). `POST /v1/accounts` with a JSON body of `user` and `password` adds an account and is answered `204 No Content`; `--json @app-v2.json` makes `curl` send the file as that body with the JSON content type, which keeps the new password off the command line, and `-H` adds the `Authorization` header with the token. The account works from the next login on: in the same `curl` run, after `--next`, the web client logs in over HTTPS as `app-v2`, named by `-u app-v2:new-secret`, with Basic authentication (<<rfc7617>>), trusts the certificate through `--cacert server.pem`, and is answered `200`, and the FTP job, with `--ssl-reqd` so its password crosses only inside TLS, logs in as `app-v1` and is answered `226`, transfer complete. `-w "%{scheme} %{response_code}\n"` prints each transfer's scheme and status, `-o` to the null device drops the bodies, and `-s` hides the progress meter.
+
+The server keeps every login it judges as an event. `GET /v1/events` with `kind=login_judged` and `account=app-v1` answers only the old account's logins, each with its `scheme`, `mechanism` and `is_accepted`. Here there is one, an accepted `password` login on `ftp`, so the FTP job is the client still to move. The event holds no password. Moved to `app-v2`, the FTP job downloads `hello.txt` as before.
+
+`-X DELETE` on `/v1/accounts/app-v1` removes the old account and is answered `204`. From the next login on, `app-v1` is refused on both schemes: `401 Unauthorized` over HTTPS, and `530` over FTP, which `curl` reports as exit 67, login denied. `app-v2` logs in on both as before. The log says the same in words: `Login refused: Basic app-v1`, `Login refused: ftp app-v1`, then `Login accepted` for `app-v2`, naming accounts and never passwords.
+
+Two shortcuts break this. Posting a new password for an account that exists, here `app` on a second server, replaces its password at once and is answered `204`: the next login with the old password is refused with `401` and only the new one works, so a client not yet moved fails from that moment. And deleting the server's last account does not lock everyone out, it opens the server: with no account left `surl` needs no login, and a `GET` with no credentials at all is answered `200`. Add the new account before removing the old one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-rotate-a-password-without-downtime-in-csharp>> for the same rotation from a C# test.
+* <<http-rotate-a-password-without-downtime-from-an-agent>> for the same rotation from an agent.
+* <<http-tell-clients-apart-by-account>> for reading which account did what from the log.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc959>>, <<rfc4217>>, <<rfc8446>>.

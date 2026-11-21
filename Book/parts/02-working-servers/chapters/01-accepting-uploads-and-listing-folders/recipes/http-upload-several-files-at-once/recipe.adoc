@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-upload-several-files-at-once]]
+=== Uploading Several Files at Once
+
+==== Problem
+
+You want to upload three files into one folder on a Hypertext Transfer Protocol (HTTP) server with a single `curl` command, using `-T` and a `{a,b,c}` list, and then list the folder to see that they arrived.
+
+==== Solution
+
+Serve a folder with uploads and listings on, give `-T` the list in quotes and a URL that ends in a slash, and after `--next` list the folder over WebSocket:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`-T "{a,b,c}.txt"` is a glob on the upload side: `curl` expands it into `a.txt`, `b.txt` and `c.txt` and makes one `PUT` for each, in order, all on one command line. The quotes keep the shell from expanding the braces itself. A range works as well: `-T "[a-c].txt"` names the same three files. Because the URL ends in `/`, `curl` appends each local file{apos}s name to it, so the three land at `/reports/a.txt`, `/reports/b.txt` and `/reports/c.txt`. Without the slash there is nothing to append: every file is put to the one path the URL names, each replaces the last, and only the last file{apos}s bytes are kept.
+
+`-s` hides the progress meter, and `-w "%{http_code} %{url.path}\n"` prints one line per transfer, so each file{apos}s answer is on the screen: `201 Created` for a new file, `204 No Content` when the same command runs again and replaces it (<<rfc9110>>). `--next` starts a fresh set of options for the URLs after it; the `-w` and `-T` stay with the uploads, and the WebSocket URL is a plain fetch.
+
+HTTP itself never lists a folder in `surl`: a `GET` of `/reports/` is `404 Not Found`. The listing comes from a second listen URL, `ws://`, on the same `--directory`, with `--list-directories` on. A WebSocket request for a folder is answered with one name a line, sorted, which is the last four lines of the Solution{apos}s output: the three uploads and `old.txt`, which was there before (<<rfc6455>>).
+
+`surl` creates no folders: uploads into a folder that does not exist are each answered `409 Conflict`. To `curl` an answered upload is a successful transfer whatever the status, so it exits `0` with three `409` lines. A name in the list with no file behind it is a different failure: `curl` uploads the files before it, stops at that name with exit `26` (it could not read the file) and never sends the ones after it, as the listing of `inbox` shows.
+
+`--allow-anonymous` is the loosening that lets anyone upload here; `surl` warns about it on start. Without it, on a server with an account (`--user alice:s3cret`), every file in the list is answered `401 Unauthorized`, and the same command with `--digest -u alice:s3cret` (`-u` names the account, `--digest` sends it as a Digest login rather than in the clear) gets `201` for each: `curl` repeats the login for every file. `--allow-uploads` is needed either way; without it each `PUT` is `405 Method Not Allowed`, even from a server that lets anyone read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-upload-several-files-at-once-in-csharp>> for the same batch sent concurrently from C#.
+* <<http-upload-several-files-at-once-from-an-agent>> for an agent doing it in one `curl` call.
+* <<http-accept-uploads>> for one upload and the logins around it.
+* <<http-list-a-directory>> for listings over WebSocket.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc6455>>.

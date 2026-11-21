@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: surl-seed-every-store-for-a-demo
+title: Seeding Every Store for a Demo
+protocols: [http, smtp, imap, mqtt, redis, ldap, dns]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, put_file, seed_mail, publish_message, set_key, add_ldap_entries, add_dns_zone, read_file, list_messages, read_retained_message, read_key, read_directory, read_zone, curl]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110, rfc9051, rfc2849, rfc1035]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: On one server with seven listeners, put_file, seed_mail, publish_message with retain, set_key, add_ldap_entries and add_dns_zone each fill their store with no login and no client, and the read tools give back the page as text/html, ann's message as UID 1, the retained shop/status, the Redis string, both directory entries and the zone's www record.
+    program: program.cs
+    args: [seed]
+    expect:
+      exit: 0
+      stdout-matches: '\nadd_dns_zone: \{"apex":"shop\.test","byte_count":118\}\nread_file: text/html <h1>Demo shop</h1>\nlist_messages: uid 1, \d+ bytes\nread_retained_message: shop/status open\nread_key: cart:ann string 2 items\nread_directory: dc=example,dc=com, uid=ann,dc=example,dc=com\nread_zone: www\.shop\.test\. 300 IN A 127\.0\.0\.1\n$'
+
+  - id: seed-answers
+    claim: Each seed tool answers what it stored; set_key the key, its database and byte count, add_ldap_entries the number of entries, add_dns_zone the apex.
+    program: program.cs
+    args: [seed]
+    expect:
+      exit: 0
+      stdout-matches: '^put_file: \{"path":"/index\.html","byte_count":19\}\nseed_mail: \{"delivered":true\}\npublish_message: \{"published":true\}\nset_key: \{"key":"cart:ann","database":0,[^\n]*"byte_count":7\}\nadd_ldap_entries: \{"entry_count":2\}\n'
+
+  - id: clients-see-it
+    claim: The demo's clients see the seeds over the wire through curl-mcp; the page over HTTP, www.shop.test from the DNS server, and the message's subject over IMAP with ann's login.
+    program: program.cs
+    args: [clients]
+    expect:
+      exit: 0
+      stdout-matches: '\nhttp: <h1>Demo shop</h1>\ndns: www\.shop\.test\. 300 IN A 127\.0\.0\.1\nimap: Subject: Your order 42\n$'
+
+  - id: no-login
+    claim: Seeding needed no login, but a client still does; with none, Redis refuses at HELLO (exit 67), LDAP refuses the anonymous bind (exit 38) and MQTT refuses the connect (exit 8).
+    program: program.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout-matches: '\nredis: exitCode 67\nldap: exitCode 38\nmqtt: exitCode 8\n$'
+
+  - id: refused-seeds
+    claim: A mail for an address with no mailbox is a tool error naming NoSuchAccount, and a batch of LDAP entries with one missing parent is refused whole, so even its good first entry is not in the directory.
+    program: program.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "seed_mail bob: tool error yes, Mail: Mail for bob@example.com was refused: NoSuchAccount.\nadd_ldap_entries cy, dee: tool error yes, Directory: The LDIF entries was refused: line 7: a parent DN that is not in the file.\ndirectory holds uid=cy: no\n"

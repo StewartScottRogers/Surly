@@ -58,3 +58,5 @@ https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a
 - Trusting the intermediate alone (`--cacert inter.pem`) also verifies on Windows (partial chain); not claimed.
 - Curl.Api: `CertificateAuthorityBlob` is `ReadOnlyMemory<byte>?` and init-only: build it in the initializer (`ReadOnlyMemory<byte>? root = File.ReadAllBytes(...)`). Failure: `CurlException` `Code` `PeerFailedVerification` (60). Start refusal: `SurlServerStartException` `ExitCode` `CertificateProblem` (58), `Message` `(58) Could not load the server certificate: ...`. An https fetch answers a `ReasonPhrase` of "" (print the code only).
 - surl-mcp start refusal: structured `exit_code` 58, `exit_code_name` `CertificateProblem`; curl-mcp `curl` tool nonzero exit (60) is a tool error; `transfer` cannot skip revocation checking.
+
+- Do not use Curl.Api `UseSsl.All` (or Try/Control) in a recipe until Curl BL-5640 lands: on `ftp://` it sends USER and PASS in clear with no AUTH TLS, and on `imap://` the STARTTLS login fails 67. Use the implicit-TLS scheme (`ftps://`, `imaps://`, `pop3s://`, `smtps://`) instead (Curl session, 2026-11-20).

@@ -1,0 +1,131 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-log-in-with-an-oauth-token
+title: Logging In to IMAP with a Token
+protocols: [imaps, imap, smtp]
+tier: secure-servers
+surl-options: [--cert, --key, --user, --mailbox, --mail-domain, --auth, --allow-plaintext-auth]
+curl-options: [--cacert, -u, --oauth2-bearer, --login-options, -s, -S, -v, --crlf, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 67, 78]
+references: [surl-readme, curl-readme, rfc9051, rfc6750]
+
+fixtures:
+  hi.eml: "From: ann@example.com\nTo: ann@example.com\nSubject: Lunch\n\nNoon at the usual place.\n"
+  # What a client that ignores the capability list would send: XOAUTH2 with the right token, then with a
+  # wrong one. Each argument is base64 of "user=ann@example.com", 0x01, "auth=Bearer <token>", 0x01 0x01.
+  raw.imap: "a1 AUTHENTICATE XOAUTH2 dXNlcj1hbm5AZXhhbXBsZS5jb20BYXV0aD1CZWFyZXIgdG9rLWFiYzEyMwEB\r\na2 AUTHENTICATE XOAUTH2 dXNlcj1hbm5AZXhhbXBsZS5jb20BYXV0aD1CZWFyZXIgd3JvbmctdG9rZW4BAQ==\r\na3 LOGOUT\r\n"
+  right.imap: "a1 AUTHENTICATE XOAUTH2 dXNlcj1hbm5AZXhhbXBsZS5jb20BYXV0aD1CZWFyZXIgdG9rLWFiYzEyMwEB\r\na2 LOGOUT\r\n"
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is secure by default: the token is an account (an empty user name), the mailboxes are ann's and
+# bob's; imaps is TLS, imap and smtp are not. loose adds --allow-plaintext-auth, there for the comparison
+# only. one-method offers OAUTHBEARER and nothing else.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user :tok-abc123 --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass imaps://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/ smtp://127.0.0.1:{{port3}}/
+    ready: port
+  loose:
+    command: surl --allow-plaintext-auth --user :tok-abc123 --mail-domain example.com --mailbox ann@example.com:annpass imap://127.0.0.1:{{port4}}/
+    ready: port
+  one-method:
+    command: surl --cert server.pem --key server.key --auth oauthbearer --user :tok-abc123 --mail-domain example.com --mailbox ann@example.com:annpass imaps://127.0.0.1:{{port5}}/
+    ready: port
+
+seed:
+  - curl -sS --crlf -u ann@example.com:annpass --mail-from ann@example.com --mail-rcpt ann@example.com -T hi.eml smtp://127.0.0.1:{{port3}}/example.com
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over imaps, curl logs in as ann with the token, nothing but the token as the secret, and reads message 1, exit 0.
+    run: curl -sS --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 "imaps://127.0.0.1:{{port}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout: "Noon at the usual place.\n"
+
+  - id: oauthbearer-by-default
+    claim: Over TLS the server advertises AUTH=OAUTHBEARER and AUTH=XOAUTH2; curl picks OAUTHBEARER and is told AUTHENTICATE completed.
+    run: curl -sv --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 imaps://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: 'AUTH=OAUTHBEARER AUTH=XOAUTH2[^\n]*\s+> A001 CAPABILITY[\s\S]*> A002 AUTHENTICATE OAUTHBEARER \S+\s+< A002 OK AUTHENTICATE completed'
+
+  - id: xoauth2
+    claim: Asked for XOAUTH2 with --login-options AUTH=XOAUTH2, curl logs in with that mechanism and the same token, exit 0.
+    run: curl -sv --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 --login-options AUTH=XOAUTH2 imaps://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '> A002 AUTHENTICATE XOAUTH2 \S+\s+< A002 OK AUTHENTICATE completed'
+
+  - id: wrong-token
+    claim: A wrong token is refused; curl exits 67, Login denied.
+    run: curl -sS --cacert server.pem -u ann@example.com --oauth2-bearer wrong-token imaps://127.0.0.1:{{port}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: token-is-not-a-mailbox
+    claim: The token is an account of its own, not ann's; the user name a client gives picks the mailbox it reads, so bob, given the same token, sees an empty INBOX and exit 78 for message 1.
+    run: curl -sS --cacert server.pem -u bob@example.com --oauth2-bearer tok-abc123 "imaps://127.0.0.1:{{port}}/INBOX;UID=1"
+    expect:
+      exit: 78
+      stderr-contains: "curl: (78)"
+
+  - id: no-token-over-plain-imap
+    claim: Over plain imap the server does not advertise OAUTHBEARER or XOAUTH2, only CRAM-MD5, and curl sends no AUTHENTICATE, exit 67.
+    run: curl -sv -u ann@example.com --oauth2-bearer tok-abc123 imap://127.0.0.1:{{port2}}/ 2>&1
+    expect:
+      exit: 67
+      stdout-matches: '\A(?![\s\S]*AUTHENTICATE)[\s\S]*STARTTLS LOGINDISABLED AUTH=CRAM-MD5\]'
+
+  - id: server-refuses-token-unchecked
+    claim: A client that sends AUTHENTICATE XOAUTH2 over plain imap anyway is answered NO [PRIVACYREQUIRED] Encryption required, with the right token and a wrong one alike, so the token is never checked.
+    run: curl -s -T raw.imap telnet://127.0.0.1:{{port2}}
+    expect:
+      exit: 0
+      stdout-matches: 'a1 NO \[PRIVACYREQUIRED\] Encryption required\s+a2 NO \[PRIVACYREQUIRED\] Encryption required\s+'
+
+  - id: starttls-is-encryption
+    claim: Over plain imap, upgraded with STARTTLS (--ssl-reqd), the same token is accepted, exit 0, so what is refused is a token in clear and not imap itself.
+    run: curl -sS --ssl-reqd --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout: "Noon at the usual place.\n"
+
+  - id: loosened-accepts-token-in-clear
+    claim: With --allow-plaintext-auth the plain imap server accepts the token, so curl logs in over a connection with no TLS and lists the mailboxes, exit 0.
+    run: curl -sS -u ann@example.com --oauth2-bearer tok-abc123 imap://127.0.0.1:{{port4}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"
+
+  - id: loosened-still-checks
+    claim: The loosened server still checks the token, and a wrong one is refused with exit 67.
+    run: curl -sS -u ann@example.com --oauth2-bearer wrong-token imap://127.0.0.1:{{port4}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: loosened-raw
+    claim: On the loosened server the raw XOAUTH2 with the right token is answered OK AUTHENTICATE completed, where the default server answered NO.
+    run: curl -s -T right.imap telnet://127.0.0.1:{{port4}}
+    expect:
+      exit: 0
+      stdout-matches: 'a1 OK AUTHENTICATE completed'
+
+  - id: one-method
+    claim: With --auth oauthbearer only AUTH=OAUTHBEARER is advertised, and curl's default login still works, exit 0.
+    run: curl -sv --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 imaps://127.0.0.1:{{port5}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: 'APPENDLIMIT=\d+ AUTH=OAUTHBEARER\]'
+
+  - id: one-method-refuses-xoauth2
+    claim: A client that insists on XOAUTH2 finds no mechanism in common with that server and exits 67.
+    run: curl -sS --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 --login-options AUTH=XOAUTH2 imaps://127.0.0.1:{{port5}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"

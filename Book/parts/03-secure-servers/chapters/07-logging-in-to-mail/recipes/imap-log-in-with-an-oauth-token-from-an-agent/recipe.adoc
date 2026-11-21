@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-log-in-with-an-oauth-token-from-an-agent]]
+=== IMAP Logins with a Token from an Agent
+
+==== Problem
+
+Your mail client logs in to Internet Message Access Protocol (IMAP) with an OAuth 2.0 access token, by XOAUTH2 or OAUTHBEARER, not with a password; with an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp`, you want an IMAP server that accepts the token over Transport Layer Security (TLS), refuses a wrong one, and refuses any token over plain IMAP.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts a server with `start_server` that holds the token as an account, seeds one message, logs in with the `curl` tool over TLS and over plain IMAP, and reads the logins the server judged with `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The `openssl` line of the recipe made `server.pem` and `server.key` there, a certificate for `127.0.0.1`. The argument picks the scenario.
+
+`start_server` takes an `imaps://` and an `imap://` listen URL on port 0 and `surl`{apos}s options in `arguments`: `--cert` and `--key`, two `--mailbox` entries with `--mail-domain`, and `--user :tok-abc123`, an account with an empty user name whose password is the token (<<surl-readme>>, <<rfc6750>>). `surl` issues no tokens and checks none against an identity provider; a test chooses a string. `seed_mail` puts a message in ann{apos}s `INBOX`, and `wait_for_event` with `kinds` `store_changed` and `store` `mail` returns once the delivery event is kept, or `{"timed_out":true}` after ten seconds, so the agent never reads before the mail is there.
+
+The `curl` tool runs `curl`{apos}s arguments and answers in text that is JavaScript Object Notation (JSON), with an `exitCode` and the output. `--oauth2-bearer` is the token and `-u` the mailbox it is for. Over `imaps://`, with `--cacert server.pem`, `curl` logs in by OAUTHBEARER and reads message 1 with `;SECTION=TEXT` in the URL (<<rfc9051>>); `--login-options AUTH=XOAUTH2` makes it send XOAUTH2 instead. A wrong token exits `67`, login denied. The token is not ann{apos}s: it is an account of its own, and the user name the client gives picks the mailbox it reads, so `bob@example.com` with the same token exits `78` for a message that sits in ann{apos}s mailbox. A token is a master key to every mailbox, which suits a test and is worth knowing.
+
+Over plain `imap://` the server advertises no token mechanism, so `curl` sends no login and exits `67`. A client that writes `AUTHENTICATE XOAUTH2` regardless gets `NO [PRIVACYREQUIRED] Encryption required`, for the right token and a wrong one alike, so the token is never checked: `curl -T right.imap` to the same port as a `telnet://` URL writes the fixture as it is and prints the replies. Those refusals are not logins the server judged. `get_events` with `kinds` `login_judged` returns the four on `imaps`, each with its `scheme`, `mechanism`, the account `bearer token`, never the token, and `is_accepted`.
+
+`--allow-plaintext-auth` in `arguments` is the loosening, and `surl` warns when it is on. With it the plain server accepts the token, which anyone who sees the connection can read, and still refuses a wrong one. `--auth oauthbearer` narrows the other way: only that mechanism is advertised, and a client that insists on XOAUTH2 exits `67` with nothing judged.
+
+In the `curl` arguments, `-s` keeps the progress meter out and `-T` uploads a fixture to a `telnet://` URL, which writes it to the port as it is.
+
+The server{apos}s side is read from `get_exchanges`: the first line the server wrote on `imaps` carries `AUTH=OAUTHBEARER AUTH=XOAUTH2` beside CRAM-MD5, PLAIN and LOGIN, and on plain `imap` only `AUTH=CRAM-MD5`, which is why `curl` has nothing to send there. With `--ssl-reqd`, `curl` upgrades plain `imap` with `STARTTLS` and the same token is accepted, so what is refused is a token in clear and not IMAP itself. The refused raw attempts are not logins the server judged.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-log-in-with-an-oauth-token>> for the same check on the console.
+* <<imap-log-in-with-an-oauth-token-in-csharp>> for the same check in C#.
+* <<smtp-log-in-with-cram-md5-from-an-agent>> for the login a plain port offers instead.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6750>>, <<rfc9051>>.

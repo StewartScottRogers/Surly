@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-upload-several-files-at-once-in-csharp]]
+=== Uploading Several Files at Once in C#
+
+==== Problem
+
+Your C# tool uploads a batch of files over Hypertext Transfer Protocol (HTTP); you want to send them concurrently with `Curl.Api` and then check, from the server{apos}s own store, that every one arrived.
+
+==== Solution
+
+Start a `SurlServer` with an account and uploads on, send one `PUT` per file on a shared `CurlClient` and await them together with `Task.WhenAll`, then list the folder with `Files.ListAsync`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `Accounts` holds `SurlAccount("alice", "s3cret")`, which is `--user`, and `AllowUploads` is `--allow-uploads`. `Files["reports/old.txt"]` puts one file in the in-memory store before the server starts, so the folder `/reports` exists; `surl` creates no folders, and a `PUT` into one that is not there is `409 Conflict` for every file in the batch. `RecordExchanges` keeps a record of each exchange, which the program reads only to count them.
+
+Each upload is a `CurlRequest` with `HttpMethod.Put`, the file{apos}s bytes as `Body`, and `Authentication` set to a `CurlAuthenticationOptions` naming the account and `HttpAuthenticationMethods.Digest`, so the password never crosses the wire in the clear. `SendAsync` returns a `CurlResponse` once the status line has arrived: `201 Created` for a new file (<<rfc9110>>). The program disposes each `Body` it does not read.
+
+`batch.Select(Put)` starts all three tasks before any has finished, and `Task.WhenAll` waits for every one and hands back their answers in the batch{apos}s order, whatever order they finished in. One `CurlClient` is meant to be shared, and it runs the three requests side by side: the server records more than one exchange, one per connection the client opened. Awaited one at a time, the same three go over one kept-alive connection, one exchange. The answers are the same either way; what changes is how long the batch waits.
+
+`server.Files` is the `SurlServerFiles` view of the running store; its `ListAsync("/reports")` reads the folder from the server{apos}s store, not over the wire, and returns a `SurlFolderPage` whose `Entries` are in name order: the three uploads and `old.txt`. That is the check a test wants: it does not trust the status codes alone.
+
+A refused upload is still an answer, not an exception. Without a login each `PUT` is `401 Unauthorized`; with `AllowUploads` off, the default, each is `405 Method Not Allowed`. In both, `/reports` still holds only `old.txt`. The program does what `curl -f` would do with the batch and exits `22` if any file was refused, `0` if all arrived; that code is the program{apos}s choice, not the library{apos}s.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-upload-several-files-at-once>> for the same batch with one `curl` command.
+* <<http-upload-several-files-at-once-from-an-agent>> for an agent uploading the batch.
+* <<http-create-and-replace-a-file-in-csharp>> for one file, replaced, from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

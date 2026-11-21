@@ -1,0 +1,118 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs token-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-log-in-to-mail-with-a-token-from-an-agent
+title: Logging In to Mail with a Token from an Agent
+protocols: [smtps, imaps, smtp, imap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, wait_for_event, read_message, list_mailboxes, get_events, curl]
+curl-options: [-s, -S, --cacert, --crlf, -u, --oauth2-bearer, --login-options, --mail-from, --mail-rcpt, -T, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc5321, rfc9051, rfc6750]
+
+fixtures:
+  lunch.eml: "From: bob@example.com\r\nTo: ann@example.com\r\nSubject: Lunch\r\n\r\nNoon at the usual place.\r\n"
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+
+cases:
+  - id: solution
+    role: solution
+    claim: "With the token alone, bob sends to ann over smtps (250) once the delivery is reported, and ann reads the body over imaps."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "bob\\ sends\\ over\\ smtps\\ with\\ the\\ token:\\ SMTP\\ 250\\ndelivered:\\ ann@example\\.com/INBOX/;UID=1\\nann\\ reads\\ over\\ imaps\\ with\\ the\\ token:\\ Noon\\ at\\ the\\ usual\\ place\\.\\n"
+
+  - id: recorded-as-authenticated-and-encrypted
+    claim: "The stored message records how it arrived, ESMTPSA, which is SMTP with TLS and a login, and carries the envelope sender bob."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "stored\\ with\\ ESMTPSA,\\ from\\ bob:\\ True\\n"
+
+  - id: xoauth2
+    claim: "Asked for XOAUTH2, the client sends over smtps with that mechanism instead, the mail is accepted 250, and the server judges the login XOAUTH2."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "bob\\ sends\\ with\\ XOAUTH2:\\ SMTP\\ 250\\n[\\s\\S]*login_judged:\\ smtps\\ XOAUTH2\\ bearer\\ token\\ is_accepted\\ true\\n"
+
+  - id: password-refused-on-smtps
+    claim: "Bob's own password is no way in over smtps, since the server offers no password login."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "bob's\\ password\\ over\\ smtps:\\ curl\\ exit\\ 67\\n"
+
+  - id: password-refused-on-imaps
+    claim: "Ann's password is refused over imaps too, because her mailbox account logs in on no mail protocol; the server judges it refused."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "ann's\\ password\\ over\\ imaps:\\ curl\\ exit\\ 67\\n[\\s\\S]*login_judged:\\ imaps\\ password\\ ann@example\\.com\\ is_accepted\\ false\\n"
+
+  - id: wrong-token
+    claim: "A wrong token is refused over smtps, and the server judges it refused."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "wrong\\ token\\ over\\ smtps:\\ curl\\ exit\\ 67\\n[\\s\\S]*login_judged:\\ smtps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ false\\n"
+
+  - id: no-token-in-clear-smtp
+    claim: "Over plain smtp the server does not offer token logins, the client sends none, and the mail is refused at MAIL with 530."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "token\\ over\\ plain\\ smtp:\\ curl\\ exit\\ 55:\\ curl:\\ \\(55\\)\\ MAIL\\ failed:\\ 530\\n"
+
+  - id: no-token-in-clear-imap
+    claim: "Over plain imap the token is refused as well."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "token\\ over\\ plain\\ imap:\\ curl\\ exit\\ 67\\n"
+
+  - id: token-does-not-open-relay
+    claim: "A logged-in token still obeys the mail domain; a recipient outside example.com is refused 550 at RCPT."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "token\\ to\\ a\\ recipient\\ outside\\ the\\ domain:\\ curl\\ exit\\ 55:\\ curl:\\ \\(55\\)\\ RCPT\\ failed:\\ 550\\n"
+
+  - id: refusals-stored-nothing
+    claim: "After the two sends that worked and the four refused sends, ann's INBOX holds exactly two messages."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "list_mailboxes:\\ INBOX\\ holds\\ 2\\ messages\\n"
+
+  - id: why-protocols-http
+    claim: "Without protocols=http, on a server that names only the two token mechanisms, ann's mailbox password still logs in over imaps, because the client falls back to the IMAP LOGIN command, which the list of mechanisms does not close."
+    program: token-mail.cs
+    args: ["why"]
+    expect:
+      exit: 0
+      stdout-matches: "ann's\\ password\\ over\\ imaps,\\ no\\ protocols=http:\\ curl\\ exit\\ 0,\\ \\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ INBOX\\n"
+
+  - id: what-the-server-judged
+    claim: "The server judged six logins, among them ann's password over imaps, refused; the password over smtps and the token over the plain ports judged nothing, since no mechanism was offered for them."
+    program: token-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "login_judged:\\ smtps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ true\\nlogin_judged:\\ imaps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ true\\nlogin_judged:\\ smtps\\ XOAUTH2\\ bearer\\ token\\ is_accepted\\ true\\nlogin_judged:\\ imaps\\ password\\ ann@example\\.com\\ is_accepted\\ false\\nlogin_judged:\\ smtps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ false\\nlogin_judged:\\ smtps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ true\\n"

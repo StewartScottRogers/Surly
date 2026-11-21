@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-log-in-with-apop-in-csharp]]
+=== POP3 Logins with APOP in C#
+
+==== Problem
+
+An old mail client logs in to Post Office Protocol version 3 (POP3) with APOP, which `surl` does not accept until it is told to; from a C# test with `Surl.Api` and `Curl.Api`, you want to see APOP refused by default, then accepted once the server names it, and know what that loosens.
+
+==== Solution
+
+Start a `SurlServer` with a POP3 listener and a mailbox, and set `AuthenticationMethods` to name APOP. Log in with a `CurlClient`, then ask the server what it judged and read the digest from the recorded exchange:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+APOP is the login of the POP3 specification in which the server{apos}s greeting ends in a timestamp and the client answers `APOP user digest`, the digest being the Message Digest 5 (MD5) hash of the timestamp followed by the password (<<rfc1939>>). `AuthenticationMethods` is `--auth` as a property: the methods the server accepts and offers, replacing the default list, with `apop` a word the default leaves out (<<surl-readme>>). It is a loosening, and `surl` warns when it is on.
+
+The program writes the commands by hand with a `TcpClient` to read the greeting and to send an `APOP` with a made-up digest. On the default server the greeting is a bare `+OK surl ready` and the command is answered `-ERR Unsupported authentication mechanism`; `Curl.Api` logs in with CRAM-MD5 there and the event says so. On the server that names APOP the greeting ends in a timestamp and the made-up digest is refused as `-ERR [AUTH] Authentication failed`.
+
+A `CurlClient` with a user name and password then logs in, on a client of its own because a client reuses a connection that is already logged in. `FindEvents` for `SurlEventKind.LoginJudged`, with `RecordExchanges` on, returns a `LoginJudgedEvent` for each decision: the raw attempt, refused, and the real login, `APOP`, accepted. `FindExchanges` for the `pop3` scheme gives the exchange: `Sent` holds the timestamp, `Received` the `APOP ann@example.com` line and its 32 hexadecimal digits. The program computes `MD5.HashData` of the timestamp and `annpass` and compares: they are equal, and `annpass` appears nowhere in what the client sent. A wrong password throws `CurlException` 67.
+
+Naming APOP alone also removes the other logins: `USER` is answered `-ERR [AUTH] Encryption required` and `CAPA` has no `SASL` line. Naming `apop` and `cram-md5` together keeps the timestamp in the greeting, but `Curl.Api`, like `curl`, prefers CRAM-MD5. The reference documentation gives the reason APOP is off by default: its MD5 construction leaks password characters to anyone who can choose the timestamp it signs (<<surl-readme>>). No case here shows that; the cases show that the password itself is not sent.
+
+`SurlServer` is the running server and `SurlServerOptions` its settings; `SurlEventQuery` filters events and exchanges by kind and scheme; `SurlExchangeRecord` holds the bytes of one connection; `CurlRequest` is the request, `CurlAuthenticationOptions` its user name and password, and `CurlResponse` the answer.
+
+Each claim is a case of its own: the default server{apos}s bare greeting and its refusal of a raw `APOP`, `Curl.Api` logging in there with CRAM-MD5, the timestamp greeting once APOP is named, the digest and the absent password, the wrong password, the loss of `USER` and `SASL`, and CRAM-MD5 still winning beside APOP.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-log-in-with-apop>> for the same check on the console.
+* <<pop3-log-in-with-apop-from-an-agent>> for the same check run by an agent.
+* <<smtp-log-in-with-cram-md5-in-csharp>> for the login the default server offers.
+* <<surl-readme>>, <<rfc1939>>.

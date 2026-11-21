@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-subscribe-with-a-wildcard-in-csharp]]
+=== Subscribing with a Wildcard in C#
+
+==== Problem
+
+Your C# dashboard subscribes to topics with wildcards, and you want a test that seeds retained readings on several topics, subscribes with a filter, and checks which topics the filter receives and which it misses.
+
+==== Solution
+
+Start a `SurlServer` as a Message Queuing Telemetry Transport (MQTT) broker, seed six readings with `server.Messages`, and subscribe through a `CurlClient` with the filter as the topic. The program prints what the filter receives and what it misses:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `mqtt://127.0.0.1:0`, a broker on a free port, and `AllowAnonymous` is `--allow-anonymous`, which lets a client connect with no user name and makes the broker a loosening, for a test on one machine (<<surl-readme>>). `server.Messages`, a `SurlServerMessages`, is the broker{apos}s message bus: `PublishAsync` with `retain` `true` seeds a retained message with no client and no login, and needs no `--topic` filter, since the call sets the retain flag itself. The program seeds `sensors/kitchen/temp`, `sensors/hall/temp`, `sensors/kitchen/humidity`, `sensors/kitchen/oven/temp`, `sensors/temp` and `sensors`.
+
+The subscriber is a `CurlClient`. A `CurlRequest` for `HttpMethod.Get` of `mqtt://host:port/sensors/+/temp` subscribes to that filter, and the `CurlResponse` it answers has a `Body` holding every retained message the broker sends for it, one after another, each as the topic{apos}s length in two bytes, the topic and the payload (<<curl-readme>>). The broker ends a subscription once it has sent them, so the read returns by itself. The payload has no length of its own; the program ends it at the next message{apos}s zero byte, which is safe for these topics, all shorter than 256 bytes and with text readings. It prints the messages it received, sorted by topic, and the seeded topics it did not, which is the answer to which topics a filter misses, and the order the broker sends in is not relied on.
+
+The rules are the ones in <<mqtt311>>. A plus sign stands for exactly one level, a level being the text between two slashes, so `sensors/+/temp` receives `sensors/hall/temp` and `sensors/kitchen/temp` and misses the other four: `sensors/temp` and `sensors`, which have fewer levels, `sensors/kitchen/oven/temp`, which has more, and `sensors/kitchen/humidity`, whose last level differs. A hash sign stands for any number of levels, including none, and has to be last: `sensors/#` receives all six, parent included, and `sensors/kitchen/#` takes the oven along with the rest of the kitchen. `sensors/kitchen/+` receives the kitchen{apos}s temperature and humidity but not the oven, a level deeper; `sensors/+/+` receives the three topics exactly two levels down. A filter with no wildcard is one topic, and a filter that matches nothing retained, such as `sensors/+/pressure`, receives nothing without an error.
+
+Two things about the URL. A plain `#` is taken by `Curl.Api`, as by `curl`, as the start of a URL fragment and is not sent, so a subscription to `sensors/#` written that way receives nothing; the program writes `%23`, and a second case leaves the hash as it is to show it. A plain `+` is sent as it is. And a filter the broker cannot accept, a `#` that is not last or a `+` that does not fill its level, is refused in the `SUBACK`: `SendAsync` throws a `CurlException` whose `Code` is `8`, the code `curl` exits with, and `Message` is `Weird server reply`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-subscribe-with-a-wildcard>> for the same filters on the console, with `curl` publishing the readings.
+* <<mqtt-subscribe-with-a-wildcard-from-an-agent>> for the same filters from an agent.
+* <<mqtt-keep-a-retained-message-in-csharp>> for what makes a reading retained.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

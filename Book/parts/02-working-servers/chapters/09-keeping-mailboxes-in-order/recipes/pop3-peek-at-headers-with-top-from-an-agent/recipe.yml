@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs scan-maildrop.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: pop3-peek-at-headers-with-top-from-an-agent
+title: Peeking at Headers with TOP from an Agent
+protocols: [pop3]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, curl]
+curl-options: [-s, -S, -v, -u, -X, --next]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc1939]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent lists three messages with UIDL, reads each header with TOP n 0 through the curl tool, picks the delayed order, message 2, and retrieves only that one, whose body begins First line.
+    program: scan-maildrop.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^1 (\d+)\.1: Subject: Order 1 shipped\n2 \1\.2: Subject: Order 2 delayed\n3 \1\.3: Subject: Order 3 shipped\nretrieved 2: First line\.\n$'
+
+  - id: after-delete
+    claim: After message 1 is deleted, the next scan numbers the delayed order 1, but its unique ID still ends .2, so an agent that kept the ID finds the same message.
+    program: scan-maildrop.cs
+    args: [after-delete]
+    expect:
+      exit: 0
+      stdout-matches: '^deleted message 1\n1 (\d+)\.2: Subject: Order 2 delayed\n2 \1\.3: Subject: Order 3 shipped\nretrieved 1: First line\.\n$'
+
+  - id: missing
+    claim: TOP for a message that is not there is answered -ERR, and the curl tool reports curl's exit 8, Weird server reply.
+    program: scan-maildrop.cs
+    args: [missing]
+    expect:
+      exit: 1
+      stdout: "TOP 9 0: curl exit 8: curl: (8) Weird server reply\n"
+
+  - id: first-lines
+    claim: TOP 2 2 answers the header, the blank line and the first two body lines, here the whole two-line body.
+    program: scan-maildrop.cs
+    args: [lines]
+    expect:
+      exit: 0
+      stdout: "TOP 2 2 body:\nFirst line.\nSecond line.\n"
+
+  - id: more-lines-than-body
+    claim: TOP 2 99, more lines than the body has, answers the whole message, the same text the curl tool retrieves for message 2.
+    program: scan-maildrop.cs
+    args: [whole]
+    expect:
+      exit: 0
+      stdout: "TOP 2 99: 100 characters; retrieved 2: 100; same: True\n"
+
+  - id: one-uidl
+    claim: UIDL 2 answers on its status line, which curl does not print; standardOutput is empty and -v puts +OK 2 and the ID in standardError.
+    program: scan-maildrop.cs
+    args: [one-id]
+    expect:
+      exit: 0
+      stdout-matches: '^UIDL 2: standard output 0 characters; -v < \+OK 2 \d+\.2\n$'
+
+  - id: same-session
+    claim: DELE 1 then UIDL in one curl call with --next is one session, which still lists messages 2 and 3 under their old numbers.
+    program: scan-maildrop.cs
+    args: [same-session]
+    expect:
+      exit: 0
+      stdout-matches: '^same session:\n2 (\d+)\.2\n3 \1\.3\n$'

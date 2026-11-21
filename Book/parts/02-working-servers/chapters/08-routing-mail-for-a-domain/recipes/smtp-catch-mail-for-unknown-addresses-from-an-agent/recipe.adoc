@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-mail-for-unknown-addresses-from-an-agent]]
+=== Catching Mail for Unknown Addresses from an Agent
+
+==== Problem
+
+An app under test may mail addresses nobody configured, and the server would discard that mail without a word; you want an agent to find every such message by reading a catch-all mailbox.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, starts a server with `--mail-catch-all`, sends as the app would, waits for delivery, and reads the catch-all:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, one `smtp://` URL on port 0, and `arguments`, `surl`{apos}s own options (<<surl-readme>>). `--mail-domain` serves `example.com` and `example.org`; each `--mailbox` adds a mailbox whose whole address is its login; `--mail-alias support@example.com=ann@example.com` forwards an address to `ann`; `--mail-catch-all example.com=catchall@example.com` delivers mail for any address of the domain that has no mailbox to `catchall@example.com`. The answer carries the `server_id`, the `bound_urls`, and `log_lines`, among them the warning that the domain now keeps mail to every unknown address. That mail is discarded by default because a server that told a sender which addresses exist would give the list away.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON), with `exitCode` among its fields. As the app, each call logs in with `-u`, names the envelope with `--mail-from` and `--mail-rcpt` (<<rfc5321>>), and uploads a message file from the folder with `-T`; the program writes each file with carriage return and line feed line ends, as mail needs. `-s` drops the progress meter and `-S` keeps any error. Every send to a served domain exits `0`, with or without the catch-all: the sender cannot tell a stray address from a real one.
+
+Delivery is asynchronous, so the agent waits before it reads. `wait_for_event` with `kinds` `store_changed`, `store` `mail` and `name` `ann@example.com`, which matches that mailbox and anything under it, answers the `event` of `ann`{apos}s delivery, within `timeout_ms` 10000. Deliveries happen in order and `ann`{apos}s message went last, so by then the two strays have been delivered or discarded. Each of the other cases waits the same way for the delivery it knows comes last.
+
+`list_messages`, given the `owner` and the `mailbox`, answers the catch-all{apos}s messages with their `uid`; `read_message` answers each one{apos}s `text` and sets no flag. The message is as the app sent it, so its `To` header names the address it was meant for: `anne@example.com` and `bob.smith@example.com`. That header is all there is: `surl` adds no line naming the envelope address, so a message sent to `jo@example.com` whose `To` names `ann`, as a blind copy would be, is caught, and `read_message` shows `To: ann@example.com` and nothing about `jo`. Without `--mail-catch-all` there is no warning, the sends still exit `0`, `ann`{apos}s mail still arrives, and the catch-all holds nothing.
+
+Only unknown addresses are caught. Addresses are matched without regard to letter case, so `Ann@Example.COM` is delivered to `ann@example.com`; the alias `support@example.com` is delivered to `ann` too; in both cases the catch-all holds nothing. A catch-all is for one domain: `example.org` has none, so one message to `stray@example.org` and `team@example.org` exits `0`, is delivered to `team` alone, and the copy for `stray` is discarded. An address outside every served domain, `someone@example.net`, is refused `550` at `RCPT TO`, and the `curl` tool reports exit `55` with `RCPT failed: 550`. A second `--mail-catch-all` for `example.com` makes `start_server` a tool error with `exit_code` `2`, `FailedInit`, and `catch-all domain example.com is given twice` in `lines`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-mail-for-unknown-addresses>> for the same server on the console.
+* <<smtp-catch-mail-for-unknown-addresses-in-csharp>> for a C# test that sees every stray message.
+* <<smtp-catch-every-address-in-one-mailbox-from-an-agent>> for counting generated addresses.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

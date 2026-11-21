@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-upload-several-files-at-once-in-csharp
+title: Uploading Several Files at Once in C#
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerFiles, SurlFolderPage, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three PUTs sent together with Task.WhenAll on one CurlClient, logged in with Digest, are each answered 201 Created, and Files.ListAsync of /reports then holds a.txt, b.txt and c.txt beside old.txt; the program exits 0.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^PUT /reports/a\.txt: 201 Created\nPUT /reports/b\.txt: 201 Created\nPUT /reports/c\.txt: 201 Created\nconnections: \d+\n/reports holds: a\.txt, b\.txt, c\.txt, old\.txt\n$'
+
+  - id: in-flight-together
+    claim: Sent together, the three requests are in flight at once, so the client opens more than one connection and the server records more than one exchange.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nconnections: [23]\n'
+
+  - id: one-at-a-time
+    claim: Awaited one at a time, the same three uploads arrive the same way but over one kept-alive connection, one exchange.
+    program: program.cs
+    args: [one-at-a-time]
+    expect:
+      exit: 0
+      stdout: "PUT /reports/a.txt: 201 Created\nPUT /reports/b.txt: 201 Created\nPUT /reports/c.txt: 201 Created\nconnections: 1\n/reports holds: a.txt, b.txt, c.txt, old.txt\n"
+
+  - id: no-login
+    claim: Without a login each PUT is answered 401 Unauthorized, SendAsync throws for none of them, /reports still holds only old.txt, and the program exits 22.
+    program: program.cs
+    args: [no-login]
+    expect:
+      exit: 22
+      stdout-matches: '^PUT /reports/a\.txt: 401 Unauthorized\nPUT /reports/b\.txt: 401 Unauthorized\nPUT /reports/c\.txt: 401 Unauthorized\nconnections: \d+\n/reports holds: old\.txt\n$'
+
+  - id: missing-folder
+    claim: Into a folder that does not exist each PUT is answered 409 Conflict, because surl creates no folders, and the program exits 22.
+    program: program.cs
+    args: [missing-folder]
+    expect:
+      exit: 22
+      stdout-matches: '^PUT /nowhere/a\.txt: 409 Conflict\nPUT /nowhere/b\.txt: 409 Conflict\nPUT /nowhere/c\.txt: 409 Conflict\n'
+
+  - id: uploads-off
+    claim: With AllowUploads off, the default, each logged-in PUT is answered 405 Method Not Allowed and nothing is stored.
+    program: program.cs
+    args: [read-only]
+    expect:
+      exit: 22
+      stdout-matches: '^PUT /reports/a\.txt: 405 Method Not Allowed\nPUT /reports/b\.txt: 405 Method Not Allowed\nPUT /reports/c\.txt: 405 Method Not Allowed\nconnections: \d+\n/reports holds: old\.txt\n$'

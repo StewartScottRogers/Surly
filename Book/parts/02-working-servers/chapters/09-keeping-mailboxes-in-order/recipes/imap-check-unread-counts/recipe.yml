@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-check-unread-counts
+title: Checking Unread Counts
+protocols: [imap, smtp]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -v, -o, --crlf, --mail-from, --mail-rcpt, -T, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 21]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  order1.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 1 shipped\n\nYour first order is on its way.\n"
+  order2.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 2 shipped\n\nYour second order is on its way.\n"
+  order3.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 3 shipped\n\nYour third order is on its way.\n"
+
+# One surl: SMTP to put mail in, IMAP to count it, one mail store.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox shop@example.com:shoppass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The shop mails ann three orders in one SMTP session; delivery is asynchronous, so the second line
+# waits, a try a second for at most ten, until message 3 exists. FETCH FLAGS sets no flag.
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[1-3].eml" smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 3 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+
+cases:
+  - id: solution
+    role: solution
+    claim: STATUS asks for the counts of INBOX without opening it; three messages have arrived and none has been read, so it answers MESSAGES 3 UNSEEN 3.
+    run: curl -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES UNSEEN)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 3 UNSEEN 3)\n"
+
+  - id: no-select
+    claim: With the URL ending in a slash curl sends STATUS straight after logging in, with no SELECT, so asking changes nothing in the mailbox.
+    run: curl -s -v -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES UNSEEN)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stderr-contains: "> A003 STATUS INBOX (MESSAGES UNSEEN)"
+
+  - id: reading-marks-seen
+    claim: Fetching message 1 in full sets its \Seen flag, so STATUS afterwards answers MESSAGES 3 UNSEEN 2.
+    run: curl -s -o {{null}} -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1" --next -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES UNSEEN)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 3 UNSEEN 2)\n"
+
+  - id: header-fetch-marks-seen
+    claim: Fetching only the Subject header of message 2 marks it read too, because curl asks for BODY[...] and not BODY.PEEK[...]; UNSEEN drops to 1.
+    run: curl -s -v -o {{null}} -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=2;SECTION=HEADER.FIELDS%20(SUBJECT)" --next -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES UNSEEN)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 3 UNSEEN 1)\n"
+
+  - id: which-are-unseen
+    claim: STATUS gives the count only; a SEARCH for UNSEEN names the message still unread, 3.
+    run: curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?UNSEEN"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 3\n"
+
+  - id: mark-unread-again
+    claim: STORE 1 -FLAGS (\Seen) takes the flag off message 1, and UNSEEN goes back up to 2.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X "STORE 1 -FLAGS (\Seen)" imap://127.0.0.1:{{port2}}/INBOX --next -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES UNSEEN)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 3 UNSEEN 2)\n"
+
+  - id: uidnext
+    claim: STATUS also answers UIDNEXT, the UID the next message will get, 4 here; a test that remembers it can tell later whether new mail has come.
+    run: curl -u ann@example.com:annpass -X "STATUS INBOX (UIDNEXT)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (UIDNEXT 4)\n"
+
+  - id: fetch-flags-of-missing
+    claim: FETCH for the flags of a message that does not exist, number 9, is refused, and curl exits 21; that error is what the seed's wait retries on.
+    run: curl -s -S -u ann@example.com:annpass -X "FETCH 9 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 21
+      stderr-contains: "curl: (21) Quote command returned error"
+
+  - id: no-such-folder
+    claim: STATUS for a folder that does not exist is answered NO [NONEXISTENT], and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "STATUS Archive (MESSAGES UNSEEN)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [NONEXISTENT] Mailbox does not exist"
+
+  - id: no-size-item
+    claim: surl speaks IMAP4rev1, which has no SIZE item (IMAP4rev2 added it); asking for it is answered BAD Invalid arguments, exit 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "STATUS INBOX (SIZE)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 21
+      stderr-contains: "BAD Invalid arguments"

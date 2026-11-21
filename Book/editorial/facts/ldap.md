@@ -57,4 +57,11 @@ curl-mcp: `curl(args)` as the command line.
 - curl-mcp `transfer` has no LDAP or login options: use the `curl` tool (`args`), answer JSON with `standardOutput.content`, `standardError.content`, `exitCode`.
 
 ## Recipes
-ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope (and its twins), ldaps-search-over-tls (and its twins).
+ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope (and its twins), ldaps-search-over-tls (and its twins), ldap-seed-a-directory-in-process, ldap-seed-a-directory-from-an-agent.
+
+## Seeding in steps (ldap-seed-a-directory-in-process / -from-an-agent; Surl 9ad60d80c, 2026-11-20, windows)
+- A new server's directory is empty: a search for any base is exit 39 (`LdapSearchFailed`). Seeding needs the parent first: a batch starting with `dc=example,dc=com` (domain) and `ou=people` works; entries accumulate across calls on a running server; a second server is empty again.
+- A batch is all or none: one entry with a missing parent, a name that exists, or text that is not LDIF is `SurlSeedRefusedException` (Surl.Api) or an `isError` tool result (surl-mcp `add_ldap_entries`; also when the server has no ldap listener); nothing of the batch is added. surl-mcp answers `{"entry_count":N}`.
+- `ExportLdifAsync()` / surl-mcp `read_directory(server_id)` (text content, LDIF) hold the seeded entries and omit every `userPassword` value (the attribute name too).
+- Searching normalised: split the body on `DN: `, trim lines, sort; works on WinLDAP and OpenLDAP layouts. `-u :` needs `--allow-anonymous`. surl-mcp `curl` with exit 39 has `standardOutput` null, so read `.ValueKind`.
+- No `rfc2849` entry in the bibliography.

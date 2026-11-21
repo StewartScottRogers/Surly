@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-test-an-httpclient-app-against-surl]]
+=== Testing an HttpClient App Against Surl
+
+==== Problem
+
+Your app talks to its API through `HttpClient`: it logs in with a password, gets a token and calls the API with it. You want one test that runs the app, unchanged, through a Curl.Api handler against an in-process server and checks what the server saw.
+
+==== Solution
+
+Start a `SurlServer` over HTTPS with a password account, a token account and the two endpoints, give the app an `HttpClient` built on a `CurlHttpMessageHandler`, run its flow, and read the judged logins back with `FindEvents`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. The one listen URL is Hypertext Transfer Protocol Secure (HTTPS), and `SelfSigned` makes a throwaway certificate for it (<<rfc8446>>). `Accounts` holds two `SurlAccount` entries: `app` with its password, and one with an empty user name, which is how `surl` holds a Bearer token (<<rfc6750>>). `surl` issues no tokens; `token.txt` is a file that holds one, so fetching it with the password plays the token endpoint. `RecordExchanges` keeps the events the test reads.
+
+`CurlHttpMessageHandler` is an `HttpMessageHandler` that sends each request through a `CurlClient`, so `new HttpClient(handler)` is an ordinary `HttpClient` whose transfers are Curl{apos}s. The `CurlClient` is made with `CurlClientOptions` whose `Tls` is a `CurlTlsOptions` with a `CurlTlsPeerOptions` holding the server's own certificate, `SelfSignedCertificatePem`, as `CertificateAuthorityBlob`: verification stays on and trusts exactly that certificate. The handler does not own the client, so the test disposes it.
+
+`OrdersApp` is the app under test and knows nothing of Curl.Api or `surl`. It sets its own `Authorization` headers: `Basic` with the password for `token.txt` (<<rfc7617>>), then `Bearer` with the token for `api/orders.json`. Both go through the handler as they are, and the app prints the orders.
+
+`FindEvents` with a `SurlEventQuery` of `Kind` `SurlEventKind.LoginJudged` answers each login as a `LoginJudgedEvent`: an accepted `Basic` login as `app`, then an accepted `Bearer` login. The Bearer login's account is named `bearer token`, never the token, so a test can print events without leaking it.
+
+The failures come back as `HttpClient` failures, which is what the app is written to handle. A wrong password is answered `401 Unauthorized`, and the app's `EnsureSuccessStatusCode` throws `HttpRequestException` with `StatusCode` 401 before the API is called. A `CurlClient` that does not trust the certificate fails the transfer itself: the handler throws `HttpRequestException` whose inner `CurlException` has `Code` `PeerFailedVerification`, 60, the exit code `curl` would give.
+
+The handler can also log in for the app. With its `Credentials` set to a `NetworkCredential`, it answers the server's challenge as `SocketsHttpHandler` would, choosing the strongest method the credential and the server share: the request is answered `200`, and the server recorded a Digest login as `app` (<<rfc7616>>), not Basic.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-exchange-a-password-for-a-token>> for the same flow on the console.
+* <<http-exchange-a-password-for-a-token-in-csharp>> for the same flow with `CurlRequest` directly.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc6750>>, <<rfc7616>>, <<rfc8446>>.

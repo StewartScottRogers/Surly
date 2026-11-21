@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: ftp-copy-a-report-from-ftp-to-s3
+title: Copying a Report from FTP to S3
+protocols: [ftp, s3]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --user, --allow-uploads]
+curl-options: [--ssl-reqd, --cacert, -u, -o, -T, --next, --connect-to, --fail-early, -s, -S]
+exit-codes: [0, 22, 67, 78]
+references: [surl-readme, curl-readme, rfc959, rfc4217, aws-s3-api]
+
+# The report has Windows line ends on purpose: a copy that changed them would show.
+fixtures:
+  ftp-site/out/report.csv: "region,total\r\nnorth,1200\r\nsouth,950\r\n"
+  store/reports/2026-11-19.csv: "region,total\r\nnorth,1180\r\nsouth,940\r\n"
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed. Both servers use it.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# ftp: where the report is published, one account for the nightly job.
+# s3: where the job puts it, one key pair, uploads on.
+servers:
+  ftp:
+    command: surl --directory ftp-site --cert server.pem --key server.key --user nightly:s3cret ftp://127.0.0.1:{{port}}/
+    ready: port
+  s3:
+    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads s3://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command downloads out/report.csv over FTP with TLS as nightly, then after --next puts the downloaded file in the bucket reports as 2026-11-20.csv, signed with the key pair; exit 0, and the S3 server's folder holds the object.
+    run: curl --fail-early -sS --ssl-reqd --cacert server.pem -u nightly:s3cret -o report.csv ftp://127.0.0.1:{{port}}/out/report.csv --next --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv s3://reports/2026-11-20.csv
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        report.csv: null
+        store/reports/2026-11-20.csv: null
+
+  - id: object-is-the-source
+    claim: The object in the S3 server's folder is the FTP server's file byte for byte, Windows line ends included.
+    run: cmp ftp-site/out/report.csv store/reports/2026-11-20.csv && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: compare-round-trip
+    claim: Getting the object back over S3 and comparing it with the file got over FTP, as the job itself can, finds them identical.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret -o back.csv s3://reports/2026-11-20.csv && cmp report.csv back.csv && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: login-needs-tls
+    claim: Without --ssl-reqd the password would cross in the clear, and surl refuses the login unchecked with 530; curl exits 67 and writes nothing.
+    run: curl -sS -u nightly:s3cret -o plain.csv ftp://127.0.0.1:{{port}}/out/report.csv
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "530"
+
+  - id: stale-copy-without-fail-early
+    claim: Without --fail-early, a report missing on the FTP server fails that transfer with 78, but curl goes on past --next, puts the report.csv left from the last run as 2026-11-21.csv, and exits 0, the last transfer's code.
+    run: curl -sS --ssl-reqd --cacert server.pem -u nightly:s3cret -o report.csv ftp://127.0.0.1:{{port}}/out/missing.csv --next --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv s3://reports/2026-11-21.csv
+    expect:
+      exit: 0
+      stderr-contains: "curl: (78)"
+      files:
+        store/reports/2026-11-21.csv: null
+
+  - id: stale-copy-is-the-last-runs
+    claim: The object 2026-11-21.csv is the last run's report, byte for byte, published under a new date.
+    run: cmp store/reports/2026-11-20.csv store/reports/2026-11-21.csv && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: fail-early-stops
+    claim: With --fail-early the same missing report stops the command at the download, exit 78.
+    run: curl --fail-early -sS --ssl-reqd --cacert server.pem -u nightly:s3cret -o report.csv ftp://127.0.0.1:{{port}}/out/missing.csv --next --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv s3://reports/2026-11-22.csv
+    expect:
+      exit: 78
+      stdout: ""
+      stderr-contains: "curl: (78)"
+
+  - id: nothing-put
+    claim: After the stopped command the bucket has no 2026-11-22.csv; getting it is 404 NoSuchKey, exit 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/2026-11-22.csv
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 404: NoSuchKey"

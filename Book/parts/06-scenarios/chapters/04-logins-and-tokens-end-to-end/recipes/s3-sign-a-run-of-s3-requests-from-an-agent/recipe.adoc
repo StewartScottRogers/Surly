@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-sign-a-run-of-s3-requests-from-an-agent]]
+=== Signing a Run of S3 Requests
+
+==== Problem
+
+As an agent, you test a client that signs Amazon Simple Storage Service (S3) requests with Signature Version 4 (SigV4): you want to upload, list and delete with one key pair, prove that a wrong secret is refused with `SignatureDoesNotMatch`, and read what the server recorded.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts an `s3://` server with one account, runs the steps through `curl-mcp`{apos}s `curl` tool with a wrong secret and then the right one, and reads the bucket and the judged logins back from `surl-mcp`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server as `surl` with the same `arguments` would: `--cert` and `--key` name the certificate made in setup, since `s3://` is served over Transport Layer Security (TLS) only; `--user` holds the access key ID and secret; `--list-directories` lets a signed request list; `--allow-uploads` lets it write and delete. `files` puts last quarter{apos}s report in the bucket `reports`.
+
+Each step is one call of the `curl` tool, whose `args` are `curl`{apos}s own arguments. `--connect-to ::127.0.0.1:<port>` sends the bucket{apos}s host name to the server and `--cacert server.pem` trusts its certificate; both files are in the folder `CURL_MCP_ROOT` names. `-u` with the key pair signs an `s3://` request; `-T q3.csv s3://reports/2026-q3.csv s3://reports/` puts the report and then lists the bucket in one call. The `s3://` scheme has no `DELETE`, so the delete goes to `https://reports.s3.us-east-1.amazonaws.com/` with `-X DELETE` and `--aws-sigv4 aws:amz:us-east-1:s3`, which signs it with the same `-u`; `-w "%{http_code}"` prints the `204 No Content` it gets (<<aws-s3-api>>). `-sS` keeps the output to what the steps print. The answer is text holding JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`.
+
+With the right access key and a wrong secret, every step is refused `403` with the code `SignatureDoesNotMatch`. The `s3://` steps report it as `curl`{apos}s exit `22` with `S3 returned error 403: SignatureDoesNotMatch` in `standardError`. The `https://` delete is an ordinary `403` answer (<<rfc9110>>), `exitCode` 0, with the code in the S3 error document it prints; the agent has to read the document to know it failed.
+
+`list_files` reads the bucket from the server{apos}s store by `server_id` and `path`: after both runs, `2026-q3.csv` alone, so the refused run changed nothing that the signed run did not then change on purpose. `get_events` with `kinds` `login_judged` lists every signed request that named an account, with `account` and `is_accepted`: four refused, then four accepted, which is the test{apos}s proof that the client signed every request of the run with the key pair it was given.
+
+Without `--allow-uploads` the signed put is refused `AccessDenied`, yet the call{apos}s `exitCode` is 0: with two URLs on one command line, `curl` exits with the last transfer{apos}s code, and the listing after the put was served. The agent sees the refusal only in `standardError`. The signed `DELETE` is answered `403 AccessDenied`, and `list_files` still shows last quarter{apos}s report.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-sign-a-run-of-s3-requests>> for the same run on the console.
+* <<s3-sign-a-run-of-s3-requests-in-csharp>> for the run as a C# test.
+* <<s3-tell-the-refusals-apart-from-an-agent>> for every S3 refusal from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc9110>>.

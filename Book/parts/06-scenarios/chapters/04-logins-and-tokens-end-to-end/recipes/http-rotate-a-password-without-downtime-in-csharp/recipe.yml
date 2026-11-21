@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-rotate-a-password-without-downtime-in-csharp
+title: Rotating a Password Without Downtime in C#
+protocols: [https, ftps]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerAccounts, SurlEventQuery, SurlEventKind, LoginJudgedEvent, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, HttpAuthenticationMethods, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7617, rfc4217, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; its argument picks the scenario.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Accounts.Add puts app-v2 beside app-v1; the web client logs in over HTTPS as app-v2 (200) while the FTPS job still checks hello.txt as app-v1; FindEvents for app-v1 shows one accepted ftps password login; after the job moves and Accounts.Remove returns true, app-v1 is refused on both schemes (401, LoginDenied 67) and app-v2 still logs in on both.
+    program: rotate.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "added app-v2\nhttps app-v2: 200\nftps app-v1: 16 bytes\nstill on app-v1: ftps password accepted\nftps app-v2: 16 bytes\nremoved app-v1: True\nhttps app-v1: 401\nftps app-v1: LoginDenied (67)\nhttps app-v2: 200\nftps app-v2: 16 bytes\n"
+
+  - id: who-still-uses-the-old-password
+    claim: The login-judged events for app-v1, taken after the web client moved, are a single accepted password login on ftps, which names the FTPS job as the client still to move.
+    program: rotate.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nftps app-v1: 16 bytes\nstill on app-v1: ftps password accepted\nftps app-v2: '
+
+  - id: no-change-in-place
+    claim: Accounts.Add for a name that exists throws ArgumentException; changing the password takes Remove then Add, after which the old password is refused (401) and the new one accepted (200).
+    program: rotate.cs
+    args: [in-place]
+    expect:
+      exit: 0
+      stdout: "Add app-v1 again: ArgumentException\nRemove app-v1: True\nhttps app-v1 old password: 401\nhttps app-v1 new password: 200\n"
+
+  - id: last-account-opens-the-server
+    claim: Removing the only account leaves HasAccounts false, a GET with no login is answered 200, and the log warns that the server now needs no login.
+    program: rotate.cs
+    args: [last]
+    expect:
+      exit: 0
+      stdout: "Remove app-v1: True\nHasAccounts: False\nhttps, no login: 200\nsurl: warning: no account left; the server now needs no login\n"
+
+  - id: open-session-runs-on
+    claim: An FTPS connection that logged in as app-v1 before the removal checks the file again on the same connection after it; a new connection as app-v1 is refused, LoginDenied 67.
+    program: rotate.cs
+    args: [open-session]
+    expect:
+      exit: 0
+      stdout: "ftps app-v1, first check: 16 bytes\nRemove app-v1: True\nftps app-v1, same connection: 16 bytes\nftps app-v1, new connection: LoginDenied (67)\n"

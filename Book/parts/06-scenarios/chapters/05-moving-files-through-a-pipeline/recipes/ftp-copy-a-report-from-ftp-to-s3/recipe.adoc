@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-copy-a-report-from-ftp-to-s3]]
+=== Copying a Report from FTP to S3
+
+==== Problem
+
+A nightly job downloads a report over File Transfer Protocol (FTP) and uploads it to an Amazon Simple Storage Service (S3) bucket; you want the whole hop tested against local servers, and the object{apos}s bytes compared with the source.
+
+==== Solution
+
+Run an FTP server holding the report and an S3 server with a bucket, then make the hop with one `curl` command: the download, `--next`, the upload:
+
+include::.generated/solution.adoc[]
+
+Then compare: the object with the source, and the object got back over S3 with the file got over FTP. The cases below run the hop, the comparisons and the failures in order.
+
+==== Discussion
+
+Two `surl` processes stand in for the two ends. The FTP one serves the folder `ftp-site` (`--directory`) and has one account, `--user nightly:s3cret`. The S3 one serves `store`, where each folder is a bucket, with one key pair as its `--user` and `--allow-uploads`. Both take `--cert` and `--key`: `s3://` is served over Transport Layer Security (TLS) only, and the FTP server needs a certificate to offer TLS at all. The certificate made in setup names `127.0.0.1` and the host `curl` gives any bucket, `*.s3.us-east-1.amazonaws.com`, and `--cacert server.pem` makes `curl` trust it on both hops.
+
+The first half logs in to FTP: `--ssl-reqd` makes `curl` upgrade the control connection to TLS before it sends the password (<<rfc4217>>), `-u nightly:s3cret` logs in, and `-o report.csv` keeps the download. Without `--ssl-reqd` the password would cross in the clear, so `surl` refuses the login with `530` before checking it, and `curl` exits `67`. That refusal is `surl`{apos}s default for a password over plain FTP.
+
+`--next` starts a fresh set of options for the second half, so each half carries its own `--cacert` and `-u`. `--connect-to ::127.0.0.1:8081` sends the bucket{apos}s host name to the S3 server, `-u` with the access key ID and secret signs the request, and `-T report.csv s3://reports/2026-11-20.csv` puts the file as that key. `-s` hides the progress meter and `-S` still prints an error.
+
+The comparison is the test. `cmp` finds the object in the S3 server{apos}s folder identical to the FTP server{apos}s file, Windows line ends included: neither hop touched a byte (<<rfc959>>). A job cannot read either server{apos}s disk, so the second comparison is the one it can make: get the object back over S3 and compare it with the file it downloaded.
+
+`--fail-early` is what keeps a bad night from looking like a good one. Without it, a report missing on the FTP server fails the download with exit `78`, but `curl` goes on to the upload, finds the `report.csv` the last run left behind, and publishes it under the new date; the command exits `0`, because `curl` exits with the last transfer{apos}s code. The bucket then holds the last run{apos}s report twice. With `--fail-early` the command stops at the download with `78`, and the bucket has no object for that date: getting it is `404 NoSuchKey`, exit `22` (<<aws-s3-api>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-copy-a-report-from-ftp-to-s3-in-csharp>> for the hop as a C# test.
+* <<ftp-copy-a-report-from-ftp-to-s3-from-an-agent>> for an agent running it.
+* <<ftp-check-an-upload-landed-intact>> for checking an FTP upload.
+* <<s3-put-and-get-an-object>> for the S3 half on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc4217>>, <<aws-s3-api>>.

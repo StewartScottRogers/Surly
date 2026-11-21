@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-sign-a-run-of-s3-requests-in-csharp]]
+=== Signing a Run of S3 Requests
+
+==== Problem
+
+In a C# test, your client signs Amazon Simple Storage Service (S3) requests with Signature Version 4 (SigV4); you want the test to upload, list and delete with one key pair, and to prove that a wrong secret is refused with `SignatureDoesNotMatch`.
+
+==== Solution
+
+Host an `s3://` server in the test with one account, then run the same four steps twice with `Curl.Api`, first with a wrong secret and then with the right one, reading the server{apos}s store after each run:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. The `s3://` listen URL serves over Transport Layer Security (TLS), so it takes `CertificateFile` and `KeyFile`, made in setup with a name for every bucket{apos}s host in `us-east-1`. `Accounts` holds one `SurlAccount`: the access key ID and its secret. `AllowUploads` lets a signed request write or delete, `ListDirectories` lets it list, and `Files` puts last quarter{apos}s report in the bucket `reports` before the server starts.
+
+Each step is a `CurlRequest` sent on one shared `CurlClient`. `CurlNetworkOptions.ConnectTo` sends the bucket{apos}s host name to the local port, and `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is `server.pem` makes the client trust the server. `CurlAuthenticationOptions` names the access key ID and secret; on an `s3://` URL that is enough for the client to sign with SigV4. A `PUT` with a `Body` puts an object, and a `GET` of `s3://reports/` lists the bucket, one key a line.
+
+The `s3://` scheme sends only `GET`, or `PUT` with a body: a `DELETE` on it throws `CurlException` with `Code` `NotBuiltIn` before anything is sent. So the test deletes over `https://reports.s3.us-east-1.amazonaws.com/`, the bucket{apos}s own host, and sets `AwsSigV4` to `aws:amz:us-east-1:s3` (provider, region, service), which signs that request with the same key pair. The server answers `204 No Content` (<<aws-s3-api>>).
+
+With the right access key and a wrong secret, the server finds the account, cannot match the signature, and refuses every step with `403` and the code `SignatureDoesNotMatch`. The client reports it two ways. On `s3://`, `SendAsync` throws `CurlException` with `Code` `HttpReturnedError` and the message `S3 returned error 403: SignatureDoesNotMatch: ...`. On `https://`, the `403` is an ordinary `CurlResponse` (<<rfc9110>>) whose body is an S3 error document, and the test reads `<Code>` from it. `server.Files` is the `SurlServerFiles` view of the store; its `ListAsync` returns a `SurlFolderPage` and shows the refused run changed nothing, and the signed run left `2026-q3.csv` alone in the bucket.
+
+With `AllowUploads` off, signed listings are still served, but the signed put throws `403 AccessDenied` and the signed `DELETE` is answered `403 AccessDenied`: deleting is writing, so the store keeps last quarter{apos}s report.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-sign-a-run-of-s3-requests>> for the same run on the console.
+* <<s3-sign-a-run-of-s3-requests-from-an-agent>> for an agent running it.
+* <<s3-tell-the-refusals-apart-in-csharp>> for every S3 refusal from C#.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc9110>>.

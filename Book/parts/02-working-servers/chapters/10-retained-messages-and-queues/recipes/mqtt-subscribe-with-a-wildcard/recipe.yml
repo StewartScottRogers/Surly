@@ -1,0 +1,103 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: mqtt-subscribe-with-a-wildcard
+title: Subscribing with a Wildcard
+protocols: [mqtt]
+tier: working-servers
+surl-options: [--allow-anonymous, --topic]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+# The server keeps what is published under sensors/. The seed publishes six readings before the
+# first case; "sensors/+/temp" is written with a plain + and "sensors/#" with %23, since curl
+# would take a # as the start of a URL fragment and not send it.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "sensors/#;retain" mqtt://127.0.0.1:{{port}}/
+    ready: port
+
+seed:
+  - curl -s -d 21 mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp
+  - curl -s -d 19 mqtt://127.0.0.1:{{port}}/sensors/hall/temp
+  - curl -s -d 40 mqtt://127.0.0.1:{{port}}/sensors/kitchen/humidity
+  - curl -s -d 180 mqtt://127.0.0.1:{{port}}/sensors/kitchen/oven/temp
+  - curl -s -d 5 mqtt://127.0.0.1:{{port}}/sensors/temp
+  - curl -s -d up mqtt://127.0.0.1:{{port}}/sensors
+
+# Messages arrive as the topic's length in two bytes, the topic and the payload, in no order the
+# recipe relies on: each case checks that the messages it names are there and how many bytes came.
+# sensors/hall/temp is 17 bytes (0x11), sensors/kitchen/temp 20 (0x14), sensors/kitchen/humidity
+# 24 (0x18), sensors/kitchen/oven/temp 25 (0x19), sensors/temp 12 (0x0c), sensors 7.
+cases:
+  - id: solution
+    role: solution
+    claim: A subscription to sensors/+/temp receives the retained readings of sensors/hall/temp and sensors/kitchen/temp, the two topics with one level between sensors and temp, and nothing else.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/+/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A(?=.*\x00\x11sensors/hall/temp19)(?=.*\x00\x14sensors/kitchen/temp21).{45}\Z'
+
+  - id: hash-matches-everything-below
+    claim: A subscription to sensors/# receives all six retained readings, the nested sensors/kitchen/oven/temp and the parent sensors among them.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/%23
+    expect:
+      exit: 0
+      stdout-matches: '\A(?=.*\x00\x11sensors/hall/temp19)(?=.*\x00\x14sensors/kitchen/temp21)(?=.*\x00\x18sensors/kitchen/humidity40)(?=.*\x00\x19sensors/kitchen/oven/temp180)(?=.*\x00\x0csensors/temp5)(?=.*\x00\x07sensorsup).{129}\Z'
+
+  - id: plus-is-one-level
+    claim: What sensors/+/temp misses is a topic with more or fewer levels, here sensors/kitchen/oven/temp and sensors/temp, and a topic with a different last level, sensors/kitchen/humidity; none of them is in its answer.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/+/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A(?!.*oven)(?!.*humidity)(?!.*sensors/temp5)(?!.*sensorsup).{45}\Z'
+
+  - id: plus-for-the-room-reading
+    claim: A + in the last place matches every reading in a room, so sensors/kitchen/+ receives the kitchen's temperature and humidity but not the oven's, which is a level deeper.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/+
+    expect:
+      exit: 0
+      stdout-matches: '\A(?=.*\x00\x18sensors/kitchen/humidity40)(?=.*\x00\x14sensors/kitchen/temp21)(?!.*oven).{52}\Z'
+
+  - id: hash-below-a-room
+    claim: A # after a room takes the room and everything beneath it, so sensors/kitchen/# receives the oven's reading as well.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/%23
+    expect:
+      exit: 0
+      stdout-matches: '\A(?=.*\x00\x18sensors/kitchen/humidity40)(?=.*\x00\x19sensors/kitchen/oven/temp180)(?=.*\x00\x14sensors/kitchen/temp21).{82}\Z'
+
+  - id: two-pluses
+    claim: Two pluses are two levels, so sensors/+/+ receives the three readings exactly two levels below sensors and misses the oven's, three levels down, and sensors/temp and sensors, which are fewer.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/+/+
+    expect:
+      exit: 0
+      stdout-matches: '\A(?=.*\x00\x11sensors/hall/temp19)(?=.*\x00\x18sensors/kitchen/humidity40)(?=.*\x00\x14sensors/kitchen/temp21).{73}\Z'
+
+  - id: nothing-matches
+    claim: A filter that matches no retained topic, sensors/+/pressure, receives nothing, and curl still exits 0.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/+/pressure
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: bare-hash-is-a-fragment
+    claim: Written as a plain # in the URL, curl takes it as a fragment and does not send it, so the subscription receives nothing, which is why the filter is written %23.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/#
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: hash-only-last
+    claim: In a subscription a # has to be the last level, so sensors/%23/temp is refused in the SUBACK and curl exits 8 with Weird server reply.
+    run: curl -s -S mqtt://127.0.0.1:{{port}}/sensors/%23/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Weird server reply\n"
+
+  - id: plus-fills-a-level
+    claim: A + has to fill a whole level, so sensors/k+/temp is refused the same way.
+    run: curl -s -S mqtt://127.0.0.1:{{port}}/sensors/k+/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Weird server reply\n"

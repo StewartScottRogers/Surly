@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: mqtt-grant-topics-to-a-group
+title: Granting Topics to a Group
+protocols: [mqtt]
+tier: secure-servers
+surl-options: [--user, --allow-plaintext-auth, --group, --topic, --topic-access]
+curl-options: [-s, -S, -u, -d, --next]
+exit-codes: [0, 2, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+# main: sensor1 and sensor2 are the sensors group, dash1 the dashboards group, sensor3 an account
+# in neither. grown is main with sensor3 added to the sensors group and no other change.
+# strict is main without --allow-plaintext-auth. --allow-plaintext-auth is a loosening for a test.
+servers:
+  main:
+    command: surl --allow-plaintext-auth --user sensor1:s1pass --user sensor2:s2pass --user sensor3:s3pass --user dash1:d1pass --group sensors=sensor1,sensor2 --group dashboards=dash1 --topic "plant/#;retain" --topic-access "plant/#=@sensors:pub,@dashboards:sub" mqtt://127.0.0.1:{{port}}/
+    ready: port
+  grown:
+    command: surl --allow-plaintext-auth --user sensor1:s1pass --user sensor2:s2pass --user sensor3:s3pass --user dash1:d1pass --group sensors=sensor1,sensor2,sensor3 --group dashboards=dash1 --topic "plant/#;retain" --topic-access "plant/#=@sensors:pub,@dashboards:sub" mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  strict:
+    command: surl --user sensor1:s1pass --group sensors=sensor1 --topic-access "plant/#=@sensors:pub" mqtt://127.0.0.1:{{port3}}/
+    ready: port
+
+# curl writes each message it receives as two bytes of topic length (big-endian), the topic,
+# then the payload; "plant/line1/temp" is 16 bytes, 0x00 0x10.
+cases:
+  - id: solution
+    role: solution
+    claim: A member of the sensors group publishes 21 to plant/line1/temp, and a member of the dashboards group, subscribing after --next, receives it as the topic's length in two bytes, the topic and the message.
+    run: curl -s -u sensor1:s1pass -d 21 mqtt://127.0.0.1:{{port}}/plant/line1/temp --next -s -u dash1:d1pass mqtt://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x10plant/line1/temp21\Z'
+
+  - id: second-member
+    claim: Another member of the sensors group publishes with the same grant, though no line of the command line names it in a grant, and the dashboard receives its reading.
+    run: curl -s -u sensor2:s2pass -d 22 mqtt://127.0.0.1:{{port}}/plant/line1/temp --next -s -u dash1:d1pass mqtt://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x10plant/line1/temp22\Z'
+
+  - id: dashboards-cannot-publish
+    claim: A member of the dashboards group, granted sub, has its publish dropped without an error, curl exits 0, and the next subscription still reads the sensor's 22.
+    run: curl -s -S -u dash1:d1pass -d 99 mqtt://127.0.0.1:{{port}}/plant/line1/temp --next -s -u dash1:d1pass mqtt://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x10plant/line1/temp22\Z'
+
+  - id: sensors-cannot-subscribe
+    claim: A member of the sensors group, granted pub, has its subscription refused in the SUBACK, and curl exits 8 with Weird server reply.
+    run: curl -s -S -u sensor1:s1pass mqtt://127.0.0.1:{{port}}/plant/line1/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Weird server reply\n"
+
+  - id: outside-every-group-publish
+    claim: A valid account in neither group has its publish dropped, curl exits 0, and the dashboard still reads 22.
+    run: curl -s -S -u sensor3:s3pass -d 77 mqtt://127.0.0.1:{{port}}/plant/line1/temp --next -s -u dash1:d1pass mqtt://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x10plant/line1/temp22\Z'
+
+  - id: outside-every-group-subscribe
+    claim: The same account's subscription is refused, and curl exits 8.
+    run: curl -s -S -u sensor3:s3pass mqtt://127.0.0.1:{{port}}/plant/line1/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Weird server reply\n"
+
+  - id: membership-is-the-change
+    claim: On the second server, whose only difference is sensor3 in the sensors group, sensor3 publishes 23 and the dashboard receives it.
+    run: curl -s -u sensor3:s3pass -d 23 mqtt://127.0.0.1:{{port2}}/plant/line1/temp --next -s -u dash1:d1pass mqtt://127.0.0.1:{{port2}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x10plant/line1/temp23\Z'
+
+  - id: wrong-password
+    claim: A wrong password is refused at the login, before any grant is looked at, with CONNACK return code 4, and curl exits 8.
+    run: curl -s -S -u dash1:nope mqtt://127.0.0.1:{{port}}/plant/line1/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Expected 0000 but got 0004\n"
+
+  - id: clear-password-refused
+    claim: Without --allow-plaintext-auth the third server refuses even a correct password over mqtt://, with CONNACK return code 5, and curl exits 8.
+    run: curl -s -S -u sensor1:s1pass -d 21 mqtt://127.0.0.1:{{port3}}/plant/line1/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Expected 0000 but got 0005\n"
+
+  - id: group-needs-the-at-sign
+    claim: In a grant a group is written with a leading @, so a bare group name is looked up as an account and, naming none, stops surl at start with exit 2.
+    run: surl --user sensor1:s1pass --group sensors=sensor1 --topic-access "plant/#=sensors:pub" mqtt://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: (2) option --topic-access: member sensors names no account or group\n"
+
+  - id: unknown-group
+    claim: A grant to a group that was never declared is refused at start with exit 2.
+    run: surl --user sensor1:s1pass --group sensors=sensor1 --topic-access "plant/#=@robots:pub" mqtt://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: (2) option --topic-access: member @robots names no account or group\n"
+
+  - id: group-member-must-exist
+    claim: A group naming a member that is neither an account nor a group is refused at start with exit 2.
+    run: surl --user sensor1:s1pass --group sensors=sensor1,ghost mqtt://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: (2) option --group: member ghost names no account or group\n"

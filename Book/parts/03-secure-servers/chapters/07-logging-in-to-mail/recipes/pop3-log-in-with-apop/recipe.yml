@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: pop3-log-in-with-apop
+title: Logging In to POP3 with APOP
+protocols: [pop3]
+tier: secure-servers
+surl-options: [--mail-domain, --mailbox, --auth]
+curl-options: [-u, -s, -S, -v, -T]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc1939]
+
+fixtures:
+  # What a client that sends APOP whether or not the greeting offered a timestamp would write. The digest
+  # is made up: the default server has no timestamp to compute one from.
+  apop.pop: "APOP ann@example.com 0123456789abcdef0123456789abcdef\r\nQUIT\r\n"
+  # What a client that logs in with USER and PASS would write.
+  userpass.pop: "USER ann@example.com\r\nPASS annpass\r\nQUIT\r\n"
+  check-digest.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Logs in once with curl -v on the port given, then recomputes the APOP digest from what the server sent
+    # (its timestamp) and the password, and compares it with the digest curl sent.
+    out=$(curl -sv -u ann@example.com:annpass "pop3://127.0.0.1:$1/" 2>&1 | tr -d '\r')
+    stamp=$(printf '%s\n' "$out" | sed -n 's/^< +OK surl ready \(<.*>\)$/\1/p')
+    sent=$(printf '%s\n' "$out" | sed -n 's/^> APOP ann@example.com \([0-9a-f]*\)$/\1/p')
+    calc=$(printf '%s' "${stamp}annpass" | openssl dgst -md5 -r | cut -d' ' -f1)
+    if [ -n "$sent" ] && [ "$sent" = "$calc" ]; then echo "curl sent MD5 of the timestamp and the password"; fi
+    printf 'the password is in the exchange: '
+    if printf '%s\n' "$out" | grep -q annpass; then echo yes; else echo no; fi
+
+# main is secure by default; apop names APOP with --auth and nothing else; both names APOP and CRAM-MD5.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass pop3://127.0.0.1:{{port}}/
+    ready: port
+  apop:
+    command: surl --auth apop --mail-domain example.com --mailbox ann@example.com:annpass pop3://127.0.0.1:{{port2}}/
+    ready: port
+  both:
+    command: surl --auth apop,cram-md5 --mail-domain example.com --mailbox ann@example.com:annpass pop3://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --auth apop curl logs in to POP3 as ann and opens an empty maildrop, exit 0.
+    run: curl -sS -u ann@example.com:annpass pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A\s*\Z'
+
+  - id: default-refuses-apop
+    claim: The default server greets with no timestamp, and an APOP command sent anyway is answered -ERR Unsupported authentication mechanism.
+    run: curl -s -T apop.pop telnet://127.0.0.1:{{port}}
+    expect:
+      exit: 0
+      stdout-matches: '\A\+OK surl ready\s+-ERR Unsupported authentication mechanism\s+'
+
+  - id: default-curl-uses-cram-md5
+    claim: Against the default server, curl logs in with CRAM-MD5 and sends no APOP.
+    run: curl -sv -u ann@example.com:annpass pop3://127.0.0.1:{{port}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '\A(?![\s\S]*> APOP)[\s\S]*> AUTH CRAM-MD5'
+
+  - id: greeting-timestamp
+    claim: Named by --auth, APOP changes the greeting, which now ends in a timestamp of the form <digits.digits@surl>, the string a client signs with the password.
+    run: curl -s -T apop.pop telnet://127.0.0.1:{{port2}}
+    expect:
+      exit: 0
+      stdout-matches: '\A\+OK surl ready <[0-9a-f]+\.\d+@surl>\s+-ERR \[AUTH\] Authentication failed'
+
+  - id: digest-on-the-wire
+    claim: curl's login is APOP with the user name and a digest that is the MD5 of the greeting's timestamp followed by the password, and the password itself is not in the exchange.
+    run: sh check-digest.sh {{port2}}
+    expect:
+      exit: 0
+      stdout: "curl sent MD5 of the timestamp and the password\nthe password is in the exchange: no\n"
+
+  - id: wrong-password
+    claim: A wrong password fails the APOP login; curl exits 67.
+    run: curl -sS -u ann@example.com:wrong pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"
+
+  - id: apop-only
+    claim: With --auth apop the other logins are gone, since CAPA lists no SASL line and USER with PASS is refused -ERR [AUTH] Encryption required.
+    run: curl -s -T userpass.pop telnet://127.0.0.1:{{port2}}
+    expect:
+      exit: 0
+      stdout-matches: '-ERR \[AUTH\] Encryption required'
+
+  - id: apop-with-cram-md5
+    claim: Naming APOP beside CRAM-MD5 keeps the timestamp greeting, but curl still prefers CRAM-MD5 and sends no APOP.
+    run: curl -sv -u ann@example.com:annpass pop3://127.0.0.1:{{port3}}/ 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '\A(?![\s\S]*> APOP)[\s\S]*\+OK surl ready <\S+@surl>[\s\S]*> AUTH CRAM-MD5'

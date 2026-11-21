@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-keep-a-retained-message-in-csharp]]
+=== Keeping a Retained Message in C#
+
+==== Problem
+
+Your C# test needs a Message Queuing Telemetry Transport (MQTT) topic to hold a reading, so that a client that connects later is told it. You want to seed the reading with `Messages.PublishAsync`, receive it through `Curl.Api` as the later subscriber, and see what a client{apos}s own publish keeps, with the broker in the same program.
+
+==== Solution
+
+Start a `SurlServer` as an MQTT broker that keeps what is published under `sensors/`, seed a reading with `server.Messages`, and subscribe to it through a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `mqtt://127.0.0.1:0`, a broker on a free port. `Topics` is `--topic`, and `"sensors/#;retain"` declares the topics under `sensors/` and keeps every message published on them, whatever its retain flag; `AllowAnonymous` is `--allow-anonymous`, which lets a client connect with no user name and makes the broker a loosening, for a test on one machine (<<surl-readme>>, <<mqtt311>>).
+
+`server.Messages`, a `SurlServerMessages`, is the broker{apos}s message bus. `PublishAsync` takes the topic, the payload bytes and a flag, `retain`, and publishes as a client{apos}s publish would, with no client and no login: with the flag `true` the message becomes the topic{apos}s retained message. `ReadRetainedAsync` reads what the broker holds without dropping it and answers a `SurlRetainedMessage`, with its `Payload` and its `QualityOfService`, which is `0`, or `null` for a topic with nothing kept.
+
+The subscriber is a `CurlClient`. A `CurlRequest` for `HttpMethod.Get` of `mqtt://host:port/sensors/kitchen/temp` subscribes to the topic, and the `CurlResponse` it answers has a `Body` that is what the broker sends: the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters and prints the text (<<curl-readme>>). The broker ends a subscription once it has sent the retained messages, so the read returns by itself, and a second subscriber is sent the same reading: reading does not use it up. A topic with nothing kept answers an empty body, printed as `nothing`.
+
+A client{apos}s publish is a different path from the seed. A `CurlRequest` with `HttpMethod.Post` and a `Body` of `CurlContent` bytes publishes with the retain flag clear, which tells a broker not to keep the message (<<mqtt311>>); what keeps it is the filter. Under `sensors/#` the reading is kept, a second publish to the same topic replaces the first, each topic keeps one reading of its own, and an empty message clears the topic, so that the subscriber reads nothing and `ReadRetainedAsync` answers `null`. Outside the filter, or on a broker with no `Topics` at all, the publish is accepted and nothing is kept, whereas a seed on the same topic is kept, since `PublishAsync` sets the flag itself. A test that seeds with `PublishAsync` can therefore pass where the application{apos}s own publishes would not be kept, and a test of the application{apos}s publishing should go through the client.
+
+A publish at quality of service 0 gets no answer, so `SendAsync` can return before the broker has applied the message, and a read straight after it can find the topic empty: this can happen on macOS. The program does not sleep. `RecordExchanges` is on, and after each client publish it calls `WaitForEventAsync` with a `SurlEventQuery` for the next `SurlEventKind.ExchangeEnded`, which the broker records once what the client sent has been applied, with a ten second bound that a failure alone ever reaches. The seed needs no wait, since `PublishAsync` returns when the message is kept. Last, the filter does not open the broker: on one without `AllowAnonymous` the `CurlClient` is refused and `SendAsync` throws a `CurlException` whose `Code` is `8`, the code `curl` exits with.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-keep-a-retained-message>> for the same task on the console, with `curl` publishing.
+* <<mqtt-keep-a-retained-message-from-an-agent>> for an agent that publishes with `publish_message` and reads with `read_retained_message`.
+* <<mqtt-change-retained-config-mid-test-in-csharp>> for changing a retained message in the middle of a test.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

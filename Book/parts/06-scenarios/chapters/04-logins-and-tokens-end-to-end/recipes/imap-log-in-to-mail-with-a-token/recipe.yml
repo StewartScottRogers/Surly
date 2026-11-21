@@ -1,0 +1,109 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-log-in-to-mail-with-a-token
+title: Logging In to Mail with a Token
+protocols: [smtps, imaps, smtp, imap]
+tier: secure-servers
+surl-options: [--cert, --key, --auth, --user, --mail-domain, --mailbox]
+curl-options: [--cacert, --crlf, -u, --oauth2-bearer, --login-options, --mail-from, --mail-rcpt, -T, -X, -s, -S, -v, -w, --next]
+exit-codes: [0, 55, 67]
+references: [surl-readme, curl-readme, rfc5321, rfc9051, rfc6750]
+
+fixtures:
+  lunch.eml: "From: bob@example.com\nTo: ann@example.com\nSubject: Lunch\n\nNoon at the usual place.\n"
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# One surl, four listeners over one mail store: smtps and imaps are TLS, smtp and imap are not. --auth
+# names OAUTHBEARER and XOAUTH2 and nothing else. The mailboxes take mail but, with protocols=http, log
+# in on no mail protocol, so a password for them cannot be used on mail and the token is the way in.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --auth oauthbearer,xoauth2 --user :tok-abc123 --mail-domain example.com --mailbox "ann@example.com:annpass;protocols=http" --mailbox "bob@example.com:bobpass;protocols=http" smtps://127.0.0.1:{{port}}/ imaps://127.0.0.1:{{port2}}/ smtp://127.0.0.1:{{port3}}/ imap://127.0.0.1:{{port4}}/
+    ready: port
+  passwords:
+    command: surl --cert server.pem --key server.key --auth oauthbearer,xoauth2 --user :tok-abc123 --mail-domain example.com --mailbox ann@example.com:annpass imaps://127.0.0.1:{{port5}}/
+    ready: port
+
+# The cases run in order against the same server: the solution leaves message 1 in ann's INBOX, the
+# XOAUTH2 send message 2, and nothing after them stores any.
+cases:
+  - id: solution
+    role: solution
+    claim: With the token alone, bob sends a mail to ann over smtps (250) and ann reads its body over imaps, exit 0.
+    run: curl -sS --cacert server.pem --crlf -u bob@example.com --oauth2-bearer tok-abc123 --mail-from bob@example.com --mail-rcpt ann@example.com -T lunch.eml -w "%{response_code}\n" smtps://127.0.0.1:{{port}}/example.com --next -sS --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 "imaps://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout: "250\nNoon at the usual place.\n"
+
+  - id: recorded-as-authenticated-and-encrypted
+    claim: The stored message records how it arrived, ESMTPSA, which is SMTP with TLS and a login, and carries the envelope sender bob.
+    run: curl -sS --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 "imaps://127.0.0.1:{{port2}}/INBOX;UID=1"
+    expect:
+      exit: 0
+      stdout-matches: 'Return-Path: <bob@example\.com>\s+Received: from example\.com \(\[127\.0\.0\.1\]\) by surl with ESMTPSA; '
+
+  - id: xoauth2
+    claim: Asked for XOAUTH2, the client sends over smtps with that mechanism instead; the exchange shows AUTH XOAUTH2, 235 and the mail is accepted 250.
+    run: curl -sv --cacert server.pem --crlf -u bob@example.com --oauth2-bearer tok-abc123 --login-options AUTH=XOAUTH2 --mail-from bob@example.com --mail-rcpt ann@example.com -T lunch.eml smtps://127.0.0.1:{{port}}/example.com 2>&1
+    expect:
+      exit: 0
+      stdout-matches: '< 250 AUTH OAUTHBEARER XOAUTH2\s[\s\S]*> AUTH XOAUTH2\s[\s\S]*< 235 2\.7\.0 Authentication successful'
+
+  - id: password-refused-on-smtps
+    claim: Bob's own password is no way in over smtps, since the server offers no password login; curl exits 67.
+    run: curl -sS --cacert server.pem --crlf -u bob@example.com:bobpass --mail-from bob@example.com --mail-rcpt ann@example.com -T lunch.eml smtps://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"
+
+  - id: password-refused-on-imaps
+    claim: Ann's password is refused over imaps too, exit 67, because her mailbox account logs in on no mail protocol.
+    run: curl -sS --cacert server.pem -u ann@example.com:annpass "imaps://127.0.0.1:{{port2}}/INBOX;UID=1"
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"
+
+  - id: wrong-token
+    claim: A wrong token is refused over smtps; curl exits 67, Login denied.
+    run: curl -sS --cacert server.pem --crlf -u bob@example.com --oauth2-bearer wrong-token --mail-from bob@example.com --mail-rcpt ann@example.com -T lunch.eml smtps://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: no-token-in-clear-smtp
+    claim: Over plain smtp the server does not offer token logins, curl sends none, and the mail is refused at MAIL with 530, exit 55.
+    run: curl -sS --crlf -u bob@example.com --oauth2-bearer tok-abc123 --mail-from bob@example.com --mail-rcpt ann@example.com -T lunch.eml smtp://127.0.0.1:{{port3}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) MAIL failed: 530"
+
+  - id: no-token-in-clear-imap
+    claim: Over plain imap the token is refused as well, exit 67.
+    run: curl -sS -u ann@example.com --oauth2-bearer tok-abc123 "imap://127.0.0.1:{{port4}}/INBOX;UID=1"
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"
+
+  - id: token-does-not-open-relay
+    claim: A logged-in token still obeys the mail domain; a recipient outside example.com is refused 550 at RCPT, exit 55.
+    run: curl -sS --cacert server.pem --crlf -u bob@example.com --oauth2-bearer tok-abc123 --mail-from bob@example.com --mail-rcpt carol@elsewhere.org -T lunch.eml smtps://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: refusals-stored-nothing
+    claim: After the two sends that worked and the four refused sends, ann's INBOX holds exactly two messages.
+    run: curl -sS --cacert server.pem -u ann@example.com --oauth2-bearer tok-abc123 -X "STATUS INBOX (MESSAGES)" imaps://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 2)\n"
+
+  - id: why-protocols-http
+    claim: Without protocols=http, on a server that names only the two token mechanisms, ann's mailbox password still logs in over imaps, because curl falls back to the IMAP LOGIN command, which --auth does not close; listing the mailboxes succeeds, exit 0.
+    run: curl -sS --cacert server.pem -u ann@example.com:annpass imaps://127.0.0.1:{{port5}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n"

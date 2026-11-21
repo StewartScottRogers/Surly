@@ -1,0 +1,69 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-share-one-account-file-in-csharp
+title: Sharing One Account File in C#
+protocols: [http, ftps, imaps, mqtts]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlRetainedMessage, SurlServerStartException, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures:
+  users.txt: "# test accounts, one user:password a line\nalice:s3cret\nbob:b0bpass\n"
+  bad-users.txt: "alice\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Alice, who is in users.txt, logs in with Curl.Api on all four listeners, and the broker keeps what she published.
+    program: program.cs
+    args: ["alice", "s3cret"]
+    expect:
+      exit: 0
+      stdout: "https: 200 hello from surl\nftps: hello from surl\nimaps: INBOX listed\nmqtts: published\nretained: on\n"
+
+  - id: second-line
+    claim: Bob, on the second account line of the file, logs in on the same four listeners.
+    program: program.cs
+    args: ["bob", "b0bpass"]
+    expect:
+      exit: 0
+      stdout: "https: 200 hello from surl\nftps: hello from surl\nimaps: INBOX listed\nmqtts: published\nretained: on\n"
+
+  - id: account-in-code-adds-to-the-file
+    claim: An account added in code, carol in Accounts, logs in beside the file's accounts.
+    program: program.cs
+    args: ["carol", "c4rol"]
+    expect:
+      exit: 0
+      stdout: "https: 200 hello from surl\nftps: hello from surl\nimaps: INBOX listed\nmqtts: published\nretained: on\n"
+
+  - id: missing-user
+    claim: A user the file does not hold is refused on each listener. HTTPS answers 401, FTPS and IMAPS throw CurlException 67 LoginDenied, MQTTS throws 8 WeirdServerReply, and the broker keeps nothing.
+    program: program.cs
+    args: ["dave", "nope"]
+    expect:
+      exit: 0
+      stdout: "https: 401\nftps: CurlException 67 LoginDenied\nimaps: CurlException 67 LoginDenied\nmqtts: CurlException 8 WeirdServerReply\nretained: nothing\n"
+
+  - id: wrong-password
+    claim: A wrong password for a user in the file is refused the same way on each.
+    program: program.cs
+    args: ["alice", "wrong"]
+    expect:
+      exit: 0
+      stdout: "https: 401\nftps: CurlException 67 LoginDenied\nimaps: CurlException 67 LoginDenied\nmqtts: CurlException 8 WeirdServerReply\nretained: nothing\n"
+
+  - id: bad-file
+    claim: A file with a line that is not user:password stops SurlServer.StartAsync with SurlServerStartException, whose message names the line.
+    program: program.cs
+    args: ["alice", "s3cret", "bad-users.txt"]
+    expect:
+      exit: 1
+      stdout-matches: '^start refused: [^\n]*line 1'

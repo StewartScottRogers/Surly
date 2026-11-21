@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-keep-a-mailbox-off-smtp-from-an-agent]]
+=== Keeping a Mailbox Off SMTP from an Agent
+
+==== Problem
+
+One test mailbox must be readable over Internet Message Access Protocol (IMAP) but must never log in to send mail; with an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp`, you want the same password accepted on IMAP and refused on Simple Mail Transfer Protocol (SMTP) for that mailbox alone.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts a server with `start_server`, gives the viewer mailbox `;protocols=imap`, sends it one mail as another mailbox, waits for the delivery with `wait_for_event`, tries the viewer on each protocol with the `curl` tool, and asks the server what it judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client.
+
+`start_server` takes three listen URLs on port 0, IMAP, SMTP and Post Office Protocol version 3 (POP3), and `surl`{apos}s options in `arguments`: `--mail-domain example.com` and two `--mailbox` entries, each a mailbox and the account that logs in to it by its whole address (<<surl-readme>>). The viewer{apos}s ends in `;protocols=imap`, which replaces the default list of mail protocols and their Transport Layer Security (TLS) twins with IMAP and its twin. `app`{apos}s has no such key. `bound_urls` returns the three URLs in order.
+
+The `curl` tool runs `curl`{apos}s arguments and answers in text that is JavaScript Object Notation (JSON), with an `exitCode` and the output. `app` sends `hi.eml` with `-u`, `--mail-from`, `--mail-rcpt` and `-T` (<<rfc5321>>). The agent does not read at once; `wait_for_event` with `kinds` `store_changed` and `store` `mail` returns the delivery event, whose `name` is `viewer@example.com/INBOX/;UID=1`, or `{"timed_out":true}` after ten seconds. An event already kept returns at once, so the wait is safe wherever delivery falls.
+
+Then the viewer tries each protocol with the right password. IMAP reads message 1 with `;SECTION=TEXT` in the URL (<<rfc9051>>) and exits `0`. SMTP and POP3 exit `67`, login denied, and so does a wrong password over IMAP. `get_events` with `kinds` `login_judged` shows the server{apos}s side: three events for the viewer, all `CRAM-MD5`, `is_accepted` true for IMAP and false for SMTP and POP3. `list_mailboxes` for the owner `viewer@example.com` reports `message_count` 1: the restriction closes logins, not delivery. `app` logs in on IMAP and POP3 as it does on SMTP.
+
+Nothing loosens security. The password is still checked on IMAP, and the refusals do not say whether the account exists.
+
+In the `curl` arguments, `-s` keeps the progress meter out and `--crlf` gives the uploaded file the line ends mail needs.
+
+The refusal does not say why. `get_exchanges` with `scheme` `smtp` returns the `sent` chunks, the bytes the server wrote; each refused login ends in `535 5.7.8 Authentication credentials invalid`, and the viewer{apos}s is the same line as that of `app` given a wrong password, which the program also sends. Two refusals, one reply, so a caller cannot tell a closed protocol from a wrong password. `app` with the right password logs in on SMTP, IMAP and POP3, which the cases check one by one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-keep-a-mailbox-off-smtp>> for the same check on the console.
+* <<imap-keep-a-mailbox-off-smtp-in-csharp>> for the same check in C#.
+* <<smtp-log-in-with-cram-md5-from-an-agent>> for the login judged here.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9051>>.

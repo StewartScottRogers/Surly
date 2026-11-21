@@ -69,3 +69,4 @@ http-slow-down-one-path (+ -in-csharp, -from-an-agent)
 http-lock-out-one-account (+ -in-csharp, -from-an-agent): `refuse-login;account=`, see `http-auth.md`
 http-retry-a-flaky-endpoint, http-time-out-a-hanging-server, http-retry-until-the-server-is-up, surl-recover-when-a-port-is-taken (each + -in-csharp, -from-an-agent)
 smtp-survive-a-temporary-rcpt-failure (+ -in-csharp, -from-an-agent)
+http-stop-a-client-hammering-a-refused-login (+ -in-csharp, -from-an-agent): refuse-login and a client's retries, see `http-auth.md`

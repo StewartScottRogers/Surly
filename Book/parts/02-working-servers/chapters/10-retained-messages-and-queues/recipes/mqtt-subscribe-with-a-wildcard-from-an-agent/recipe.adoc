@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-subscribe-with-a-wildcard-from-an-agent]]
+=== Subscribing with a Wildcard from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to seed readings on several Message Queuing Telemetry Transport (MQTT) topics and work out, from subscriptions, which filter matches which topic, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a broker, seeds six readings with `publish_message`, subscribes with the `curl` tool and a filter in the topic, and prints what the filter receives and what it misses:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the filter. `start_server` starts an MQTT broker, <<mqtt311>>, as `surl mqtt://127.0.0.1:0` would, on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound; `arguments` passes `--allow-anonymous`, which lets a client connect with no user name and is a loosening for a test on one machine (<<surl-readme>>).
+
+`publish_message` takes the `server_id`, a `topic`, a `payload` as text and `retain`, and publishes as a client{apos}s publish would, with no client and no login. With `retain` `true` the message becomes the topic{apos}s retained message, and no `--topic` filter is needed, since the call sets the flag itself. The program seeds `sensors/kitchen/temp`, `sensors/hall/temp`, `sensors/kitchen/humidity`, `sensors/kitchen/oven/temp`, `sensors/temp` and `sensors`; no read follows a client{apos}s publish, so nothing has to be waited for.
+
+The `curl` tool is the subscriber. It takes `curl`{apos}s own arguments, and `-s` and `-S` keep the progress meter out and the error message in. `curl mqtt://host:port/sensors/+/temp` subscribes to that filter, and the answer{apos}s `standardOutput.content` holds every retained message the broker sends for it, each as the topic{apos}s length in two bytes, the topic and the payload (<<curl-readme>>, <<curl-protocols>>). The broker ends a subscription once it has sent them, so the read is one call. The payload has no length of its own; the program ends it at the next message{apos}s zero byte, which is safe for these topics, all shorter than 256 bytes and with text readings. It prints the messages it received, sorted by topic, and the seeded topics it did not, which is the answer to which topics a filter misses; the order the broker sends in is not relied on. `curl-mcp` answers in JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses.
+
+The rules are the ones in <<mqtt311>>. A plus sign stands for exactly one level, a level being the text between two slashes, so `sensors/+/temp` receives `sensors/hall/temp` and `sensors/kitchen/temp` and misses the other four: `sensors/temp` and `sensors`, which have fewer levels, `sensors/kitchen/oven/temp`, which has more, and `sensors/kitchen/humidity`, whose last level differs. A hash sign stands for any number of levels, including none, and has to be last: `sensors/#` receives all six, parent included, and `sensors/kitchen/#` takes the oven along with the rest of the kitchen. `sensors/kitchen/+` receives the kitchen{apos}s temperature and humidity but not the oven, a level deeper; `sensors/+/+` receives the three topics exactly two levels down. A filter with no wildcard is one topic, and a filter that matches nothing retained, such as `sensors/+/pressure`, receives nothing, with exit code `0`.
+
+Two things about the URL. `curl` takes a plain `#` as the start of a URL fragment and does not send it, so a subscription to `sensors/#` written that way receives nothing; the program writes `%23`, and a second case leaves the hash as it is to show it. A plain `+` is sent as it is. And a filter the broker cannot accept, a `#` that is not last or a `+` that does not fill its level, is refused in the `SUBACK`: the `curl` tool answers exit code `8` and `curl: (8) Weird server reply` on standard error, and the answer is not a tool error, so the agent has to read the exit code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-subscribe-with-a-wildcard>> for the same filters on the console, with `curl` publishing the readings.
+* <<mqtt-subscribe-with-a-wildcard-in-csharp>> for the same filters from a C# test with `Surl.Api` and `Curl.Api`.
+* <<mqtt-keep-a-retained-message-from-an-agent>> for what makes a reading retained.
+* <<mqtt311>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

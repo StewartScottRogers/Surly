@@ -1,0 +1,46 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-copy-a-report-from-ftp-to-s3-from-an-agent
+title: Copying a Report from FTP to S3
+protocols: [ftp, s3]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_file]
+exit-codes: [0, 78]
+references: [surl-readme, curl-readme, rfc959, rfc4217, aws-s3-api]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed. Both servers use it.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl tool call downloads out/report.csv over FTP with --ssl-reqd and, after --next, puts it as s3://reports/2026-11-20.csv, exitCode 0; read_file on both servers finds the object's 37 bytes identical to the source, Windows line ends included.
+    program: program.cs
+    args: [copy]
+    expect:
+      exit: 0
+      stdout: "out/report.csv -> 2026-11-20.csv: exitCode 0, tool error no\n2026-11-20.csv: 37 bytes, identical to the source\n2026-11-21.csv: none\n"
+
+  - id: fail-early
+    claim: With --fail-early, a report missing on the FTP server stops the call at the download, exitCode 78 and a tool error, and the bucket gets no object.
+    program: program.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "out/missing.csv -> 2026-11-21.csv: exitCode 78, tool error yes, curl: (78) The file does not exist\n2026-11-20.csv: none\n2026-11-21.csv: none\n"
+
+  - id: stale-without-fail-early
+    claim: Without --fail-early, after a good run, the missing report fails only the download; curl puts the report.csv the good run left as 2026-11-21.csv, and the call answers exitCode 0 and no tool error, with the 78 only in standardError.
+    program: program.cs
+    args: [stale]
+    expect:
+      exit: 0
+      stdout: "out/report.csv -> 2026-11-20.csv: exitCode 0, tool error no\nout/missing.csv -> 2026-11-21.csv: exitCode 0, tool error no, curl: (78) The file does not exist\n2026-11-20.csv: 37 bytes, identical to the source\n2026-11-21.csv: 37 bytes, identical to the source\n"

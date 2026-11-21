@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-grant-topics-to-a-group]]
+=== Granting Topics to a Group
+
+==== Problem
+
+Your sensors publish and your dashboards subscribe, and you want rights by role rather than by account: when a new sensor is installed, one line should change, and an account in the wrong role should be refused.
+
+==== Solution
+
+Name the roles with `--group`, then grant each group its right on the topics with `--topic-access`, writing a group with a leading `@`. Here a sensor publishes and a dashboard reads it back:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--group sensors=sensor1,sensor2` names a group of accounts, and `--topic-access "plant/#=@sensors:pub,@dashboards:sub"` grants the topic filter `plant/#`, every topic under `plant/`, to two groups: the sensors may publish, the dashboards may subscribe (<<surl-readme>>). The `@` is what makes a member a group. Without it, `sensors` is looked up as an account, and since there is none, `surl` stops at start with exit `2` and `member sensors names no account or group`; so it does for a group that was never declared, and for a group whose own member is neither an account nor a group. Each of these is caught when `surl` reads the command line, not when a client connects.
+
+Once any `--topic-access` is given, every publish and every subscribe needs a grant, so the grant is also the refusal. A member of the dashboards group that publishes has its message dropped: `curl` still exits `0`, because a publish at quality of service 0 gets no answer in MQTT 3.1.1 (<<mqtt311>>), and the proof that nothing arrived is the next subscription, which still reads the sensor{apos}s value. A member of the sensors group that subscribes has the subscription refused in the `SUBACK`, and `curl` exits `8` with `Weird server reply`. `sensor3`, a valid account in neither group, is refused both ways: its publish is dropped and its subscription fails, the same as an account with no grant at all.
+
+The saving is on the day the team changes. The second server, `grown`, is the first with `--group sensors=sensor1,sensor2,sensor3` and nothing else changed: `sensor3` then publishes under the sensors{apos} grant, and the grant line, which says what a sensor may do, is untouched.
+
+The login comes before the grant. A wrong password is refused with `CONNACK` return code 4 and `curl` exits `8` with `Expected 0000 but got 0004`, and the grants never get a say. The accounts are `--user` options and `-u sensor1:s1pass` is the login in the `CONNECT`; they are passwords sent in clear over `mqtt://`, which `surl` refuses without checking by default (the third server, `strict`, answers a correct password with return code 5 and exit `8`). `--allow-plaintext-auth` checks them instead and is a loosening for a test; anyone watching the network reads the password, and a real broker would listen on `mqtts://` with a certificate.
+
+`--topic "plant/#;retain"` keeps each publish as the topic{apos}s last message, which is how the dashboard has something to read: `curl` publishes with the retain flag clear, so without the filter nothing would be kept (<<mqtt-keep-a-retained-message>>). `-s` keeps the progress meter quiet, `-S` brings an error message back, `-d` publishes a message, and `--next` starts a second transfer, here the subscription, with its own login (<<curl-readme>>). `curl` writes what it receives as the topic{apos}s length in two bytes, the topic and the payload.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-grant-topics-to-a-group-in-csharp>> for the same grants from a C# test.
+* <<mqtt-grant-topics-to-a-group-from-an-agent>> for the same grants from an agent.
+* <<mqtt-grant-a-topic>> for granting accounts one at a time.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

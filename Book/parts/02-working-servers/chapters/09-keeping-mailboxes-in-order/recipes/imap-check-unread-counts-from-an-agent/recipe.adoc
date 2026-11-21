@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-check-unread-counts-from-an-agent]]
+=== Checking Unread Counts from an Agent
+
+==== Problem
+
+You want an agent to report how many messages a mailbox holds and how many are unread, using Internet Message Access Protocol (IMAP) `STATUS` as a mail client would, and to check each answer against the server{apos}s own count.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, seeds three messages, and compares `STATUS` through the `curl` tool with `list_mailboxes` before and after a message is read:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, one `imap://` URL on port 0, and `arguments`, `surl`{apos}s own options: `--mail-domain example.com` and `--mailbox ann@example.com:annpass`, a mailbox whose whole address is the login (<<surl-readme>>). It answers the `server_id` and the `bound_urls` with the real port.
+
+`seed_mail` puts a message into the `INBOX` of the address in `to`, as delivery over Simple Mail Transfer Protocol would. Mail is delivered asynchronously, so after each one the agent waits for it with `wait_for_event`: `kinds` `store_changed`, `store` `mail`, and `name` `ann@example.com/INBOX/;UID=3` for the third, for at most `timeout_ms` 10000. The answer carries the `event` when it comes; without one the program stops rather than count too early.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. The program adds `-s` and `-S` so only errors reach standard error. `-u` is the login, and `-X "STATUS INBOX (MESSAGES UNSEEN)"` on the root URL asks for the counts without opening the mailbox (<<rfc9051>>); without Transport Layer Security `surl` offers only `CRAM-MD5`, which `curl` uses. `list_mailboxes`, given the `server_id` and the `owner`, answers each folder with `message_count` and `unseen_count`, read without a client.
+
+Both start at three unseen, and the two agree after every step. The `curl` tool fetches `INBOX;UID=1`, saved with `-o` into the folder, and the fetch sets its `\Seen` flag: two unseen. Fetching only message 2{apos}s `Subject` header is a read as well, because `curl` asks for `BODY[...]` rather than `BODY.PEEK[...]`: one unseen. `STATUS` only counts; a search, `INBOX?UNSEEN`, names the one left, `* SEARCH 3`. The agent{apos}s own look is different. `read_message`, given the `owner`, the `mailbox` and the `uid`, answers the message{apos}s `text` and sets no flag, so after the agent reads message 3{apos}s subject the count is still one. An agent that checks a badge should read through `read_message`, or it changes what it is checking. To put a message back, `-X "STORE 1 -FLAGS (\Seen)"` on `.../INBOX` takes the flag off, and both counts say two again.
+
+`STATUS INBOX (UIDNEXT)` answers the identifier the next message will get, `4`; a fourth seeded message, waited for by its event, makes both counts four messages, three unseen.
+
+The refusals come back as data. A folder that does not exist is answered `NO [NONEXISTENT] Mailbox does not exist`, and `SIZE`, an item of IMAP4rev2 that `surl`, an IMAP4rev1 server, does not have, is answered `BAD Invalid arguments`. Either way the `curl` tool reports `curl`{apos}s exit `21`, and with `-v` the server{apos}s line is in `standardError`. `list_mailboxes` for an account that does not exist is a tool error, `No mailboxes for nobody@example.com.`
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-check-unread-counts>> for `STATUS` on the console.
+* <<imap-check-unread-counts-in-csharp>> for the counts from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

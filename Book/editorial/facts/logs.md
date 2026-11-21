@@ -110,3 +110,7 @@ curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-
 
 ## Surl.Api Log levels (surl-read-the-server-log-in-process, 2026-11-20)
 - `Log = TextWriter.Synchronized(new StringWriter())`; read the inner writer after the server stops (exchange-ended lines are in by then). `AllowAnonymous` writes `surl: warning: --allow-anonymous: every request and login is accepted without checking credentials` first, then `Listening on`. `LogLevel.Info`: warning, Listening on, `#1 * Exchange 1 opened: ...` only. `LogLevel.Error`: nothing at all, the warning included. Verbose: as in the `surl -v` notes above; a 401 is `#1 * GET /x: 401, a login is needed` followed by three `WWW-Authenticate: Digest` lines (MD5, SHA-256, SHA-512-256).
+
+- Not withheld after all (2026-11-20, http-rotate-a-proxy-account probe): an HTTP proxy listener's -v log shows `#N < Proxy-Authorization: Basic <base64>` for a Basic proxy login refused unchecked (403) over http. Digest Proxy-Authorization is logged too (not a secret). Reported.
+
+- Until Surl BL-1476 lands, nothing on an http/https listener under `--proxy`, nor a SignalR hub, is redacted in `-v` and trace logs (the router hides the redactor). Keep filtering those logs, and never claim redaction for them.

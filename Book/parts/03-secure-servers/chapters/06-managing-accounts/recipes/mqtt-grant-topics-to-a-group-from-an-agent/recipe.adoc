@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-grant-topics-to-a-group-from-an-agent]]
+=== Granting Topics to Groups from an Agent
+
+==== Problem
+
+Your sensors publish and your dashboards subscribe, and you want rights by role rather than by account. You want an artificial intelligence (AI) agent to group accounts, grant each group its right on the topics, and show that a member of the wrong group is refused, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a Message Queuing Telemetry Transport (MQTT) broker with accounts, groups and one grant line, publishes as a sensor with the `curl` tool, and reads as a dashboard:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` starts an MQTT broker, <<mqtt311>>, as `surl mqtt://127.0.0.1:0` would, on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options (<<surl-readme>>). `--user` adds an account. `--group sensors=sensor1,sensor2` names a group of two accounts. `--topic-access "plant/#=@sensors:pub,@dashboards:sub"` grants the filter `plant/#`, every topic under `plant/`, to two groups, the sensors may publish and the dashboards may subscribe; the `@` is what makes a member a group. `--topic "plant/#;retain"` keeps each publish as the topic{apos}s last message, which is what a dashboard reads: a client publishes with the retain flag clear, so without it nothing would be kept (<<mqtt311>>, <<mqtt-keep-a-retained-message-from-an-agent>>). `--allow-plaintext-auth` is a loosening for a test, since the passwords travel in clear over `mqtt://`; without it the broker refuses even a correct one.
+
+The `curl` tool is every client. It takes `curl`{apos}s own arguments: `-s` and `-S` keep the progress meter out and the error message in, `-u sensor1:s1pass` is the login in the `CONNECT`, and `-d` gives `curl` a message to publish; without `-d` it subscribes (<<curl-readme>>, <<curl-protocols>>). A subscription{apos}s `standardOutput.content` is the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters. `curl-mcp` answers in JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses; a refusal is an exit code in that answer, not a tool error.
+
+Once any grant is given, every publish and every subscribe needs one, so the grant is also the refusal. A member of the dashboards group that publishes has its message dropped, with exit code `0`, since a publish at quality of service 0 gets no answer (<<mqtt311>>); the proof is `read_retained_message`, which reads the broker{apos}s store without a client and so without a grant, and still holds the sensor{apos}s value. It answers the `topic`, the `qos` and the `text`, or `{"retained": false}`, which is not a tool error. A member of the sensors group that subscribes is refused in the `SUBACK`, and the `curl` tool answers exit code `8` and `curl: (8) Weird server reply`. An account in neither group, `sensor3`, is refused both ways. Adding it to the group, `sensors=sensor1,sensor2,sensor3`, is the only change that lets it publish, and the grant line is untouched.
+
+The login comes before the grant. A wrong password is refused with `CONNACK` return code 4, and `curl` says `Expected 0000 but got 0004`; without `--allow-plaintext-auth`, a correct one gets return code 5.
+
+A publish is not acknowledged, so the `curl` tool can return before the broker has applied it or dropped it, and a read straight after can be stale: this can happen on macOS. The program does not sleep. After each publish it calls `wait_for_event` with `kinds` `exchange_ended` and `after_sequence` set to the last sequence it saw, which answers when the broker records the end of `curl`{apos}s connection, after what `curl` sent has been dealt with, with a `timeout_ms` of ten seconds that a failure alone ever reaches.
+
+Last, the grants are checked as the broker starts. A grant that names `sensors` without the `@`, one that names `@robots`, which was never declared, and a group with a member `ghost` that is no account each make `start_server` a tool error, with `exit_code` `2` and `exit_code_name` `FailedInit` in its structured content and `surl`{apos}s own message as its text.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-grant-topics-to-a-group>> for the same grants on the console.
+* <<mqtt-grant-topics-to-a-group-in-csharp>> for the same grants from a C# test with `Surl.Api` and `Curl.Api`.
+* <<mqtt-keep-a-retained-message-from-an-agent>> for what makes a reading retained.
+* <<mqtt311>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

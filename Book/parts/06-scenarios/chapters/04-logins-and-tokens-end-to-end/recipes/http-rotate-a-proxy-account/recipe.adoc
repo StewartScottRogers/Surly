@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-proxy-account]]
+=== Rotating a Proxy Account
+
+==== Problem
+
+Your client reaches the outside world through a proxy that wants a login, and the proxy password must change. You want an artificial intelligence (AI) agent to add a new proxy account, move the client to it and remove the old one, proving the old login is refused.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts an origin and a proxy through `surl-mcp`, adds the new proxy account with `add_proxy_account`, fetches through the proxy with `curl-mcp`{apos}s `curl` tool, and removes the old account with `remove_proxy_account`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s own options in `arguments`. The listen URL in `listen_urls` is an ordinary Hypertext Transfer Protocol (HTTP) server, the origin, serving the file in `files`. `--proxy http://127.0.0.1:0` makes a second listener a proxy, and `-U app-v1:old-secret` gives it its one proxy account: from then on every request through it needs a proxy login. `bound_urls` holds the origin first, then the proxy.
+
+The client is `curl`. `-x` names the proxy, `--proxy-digest` with `-U app-v1:old-secret` logs in to it with Digest access authentication (<<rfc7616>>), and the URL is the origin's file. `-w "%{http_code}"` puts the status in `standardOutput`, `-o hello.out` keeps the body out of it, and `-s` keeps the progress meter out of `standardError`. A proxy login `surl` refuses is answered `407 Proxy Authentication Required` (<<rfc9110>>).
+
+`surl` holds one password per proxy account, so the rotation is two accounts with an overlap. `add_proxy_account` with `user` and `password` adds `app-v2` to the running proxy and answers `{"user":"app-v2"}`, never the password. From the next login on, both accounts fetch through the proxy with `200`. Once the client uses `app-v2`, `remove_proxy_account` answers `{"user":"app-v1"}`, and from the next login on the proxy answers `app-v1` with `407`; `app-v2` carries on.
+
+`get_events` with `kinds` `login_judged` and `account` `app-v1` answers the old account's proxy logins in order: a `Digest` login accepted before the removal and one refused after it, each on the `http` scheme. An agent that must prove the old login is dead reads that refused event, not only the client's status.
+
+Proxy accounts are a store of their own. `add_account` adds an account for the server's own schemes, here the origin, and the proxy still answers `407` to it: a rotation of a proxy password goes through the proxy tools. And removing the last proxy account does not lock the proxy; it opens it. `remove_proxy_account` answers with no warning, and from then on the proxy forwards a request with no proxy login at all, `200`, so add the new account before removing the old one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-run-a-test-proxy>> for the proxy itself and what it forwards.
+* <<http-rotate-a-password-without-downtime-from-an-agent>> for the same rotation of a server account.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc9110>>.

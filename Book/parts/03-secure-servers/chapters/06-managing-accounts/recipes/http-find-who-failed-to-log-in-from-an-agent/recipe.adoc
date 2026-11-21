@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-who-failed-to-log-in-from-an-agent]]
+=== Finding a Failed Login from an Agent
+
+==== Problem
+
+Several clients share one test server and one of them keeps failing to log in, but you do not know which. You want your artificial intelligence (AI) agent to find the account and method behind the failures from the server's login events.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts the server through `surl-mcp`, lets the clients log in through `curl-mcp`{apos}s `curl` tool, then calls `get_events` for the judged logins and counts them by account, method and verdict:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `surl`{apos}s own options in `arguments`. The server listens for Hypertext Transfer Protocol Secure (HTTPS); `--cert server.pem` and `--key server.key` name a certificate and key made with `openssl` and never committed, read from the folder `SURL_MCP_ROOT` names (<<rfc8446>>). Each `--user name:password` adds an account: `billing`, `search` and `reports`. `surl-mcp` records every server it starts, so the events are there without asking.
+
+Each client is a `curl` call, its own process and connection: `--cacert server.pem` trusts the certificate, `-u` names the account and password, `-s` and `-o hello.out` keep the output quiet, and `--digest` or `--basic` picks the method, Digest access authentication (<<rfc7616>>) or Basic (<<rfc7617>>). `billing` logs in with Digest and `search` with Basic. A reports job with a stale password tries three times with Basic, and a fourth client types its account name wrong, `biling`.
+
+`get_events` with `kinds` `login_judged` answers one event per login the server judged, with `exchange_id`, `account`, `mechanism`, `is_accepted` and `is_refused_by_fault`, and never a password. Counted by account, method and verdict, failures first, they name the culprit: `reports` with `Basic`, refused three times. A login for an account the server does not hold is an event too, under the name the client claimed, `biling`, refused, the same shape as a wrong password; the server does not say which of the two it was, but a name with no account is plain to read. None of the refusals is marked `is_refused_by_fault`, so each came from the client's credentials, not from a rule a test set.
+
+To find the client itself, take the refused login's `exchange_id`: the `exchange_started` event of that exchange, from `get_events` with `kinds` `exchange_started`, holds `client`, the address and port it came from. Here the first refusal is exchange 3, as `reports`, from `127.0.0.1` and a port of the operating system's choosing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-clients-apart-by-account-from-an-agent>> for which account fetched what.
+* <<http-find-failed-logins-in-the-log>> for the same search in `surl`{apos}s log on the console.
+* <<http-stop-a-client-hammering-a-refused-login-from-an-agent>> for proving a client stops at the first refusal.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>, <<rfc7617>>, <<rfc8446>>.

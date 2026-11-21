@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-log-in-with-apop-from-an-agent]]
+=== POP3 Logins with APOP from an Agent
+
+==== Problem
+
+An old mail client logs in to Post Office Protocol version 3 (POP3) with APOP, which `surl` does not accept until it is told to; with an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp`, you want to see APOP refused by default, then accepted once the server names it, and know what that loosens.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts a POP3 server with `start_server` and `--auth apop`, logs in with the `curl` tool, and reads the login the server judged with `get_events` and the bytes of the exchange with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client. The argument picks the scenario.
+
+APOP is the login of the POP3 specification in which the server{apos}s greeting ends in a timestamp and the client answers `APOP user digest`, the digest being the Message Digest 5 (MD5) hash of the timestamp followed by the password (<<rfc1939>>). `start_server` takes a `pop3://` listen URL on port 0 and, in `arguments`, `--mail-domain`, one `--mailbox` and `--auth apop`. `--auth` sets the methods the server accepts and offers, replacing the default list, and `apop` is a word the default leaves out (<<surl-readme>>). It is a loosening, and `surl` warns when it is on.
+
+The `curl` tool runs `curl`{apos}s arguments and answers in text that is JavaScript Object Notation (JSON), with an `exitCode` and the output. `curl -T apop.pop` to the port as a `telnet://` URL writes a fixture as it is and prints every reply, which is how the program reads the greeting and sends an `APOP` with a made-up digest. On the default server the greeting is a bare `+OK surl ready` and the command is answered `-ERR Unsupported authentication mechanism`; `curl -u` logs in there with CRAM-MD5. On the server that names APOP the greeting ends in a timestamp and the made-up digest is refused as `-ERR [AUTH] Authentication failed`.
+
+`get_events` with `kinds` `login_judged` returns an event for each decision: the raw attempt, `is_accepted` false, and the real login, `APOP`, true. `get_exchanges` with `scheme` `pop3` returns the bytes as `chunks` with a `direction`: the `sent` chunk holds the timestamp, the `received` chunk the `APOP ann@example.com` line and its 32 hexadecimal digits. The program computes the MD5 of the timestamp and `annpass` and compares: they are equal, and `annpass` appears nowhere in what the client sent. A wrong password makes `curl` exit `67`.
+
+Naming APOP alone also removes the other logins: `USER` is answered `-ERR [AUTH] Encryption required` and `CAPA` has no `SASL` line. With `--auth apop,cram-md5` the greeting keeps its timestamp, but `curl` still prefers CRAM-MD5. The reference documentation gives the reason APOP is off by default: its MD5 construction leaks password characters to anyone who can choose the timestamp it signs (<<surl-readme>>). No case here shows that; the cases show that the password itself is not sent.
+
+In the `curl` arguments, `-s` keeps the progress meter out, `-u` is the login and `-T` uploads a fixture to a `telnet://` URL.
+
+Each claim is a case of its own: the default server{apos}s bare greeting and its refusal of a raw `APOP`, `curl` logging in there with CRAM-MD5, the timestamp greeting once APOP is named, the digest and the absent password, the wrong password, the loss of `USER` and `SASL`, and CRAM-MD5 still winning beside APOP.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-log-in-with-apop>> for the same check on the console.
+* <<pop3-log-in-with-apop-in-csharp>> for the same check in C#.
+* <<smtp-log-in-with-cram-md5-from-an-agent>> for the login the default server offers.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1939>>.

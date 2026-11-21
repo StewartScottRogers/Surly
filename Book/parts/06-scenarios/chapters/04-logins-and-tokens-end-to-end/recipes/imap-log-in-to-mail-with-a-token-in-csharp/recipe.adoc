@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-log-in-to-mail-with-a-token-in-csharp]]
+=== Logging In to Mail with a Token in C#
+
+==== Problem
+
+Your mail client logs in with OAUTHBEARER or XOAUTH2; from a C# test with `Surl.Api` and `Curl.Api`, you want a server that accepts only those and a test that sends and reads mail with the token.
+
+==== Solution
+
+Start a `SurlServer` with Transport Layer Security (TLS) and plain mail listeners, `AuthenticationMethods` naming the two token mechanisms, and the token as an account. Send as Bob and read as Ann with the token, then try every way in that should stay shut and ask the server what it stored and judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `smtps`, `imaps`, `smtp` and `imap` on port 0, over one mail store, so the refusals have somewhere to happen. `SelfSigned` makes the server generate a certificate, and `SelfSignedCertificatePem` hands it to the client as `CertificateAuthorityBlob`. `new SurlAccount("", "tok-abc123")` is the token: an account with an empty user name whose password is the token (<<surl-readme>>, <<rfc6750>>); `surl` issues no tokens and checks none against an identity provider. `AuthenticationMethods` of `oauthbearer` and `xoauth2` is `--auth`, the only logins the server accepts and offers; it is a loosening option, and `surl` warns when it is on. The two mailboxes end in `;protocols=http`, so their passwords receive mail but are not accepted on any mail protocol; the console recipe has a case that shows why the key is needed.
+
+The happy path sends Bob{apos}s mail with a `CurlRequest` and `CurlMailOptions` for the envelope (<<rfc5321>>), `XOAuth2Bearer` for the token and `UserName` for the mailbox, over `smtps`. Every request runs on a `CurlClient` of its own, because a client reuses a connection that is already logged in and would skip the login each step is meant to test. The program does not read at once: a callback on `OnEvent` for `SurlEventKind.StoreChanged` counts deliveries, and the program waits on it for at most ten seconds. Ann then reads the body over `imaps` with `;SECTION=TEXT` (<<rfc9051>>). `server.Mail.ReadMessageAsync` returns the stored message: it begins with the `Return-Path` of the envelope sender and its `Received` line says `with ESMTPSA`, SMTP with TLS and a login. A second send asks for XOAUTH2 with `LoginOptions` of `AUTH=XOAUTH2`.
+
+The failure paths each end in a `CurlException`. A password is refused over `smtps` and `imaps`, code 67. A wrong token is refused, code 67. Over plain `smtp` the server offers no token login, `Curl.Api` sends none and the mail is refused at `MAIL` with `530`, code 55; over plain `imap` the token is refused, code 67. A recipient outside `example.com` is refused `550` at `RCPT`, code 55, with the token logged in: the token does not open a relay. Ann{apos}s `INBOX` holds two messages, the two that were sent, so the refused sends stored nothing. `FindEvents` for `SurlEventKind.LoginJudged` lists six logins, each a `LoginJudgedEvent` with `Scheme`, `Mechanism`, `Account` and `IsAccepted`: the token is the account `bearer token`, never the token itself, and one is Ann{apos}s password over `imaps`, refused. The password over `smtps` and the token over the plain ports judged nothing, since no mechanism was offered for them.
+
+The types are few. `SurlAccount` is a user name and a password; `SurlEventQuery` filters events by kind and store; `StoreChangedEvent` is a delivery, with the `Name` of the message and `StoreKind` the store it happened in; `SurlMailMessage` is a stored message with its `Bytes`; `CurlResponse` carries the `StatusCode` and a `Body`; `CurlAuthenticationOptions` holds the user name, password, `XOAuth2Bearer` and `LoginOptions`; `CurlContent.FromStream` wraps the mail as the upload body; and `CurlTlsOptions` with `CurlTlsPeerOptions` holds the trusted certificate.
+
+The argument `why` starts the same server with ordinary mailboxes, without `;protocols=http`. Ann{apos}s password then logs in over `imaps`, as the `GET` of the root lists her mailboxes: `--auth` names mechanisms, and `Curl.Api`, like `curl`, falls back to the IMAP `LOGIN` command when the server advertises none it can use. That command is not a mechanism the list closes; the key `protocols=http` closes it by making the account a mail account no longer. Each claim above is a case of its own.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-log-in-to-mail-with-a-token>> for the same flow on the console.
+* <<imap-log-in-to-mail-with-a-token-from-an-agent>> for the same flow run by an agent.
+* <<imap-log-in-with-an-oauth-token-in-csharp>> for the IMAP side alone, with the loosening.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>, <<rfc6750>>.

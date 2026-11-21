@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs oauth-token.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-log-in-with-an-oauth-token-from-an-agent
+title: IMAP Logins with a Token from an Agent
+protocols: [imaps, imap]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, get_events, get_exchanges, curl]
+curl-options: [-s, --cacert, -u, --oauth2-bearer, --login-options, -T]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc6750, rfc9051]
+
+fixtures:
+  right.imap: "a1 AUTHENTICATE XOAUTH2 dXNlcj1hbm5AZXhhbXBsZS5jb20BYXV0aD1CZWFyZXIgdG9rLWFiYzEyMwEB\r\na2 LOGOUT\r\n"
+  wrong.imap: "a1 AUTHENTICATE XOAUTH2 dXNlcj1hbm5AZXhhbXBsZS5jb20BYXV0aD1CZWFyZXIgd3JvbmctdG9rZW4BAQ==\r\na2 LOGOUT\r\n"
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Over imaps the curl tool logs in with the token, the only secret, and reads message 1, exit 0."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ token:\\ curl\\ exit\\ 0,\\ Noon\\ at\\ the\\ usual\\ place\\.\\n"
+
+  - id: oauthbearer-by-default
+    claim: "Over TLS the server advertises AUTH=OAUTHBEARER and AUTH=XOAUTH2, and curl's login is judged OAUTHBEARER."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps advertises: [^\\n]*AUTH=OAUTHBEARER AUTH=XOAUTH2[\\s\\S]*login_judged:\\ imaps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ true\\n"
+
+  - id: xoauth2
+    claim: "With --login-options AUTH=XOAUTH2 the same token logs in by XOAUTH2, and get_events says so."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ XOAUTH2:\\ curl\\ exit\\ 0,\\ Noon\\ at\\ the\\ usual\\ place\\.\\n[\\s\\S]*login_judged:\\ imaps\\ XOAUTH2\\ bearer\\ token\\ is_accepted\\ true\\n"
+
+  - id: wrong-token
+    claim: "A wrong token exits 67 and is judged not accepted."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ wrong\\ token:\\ curl\\ exit\\ 67\\n[\\s\\S]*login_judged:\\ imaps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ false\\n"
+
+  - id: token-is-not-a-mailbox
+    claim: "The token is an account of its own, not ann's; the user name the client gives picks the mailbox it reads, so bob with the same token finds no message 1, exit 78."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ bob\\ with\\ the\\ token:\\ curl\\ exit\\ 78\\n"
+
+  - id: no-token-over-plain-imap
+    claim: "Over plain imap the server advertises no token mechanism, only CRAM-MD5, and curl's token login exits 67."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ token:\\ curl\\ exit\\ 67\\n[\\s\\S]*imap\\ advertises:\\ AUTH=CRAM\\-MD5\\n"
+
+  - id: server-refuses-token-unchecked
+    claim: "A hand-written AUTHENTICATE XOAUTH2 over plain imap is answered NO [PRIVACYREQUIRED] Encryption required, with the right token and a wrong one alike, so the token is never checked."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ raw\\ XOAUTH2,\\ right\\ token:\\ a1\\ NO\\ \\[PRIVACYREQUIRED\\]\\ Encryption\\ required\\nimap,\\ raw\\ XOAUTH2,\\ wrong\\ token:\\ a1\\ NO\\ \\[PRIVACYREQUIRED\\]\\ Encryption\\ required\\n"
+
+  - id: starttls-is-encryption
+    claim: "Over plain imap upgraded with STARTTLS (--ssl-reqd) the same token is accepted, so what is refused is a token in clear and not imap itself."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ token\\ after\\ STARTTLS:\\ curl\\ exit\\ 0,\\ Noon\\ at\\ the\\ usual\\ place\\.\\n[\\s\\S]*login_judged:\\ imap\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ true\\n"
+
+  - id: loosened-accepts-token-in-clear
+    claim: "With --allow-plaintext-auth the plain imap server accepts the token and curl reads message 1 over a connection with no TLS."
+    program: oauth-token.cs
+    args: ["loose"]
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ token:\\ curl\\ exit\\ 0,\\ Noon\\ at\\ the\\ usual\\ place\\.\\n"
+
+  - id: loosened-still-checks
+    claim: "The loosened server still checks the token; a wrong one exits 67 and is judged not accepted."
+    program: oauth-token.cs
+    args: ["loose"]
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ wrong\\ token:\\ curl\\ exit\\ 67\\n[\\s\\S]*login_judged:\\ imap\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ false\\n"
+
+  - id: loosened-raw
+    claim: "On the loosened server a hand-written AUTHENTICATE XOAUTH2 with the right token is answered OK AUTHENTICATE completed."
+    program: oauth-token.cs
+    args: ["loose"]
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ raw\\ XOAUTH2,\\ right\\ token:\\ a1\\ OK\\ AUTHENTICATE\\ completed\\n"
+
+  - id: one-method
+    claim: "With --auth oauthbearer only AUTH=OAUTHBEARER is advertised, and curl's default login works, exit 0."
+    program: oauth-token.cs
+    args: ["one"]
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ default\\ mechanism:\\ curl\\ exit\\ 0,\\ Noon\\ at\\ the\\ usual\\ place\\.\\n[\\s\\S]*imaps\\ advertises:\\ AUTH=OAUTHBEARER\\n"
+
+  - id: one-method-refuses-xoauth2
+    claim: "A client that insists on XOAUTH2 finds no mechanism in common with that server and exits 67; no login is judged for it."
+    program: oauth-token.cs
+    args: ["one"]
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ XOAUTH2\\ insisted\\ on:\\ curl\\ exit\\ 67\\n[\\s\\S]*login_judged:\\ imaps\\ OAUTHBEARER\\ bearer\\ token\\ is_accepted\\ true\\n\\Z"

@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-log-in-with-an-oauth-token-in-csharp
+title: IMAP Logins with a Token in C#
+protocols: [imaps, imap]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, LoginJudgedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc6750, rfc9051]
+
+fixtures: {}
+
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Over imaps, Curl.Api logs in with the token, the only secret, and reads message 1."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ token:\\ ok:\\ Noon\\ at\\ the\\ usual\\ place\\.\\n"
+
+  - id: oauthbearer-by-default
+    claim: "Over TLS the server advertises AUTH=OAUTHBEARER and AUTH=XOAUTH2, and Curl.Api's login is judged OAUTHBEARER."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps advertises: [^\\n]*AUTH=OAUTHBEARER AUTH=XOAUTH2[\\s\\S]*login\\ judged:\\ imaps\\ OAUTHBEARER\\ bearer\\ token\\ accepted\\n"
+
+  - id: xoauth2
+    claim: "With LoginOptions of AUTH=XOAUTH2 the same token logs in by XOAUTH2, and the server judges it so."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ XOAUTH2:\\ ok:\\ Noon\\ at\\ the\\ usual\\ place\\.\\n[\\s\\S]*login\\ judged:\\ imaps\\ XOAUTH2\\ bearer\\ token\\ accepted\\n"
+
+  - id: wrong-token
+    claim: "A wrong token throws CurlException 67, Login denied, and the server judges it refused."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ wrong\\ token:\\ curl\\ error\\ 67:\\ Login\\ denied\\n[\\s\\S]*login\\ judged:\\ imaps\\ OAUTHBEARER\\ bearer\\ token\\ refused\\n"
+
+  - id: token-is-not-a-mailbox
+    claim: "The token is an account of its own, not ann's; the user name the client gives picks the mailbox it reads, so bob with the same token finds no message 1, code 78."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ bob\\ with\\ the\\ token:\\ curl\\ error\\ 78:\\ Remote\\ file\\ not\\ found\\n"
+
+  - id: no-token-over-plain-imap
+    claim: "Over plain imap the server advertises no token mechanism, only CRAM-MD5, and Curl.Api's token login throws 67."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ token:\\ curl\\ error\\ 67:\\ Login\\ denied\\n[\\s\\S]*imap\\ advertises:\\ AUTH=CRAM\\-MD5\\n"
+
+  - id: server-refuses-token-unchecked
+    claim: "A hand-written AUTHENTICATE XOAUTH2 over plain imap is answered NO [PRIVACYREQUIRED] Encryption required, with the right token and a wrong one alike, so the token is never checked."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ raw\\ XOAUTH2,\\ right\\ token:\\ a1\\ NO\\ \\[PRIVACYREQUIRED\\]\\ Encryption\\ required\\nimap,\\ raw\\ XOAUTH2,\\ wrong\\ token:\\ a1\\ NO\\ \\[PRIVACYREQUIRED\\]\\ Encryption\\ required\\n"
+
+  - id: refusals-are-not-judged
+    claim: "No login is judged on the plain imap listener, since no mechanism was offered there."
+    program: oauth-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\A(?![\\s\\S]*login judged: imap )[\\s\\S]*login judged: imaps"
+
+  - id: loosened-accepts-token-in-clear
+    claim: "With AllowPlaintextAuthentication the plain imap server accepts the token and Curl.Api reads message 1 over a connection with no TLS."
+    program: oauth-token.cs
+    args: ["loose"]
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ token:\\ ok:\\ Noon\\ at\\ the\\ usual\\ place\\.\\n"
+
+  - id: loosened-still-checks
+    claim: "The loosened server still checks the token; a wrong one throws 67 and is judged refused."
+    program: oauth-token.cs
+    args: ["loose"]
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ wrong\\ token:\\ curl\\ error\\ 67:\\ Login\\ denied\\n[\\s\\S]*login\\ judged:\\ imap\\ OAUTHBEARER\\ bearer\\ token\\ refused\\n"
+
+  - id: loosened-raw
+    claim: "On the loosened server a hand-written AUTHENTICATE XOAUTH2 with the right token is answered OK AUTHENTICATE completed."
+    program: oauth-token.cs
+    args: ["loose"]
+    expect:
+      exit: 0
+      stdout-matches: "imap,\\ raw\\ XOAUTH2,\\ right\\ token:\\ a1\\ OK\\ AUTHENTICATE\\ completed\\n"
+
+  - id: one-method
+    claim: "With AuthenticationMethods set to oauthbearer only AUTH=OAUTHBEARER is advertised, and the default login works."
+    program: oauth-token.cs
+    args: ["one"]
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ default\\ mechanism:\\ ok:\\ Noon\\ at\\ the\\ usual\\ place\\.\\n[\\s\\S]*imaps\\ advertises:\\ AUTH=OAUTHBEARER\\n"
+
+  - id: one-method-refuses-xoauth2
+    claim: "A client that insists on XOAUTH2 finds no mechanism in common with that server and Curl.Api throws 67; no login is judged for it."
+    program: oauth-token.cs
+    args: ["one"]
+    expect:
+      exit: 0
+      stdout-matches: "imaps,\\ XOAUTH2\\ insisted\\ on:\\ curl\\ error\\ 67:\\ Login\\ denied\\n[\\s\\S]*login\\ judged:\\ imaps\\ OAUTHBEARER\\ bearer\\ token\\ accepted\\n\\Z"

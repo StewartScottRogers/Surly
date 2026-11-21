@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-keep-a-mailbox-off-smtp
+title: Keeping a Mailbox Off SMTP
+protocols: [imap, smtp, pop3]
+tier: secure-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, -s, -S, -v, -w, -X]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, rfc5321, rfc9051]
+
+fixtures:
+  hi.eml: "From: app@example.com\nTo: viewer@example.com\nSubject: Hello\n\nA test message.\n"
+
+# viewer is the mailbox kept off SMTP and POP3; app has no protocols= and logs in everywhere. app
+# delivers one message to viewer before the cases run.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox "viewer@example.com:viewpass;protocols=imap" --mailbox app@example.com:apppass imap://127.0.0.1:{{port}}/ smtp://127.0.0.1:{{port2}}/ pop3://127.0.0.1:{{port3}}/
+    ready: port
+
+seed:
+  - curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt viewer@example.com -T hi.eml smtp://127.0.0.1:{{port2}}/example.com
+
+cases:
+  - id: solution
+    role: solution
+    claim: The viewer mailbox logs in over IMAP and reads the message app sent it, exit 0.
+    run: curl -sS -u viewer@example.com:viewpass "imap://127.0.0.1:{{port}}/INBOX;UID=1;SECTION=TEXT"
+    expect:
+      exit: 0
+      stdout: "A test message.\n"
+
+  - id: smtp-refused
+    claim: The same user name and password are refused over SMTP; curl exits 67, Login denied.
+    run: curl -sS --crlf -u viewer@example.com:viewpass --mail-from viewer@example.com --mail-rcpt app@example.com -T hi.eml smtp://127.0.0.1:{{port2}}/example.com
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: refusal-reads-as-a-wrong-password
+    claim: The SMTP server answers 535 5.7.8 Authentication credentials invalid, the reply a wrong password gets, so the refusal does not say that the account exists.
+    run: curl -sv --crlf -u viewer@example.com:viewpass --mail-from viewer@example.com --mail-rcpt app@example.com -T hi.eml smtp://127.0.0.1:{{port2}}/example.com 2>&1
+    expect:
+      exit: 67
+      stdout-matches: '> AUTH CRAM-MD5\s+< 334 \S+\s+> \S+\s+< 535 5\.7\.8 Authentication credentials invalid'
+
+  - id: wrong-password-same-reply
+    claim: A wrong password for app, an account that may use SMTP, gets the same 535 and the same exit 67.
+    run: curl -sv --crlf -u app@example.com:wrong --mail-from app@example.com --mail-rcpt viewer@example.com -T hi.eml smtp://127.0.0.1:{{port2}}/example.com 2>&1
+    expect:
+      exit: 67
+      stdout-matches: '< 535 5\.7\.8 Authentication credentials invalid'
+
+  - id: pop3-refused
+    claim: protocols=imap replaces the whole list, so the viewer is refused over POP3 as well, exit 67.
+    run: curl -sS -u viewer@example.com:viewpass pop3://127.0.0.1:{{port3}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: mail-still-delivered
+    claim: Being kept off SMTP as a login does not stop SMTP delivering to the mailbox; the IMAP server counts the message app sent.
+    run: curl -sS -u viewer@example.com:viewpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: other-mailbox-unrestricted
+    claim: app, given no protocols=, sends over SMTP (250) and also logs in over IMAP and POP3.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt viewer@example.com -T hi.eml -w "%{response_code}\n" smtp://127.0.0.1:{{port2}}/example.com --next -sS -u app@example.com:apppass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port}}/ --next -sS -u app@example.com:apppass pop3://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A250\n\* STATUS INBOX \(MESSAGES 0\)\n'
+
+  - id: imap-wrong-password
+    claim: Over IMAP the viewer's password is still checked; a wrong one is refused, exit 67.
+    run: curl -sS -u viewer@example.com:wrong imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"

@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-peek-at-headers-with-top-from-an-agent]]
+=== Peeking at Headers with TOP from an Agent
+
+==== Problem
+
+You want an agent to scan a Post Office Protocol version 3 (POP3) maildrop by headers alone, with `UIDL` and `TOP`, decide which message it wants, and retrieve only that one.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, seeds three messages, scans them through the `curl` tool, and retrieves the one whose subject it wants:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, one `pop3://` URL on port 0, and `arguments`, `surl`{apos}s own options: `--mail-domain example.com` and `--mailbox ann@example.com:annpass`, whose whole address is the login (<<surl-readme>>). It answers the `server_id` and the `bound_urls`. `seed_mail` puts each order into the `INBOX` of the address in `to`. Delivery is asynchronous, so the agent waits for the third with `wait_for_event` (`kinds` `store_changed`, `store` `mail`, `name` `ann@example.com/INBOX/;UID=3`, `timeout_ms` 10000), whose answer carries the `event` once it has happened.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. The program adds `-s` and `-S` so only errors reach standard error, and `-u` logs in; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `curl` uses. `-X UIDL` answers one line per message, its number and unique identifier. `-X "TOP 2 0"` answers message 2{apos}s header and the blank line after it, with no body (<<rfc1939>>), which is all the agent needs to read the `Subject`. It picks the delayed order and retrieves it with a URL ending in its number, a `RETR`; the other two are never downloaded.
+
+The second number of `TOP` is how many body lines to add: `TOP 2 2` gives the first two, here the whole short body, and `TOP 2 99`, more lines than there are, gives the whole message, the same text the `curl` tool retrieves for message 2. `UIDL 2` asks about one message; its answer is a single status line, which `curl` does not print, so `standardOutput` is empty, and with `-v` the line, `+OK 2` and the identifier, is in `standardError`.
+
+The identifier is what an agent should remember, not the number. Within one session the numbers hold: `DELE 1` then `UIDL` in one `curl` call joined by `--next` still lists messages `2` and `3`. After `-X "DELE 1"`, which takes effect when that session ends, the next scan numbers the delayed order `1`, but its identifier still ends `.2`. An agent that noted the identifier on its first pass finds the same message on its second.
+
+A message that is not there, `TOP 9 0`, is answered `-ERR`, and the `curl` tool reports `curl`{apos}s exit `8`, `Weird server reply`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-peek-at-headers-with-top>> for the same commands on the console.
+* <<pop3-peek-at-headers-with-top-in-csharp>> for the same from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>.

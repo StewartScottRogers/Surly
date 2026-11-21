@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-keep-a-mailbox-off-smtp-in-csharp
+title: Keeping a Mailbox Off SMTP in C#
+protocols: [imap, smtp, pop3]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlEventKind, StoreChangedEvent, LoginJudgedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlMailOptions, CurlContent, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc5321, rfc9051]
+
+fixtures: {}
+
+
+cases:
+  - id: solution
+    role: solution
+    claim: "With protocols=imap the viewer mailbox reads the message app sent it over IMAP."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "viewer\\ over\\ IMAP:\\ ok:\\ A\\ test\\ message\\.\\n"
+
+  - id: smtp-refused
+    claim: "The same user name and password are refused over SMTP; SendAsync throws CurlException 67, Login denied."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "viewer\\ over\\ SMTP:\\ curl\\ error\\ 67:\\ Login\\ denied\\n"
+
+  - id: refusal-reads-as-a-wrong-password
+    claim: "The recorded SMTP exchanges show the viewer's refusal as 535 5.7.8 Authentication credentials invalid, the reply a wrong password gets."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "viewer\\ over\\ SMTP:\\ curl\\ error\\ 67:\\ Login\\ denied\\n[\\s\\S]*SMTP\\ refusals\\ on\\ the\\ wire:\\ 2,\\ all\\ \"535\\ 5\\.7\\.8\\ Authentication\\ credentials\\ invalid\"\\n"
+
+  - id: wrong-password-same-reply
+    claim: "A wrong password for app, an account that may use SMTP, throws the same CurlException 67 and gets the same 535; both refusals on the wire carry one reply."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "app,\\ wrong\\ password,\\ over\\ SMTP:\\ curl\\ error\\ 67:\\ Login\\ denied\\nSMTP\\ refusals\\ on\\ the\\ wire:\\ 2,\\ all\\ \"535\\ 5\\.7\\.8\\ Authentication\\ credentials\\ invalid\"\\n"
+
+  - id: pop3-refused
+    claim: "protocols=imap replaces the whole list, so the viewer is refused over POP3 as well, CurlException 67."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "viewer\\ over\\ POP3:\\ curl\\ error\\ 67:\\ Login\\ denied\\n"
+
+  - id: mail-still-delivered
+    claim: "Being kept off SMTP as a login does not stop SMTP delivering to the mailbox; the delivery event names message 1 and the INBOX holds one message."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "app\\ sent\\ over\\ SMTP:\\ 250\\ndelivered:\\ viewer@example\\.com/INBOX/;UID=1\\n[\\s\\S]*messages\\ in\\ the\\ viewer's\\ INBOX:\\ 1\\n"
+
+  - id: other-mailbox-unrestricted
+    claim: "app, given no protocols=, sends over SMTP (250) and also logs in over IMAP and POP3."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "app\\ sent\\ over\\ SMTP:\\ 250\\n[\\s\\S]*app\\ over\\ IMAP:\\ ok\\napp\\ over\\ POP3:\\ ok\\n"
+
+  - id: judged-logins
+    claim: "The server judged the viewer's three logins by CRAM-MD5: accepted on IMAP, refused on SMTP and on POP3."
+    program: keep-off-smtp.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "login\\ judged:\\ CRAM\\-MD5\\ viewer@example\\.com\\ accepted\\nlogin\\ judged:\\ CRAM\\-MD5\\ viewer@example\\.com\\ refused\\nlogin\\ judged:\\ CRAM\\-MD5\\ viewer@example\\.com\\ refused\\n"
+
+  - id: imap-wrong-password
+    claim: "Over IMAP the viewer's password is still checked; a wrong one throws CurlException 67."
+    program: keep-off-smtp.cs
+    args: ["wrong"]
+    expect:
+      exit: 0
+      stdout-matches: "viewer,\\ wrong\\ password,\\ IMAP:\\ curl\\ error\\ 67:\\ Login\\ denied\\n"

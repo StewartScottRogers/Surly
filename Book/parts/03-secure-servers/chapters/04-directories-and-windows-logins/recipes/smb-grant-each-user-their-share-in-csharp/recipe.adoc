@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smb-grant-each-user-their-share-in-csharp]]
+=== Per-User Share Rights in C#
+
+==== Problem
+
+Two users share a server: one may only read the reports share, the other may write it. You want a test, in C#, that gives each user their own rights, with the reader{apos}s upload refused and the writer{apos}s kept.
+
+==== Solution
+
+The program serves a folder as the Server Message Block (SMB) share `reports` with `Surl.Api`, grants `reader` read and `writer` read and write, and tries each account with `Curl.Api`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is the command line as properties. `Shares` is `--share`, one `name=path` item for each folder to serve as a share, so `reports` and `other` are two folders on disk. `ShareAccess` is `--share-access`: `reports=reader:r,writer:rw` lets `reader` read and list and `writer` also upload, rename and delete. `Accounts` takes a `SurlAccount` for each login, and `AuthenticationMethods` is `--auth`: `ntlmv1` is the login `curl` makes in an SMB session setup (<<ms-smb>>). `server.BoundUrls` has the port taken for `smb://127.0.0.1:0`; call `ToString()` on an entry before adding a path to it.
+
+`CurlClient` sends a `CurlRequest` for each account and returns a `CurlResponse`, with `Authentication` set to a `CurlAuthenticationOptions` holding that account{apos}s user name and password. An upload is a `PUT` with a byte `Body`, which `Curl.Api` sends as `curl -T` does; SMB has no status line, so an upload that throws nothing is printed as `stored`. The writer{apos}s upload is stored in the folder and the reader reads it. The reader{apos}s upload throws a `CurlException` whose `Code` is `RemoteAccessDenied`, `curl`{apos}s exit code `9`, although `AllowUploads` is on, and nothing is written.
+
+A grant is separate from `AllowUploads`, which is `--allow-uploads`, off by default and a loosening because it widens what a peer may do. A write needs both: the `no-uploads` run shows the `rw` account refused with `RemoteAccessDenied` too, while the reader still reads. A grant is also separate from the login: a wrong password throws `LoginDenied`, `67`.
+
+A share with a grant is closed to every account it does not name. `carol` has a valid login and is not named, so a read or an upload in `reports` throws `RemoteFileNotFound`, `78`, as if the share were missing. The share `other` has no grant and stays open to every login, and with `AllowUploads` on it takes `carol`{apos}s upload; give each share you care about a grant.
+
+`Groups` is `--group`: the item `editors=writer` names a group, and `@editors:rw` grants it. The `group` run shows the member uploading and the account outside the group refused with `9`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smb-grant-each-user-their-share>> for the same task on the console.
+* <<smb-grant-each-user-their-share-from-an-agent>> for the same task with an agent.
+* <<smb-upload-to-a-share-in-csharp>> for the upload on its own.
+* <<surl-readme>>, <<curl-readme>>, <<ms-smb>>.

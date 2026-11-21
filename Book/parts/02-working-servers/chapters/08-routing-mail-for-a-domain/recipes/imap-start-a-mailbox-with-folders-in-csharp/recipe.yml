@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-start-a-mailbox-with-folders-in-csharp
+title: Starting Mailboxes with Folders in C#
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlMailboxInfo, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: ann's mailbox, given folders=Sent,Drafts,Archive, lists INBOX, Archive, Drafts and Sent over IMAP from the start, and ListMailboxesAsync gives the same four, empty, in ordinal order.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^ann over IMAP: INBOX, Archive, Drafts, Sent\nann in the store: Archive \(0\), Drafts \(0\), INBOX \(0\), Sent \(0\)\n'
+
+  - id: no-folders-key
+    claim: carol's mailbox, given without folders=, lists INBOX alone.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ncarol over IMAP: INBOX\n'
+
+  - id: selectable-and-empty
+    claim: A start folder is a real folder; Curl.Api selects Sent and SEARCH ALL answers * SEARCH with no number.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nann SEARCH ALL in Sent: \* SEARCH\n'
+
+  - id: nested-and-spaced
+    claim: dave's folders=Sent Items,Archive/2026 lists "Sent Items" quoted and Archive/2026 nested, with its parent Archive implied and marked \Noselect \HasChildren.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ndave: \* LIST \(\\HasNoChildren\) "/" INBOX\ndave: \* LIST \(\\Noselect \\HasChildren\) "/" Archive\ndave: \* LIST \(\\HasNoChildren\) "/" Archive/2026\ndave: \* LIST \(\\HasNoChildren\) "/" "Sent Items"\n'
+
+  - id: comma-encoded
+    claim: erin's folders=Paid%2CUnpaid makes one folder named Paid,Unpaid.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nerin in the store: INBOX \(0\), Paid,Unpaid \(0\)\n'
+
+  - id: reset-keeps-folders
+    claim: ResetAsync empties the mailbox, the INBOX that held one message, and keeps all four folders.
+    program: start-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter a delivery: Archive \(0\), Drafts \(0\), INBOX \(1\), Sent \(0\)\nafter ResetAsync: Archive \(0\), Drafts \(0\), INBOX \(0\), Sent \(0\)\n$'
+
+  - id: folder-twice
+    claim: A folders= list naming Sent twice is refused by StartAsync with SurlServerStartException, exit code FailedInit and surl's message.
+    program: start-folders.cs
+    args: [twice]
+    expect:
+      exit: 1
+      stdout: "refused at start: FailedInit, option --mailbox: member Sent is given twice\n"
+
+  - id: folders-empty
+    claim: folders= with nothing after it is refused by StartAsync the same way, key folders needs a value.
+    program: start-folders.cs
+    args: [empty]
+    expect:
+      exit: 1
+      stdout: "refused at start: FailedInit, option --mailbox: key folders needs a value\n"

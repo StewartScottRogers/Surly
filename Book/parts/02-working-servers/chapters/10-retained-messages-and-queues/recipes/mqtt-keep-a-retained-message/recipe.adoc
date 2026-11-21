@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-keep-a-retained-message]]
+=== Keeping a Retained Message
+
+==== Problem
+
+You want the last reading published to a topic kept for subscribers who connect later, so that a dashboard that starts after the sensor has spoken is still told what the sensor said. `curl` publishes with the retain flag clear, so the server has to be told which topics to keep.
+
+==== Solution
+
+Declare the topics with `--topic 'sensors/#;retain'`, publish with `curl -d`, and subscribe with `curl` and no `-d`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A Message Queuing Telemetry Transport (MQTT) publish carries a retain flag. A broker that sees it set keeps the message as the topic{apos}s last one and sends it to every client that subscribes later; one that sees it clear does not keep it (<<mqtt311>>). `curl -d` always sends the flag clear, so by itself it cannot leave anything behind. `--topic "sensors/#;retain"` closes the gap from the server{apos}s side: `surl` keeps every publish on a topic that matches the filter, whatever its flag (<<surl-readme>>). `sensors/#` matches every topic under `sensors/`, and `retain` is the flag that says to keep.
+
+`-d` gives `curl` a message to publish, `--next` starts a second transfer in the same command with its own options, `-s` keeps the progress meter quiet and `-S` brings an error message back when something fails (<<curl-readme>>). The subscribing `curl` is answered with the kept message, and `surl` then ends the exchange itself, so the command returns with exit `0` without a `-m` to cut it short (<<surl-readme>>). `curl` writes each message it receives as the topic{apos}s length in two bytes, the topic and the payload, so the kitchen{apos}s reading arrives as `\x00\x14sensors/kitchen/temp21.5`, twenty being the length of the topic. A subscriber that connects in a command of its own is sent the same reading, and reading it does not use it up.
+
+What is kept is one message per topic, the last. A second publish to `sensors/kitchen/temp` replaces the first, and a publish to `sensors/hall/temp` leaves the kitchen{apos}s alone. An empty message clears the topic, so a subscriber after it receives nothing.
+
+The filter is also the limit. A publish to `lab/kitchen/temp`, outside `sensors/#`, is accepted and `curl` exits `0`, but nothing is kept; and on the second server, `bare`, which has no `--topic`, nothing curl publishes is kept at all. Declaring the topic is the whole of what keeps a message: if a retained reading is missing, look at the filter first.
+
+The filter does not open the server. The third server, `closed`, has it and no `--allow-anonymous`, and a `curl` with no login is refused with `CONNACK` return code 5, which `curl` reports as exit `8` and `Expected 0000 but got 0005`. This recipe starts the first two servers with `--allow-anonymous`, which accepts any login or none and warns on start; it is a loosening for a test, and the accounts in <<mqtt-grant-a-topic>> are what to use instead.
+
+A publish at quality of service 0 gets no answer, so `curl` can return before the broker has kept the message, and on a slow machine a subscriber started at once can find nothing. Here the subscriber follows by one more connection, which is long enough in practice; a program that must be sure waits for the server{apos}s own record of the store change, as the C# and agent versions do.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-keep-a-retained-message-in-csharp>> for the same task from a C# test.
+* <<mqtt-keep-a-retained-message-from-an-agent>> for the same task from an agent.
+* <<mqtt-subscribe-with-a-wildcard>> for reading several retained topics with one subscription.
+* <<mqtt-publish-and-subscribe>> for the exchange without a retained message.
+* <<surl-readme>>, <<mqtt311>>.

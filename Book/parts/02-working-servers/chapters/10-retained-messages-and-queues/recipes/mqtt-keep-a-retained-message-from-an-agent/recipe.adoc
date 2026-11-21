@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-keep-a-retained-message-from-an-agent]]
+=== Keeping a Retained Message from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to publish a reading to a Message Queuing Telemetry Transport (MQTT) topic, so that a client who connects later is told it, and to confirm that a later subscriber and `read_retained_message` both see it, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a broker that keeps what is published under `sensors/`, seeds a reading with `publish_message`, and reads it as a later subscriber with the `curl` tool:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` starts an MQTT broker, <<mqtt311>>, as `surl mqtt://127.0.0.1:0` would, on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--topic "sensors/#;retain"` declares the topics under `sensors/` and keeps every message published on them, whatever its retain flag, and `--allow-anonymous` lets a client connect with no user name, a loosening for a test on one machine (<<surl-readme>>).
+
+`publish_message` takes the `server_id`, a `topic`, a `payload` as text and `retain`, and publishes as a client{apos}s publish would, with no client and no login. With `retain` `true` the message becomes the topic{apos}s retained message. `read_retained_message` takes the `server_id` and a `topic`, reads the retained message without dropping it, and answers the `topic`, the `qos`, which is `0`, and the `text`; a topic with nothing kept answers `{"retained": false}` and is not a tool error, so the agent has to test for it.
+
+The `curl` tool is the subscriber. It takes `curl`{apos}s own arguments, and `-s` and `-S` keep the progress meter out and the error message in. `curl mqtt://host:port/sensors/kitchen/temp` subscribes to the topic, and the answer{apos}s `standardOutput.content` is what the broker sends: the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters and prints the text (<<curl-readme>>, <<curl-protocols>>). The broker ends a subscription once it has sent the retained messages, so the read is one call with exit code `0`, and a second subscriber is sent the same reading: reading does not use it up. A topic with nothing kept gives empty output, which the program prints as `nothing`. `curl-mcp` answers in JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses.
+
+A client{apos}s publish is a different path from the seed. The `-d` option gives `curl` a message to publish, with the retain flag clear, which tells a broker not to keep the message (<<mqtt311>>); what keeps it is the filter. Under `sensors/#` the reading is kept, a second publish to the same topic replaces the first, each topic keeps one reading of its own, and an empty message clears the topic, so that the subscriber reads nothing and `read_retained_message` answers `retained` false. Outside the filter, or on a broker started with no `--topic` at all, the publish is accepted and nothing is kept, whereas a `publish_message` with `retain` `true` on the same topic is kept, since the call sets the flag itself. A test that seeds with `publish_message` can therefore pass where the application{apos}s own publishes would not be kept, and a test of the application{apos}s publishing should go through the `curl` tool.
+
+A publish at quality of service 0 gets no answer, so the `curl` tool can return before the broker has applied the message, and a `read_retained_message` straight after it can find the topic empty: this can happen on macOS. The program does not sleep. After each publish it calls `wait_for_event` with `kinds` `exchange_ended` and `after_sequence` set to the last sequence it saw, which answers when the broker records the end of `curl`{apos}s connection, after what `curl` sent has been applied, with a `timeout_ms` of ten seconds that a failure alone ever reaches. The seed needs no wait, since `publish_message` returns when the message is kept. Last, the filter does not open the broker: on one without `--allow-anonymous` the seed still works, but the `curl` tool answers exit code `8` and `Expected 0000 but got 0005` on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-keep-a-retained-message>> for the same task on the console, with `curl` publishing.
+* <<mqtt-keep-a-retained-message-in-csharp>> for the same task from a C# test with `Surl.Api` and `Curl.Api`.
+* <<mqtt-change-retained-config-mid-test-from-an-agent>> for changing a retained message in the middle of a test.
+* <<mqtt311>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-seed-a-directory-in-process]]
+=== Seeding a Directory in Process
+
+==== Problem
+
+Each test needs its own people in the directory. You want to add Lightweight Directory Access Protocol (LDAP) entries to a running server from a C# test, in steps, and read them back over LDAP.
+
+==== Solution
+
+The program starts a server with `Surl.Api`, adds entries to its directory from LDAP Data Interchange Format (LDIF) text in two batches, and searches it with `Curl.Api` after each step:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for an `ldap://` listener on port `0`, so the system picks a free port, and `AllowAnonymous`, the option `--allow-anonymous`, which lets a search run with no password. It loosens the defaults, for a directory that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). The directory starts empty, so the first search, for the entries of class `person` under `dc=example,dc=com`, throws a `CurlException` with code `39`, `LdapSearchFailed`: the base is not there.
+
+`server.Directory` is the running server{apos}s directory, a `SurlServerDirectory`. `AddEntriesAsync` takes LDIF text, one record for each entry, and adds the entries; each is named by its distinguished name (DN), and its parent must be there already, so the first batch starts with the top of the tree. The second call adds `bob` to the same running server, and the same search now returns both. Nothing is written to disk, and no restart is needed, so a test can add exactly the people it needs just before it runs.
+
+The client is a `CurlClient`, and a search is a `CurlRequest`, a GET of an `ldap://` URL (<<rfc4516>>): the base DN, the attributes to return, the scope and the filter, separated by `?`. The answer is a `CurlResponse` whose `Body` holds the entries. `Authentication`, a `CurlAuthenticationOptions`, with `UserPassword` set to `":"` is an empty name and password, the anonymous bind. The program prints each entry on one line, sorted, since the layout of the LDAP library under `Curl.Api` differs between platforms.
+
+A batch is all or none. The mixed batch holds `carol`, who is fine, and `dave`, whose parent `ou=nowhere` does not exist; `AddEntriesAsync` throws `SurlSeedRefusedException`, and a search shows that `carol` was not added. Adding a name that already exists, or text that is not LDIF, is refused the same way. A seed never fails silently, so a test that mistypes a DN stops there rather than later at a search that finds nothing.
+
+`ExportLdifAsync` reads the directory back as LDIF without going over LDAP, which is the check for what a test has done to it. It holds the seeded entries and leaves out every `userPassword` value: `bob` was seeded with one and neither the attribute nor `b0bpass` is in the export. A second `SurlServer` has a directory of its own and starts empty again, so one test{apos}s people are not another{apos}s. The wire answer for a missing base is `noSuchObject` (<<rfc4511>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-seed-a-directory-from-an-agent>> for the same task driven by an agent.
+* <<ldap-search-with-a-filter-and-scope-in-csharp>> for what the searches can do.
+* <<ldaps-search-over-tls-in-csharp>> for a password bind over TLS.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>.

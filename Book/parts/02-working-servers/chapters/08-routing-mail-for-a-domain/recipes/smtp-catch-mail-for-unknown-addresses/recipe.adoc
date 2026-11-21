@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-mail-for-unknown-addresses]]
+=== Catching Mail for Unknown Addresses
+
+==== Problem
+
+Mail to an address of your domain that has no mailbox, a typo or one nobody set up, is accepted and quietly thrown away, and you want it caught in one mailbox where you can read it instead.
+
+==== Solution
+
+Name a catch-all mailbox for the domain with `--mail-catch-all`, send to a misspelt address, and read what was caught over Internet Message Access Protocol (IMAP):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--mail-domain` names the domains the server takes mail for, `example.com` and `example.org` here, and each `--mailbox` adds a mailbox with the account that logs in to it by its whole address (<<surl-readme>>). `--mail-catch-all example.com=catchall@example.com` sends mail for any address of `example.com` that is not a mailbox or an alias to `catchall@example.com`. Without it, `surl` accepts such mail with `250` and discards it: telling a sender which addresses exist would hand a stranger a list of them, so the default says nothing, and an app that misspells `ann` as `anne` never hears about it. The catch-all is how a test hears about it.
+
+The first transfer is the app: `-u` logs in, `--mail-from` and `--mail-rcpt` are the envelope{apos}s `MAIL FROM` and `RCPT TO` (<<rfc5321>>), `-T` sends the file and `--crlf` gives each line the carriage return and line feed mail needs. `--next` starts the second transfer, with its own options, which reads `INBOX;UID=1` of the catch-all. Delivery is asynchronous, so the read does not trust the first try: a missing message is an error (`curl` exit `78`), `--retry 10` allows ten more tries, `--retry-all-errors` lets it retry an error that is not a network one, and `--retry-delay 1` spaces them a second apart. The logins need no loosening option: without Transport Layer Security `surl` offers only `CRAM-MD5`, which never sends the password, and `curl` uses it.
+
+The message is caught as it was sent, with the `Return-Path` and `Received` lines `surl` adds to every stored message, so its `To` header still names `anne@example.com` and an IMAP search for it (`INBOX?TO%20anne@example.com`) finds it, `* SEARCH 1` (<<rfc9051>>). The header is all there is, though. `surl` adds no line saying which envelope address the copy was for, so a message sent to `jo@example.com` whose `To` names `ann`, as a blind copy would be, is caught, and a search for `jo` answers `* SEARCH` with no number. A test that needs the envelope address should put it in a header too.
+
+Only unknown addresses are caught. Addresses are matched without regard to letter case, so `Ann@Example.COM` reaches `ann`. An alias, `--mail-alias support@example.com=ann@example.com`, is not unknown either, and its mail goes to `ann`. In both cases the catch-all{apos}s `-X "STATUS INBOX (MESSAGES)"` stays at `1`; each of those cases first waits for the copy it expects with `-X "FETCH n FLAGS"`, which sets no flag, `-s` and `-o /dev/null` keeping it quiet.
+
+A catch-all is for one domain. `example.org` has none, so one message to `stray@example.org` and `team@example.org` reaches `team`, exit `0`, and the copy for `stray` is discarded. Naming a second catch-all for the same domain exits `2` with `catch-all domain example.com is given twice`. An address outside every `--mail-domain` is not the server{apos}s to catch or discard: `someone@example.net` is refused with `550` at `RCPT TO`, and `curl` exits `55` with `RCPT failed: 550`, which `-S` keeps on screen with `-s` on.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-mail-for-unknown-addresses-in-csharp>> for a C# test that sees every stray message.
+* <<smtp-catch-mail-for-unknown-addresses-from-an-agent>> for an agent that reads the catch-all.
+* <<smtp-catch-every-address-in-one-mailbox>> for counting generated addresses in a catch-all.
+* <<smtp-route-mail-through-aliases>> for aliases.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-seed-a-directory-from-an-agent]]
+=== Seeding a Directory from an Agent
+
+==== Problem
+
+Your agent sets up a test directory on the fly. You want it to add Lightweight Directory Access Protocol (LDAP) entries to a running server, read them back, and search them over LDAP.
+
+==== Solution
+
+The agent starts an LDAP server with `surl-mcp`, adds entries from LDAP Data Interchange Format (LDIF) text in two batches with `add_ldap_entries`, reads the directory back with `read_directory`, and searches it with `curl-mcp`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `listen_urls`, here one `ldap://` URL on port `0` so it takes a free port, and `arguments`, surl{apos}s own options as a list of words. `--allow-anonymous` lets a search run with no password. It loosens the defaults, for a directory that holds nothing private, and `surl` warns on every start while it is on (<<surl-readme>>). The answer has a `server_id`, which every later call names, and `bound_urls`. The directory starts empty, so the first search exits `39`: the base is not there.
+
+`add_ldap_entries` takes the `server_id` and `ldif`, the text with one record for each entry, and answers `entry_count`. Each entry is named by its distinguished name (DN), and its parent must be there already, so the first batch starts with the top of the tree and answers `3`. The second call adds `bob` to the same running server, answers `1`, and the same search now returns both. Nothing is written to disk, and no restart is needed, so an agent can add exactly the people a test needs just before it runs.
+
+The `curl` tool of `curl-mcp` takes curl{apos}s own arguments in `args`, so a search is `-u :` and an `ldap://` URL: the base DN, the attributes to return, the scope and the filter, separated by `?` (<<rfc4516>>). `-u :`, an empty name and password, is the anonymous bind. The answer is JSON: `exitCode`, and `standardOutput` and `standardError`, each with a `content` or `null`. The program prints each entry on one line, sorted, and the exit code, since the layout and wording of the LDAP library under `curl-mcp` differ between platforms.
+
+A batch is all or none. The mixed batch holds `carol`, who is fine, and `dave`, whose parent `ou=nowhere` does not exist; the tool answers an error, and a search shows that `carol` was not added. Adding a name that already exists, or text that is not LDIF, is an error the same way, and so is calling `add_ldap_entries` on a server that has no LDAP listener, here one that serves only HTTP. A seed never fails silently, so an agent that mistypes a DN learns it at once rather than from a search that finds nothing.
+
+`read_directory` answers the directory as LDIF, without going over LDAP, which is the check for what the agent has done to it. It holds the seeded entries and leaves out every `userPassword` value: `bob` was seeded with one and neither the attribute nor `b0bpass` is in the answer. A second LDAP server has a directory of its own and starts empty again, so one test{apos}s people are not another{apos}s. The wire answer for a missing base is `noSuchObject` (<<rfc4511>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-seed-a-directory-in-process>> for the same task from C#.
+* <<ldap-search-with-a-filter-and-scope-from-an-agent>> for what the searches can do.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>.

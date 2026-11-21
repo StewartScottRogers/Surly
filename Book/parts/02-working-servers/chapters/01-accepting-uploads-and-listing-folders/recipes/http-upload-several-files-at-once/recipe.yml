@@ -1,0 +1,124 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 1
+key: http-upload-several-files-at-once
+title: Uploading Several Files at Once
+protocols: [http, ws]
+tier: working-servers
+surl-options: [--directory, --allow-uploads, --allow-anonymous, --list-directories, --user]
+curl-options: [-T, -s, -w, --next, --digest, -u]
+exit-codes: [0, 26]
+references: [surl-readme, curl-readme, rfc9110, rfc6455]
+
+fixtures:
+  a.txt: "alpha\n"
+  b.txt: "bravo\n"
+  c.txt: "charlie\n"
+  site/reports/old.txt: "from last week\n"
+  site/inbox/keep.txt: "keep\n"
+  drop/readme.txt: "uploads land here\n"
+
+# main: the recipe's server, uploads from anyone, listings over ws on the same folder.
+# account: uploads need alice's login (no --allow-anonymous), in its own folder.
+# read-only: anyone may read, nobody may upload, in memory.
+servers:
+  main:
+    command: surl --directory site --allow-uploads --allow-anonymous --list-directories http://127.0.0.1:{{port}}/ ws://127.0.0.1:{{port2}}/
+    ready: port
+  account:
+    command: surl --directory drop --allow-uploads --user alice:s3cret http://127.0.0.1:{{port3}}/
+    ready: port
+  read-only:
+    command: surl --allow-anonymous http://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command with -T "{a,b,c}.txt" and a URL ending in a slash uploads a.txt, b.txt and c.txt into /reports/, each answered 201 Created, then after --next lists the folder over ws with the three new names beside the one already there; exit 0.
+    run: curl -s -T "{a,b,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port}}/reports/ --next ws://127.0.0.1:{{port2}}/reports/
+    expect:
+      exit: 0
+      stdout: "201 /reports/a.txt\n201 /reports/b.txt\n201 /reports/c.txt\na.txt\nb.txt\nc.txt\nold.txt\n"
+      files:
+        site/reports/a.txt: "alpha\n"
+        site/reports/b.txt: "bravo\n"
+        site/reports/c.txt: "charlie\n"
+
+  - id: http-does-not-list
+    claim: The http listen URL does not list the folder; a GET of /reports/ is answered 404 Not Found, which is why the listing is asked over ws.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port}}/reports/
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: again-replaces
+    claim: Running the same upload again replaces each file, answered 204 No Content three times.
+    run: curl -s -T "{a,b,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port}}/reports/
+    expect:
+      exit: 0
+      stdout: "204 /reports/a.txt\n204 /reports/b.txt\n204 /reports/c.txt\n"
+
+  - id: range-glob
+    claim: A range, -T "[a-c].txt", names the same three files.
+    run: curl -s -T "[a-c].txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port}}/reports/
+    expect:
+      exit: 0
+      stdout: "204 /reports/a.txt\n204 /reports/b.txt\n204 /reports/c.txt\n"
+
+  - id: no-trailing-slash
+    claim: Without the trailing slash curl does not append each file's name, so all three go to the one path /reports/all.txt, the last one wins, and only charlie is kept.
+    run: curl -s -T "{a,b,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port}}/reports/all.txt
+    expect:
+      exit: 0
+      stdout: "201 /reports/all.txt\n204 /reports/all.txt\n204 /reports/all.txt\n"
+      files:
+        site/reports/all.txt: "charlie\n"
+
+  - id: missing-folder
+    claim: surl creates no folders, so uploads into a folder that is not there are each answered 409 Conflict, and curl still exits 0.
+    run: curl -s -T "{a,b,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port}}/nowhere/
+    expect:
+      exit: 0
+      stdout: "409 /nowhere/a.txt\n409 /nowhere/b.txt\n409 /nowhere/c.txt\n"
+
+  - id: missing-local-file
+    claim: A name in the list with no local file stops curl at that name with exit 26; the files before it are already uploaded and the ones after it are not sent.
+    run: curl -s -T "{a,missing,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port}}/inbox/
+    expect:
+      exit: 26
+      stdout: "201 /inbox/a.txt\n000 /inbox/missing.txt\n"
+      files:
+        site/inbox/a.txt: "alpha\n"
+
+  - id: missing-local-file-listing
+    claim: The inbox listing afterwards holds a.txt and nothing of c.txt.
+    run: curl -s ws://127.0.0.1:{{port2}}/inbox/
+    expect:
+      exit: 0
+      stdout: "a.txt\nkeep.txt\n"
+
+  - id: no-login
+    claim: Without --allow-anonymous, on a server with an account, every upload in the list is answered 401 Unauthorized, and curl exits 0.
+    run: curl -s -T "{a,b,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout: "401 /a.txt\n401 /b.txt\n401 /c.txt\n"
+
+  - id: with-login
+    claim: The same list sent with --digest -u alice:s3cret is answered 201 Created for each file, and the files land in drop.
+    run: curl -s --digest -u alice:s3cret -T "{a,b,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout: "201 /a.txt\n201 /b.txt\n201 /c.txt\n"
+      files:
+        drop/a.txt: "alpha\n"
+        drop/b.txt: "bravo\n"
+        drop/c.txt: "charlie\n"
+
+  - id: uploads-off
+    claim: Without --allow-uploads, each upload is answered 405 Method Not Allowed, even with --allow-anonymous.
+    run: curl -s -T "{a,b,c}.txt" -w "%{http_code} %{url.path}\n" http://127.0.0.1:{{port4}}/
+    expect:
+      exit: 0
+      stdout: "405 /a.txt\n405 /b.txt\n405 /c.txt\n"

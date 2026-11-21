@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-start-a-mailbox-with-folders]]
+=== Starting Mailboxes with Folders
+
+==== Problem
+
+You want each test mailbox to start with Sent, Drafts and Archive already there, so a mail client under test finds the folders it expects, and you want to list them over Internet Message Access Protocol (IMAP).
+
+==== Solution
+
+Give each `--mailbox` a `folders=` list, and list the folders with `curl` on the server{apos}s root URL:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--mail-domain example.com` serves mail for the domain, and each `--mailbox` adds a mailbox with the account that logs in to it by its whole address, which `curl` gives with `-u` (<<surl-readme>>). After the address and password come keys, separated by `;`: `folders=Sent,Drafts,Archive` creates those three folders beside `INBOX` when the server starts, before any client connects. The `;` is why the whole argument is in quotes. The folders are made for each mailbox that names them: `ann` and `bob` get their own, `carol`, with no `folders=`, starts with `INBOX` alone.
+
+An `imap://` URL with no folder in it asks `curl` to list the account{apos}s folders, one `* LIST` line each with its attributes and the separator `/` (<<rfc9051>>). `INBOX` comes first and the others by name; `\HasNoChildren` says no folder sits inside. The login needs no loosening option: without Transport Layer Security `surl` offers only `CRAM-MD5`, which never sends the password, and `curl` uses it.
+
+The folders start empty, and they are ordinary folders. `-X "STATUS Sent (MESSAGES)"` answers `MESSAGES 0` at first. A client filing a sent message there with `-T sent.eml` on `.../Sent` (an IMAP `APPEND`) makes `ann`{apos}s count `1`, and `bob`{apos}s `Sent` is still `0`: no two mailboxes share a folder. `APPEND` sends the file as it is, so `sent.eml` has its carriage returns and line feeds already. `--next` runs the next transfer in the same `curl`, with its own options; `-s` hides the progress meter. A client may delete a start folder too: after `-X "DELETE Drafts"`, with `-o /dev/null` dropping its empty answer, the list has no `Drafts`.
+
+Names may hold more than letters. `Sent Items` keeps its space, and `LIST` quotes it. `Archive/2026` is nested, since `/` is the separator, and its parent `Archive` appears even though `dave` never named it, marked `\Noselect \HasChildren`, a name that only holds other folders (<<rfc9051>>). A `,` inside a name would end it, so it is written `%2C`: `folders=Paid%2CUnpaid` makes one folder, `Paid,Unpaid`.
+
+The folders are a starting state. `surl` keeps mail in memory, so a restart begins again from the command line: `Drafts` is back and `Sent` is empty. That is the point of setting them at start rather than creating them from the test: every run, and every test that restarts the server, sees the same mailboxes.
+
+`surl` checks the list before it listens. The same folder twice in one list exits `2` with `member Sent is given twice`, and `folders=` with nothing after it exits `2` with `key folders needs a value`; both cases run `surl` with `2>&1` to show the message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-start-a-mailbox-with-folders-in-csharp>> for the same server in C#.
+* <<imap-start-a-mailbox-with-folders-from-an-agent>> for an agent that starts it.
+* <<imap-test-a-shared-team-folder>> for one folder shared by several mailboxes.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

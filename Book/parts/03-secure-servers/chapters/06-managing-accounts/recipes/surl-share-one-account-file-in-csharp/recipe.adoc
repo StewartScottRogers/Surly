@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-share-one-account-file-in-csharp]]
+=== Sharing One Account File in C#
+
+==== Problem
+
+Your stack talks Hypertext Transfer Protocol (HTTP), File Transfer Protocol (FTP), Internet Message Access Protocol (IMAP) and Message Queuing Telemetry Transport (MQTT), and you want one list of test accounts for all of them. You want a test, in C#, with one user file that every listener checks, the same login working on each and a missing user refused on each.
+
+==== Solution
+
+The program starts one server with `Surl.Api` that reads `users.txt` and listens on four TLS schemes, then logs in on each with `Curl.Api`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.UserFile` is `--user-file`: a path to a file of `user:password` lines, read when the server starts. A blank line and a line that starts with `#` are skipped. `ListenUrls` holds `https://`, `ftps://`, `imaps://` and `mqtts://` on port `0`, so each takes a free port, and `server.BoundUrls` has them in the same order; call `ToString()` on an entry before adding a path. All four need the certificate that `CertificateFile` and `KeyFile` give, and the accounts belong to the server, not to a scheme. `Accounts` takes a `SurlAccount` for each account in code, and they add to the file{apos}s: `carol` is in the program, `alice` and `bob` in the file, and each logs in.
+
+`CurlClient` is built once, with `CurlClientOptions` whose `Tls`, a `CurlTlsOptions`, has an `Origin` of `CurlTlsPeerOptions` with `CertificateAuthorityFile` set to the certificate it should trust, `--cacert`. One `CurlAuthenticationOptions` with `UserName` and `Password` goes on every `CurlRequest`: a `GET` of `hello.txt` over HTTPS and over FTP with TLS, a `GET` of the root over IMAP, which lists the mailbox folders, and a `POST` over MQTT, which publishes the bytes of a `CurlContent` body. Each `SendAsync` returns a `CurlResponse`. The answers are the same for the same login on each: `200` and the file, the file, the folder list, and no exception. `Topics` holds `t/#;retain` so the broker keeps the publish, and `server.Messages.ReadRetainedAsync` reads it back as a `SurlRetainedMessage`, the proof that the login let it through. A publish at quality of service 0 is not acknowledged, so the client returns before the broker has stored it, and the program waits for the message for a moment rather than reading once.
+
+A user the file does not hold is refused, and the four say it in their own ways. HTTPS is an ordinary response with status `401`. FTPS and IMAPS throw a `CurlException` whose `Code` is `LoginDenied`, `67`. MQTTS throws `WeirdServerReply`, `8`, since the broker answers with connect code `4`. The broker keeps nothing. A wrong password for a user in the file is refused identically. No loosening option is set: with accounts present, the secure defaults stay on.
+
+The start is where a bad file is caught. A line without a colon makes `SurlServer.StartAsync` throw a `SurlServerStartException` whose message names the line, `line 1` here, and nothing listens. The program prints it and returns `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-share-one-account-file>> for the same task on the console.
+* <<surl-share-one-account-file-from-an-agent>> for the same task with an agent.
+* <<surl-readme>>, <<curl-readme>>.
