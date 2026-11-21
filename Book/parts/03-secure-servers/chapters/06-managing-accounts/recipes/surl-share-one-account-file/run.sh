@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
-surl --directory site --cert server.pem --key server.key --user-file users.txt --topic "t/#;retain" https://127.0.0.1:8080/ ftps://127.0.0.1:8081/ imaps://127.0.0.1:8082/ mqtts://127.0.0.1:8083/ &
+surl --directory site --cert server.pem --key server.key --user-file users.txt https://127.0.0.1:8080/ ftps://127.0.0.1:8081/ imaps://127.0.0.1:8082/ mqtts://127.0.0.1:8083/ &
 sleep 1
 curl -s --cacert server.pem -u alice:s3cret https://127.0.0.1:8080/hello.txt --next -s --cacert server.pem -u alice:s3cret ftps://127.0.0.1:8081/hello.txt --next -s --cacert server.pem -u alice:s3cret -X "STATUS INBOX (MESSAGES)" imaps://127.0.0.1:8082/ --next -s --cacert server.pem -u alice:s3cret -d on mqtts://127.0.0.1:8083/t/lamp
 kill $(jobs -p)

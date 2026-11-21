@@ -6,5 +6,5 @@ cd "$(dirname "$0")"
 surl --allow-plaintext-auth --allow-uploads --mail-domain example.com --mailbox "app@example.com:apppass;protocols=smtp,http,mqtt" --mailbox ann@example.com:annpass --topic "orders/#;retain" smtp://127.0.0.1:8080/ imap://127.0.0.1:8081/ http://127.0.0.1:8082/ mqtt://127.0.0.1:8083/ &
 sleep 1
 curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T shipped.eml smtp://127.0.0.1:8080/example.com --next --digest -u app@example.com:apppass -T invoice-7.txt http://127.0.0.1:8082/invoice-7.txt --next -u app@example.com:apppass -d shipped mqtt://127.0.0.1:8083/orders/7
-curl -sS -u ann@example.com:annpass "imap://127.0.0.1:8081/INBOX;UID=1;SECTION=HEADER.FIELDS%20(FROM%20TO%20SUBJECT)" --next --digest -u app@example.com:apppass http://127.0.0.1:8082/invoice-7.txt --next -u app@example.com:apppass mqtt://127.0.0.1:8083/orders/7
+curl -sS -u ann@example.com:annpass "imap://127.0.0.1:8081/INBOX;UID=1;SECTION=HEADER.FIELDS%20(FROM%20TO%20SUBJECT)" --next --digest -u app@example.com:apppass http://127.0.0.1:8082/invoice-7.txt --next -u app@example.com:apppass -o event.bin mqtt://127.0.0.1:8083/orders/7
 kill $(jobs -p)

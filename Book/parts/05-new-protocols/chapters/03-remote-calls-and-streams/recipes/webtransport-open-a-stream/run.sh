@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
-surl --cert server.pem --key server.key webtransport://127.0.0.1:8080/ &
+surl --cert server.pem --key server.key --allow-anonymous webtransport://127.0.0.1:8080/ &
 sleep 1
 curl --cacert server.pem -d "hello over a stream" webtransport://127.0.0.1:8080/echo
 kill $(jobs -p)
