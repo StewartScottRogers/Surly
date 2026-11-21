@@ -3,7 +3,7 @@
 // and reports whether the request fell back to TCP or failed.
 // Run: dotnet run fallback.cs [-- only | swallowed | swallowed-only | h3]
 //   (no argument)  curl --http3 against nothing on UDP
-//   only           curl --http3-only against nothing on UDP
+//   only           curl --http3-only --connect-timeout 2 against nothing on UDP
 //   swallowed      curl --http3 against a TFTP listener on the same port number
 //   swallowed-only curl --http3-only --connect-timeout 2 against it
 //   h3             curl --http3 against a server started with --http3
@@ -63,9 +63,10 @@ for (int attempt = 1; mode.StartsWith("swallowed") && tftpId is null && attempt 
     url = server.GetProperty("bound_urls")[0].GetString()! + "hello.txt";
 }
 
-// curl-mcp's curl tool: --http3 may fall back to TCP, --http3-only may not.
+// curl-mcp's curl tool: --http3 may fall back to TCP, --http3-only may not, and is bounded
+// by --connect-timeout so a QUIC attempt nobody answers cannot hold the call.
 var curlArgs = new List<string> { mode.EndsWith("only") ? "--http3-only" : "--http3", "--cacert", "server.pem" };
-if (mode == "swallowed-only")
+if (mode.EndsWith("only"))
 {
     curlArgs.AddRange(["--connect-timeout", "2"]);
 }

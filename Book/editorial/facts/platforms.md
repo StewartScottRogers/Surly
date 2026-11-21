@@ -80,6 +80,15 @@ Linux case shows the password was not checked.
 ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope, ldaps-search-over-tls
 (and twins), https-refuse-clients-below-tls-1-3 (and twins), coap-get-a-resource, webtransport-open-a-stream,
 surl-start-and-stop-in-a-shell-script, surl-run-a-test-server-in-ci, https-serve-a-certificate-chain (and twins), https-move-a-client-to-http3 (and twins),
-grpc-test-a-failing-call-from-an-agent, mqtt5-check-a-retained-message-from-an-agent, mqtt-check-retained-state-after-a-run.
+grpc-test-a-failing-call-from-an-agent, mqtt5-check-a-retained-message-from-an-agent, mqtt-check-retained-state-after-a-run,
+https-fall-back-when-http3-is-missing-from-an-agent, sftp-offer-a-single-cipher, http-multiplex-requests-over-http2-in-csharp,
+http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it.
 
 - Alt-Svc on Windows (Curl ADR-1313, confirmed by the Curl session 2026-11-20): with no version option, curl, Curl.Api and curl-mcp ignore a stored h3 or h2 Alt-Svc entry, as the Windows reference curl 8.22.0 (Schannel) does. With `--http3` (or `--http2`; Curl.Api `Http3`) given, a stored h3 entry is used on Windows too, so a recipe that moves a client to HTTP/3 through Alt-Svc passes `--http3` on every platform.
+
+## CI fixes from run 44871788391 (batch-07, Curl 7d167fa10a; Windows verified, Linux and macOS from the CI log)
+- curl-mcp `--http3-only` to a TCP-only https server (nothing on UDP): Windows 56 at once; Linux and macOS never hear the port unreachable and outlived verify's 60 s (curl's 300 s connect default, Curl BL-5659), although the console `curl` got 56 there. Bound it with `--connect-timeout 2` and case `[windows]` 56, `[linux, macos]` 28 (`https-fall-back-when-http3-is-missing-from-an-agent`).
+- macOS's own OpenSSH (10.5p1, LibreSSL) reads `/etc/ssh/crypto.conf` and prefers `aes128-gcm@openssh.com`; stock OpenSSH on Windows and Linux picks `chacha20-poly1305@openssh.com` against surl's default list. Both show `MAC: <implicit>`. A claim about the client's default cipher is per platform (`sftp-offer-a-single-cipher`).
+- BSD `wc -c` (macOS) pads its count with spaces; use `wc -c < f | tr -d ' '` in scripts whose output is matched.
+- Connections opened without `PipeWait` (Curl.Api, HTTP/2, five requests at once): 5 on Windows, 2 on Ubuntu. A race: claim a range, never an exact count.
+- `SurlFault.DropConnection() with { AfterBytes = ... }` mid-body: on macOS the Curl.Api body read never ended (60 s timeout); Windows gets `CurlException` `RecvError` at once. `CurlClientOptions.Timeout` covers the streamed body as well (Windows: a slowed reader got `CurlException` at the timeout), so a bound makes it a `CurlException` everywhere (`http-stream-a-download-and-hash-it`).

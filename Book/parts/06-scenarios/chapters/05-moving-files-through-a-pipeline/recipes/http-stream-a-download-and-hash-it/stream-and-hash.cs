@@ -36,7 +36,8 @@ if (which == "dropped")
 }
 
 // The download: each block read from the body goes to the file and into the hash, so the whole file is never in memory.
-await using CurlClient client = CurlClient.Create();
+// Timeout bounds the whole transfer, body included: a break the client is never told of still ends, as a CurlException.
+await using CurlClient client = CurlClient.Create(new CurlClientOptions { Timeout = TimeSpan.FromSeconds(15) });
 long heapBefore = GC.GetTotalMemory(true);
 using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 long received = 0;

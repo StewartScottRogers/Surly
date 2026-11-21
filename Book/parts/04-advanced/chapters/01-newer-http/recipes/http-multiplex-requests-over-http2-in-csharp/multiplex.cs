@@ -3,7 +3,7 @@
 // Surl.Api server that records its exchanges, and counts the connections the server saw.
 // Run: dotnet run multiplex.cs [-- separate | slow | http1.1]
 //   (no argument) PipeWait on: every request waits for a connection it can share
-//   separate      PipeWait off: each request takes a connection of its own at once
+//   separate      PipeWait off: a request that finds no connection ready opens its own
 //   slow          the server holds every request 2 s; prints how long the five took
 //   http1.1       PipeWait on, but HTTP/1.1, which cannot share a connection
 #:package Surl.Api@1.0.0

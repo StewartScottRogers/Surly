@@ -56,3 +56,5 @@ surl-clean-up-leftover-servers.
 - Unknown option in the second file: `surl: bad.conf:2: option --max-filesise: is unknown` exit 2 (names file and line).
 - Surl.Api: `ConfigFiles` (-K, in order) then properties are read BEFORE the files (`MaxFileSize = 5` loses to a file's 10), `AdditionalArguments` AFTER (win). Servers need `--directory` per surl: two share nothing; a dotnet run left in the same folder still locks `site` (exit 124 `DataDirectoryInUse`).
 - Agent: surl-mcp has no -K; layers are argument lists concatenated, later wins like the console. A refusal of `-K`/`--max-filesise` is a tool error (see the recipe's expected text).
+
+- Decided by Surl (2026-11-20): surl leaves its lock file after a clean stop on purpose (ADR-0031 decision 7); deleting it would race a second process. Refusals found while reading the command line have no "(2)" prefix and add a try-help line; refusals found at start get "(2)" (ADR-0101 decision 5). surl-mcp messages are limited to 4 MiB (ADR-0103): split large seeds across `put_file` calls. `Files.DeleteAsync` leaves an emptied folder, as a client delete would.

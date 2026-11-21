@@ -9,3 +9,4 @@ Checked against surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167
 
 1. --parallel-immediate is needed for the four transfers to open four connections; without it the second range reused a connection every time, even against a 1 s delay server.
 2. Solution's num_connects column is matched as 0 or 1 on the fast server; the slow server (--fault delay) case shows 1 for all four.
+3. CI fix (run 44871788391): BSD `wc -c` on macOS pads its count (`joined:  1000000`); `check.sh` now prints `$(wc -c < joined | tr -d " ")`. Regexes and exact outputs unchanged.

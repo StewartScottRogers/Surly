@@ -82,3 +82,5 @@ ftp-run-out-of-space-on-upload (+ -in-csharp, -from-an-agent), ftp-resume-a-drop
 - `out-of-space` takes only scope keys and `times` (`stage`, `command`, `after-bytes` refused, exit 2). FTP: `552` to STOR/APPE before any data; HTTP PUT: `413`. Event `fault_applied` with `fault_kind` `out_of_space`, `target` the path. Details and the log's wording in `ftp.md`.
 - `drop;after-bytes=N` on FTP counts control-connection bytes only, so it cannot cut a download mid-file; `path=` with `after-bytes` needs a stage it cannot have (`after-bytes cannot be given with stage=command`). Use `drop;stage=command;command=RETR;path=/x;times=1` and make the partial file in setup.
 - Git Bash rewrites `path=/x` in a `--fault` argument to a Windows path (MSYS path conversion), so the rule silently never matches: `MSYS_NO_PATHCONV=1` when probing by hand. verify runs cases under cmd, which does not.
+
+- Decided by Surl (2026-11-20): an `out-of-space` fault answers HTTP 413, reusing the "too large" answer (Surl ADR-0129 decision 3), not 507. A cancelled request under a `delay` fault keeps its connection slot until the delay ends (BL-1520/1521 open).

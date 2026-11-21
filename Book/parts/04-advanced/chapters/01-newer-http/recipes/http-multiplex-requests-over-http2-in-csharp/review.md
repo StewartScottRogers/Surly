@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. `PipeWait = true` puts five concurrent `SendAsync` calls on one HTTP/2 connection (1 exchange); without it 5; HTTP/1.1 with it 5. Cased all three.
 2. A warm-up request on a separate client pays Curl.Api's one-time set-up before anything is counted or timed; connections are the growth of `server.Exchanges`.
 3. Fixed: cut a comparison with `curl -Z --parallel-immediate`, which the console twin found nondeterministic.
+4. CI fix (run 44871788391): without `PipeWait` Ubuntu saw 2 connections, Windows 5: a race. `without-pipewait` now claims more than one (`connections: [2-5]`).

@@ -39,6 +39,10 @@ Do not read the Surl or Curl READMEs or `--aihelp` end to end; look up one thing
   `` `name`'s ``; wrap `=>` and `<=` in `` `+...+` ``; no "simply", "just" or exclamation marks.
 - Behaviour that differs by platform (WinLDAP, NTLM, SSPI, the TLS library) gets `platforms:` on its
   case and is stated as such; read `facts/platforms.md` first. Only Windows runs locally; CI runs Linux and macOS.
+- Portable across Windows, Linux and macOS: BSD `wc` pads its count (use `wc -c < f | tr -d ' '`); `cat`/`ls` exit
+  codes differ (use `test`); counts that depend on scheduling (connections opened, retries before a race) are
+  claimed as a range or "more than one"; every client call that can hang (HTTP/3, a dropped connection) gets
+  `--connect-timeout`/`--max-time` or a cancellation token, so a case fails fast instead of at 60 s.
 - A console recipe may run a short `sh` script (a fixture shown with `include::`) when one command will not
   do; its Solution says it needs a POSIX shell (Git Bash on Windows). Prefer single commands.
 - Timing: claim ranges or orderings that hold on a loaded machine and a slow CI runner. The first Curl.Api request in a

@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. Reader: `2>&1` is needed because `sftp -v` writes its debug lines to standard error; the host-key check is skipped, as in the weak-algorithms recipe.
 3. Fixed: a cipher/MAC outside the allowed pair is a case each (`other-cipher-refused`, `other-mac-refused`), plus the unknown-name and weak-name refusals.
 4. Reader: the first run of the recipe under a heavily loaded machine timed out once at 30 s (an `sftp` with a 3072-bit key); it passed on rerun.
+5. CI fix (run 44871788391): macOS's own `sftp` (OpenSSH 10.5p1, LibreSSL, `/etc/ssh/crypto.conf`) agrees on `aes128-gcm@openssh.com` against the default offer. `default-offer` is now `[windows, linux]` chacha20-poly1305; `default-offer-macos` `[macos]` aes128-gcm, both `MAC: <implicit>`.
