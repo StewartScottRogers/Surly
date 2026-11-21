@@ -4,7 +4,7 @@
 // Run: dotnet run multiplex.cs [-- separate | slow | http1.1]
 //   (no argument) PipeWait on: every request waits for a connection it can share
 //   separate      PipeWait off: a request that finds no connection ready opens its own
-//   slow          the server holds every request 2 s; prints how long the five took
+//   slow          the server holds every request 2 s, not 1 s; prints how long the five took
 //   http1.1       PipeWait on, but HTTP/1.1, which cannot share a connection
 #:package Surl.Api@1.0.0
 #:package Curl.Api@0.2.0
@@ -24,10 +24,9 @@ for (int i = 1; i <= 5; i++)
     options.Files[$"f{i}.txt"] = System.Text.Encoding.UTF8.GetBytes($"file {i}\n");
 }
 
-if (mode == "slow")
-{
-    options.Faults.Add(SurlFault.Delay(TimeSpan.FromSeconds(2)) with { Stage = FaultStage.Command });
-}
+// Every request is held before it is answered, 1 s (2 s with slow), so the five are all in flight
+// together and none can find a connection another has finished with.
+options.Faults.Add(SurlFault.Delay(TimeSpan.FromSeconds(mode == "slow" ? 2 : 1)) with { Stage = FaultStage.Command });
 
 await using var server = await SurlServer.StartAsync(options);
 
