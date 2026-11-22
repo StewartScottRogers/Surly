@@ -11,3 +11,4 @@ Checked against local builds on 2026-11-22 (not releases): surl 1.0.0 (Surl comm
 2. Windows curl needs --ssl-no-revoke with --cacert against natss (SEC_E_ILLEGAL_MESSAGE, exit 35, without it); mqtts and xmpps need no such option. Not seen on Linux or macOS.
 3. The log checks use -v --log-file and a polling sh script (needs a POSIX shell).
 - CI (Linux): curl's natss:// TLS handshake fails there (35, wrong version number: the port starts TLS before reading NATS's plain INFO line); the natss refusal cases are marked Windows and macOS; reported to Curl.
+- CI (Linux): token-is-masked needs a natss CONNECT, which the Linux TLS failure (Curl BL-5750) prevents; marked Windows and macOS.
