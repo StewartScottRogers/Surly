@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-check-the-flags-an-app-left]]
+=== Checking the Flags an App Left
+
+==== Problem
+
+Your mail client should mark each message it processed as seen and mark spam for deletion, and leave everything else alone. You want a test that runs it against a real Internet Message Access Protocol (IMAP) server and then reads each message{apos}s flags, without the check itself changing them.
+
+==== Solution
+
+After the app has run, ask for every message{apos}s flags with one IMAP `FETCH`, sent with `curl -X`:
+
+include::.generated/solution.adoc[]
+
+The seed lines stand in for the mail arriving and for the app: a shop sends `ann` two orders, a piece of spam and a newsletter; the second line waits until the fourth is in; the last two are the app{apos}s run, which reads both orders, reads the spam{apos}s subject and marks it `\Deleted`.
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL serves both over one mail store (<<surl-readme>>). `--mail-domain example.com` serves mail for the domain, and each `--mailbox` adds a mailbox whose whole address is the login, given to `curl` with `-u`. The first seed line sends the four files in one Simple Mail Transfer Protocol (SMTP) session: `-T` uploads, and `+"{order1,order2,spam,news}.eml"+` is a `curl` list of four files; `--crlf` gives each line the carriage return and line feed mail needs, and `--mail-from` and `--mail-rcpt` are the envelope. `-s` keeps `curl` quiet, and `-S` still lets an error line through. Delivery is asynchronous, so the second line asks for message 4{apos}s flags until it exists: a missing message is an error, `--retry 10` allows ten more tries, `--retry-all-errors` lets it retry an error that is not a network one, and `--retry-delay` spaces them a second apart.
+
+The app{apos}s run is ordinary IMAP. Fetching `INBOX;UID=[1-2]` reads both orders in full (`-o "read#1.eml"` saves them as `read1.eml` and `read2.eml`), and a fetch sets `\Seen`. The spam{apos}s subject is a read too, because `curl` asks for `BODY[...]` and not `BODY.PEEK[...]`, and `-X "STORE 3 +FLAGS (\Deleted)"` on `.../INBOX` adds the deletion mark. `--next` starts the second transfer of a line with its own options.
+
+The check is `FETCH 1:* FLAGS` on `.../INBOX`: `1:*` is every message, and the answer is one line per message with its system flags (<<rfc9051>>), `\Deleted \Seen` for the spam and `()` for the newsletter, which the app was right to leave alone. Asking for `FLAGS` changes no flag, so the test can ask as often as it likes: afterwards a search for `UNSEEN` (`INBOX?UNSEEN`, a query on an IMAP URL is a `SEARCH`) still names `4` alone. A search names the messages with a flag when that is the whole assertion: `INBOX?DELETED` answers `* SEARCH 3`, and `SEEN%20NOT%20DELETED`, keys combined with spaces encoded, answers the messages processed and kept, `1 2`. Where a line makes several transfers, `-s` also keeps `curl`{apos}s progress meter off, and `-o /dev/null` drops a body nobody needs.
+
+A test should not check by reading the message. A fetch of `INBOX;UID=4` to see what is in it sets `\Seen`, and the next `FETCH 4 FLAGS` reports a flag the app never set. If that has happened, `-X "STORE 4 -FLAGS (\Seen)"` takes it off again, and the store{apos}s answer shows the flags as they now are.
+
+`\Deleted` is a mark, not a removal: `STATUS INBOX (MESSAGES)` still counts four. A client that empties the trash sends `EXPUNGE`, which removes every message marked `\Deleted` and answers with each removed message{apos}s number, `* 3 EXPUNGE`. Numbers then shift: the newsletter becomes message 3. Its unique identifier (UID) does not change, and `UID FETCH 1:* FLAGS` answers both, `* 3 FETCH (UID 4 FLAGS ())`. A test that remembers which message is which should keep UIDs.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-check-the-flags-an-app-left-in-csharp>> for the same check from a C# test.
+* <<imap-check-the-flags-an-app-left-from-an-agent>> for the check made by an agent.
+* <<imap-check-unread-counts>> for counting unread messages with `STATUS`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

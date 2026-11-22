@@ -1,0 +1,130 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: gs-read-a-gcs-object-as-a-file
+title: Reading a GCS Object as a File
+protocols: [gs, https]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --user, --allow-uploads]
+curl-options: [--cacert, --connect-to, -u, --oauth2-bearer, -T, --next, -o, -s, -S, -w]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, gcs-xml-api, rfc6750, rfc7617]
+
+fixtures:
+  note.txt: "hello from gcs\n"
+  report.txt: "q1 totals\n"
+  tail.txt: "line one\nline two"
+  store/photos/seed.txt: "already here\n"
+  readonly/photos/seed.txt: "already here\n"
+
+# A certificate for 127.0.0.1 and for Google's storage host, good for 30 days, signed by its own
+# key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:storage.googleapis.com"
+
+# main serves one folder as Cloud Storage on port and as HTTPS on port2: the same store, two logins
+# (an HMAC key pair and an OAuth token). readonly has no --allow-uploads. Each serves its own folder:
+# one surl holds a folder at a time.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user GOOGTESTKEY:s3cret --user :ya29.t0ken --allow-uploads gs://127.0.0.1:{{port}}/ https://127.0.0.1:{{port2}}/
+    ready: port
+  readonly:
+    command: surl --directory readonly --cert server.pem --key server.key --user GOOGTESTKEY:s3cret gs://127.0.0.1:{{port3}}/ https://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -T writes note.txt as the object photos/note.txt through gs://, signed with the HMAC key, and a second transfer reads it over https:// with the token; the bytes are the same, and the object is the file store/photos/note.txt.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret -T note.txt gs://photos/note.txt --next -sS --cacert server.pem --oauth2-bearer ya29.t0ken https://127.0.0.1:{{port2}}/photos/note.txt
+    expect:
+      exit: 0
+      stdout: "hello from gcs\n"
+      files:
+        store/photos/note.txt: "hello from gcs\n"
+
+  - id: no-trailing-newline
+    claim: An object whose last byte is not a newline is read back with exactly 17 bytes, none added and none lost, into got.txt.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret -T tail.txt gs://photos/tail.txt --next -sS --cacert server.pem --oauth2-bearer ya29.t0ken -o got.txt -w "%{size_download}" https://127.0.0.1:{{port2}}/photos/tail.txt
+    expect:
+      exit: 0
+      stdout: "17"
+      files:
+        got.txt: "line one\nline two"
+        store/photos/tail.txt: "line one\nline two"
+
+  - id: nested-name
+    claim: A slash in an object name makes folders, so photos/2026/q1/report.txt is the file store/photos/2026/q1/report.txt and is read over https at the same path.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret -T report.txt gs://photos/2026/q1/report.txt --next -sS --cacert server.pem --oauth2-bearer ya29.t0ken https://127.0.0.1:{{port2}}/photos/2026/q1/report.txt
+    expect:
+      exit: 0
+      stdout: "q1 totals\n"
+      files:
+        store/photos/2026/q1/report.txt: "q1 totals\n"
+
+  - id: file-is-an-object
+    claim: A file already in the bucket's folder is an object, and is read through gs:// like one.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret gs://photos/seed.txt
+    expect:
+      exit: 0
+      stdout: "already here\n"
+
+  - id: put-with-the-token
+    claim: A put through gs:// with the OAuth token writes the same kind of object, and https:// reads it with the HMAC key pair as an ordinary Basic login.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} --oauth2-bearer ya29.t0ken -T note.txt gs://photos/by-token.txt --next -sS --cacert server.pem -u GOOGTESTKEY:s3cret https://127.0.0.1:{{port2}}/photos/by-token.txt
+    expect:
+      exit: 0
+      stdout: "hello from gcs\n"
+
+  - id: content-type
+    claim: Read as a file over https, an object named .txt is served as Content-Type text/plain.
+    run: curl -sS --cacert server.pem --oauth2-bearer ya29.t0ken -o {{null}} -w "%{content_type}" https://127.0.0.1:{{port2}}/photos/seed.txt
+    expect:
+      exit: 0
+      stdout: "text/plain"
+
+  - id: https-needs-a-login
+    claim: The https side is as closed as the gs side; a read with no login is answered 401.
+    run: curl -sS --cacert server.pem -o {{null}} -w "%{http_code}" https://127.0.0.1:{{port2}}/photos/seed.txt
+    expect:
+      exit: 0
+      stdout: "401"
+
+  - id: wrong-secret
+    claim: A put signed with the wrong secret is answered 403 SignatureDoesNotMatch; curl exits 22 and the object is not written.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:wrong -T note.txt gs://photos/refused.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: SignatureDoesNotMatch"
+
+  - id: refused-is-not-written
+    claim: The refused put left nothing behind; reading the name over https is 404.
+    run: curl -sS --cacert server.pem --oauth2-bearer ya29.t0ken -o {{null}} -w "%{http_code}" https://127.0.0.1:{{port2}}/photos/refused.txt
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: missing-object
+    claim: A name with no object is answered 404 NoSuchKey; curl writes nothing and exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u GOOGTESTKEY:s3cret gs://photos/missing.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 404: NoSuchKey"
+
+  - id: uploads-off
+    claim: Without --allow-uploads, a correctly signed put is answered 403 AccessDenied and curl exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u GOOGTESTKEY:s3cret -T note.txt gs://photos/note.txt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Cloud Storage returned error 403: AccessDenied"
+
+  - id: uploads-off-reads
+    claim: Without --allow-uploads, the objects already there are still read, through gs:// and over https:// alike.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u GOOGTESTKEY:s3cret gs://photos/seed.txt --next -sS --cacert server.pem -u GOOGTESTKEY:s3cret https://127.0.0.1:{{port4}}/photos/seed.txt
+    expect:
+      exit: 0
+      stdout: "already here\nalready here\n"

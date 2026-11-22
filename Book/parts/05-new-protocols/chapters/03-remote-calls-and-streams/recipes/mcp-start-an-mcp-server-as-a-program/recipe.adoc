@@ -1,0 +1,48 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mcp-start-an-mcp-server-as-a-program]]
+=== Starting an MCP Server Program
+
+==== Problem
+
+Your Model Context Protocol client starts its server as a child process and talks to it over standard input and output. You want `surl` started that way, its tools listed and one called, with no port at all.
+
+==== Solution
+
+Give `curl` an `mcp+stdio` URL that names `surl` and its arguments; `curl` starts it, calls the tool in `read.json`, and stops it. The file holds the call:
+
+[source,json]
+----
+{"name":"read_file","arguments":{"path":"hello.txt"}}
+----
+
+include::.generated/solution.adoc[]
+
+There is no server to start first and none to stop afterwards: the `surl` that `curl` starts ends when the call is done.
+
+==== Discussion
+
+The Model Context Protocol (MCP) defines two transports: Streamable HTTP, which `surl` serves on a port for an `mcp://` listen URL, and stdio, where the client starts the server as a program and the two exchange JavaScript Object Notation Remote Procedure Call (JSON-RPC) messages over the program's standard input and output, one message per line (<<mcp-spec>>). Most MCP clients start their servers the second way. The listen URL `mcp+stdio:` makes `surl` that kind of program: it names no host, port or path, and serves one session (<<surl-readme>>).
+
+On the client side, `mcp+stdio://localhost/surl?--directory&site&mcp+stdio:` is how `curl` spells "start this program". The path names the program, found on the `PATH`; the query, split at `&`, is its arguments, so `curl` runs `surl --directory site mcp+stdio:`. It then opens the session, sends the `tools/call` that `-d @read.json` reads from the file, writes each content item the tool returns on a line of its own, and closes `surl`{apos}s input. `read_file` returns `hello.txt` from the directory `--directory site` serves; the file's own newline and the one `curl` adds make two. Without `-d`, `curl` lists the tools instead, one line each: name, tab, description. Upstream curl has no `mcp+stdio` scheme; this one is an extension of the Curl port (<<curl-protocols>>, <<curl-readme>>). A program that cannot be started is exit `7`, `Failed to start the MCP server`, and the program's name.
+
+`surl`{apos}s log does not mix with the messages. `Listening on mcp+stdio:` goes to its standard error, and `curl` passes it through on its own. Standard output belongs to MCP alone, so `--log-file -` (and `--trace -`) is refused at start, exit `2`, rather than corrupt the session.
+
+You can watch the protocol without `curl`. `session.jsonl` holds what a client sends first: `initialize`, the `notifications/initialized` notification, and a `ping`. Fed to `surl --directory site mcp+stdio:` on standard input, it gets two lines back, the `initialize` result naming `surl` as the server and an empty result for the `ping`; the notification gets no answer, as JSON-RPC notifications never do. When its input ends, `surl` exits `0`. That is how an MCP client stops it: it closes the pipe.
+
+The session takes no login. With an account given by `--user` and no `--allow-anonymous`, the same `surl` on a port would refuse every request without a token; over stdio the tools are listed all the same. The client started the program, so the client is trusted, and the tools run as the anonymous caller. The options that widen what a client may do still apply. `--allow-uploads` adds `write_file`, which creates `notes.txt` in the served directory and answers how many bytes it wrote. Without it, `write_file` is not a tool of the session: the call is JSON-RPC error `-32602`, invalid parameters, and `curl` exits `8`. So `--allow-uploads` belongs in an MCP client's server configuration only when the agent behind it should be able to change those files.
+
+`mcp+stdio:` is the only listen URL of its run. Beside `http://127.0.0.1:0/`, `surl` refuses to start, exit `2`: a process has one standard input, and one session on it. It also takes no `--fault`, exit `2`, because the session is outside the event stream that fault rules act on. Test faults against an `mcp://` listener instead (<<mcp-call-a-tool>>).
+
+Exit `0` from `curl` means the program started, the session opened and the call succeeded.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mcp-start-an-mcp-server-as-a-program-in-csharp>> for the same session from a .NET test.
+* <<mcp-start-an-mcp-server-as-a-program-from-an-agent>> for an agent's MCP client starting `surl`.
+* <<mcp-call-a-tool>> for MCP over a port, and the errors a tool call can give.
+* <<mcp-spec>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

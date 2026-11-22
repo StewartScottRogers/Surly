@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[coaps-serve-over-dtls-in-csharp]]
+=== Serving CoAP over DTLS in C#
+
+==== Problem
+
+Your sensors fetch their configuration over the Constrained Application Protocol (CoAP) secured with Datagram Transport Layer Security (DTLS), and you want a .NET test to serve it over `coaps` with your certificate and show plain CoAP reads refused once the server has an account.
+
+==== Solution
+
+Host `coaps` with `Surl.Api` and your certificate, and read the resource with `Curl.Api`, trusting the certificate; the argument picks what changes:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+CoAP is a small request and response protocol over the User Datagram Protocol (UDP), and `coaps` runs it inside DTLS, Transport Layer Security (TLS) adapted to datagrams (<<rfc7252>>, <<rfc8446>>). `SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). The listen URL `coaps://127.0.0.1:0` takes a free UDP port; `CertificateFile` and `KeyFile` are `--cert` and `--key`, the files the `setup` step made with `openssl`; `Files` holds the configuration in memory. `SurlServer.StartAsync` returns once the port is bound, so there is nothing to wait for.
+
+`CurlClientOptions` makes the client. `Tls` holds a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is the certificate's bytes, so `Curl.Api` trusts it as its own authority, as `--cacert` does (<<curl-readme>>, <<curl-protocols>>). `Timeout` bounds each request at ten seconds, as `-m 10` does. A `GET` for a `coaps://` URL is a confirmable CoAP `GET` inside DTLS. CoAP has no Hypertext Transfer Protocol (HTTP) status, so the `CurlResponse` has a `StatusCode` of `0`; the response code is the first entry of `Headers`, `CoAP/1.0 2.05`, Content, as `curl -i` prints it, and the body is the payload.
+
+A refused handshake is a `CurlException` whose `Code` is the exit code `curl` gives. Without the certificate as an authority: `PeerFailedVerification`, `60`. A server that cannot start throws `SurlServerStartException` instead: `coaps` with neither a certificate nor an account is `CertificateProblem`, `58`, and the message, `surl`{apos}s own, names `--cert`, `--self-signed` and `--user`. Plain `coap` sent to the `coaps` port gets no answer at all, because the port speaks only DTLS; the `Timeout` ends the wait, `OperationTimedOut`, `28`.
+
+An account, added to `Accounts` as a `SurlAccount`, closes plain CoAP: the read is answered `4.01`, Unauthorized, with no payload. That is an ordinary response, not an exception, so a test must look at the code itself. Plain CoAP has no way to carry a login, so a user name and password in `CurlAuthenticationOptions` change nothing. `AllowAnonymous`, which is `--allow-anonymous`, gives that up: the same account and the read is `2.05` again. It is for a test, never for a server sensors reach.
+
+In `coaps`, an account is a pre-shared key that the DTLS handshake itself checks (<<rfc7252>>). `Curl.Api` offers certificates, not pre-shared keys, so with an account a `coaps` read that trusts the certificate is still `4.01`: the connection is secure, but the client logged in as no one. With an account and no certificate, the server serves pre-shared keys only, and `Curl.Api` fails the handshake: `SslConnectError`, `35`. A test that stands in for certificate clients gives the server a certificate and no account, as the Solution does.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<coaps-serve-over-dtls>> for the same server and reads on the console.
+* <<coaps-serve-over-dtls-from-an-agent>> for an agent serving and reading through `surl-mcp` and `curl-mcp`.
+* <<rfc7252>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

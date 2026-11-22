@@ -1,0 +1,48 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-fixture-from-pester]]
+=== Running a Fixture from Pester
+
+==== Problem
+
+Your tests are PowerShell Pester tests; you want the server started in BeforeAll, its port read, and stopped in AfterAll even when a test fails.
+
+==== Solution
+
+Start `surl` on port 0 in `BeforeAll` as a .NET process with its standard output redirected, read its first line for the URL it bound, and kill it in `AfterAll`. The tests:
+
+[source,powershell]
+----
+include::Server.Tests.ps1[]
+----
+
+A runner that turns the result into an exit code a continuous integration (CI) step can act on:
+
+[source,powershell]
+----
+include::run-tests.ps1[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Pester runs a `Describe` block{apos}s `BeforeAll` once before its tests and its `AfterAll` once after them, whether they passed, failed or threw, so the server lives exactly as long as the tests that use it. Variables `BeforeAll` sets, `$url` and `$surl` here, are visible to every `It` and to `AfterAll`.
+
+`surl` binds port 0, lets the system pick a free port, and writes `Listening on <url>` to standard output once it has bound. `BeforeAll` starts it with `System.Diagnostics.Process` rather than `Start-Process`, so that it can read that line straight from the pipe with `StandardOutput.ReadLine()`; the read waits until `surl` is listening, so the tests need no retry loop and no sleep. If `surl` cannot start it writes no such line and exits, the read ends, and `BeforeAll` throws with `surl`{apos}s exit code, which Pester reports as a failure. `Get-Command surl -CommandType Application` finds the executable on `PATH` on Windows, Linux and macOS alike. `--directory site` serves the folder; `-v` with `--log-file surl.log` writes a log line for every request to a file instead of the console, and `BeforeAll` deletes the old one first because `--log-file` appends.
+
+`AfterAll` kills the process and waits for it to exit, so its port and its directory are free before the next run starts; after both a passing and a failing run the process `BeforeAll` started is gone. `surl` keeps nothing in memory that a test needs afterwards, so ending it outright loses nothing. What the server recorded stays in `surl.log`: the greeting answered 200 and the missing file 404.
+
+The tests call `curl`: `-f` fails on an error status, `-s` keeps quiet and `-S` still prints an error, `-o` writes a body to a file, and `-w '%{http_code}'` prints the status. Each check throws on a mismatch rather than using `Should`, whose syntax changed between the Pester 3.4 that Windows ships with Windows PowerShell and Pester 5, which a CI runner has; a thrown error fails an `It` in both, and the file runs as it is under `pwsh` on Windows, Linux and macOS.
+
+`Invoke-Pester -PassThru` answers the counts as an object, and `run-tests.ps1` exits with the number of failures: 0 when all three pass, 1 when the greeting test is given another text to expect, and the step fails with it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-fixture-in-github-actions>> for running the server in a workflow on every runner.
+* <<surl-start-and-stop-in-a-shell-script>> for the same fixture from a POSIX shell.
+* <<surl-readme>>, <<curl-manual>>.

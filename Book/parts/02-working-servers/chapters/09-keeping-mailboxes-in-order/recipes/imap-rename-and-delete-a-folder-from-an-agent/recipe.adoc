@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-rename-and-delete-a-folder-from-an-agent]]
+=== Renaming and Deleting Folders from an Agent
+
+==== Problem
+
+You want an agent to tidy a mailbox{apos}s folders over Internet Message Access Protocol (IMAP), and to recover when a rename names a folder that is not there.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, fills three folders, sends `RENAME Old Archive` through the `curl` tool, and lists the folders:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `imap://127.0.0.1:0` for a free port, and `arguments`, the options of `surl`: `--mail-domain` serves the domain and `--mailbox` adds `ann` with her login, its `folders=Old,Drafts,Keep` option starting the mailbox with those three empty folders (<<surl-readme>>). The answer carries the `server_id` and the `bound_urls`. The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError`; the program adds `-s` to keep the progress meter off and `-S` to keep the error line, and gives the login with `-u`. The program fills the folders with `-T file URL`, an IMAP `APPEND` that returns once the message is stored, so nothing waits: two orders into `Old` and one into `INBOX`, read from the files the recipe wrote into the folder `curl-mcp` is confined to. Without Transport Layer Security `surl` offers only `CRAM-MD5`, which `curl` uses, so no loosening option is needed.
+
+`-X` sends its text as the IMAP command, and a URL with no folder sends it straight after the login (<<curl-manual>>, <<rfc9051>>). With no `-X` the same URL is a `LIST`: one line a folder, `INBOX` first, then the rest in name order. `RENAME Old Archive` prints nothing and the list shows `Archive` where `Old` was. `list_mailboxes` is the check from the server{apos}s side, one entry per folder with `name` and `message_count`, and it sets no flag: `Archive 2, Drafts 0, INBOX 1, Keep 0`, so the folder kept its two messages. `DELETE Drafts` removes the folder, and the list has `INBOX`, `Keep` and `Old` only.
+
+A wrong command is not an error in the tool: the call succeeds and `exitCode` is `21`, `curl`{apos}s code for a command the server refused. The server{apos}s reason is in `standardError` when the program adds `-v`, as the tagged line after `<`. `STATUS Old (MESSAGES)` after the rename is `NO [NONEXISTENT] Mailbox does not exist`, and so is a `RENAME` of a folder that was never there and a second `DELETE Drafts`. `RENAME Keep Old` onto a name in use is `NO [ALREADYEXISTS] Mailbox already exists`, and `DELETE INBOX` is `NO [CANNOT] INBOX cannot be deleted`. After each refusal `list_mailboxes` shows nothing changed.
+
+`RENAME INBOX Mail2025` is not refused, as the standard asks: `exitCode` is `0`, the messages move to `Mail2025`, an empty `INBOX` stays in place, and `STATUS INBOX (MESSAGES)` answers `0`. `DELETE Old` with two messages in it also exits `0`, without a question, and `list_mailboxes` lists neither the folder nor its messages afterwards: an agent that deletes should copy first.
+
+A name with a slash is a folder under a parent. After `RENAME Keep Work/Notes` the list has `Work/Notes` and above it `Work` with the flags `\Noselect \HasChildren`: the parent is only implied by the path, so `DELETE Work` is answered `NO [NONEXISTENT]` and `list_mailboxes` still lists `Work/Notes`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-rename-and-delete-a-folder>> for the same folder changes on the console.
+* <<imap-rename-and-delete-a-folder-in-csharp>> for the folder changes checked from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

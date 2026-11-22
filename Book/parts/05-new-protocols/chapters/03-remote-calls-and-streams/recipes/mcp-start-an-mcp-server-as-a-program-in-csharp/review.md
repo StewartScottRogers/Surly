@@ -1,0 +1,9 @@
+<!-- Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0. -->
+# Review: mcp-start-an-mcp-server-as-a-program-in-csharp
+Verdict: accept with findings
+Checked against local builds on 2026-11-22 (not releases): surl 1.0.0 (Surl commit 5da5b3eaf), Curl port 8.22.0 (Curl commit c84035f797), Surly.Surl.Api 1.0.0, Surly.Curl.Api 0.2.0, surl-mcp 1.0.0, curl-mcp 0.1.0.0, dotnet 11.0.100: 7 of 7 cases pass on windows.
+## Findings
+1. Nearest honest recipe. Curl.Api 0.2.0 starts surl from an mcp+stdio URL and lists the tools, but ignores the request Body: GET, POST or PUT with a tools/call body (bytes or a stream) all answer the tool list (program finding; the same over mcps). So the program starts surl with System.Diagnostics.Process and speaks JSON-RPC itself; the Curl.Api limitation is a claimed case (curl-api-sends-no-call) so it is noticed when fixed.
+2. Program finding: Surl.Api SurlServer.StartAsync with ListenUrls { "mcp+stdio:" } throws UriFormatException ("Invalid URI: The hostname could not be parsed"), not SurlServerStartException with exit 2 as the console does for a bad listen URL. Claimed as observed (not-in-process); expected a SurlServerStartException naming why mcp+stdio cannot be hosted in-process.
+3. Process("surl") on Windows resolves surl.exe from PATH; a process named "curl" would resolve to System32's curl first, so the program never starts curl that way.
+4. api-types lists Process, ProcessStartInfo and JsonNode, framework types the reader needs explained.

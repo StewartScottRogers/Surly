@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-see-why-mail-was-refused
+title: Seeing Why Mail Was Refused
+protocols: [smtp, imap]
+tier: scenarios
+surl-options: [-v, --log-file, --mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -w, -o, -T, --crlf, --mail-from, --mail-rcpt, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 8, 55]
+references: [surl-readme, curl-manual, rfc5321]
+
+fixtures:
+  report.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Nightly report\n\nAll 42 jobs finished. None failed.\n"
+  why-refused.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh why-refused.sh LOG. Finds the last SMTP exchange in surl's -v log, waits (at most
+    # 10 s) until surl has ended it, then prints each refusal in it, a reply of 4xx or 5xx, with
+    # the two lines before it: the command and surl's reason.
+    log=$1
+    n=$(grep 'opened: smtp' "$log" | tail -n 1 | sed 's/^#\([0-9]*\) .*/\1/')
+    tries=0
+    until grep -q "^#$n \* Exchange $n ended" "$log"; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 10 ]; then echo "exchange $n has not ended" >&2; exit 1; fi
+      sleep 1
+    done
+    grep -B 2 -E "^#$n > [45][0-9][0-9] " "$log" | grep "^#$n " | sed -e 's/^#[0-9]* //' -e 's/\\r\\n$//'
+
+# One surl: SMTP for the app, IMAP to look in the mailboxes, and -v --log-file to keep every line of
+# every exchange in mail.log. ops@example.com's quota, 200 bytes, is smaller than one report as stored.
+servers:
+  main:
+    command: surl -v --log-file mail.log --mail-domain example.com --mailbox ann@example.com:annpass --mailbox "ops@example.com:opspass;quota=200" --mailbox app@example.com:apppass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: app-says-nothing
+    claim: The app sends its report to the address in its settings, ann@example.org, a typo; curl exits 55, and run quietly, as the app runs it, it prints nothing.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.org -T report.eml smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 55
+      stdout: ""
+
+  - id: nothing-arrived
+    claim: Ann's INBOX is empty.
+    run: curl -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n"
+
+  - id: solution
+    role: solution
+    claim: The server's log of that exchange shows the refused command, RCPT TO:<ann@example.org>, surl's reason, outside every --mail-domain, and the reply, 550 5.7.1 Relaying denied.
+    run: sh why-refused.sh mail.log
+    expect:
+      exit: 0
+      stdout: |
+        < RCPT TO:<ann@example.org>
+        * RCPT ann@example.org refused: outside every --mail-domain
+        > 550 5.7.1 Relaying denied
+
+  - id: client-sees-less
+    claim: curl's own error line names the command and the code, RCPT failed 550, but not the reason.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.org -T report.eml smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: fixed
+    claim: With the address corrected the send is accepted with 250, and the log of that exchange holds no refusal.
+    run: curl -s -w "%{response_code}\n" --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T report.eml smtp://127.0.0.1:{{port}}/app.example.com && sh why-refused.sh mail.log
+    expect:
+      exit: 0
+      stdout: "250\n"
+
+  - id: arrived
+    claim: The report arrives; once message 1 exists, waited for a try a second for at most ten, Ann's INBOX holds one message.
+    run: curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 1 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: no-login
+    claim: An app that sends without logging in is refused at MAIL FROM, 530 5.7.0 Authentication required, and surl's reason says to log in with AUTH first.
+    run: curl -s --crlf --mail-from app@example.com --mail-rcpt ann@example.com -T report.eml smtp://127.0.0.1:{{port}}/app.example.com || sh why-refused.sh mail.log
+    expect:
+      exit: 0
+      stdout: |
+        < MAIL FROM:<app@example.com> SIZE=102
+        * MAIL refused: log in with AUTH first, or give --allow-anonymous
+        > 530 5.7.0 Authentication required
+
+  - id: wrong-password
+    claim: A wrong password is refused at the login, 535 5.7.8; the log names the account and withholds what the client sent as ****.
+    run: curl -s --crlf -u app@example.com:wrongpass --mail-from app@example.com --mail-rcpt ann@example.com -T report.eml smtp://127.0.0.1:{{port}}/app.example.com || sh why-refused.sh mail.log
+    expect:
+      exit: 0
+      stdout: |
+        < ****
+        * Login refused: CRAM-MD5 app@example.com
+        > 535 5.7.8 Authentication credentials invalid
+
+  - id: mailbox-full
+    claim: A report to a mailbox it would take past its quota is refused only after the data, 452 4.2.2 Mailbox full, and surl's reason names the quota.
+    run: curl -s --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ops@example.com -T report.eml smtp://127.0.0.1:{{port}}/app.example.com || sh why-refused.sh mail.log
+    expect:
+      exit: 0
+      stdout: |
+        < .
+        * Message refused: a recipient's mailbox would pass its quota
+        > 452 4.2.2 Mailbox full
+
+  - id: client-sees-even-less
+    claim: For that refusal curl says only Weird server reply, exit 8, naming neither the command nor the code.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ops@example.com -T report.eml smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 8
+      stderr-contains: "curl: (8) Weird server reply"

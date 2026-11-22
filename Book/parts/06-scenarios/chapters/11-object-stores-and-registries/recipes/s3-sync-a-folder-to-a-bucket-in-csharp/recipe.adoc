@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-sync-a-folder-to-a-bucket-in-csharp]]
+=== Syncing a Folder to a Bucket in C#
+
+==== Problem
+
+Your .NET code syncs a folder to an Amazon Simple Storage Service (S3) bucket, and you want a test of it with no AWS account and no process to start. It should upload the folder, list the bucket, change one file and upload only that one, and have the listing prove that the other objects were left alone.
+
+==== Solution
+
+Start a `SurlServer` as the bucket, and let a `CurlClient` do the sync: list the bucket with its sizes and ETags, and put each file whose hash is not the ETag of the object of its name:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `s3://127.0.0.1:0`, and port 0 takes a free port; `CertificateFile` and `KeyFile` are the certificate every `s3` listener needs, one that names `*.s3.us-east-1.amazonaws.com` as well as `127.0.0.1`. `Accounts` holds the key pair as a `SurlAccount`, `AllowUploads` lets a put write, and `ListDirectories` lets a listing be answered. `Files` seeds the bucket in memory with `reports/old.csv`, an object that was there before the sync; a top-level folder is a bucket and the path under it is the key.
+
+`CurlClient.SendAsync` sends a `CurlRequest`. `s3://reports/a.csv` names the bucket as the host, and `curl` sends to `reports.s3.us-east-1.amazonaws.com:443`, so `CurlNetworkOptions.ConnectTo` routes it to the server{apos}s port and `CurlTlsOptions` with a `CurlTlsPeerOptions.CertificateAuthorityBlob` makes the client trust the certificate. `CurlAuthenticationOptions` signs every request from `UserName` and `Password`. A put sets `Body` to a `CurlContent`, here `CurlContent.FromBytes` of the file, and a URL ending in `/` with the method `Get` is a listing, one name a line.
+
+The sync is the program{apos}s own and is a few lines: it lists the bucket, hashes each file of `site/` with MD5, and puts the file only if no object of its name has that hash as its ETag. For a put like these an ETag is the MD5 of the content in lower-case hexadecimal, and only a listing in XML carries it, so the program asks for ListObjectsV2 signed over HTTPS to the bucket{apos}s host name: the URL is `https://reports.s3.us-east-1.amazonaws.com/?list-type=2`, `CurlAuthenticationOptions.AwsSigV4` is `aws:amz:us-east-1:s3`, and `CurlHttpOptions.HttpVersion` is `HttpVersion.Http11`. AWS Signature Version 4 (SigV4) is refused over HTTP/2 by `surl` for now; `s3://` itself is always HTTP/1.1. The first sync finds nothing of the three names and puts all three; after b.csv changes, the second finds one hash that differs and puts that file alone, and a sync with nothing changed puts nothing. Each answer is a `CurlResponse`, whose `Body` the program reads or discards.
+
+The listing is the proof, in two forms. Before and after, a.csv, c.csv and the old object have the size and ETag they had, and b.csv went from 23 to 25 bytes with a new ETag; the listing by name is the same four names both times and proves nothing. The other form is the server{apos}s own count. `RecordExchanges` keeps the change events, and `FindEvents` with a `SurlEventQuery` for the content store returns `StoreChangedEvent`s: three for the first sync, four after the second. The seeded object has an event too but no request behind it, so the program counts only events with an `ExchangeId`.
+
+A refusal throws `CurlException`, whose `Code` is `HttpReturnedError` and whose `Message` carries the status and S3{apos}s error code. A wrong secret is `403 SignatureDoesNotMatch`. With `AllowUploads` off a signed put is `403 AccessDenied` and nothing arrives: a get of a.csv is `404 NoSuchKey`. With `ListDirectories` off a signed listing is `403 AccessDenied`, and a sync that needs the listing cannot run. `SurlServerFiles.ReadAsync` reads an object from the store with no HTTP in between and returns a `SurlFileContents`, whose `Bytes` the program compares with the file.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-sync-a-folder-to-a-bucket>> for the same sync on the console.
+* <<s3-sync-a-folder-to-a-bucket-from-an-agent>> for the same sync driven by an agent.
+* <<s3-list-a-bucket-in-csharp>> for listings on their own.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

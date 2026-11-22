@@ -129,3 +129,13 @@ curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-
 - Which listener (batch-10, http-tell-which-listener-was-used): the `opened:` line names scheme and client only, never the listen URL; the control endpoint (`--control`, `/v1/events?kind=exchange_started`) and Surl.Api/surl-mcp `listen_url` do. With `--log-file` and `--trace-ascii` both given the log file had no `opened:` line (as ADR-0033 s.6). Reasons for a 400 in the -v log: see http.md batch-10. surl-mcp has no log, so an agent shows a refusal through the recorded answer (or `read_file` for a 404).
 
 - Decided by Surl (2026-11-22): the event stream (`get_exchanges`, `get_events`, control-endpoint events) keeps raw bytes, credentials included, on purpose: it is loopback-only and opt-in (Surl ADR-0182 decision 4). Only the `-v` log, trace dumps, `--log-file` and Surl.Api's Log writer redact, and no option turns that off (decision 5).
+
+## Summarising a run from get_events (surl-summarise-a-test-run-from-events, 2026-11-22, windows)
+- `store_changed` events: an upload is `store` content, `change` written, `name` the path, `byte_count`, `exchange_id`; a mail is `store` mail, `change` delivered, `name` `app@example.com/INBOX/;UID=1`. Neither carries the scheme: join `exchange_id` to `exchange_started`.
+- `login_judged` comes per request with credentials: `curl --retry 1` after a 503 on one connection gives two accepted events in one exchange. curl's SMTP login to surl is `mechanism` CRAM-MD5; FTP `password`; HTTP `Digest`.
+- An FTP password refused unread (no `--allow-plaintext-auth`) leaves no `login_judged` (curl 67). Sequence numbers have gaps (exchange_bytes events are not kept).
+
+## curl variables from the environment (curl-parameterise-a-suite-with-variables, Curl c84035f797, 2026-11-22, windows)
+- In a `-K` file: `variable = %NAME` imports the environment variable, `variable = %NAME=default` falls back; `expand-url`, `expand-oauth2-bearer` take `{{NAME}}` and `{{NAME:trim}}`. Not set and no default: exit 2, stderr `curl: Variable 'NAME' import fail, not set` then `curl: f.conf:3 config file option 'variable' variable expansion failure`; nothing is sent. A `--variable NAME=x` after `-K` does not change URLs the file already expanded.
+- verify `run:` lines can set the environment with `env NAME=value curl ...` on all three platforms (Git's env.exe on Windows).
+- surl bearer token: `--user :token`; over `http://` needs `--allow-plaintext-auth`, else 403 for the right token.

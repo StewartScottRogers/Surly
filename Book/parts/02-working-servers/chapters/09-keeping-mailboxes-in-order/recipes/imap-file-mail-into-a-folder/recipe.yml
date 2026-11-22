@@ -1,0 +1,96 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-file-mail-into-a-folder
+title: Filing Mail into a Folder
+protocols: [imap, smtp]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -v, -o, --crlf, --mail-from, --mail-rcpt, -T, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 21]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  order1.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 1 shipped\n\nYour first order is on its way.\n"
+  order2.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 2 shipped\n\nYour second order is on its way.\n"
+  order3.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 3 shipped\n\nYour third order is on its way.\n"
+
+# One surl: SMTP to put mail in, IMAP to file it, one mail store.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox shop@example.com:shoppass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The shop mails ann three orders in one SMTP session; delivery is asynchronous, so the second line
+# waits, a try a second for at most ten, until message 3 exists. FETCH FLAGS sets no flag.
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[1-3].eml" smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 3 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+
+# The cases run in order on one mailbox: INBOX starts with orders 1 to 3, and each case leaves its changes for the next.
+cases:
+  - id: solution
+    role: solution
+    claim: CREATE makes the folder Archive, COPY 1 puts order 1 in it, STORE marks the original deleted and EXPUNGE removes it; INBOX then holds 2 messages and Archive 1.
+    run: curl -s -u ann@example.com:annpass -X "CREATE Archive" imap://127.0.0.1:{{port2}}/ --next -s -u ann@example.com:annpass -X "COPY 1 Archive" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass -X "STORE 1 +FLAGS (\Deleted)" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass -X "EXPUNGE" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/ --next -s -u ann@example.com:annpass -X "STATUS Archive (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* 1 FETCH (FLAGS (\\Deleted))\n* 1 EXPUNGE\n* STATUS INBOX (MESSAGES 2)\n* STATUS Archive (MESSAGES 1)\n"
+
+  - id: create-existing
+    claim: CREATE for a folder that already exists is answered NO [ALREADYEXISTS], and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "CREATE Archive" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [ALREADYEXISTS] Mailbox already exists"
+
+  - id: copy-to-missing-folder
+    claim: COPY into a folder that does not exist is answered NO [TRYCREATE], the server's hint to CREATE it first, and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "COPY 1 Nowhere" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 21
+      stderr-contains: "NO [TRYCREATE]"
+
+  - id: copy-missing-message
+    claim: COPY of a message number INBOX does not have is answered BAD Invalid message sequence number, and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "COPY 9 Archive" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 21
+      stderr-contains: "BAD Invalid message sequence number"
+
+
+  - id: copy-keeps-the-original
+    claim: COPY alone leaves the message where it was; after COPY 1 Archive of order 2, INBOX still holds 2 messages and Archive holds 2.
+    run: curl -s -u ann@example.com:annpass -X "COPY 1 Archive" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/ --next -s -u ann@example.com:annpass -X "STATUS Archive (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 2)\n* STATUS Archive (MESSAGES 2)\n"
+
+  - id: copy-carries-flags
+    claim: The copy keeps the original's flags; order 2 flagged and copied again lands in Archive as message 3, and a search for FLAGGED there names it alone.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X "STORE 1 +FLAGS (\Flagged)" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass -X "COPY 1 Archive" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/Archive?FLAGGED"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 3\n"
+
+  - id: deleted-flag-is-not-removal
+    claim: STORE +FLAGS (\Deleted) only marks a message; order 3, message 2 of INBOX, is named by a search for DELETED, and INBOX still counts 2 messages.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X "STORE 2 +FLAGS (\Deleted)" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?DELETED" --next -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* SEARCH 2\n* STATUS INBOX (MESSAGES 2)\n"
+
+  - id: expunge-removes
+    claim: EXPUNGE removes the marked message and nothing else; INBOX counts 1 message and its UIDNEXT is still 4, because UIDs are never reused.
+    run: curl -s -u ann@example.com:annpass -X "EXPUNGE" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES UIDNEXT)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* 2 EXPUNGE\n* STATUS INBOX (MESSAGES 1 UIDNEXT 4)\n"
+
+  - id: move-in-one-command
+    claim: MOVE does the copy and the removal in one command, which surl advertises in its capabilities; INBOX is empty afterwards and Archive holds 4.
+    run: curl -s -v -u ann@example.com:annpass -X "MOVE 1 Archive" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/ --next -s -u ann@example.com:annpass -X "STATUS Archive (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n* STATUS Archive (MESSAGES 4)\n"
+      stderr-contains: "A004 OK MOVE completed"

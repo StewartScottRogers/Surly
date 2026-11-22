@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[az-test-an-azure-upload-locally-in-csharp]]
+=== Testing an Azure Upload Locally in C#
+
+==== Problem
+
+Your .NET app writes blobs to Azure Blob Storage, and its test should not need an Azure account, a certificate or a process to start. You want a plain Hypertext Transfer Protocol (HTTP) stand-in inside the test, with a token login, and an assertion that the blob arrived with the right bytes.
+
+==== Solution
+
+Start a `SurlServer` that serves `az` as plain HTTP with one token, put a blob to it with a `CurlClient` as an Azure client would, and read back the file the server stored:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `az://127.0.0.1:0`, and port 0 takes a free port. An `az` listener is Transport Layer Security (TLS) from the first byte, as every Azure endpoint is, and would need `CertificateFile` and `KeyFile`; an app{apos}s Azure software development kit (SDK) pointed at an emulator-style `http://` address does not do TLS. `SurlServerOptions` has no property for `--az-plaintext`, so it goes in `AdditionalArguments`, and it makes the same listener plain HTTP with no certificate. It is a loosening and `surl` warns of it on start. Without it, `StartAsync` throws `SurlServerStartException` with `ExitCode` 58, the code `surl` exits with, and the first of its `Lines` says the listen URL needs a certificate. `ExitCode` is an enum, so the program casts it to an `int`.
+
+`Accounts` takes `SurlAccount`s. An account with an empty name makes its password a Bearer token, `t0ken-abc` here, which the app sends as `Authorization: Bearer t0ken-abc`. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`: a token over unencrypted HTTP is refused unless it is on, and with it off the right token is answered `401 InvalidAuthenticationInfo`. `AllowUploads` lets a put write; with it off the put is `403 AuthorizationPermissionMismatch` while gets are still served. `ListDirectories` is `--list-directories`, which List Blobs needs. `Files` seeds the store in memory: `photos/seed.txt` is the blob `seed.txt` in the container `photos`.
+
+`BoundUrl` is `az://127.0.0.1:port/`, but `Curl.Api`{apos}s own `az://` scheme is TLS only, so it cannot reach a plain-HTTP listener. The program takes the port from `BoundUrl` and sends to `http://127.0.0.1:port/photos/note.txt`, which is the Azure Representational State Transfer (REST) path, `/<container>/<blob>`. `CurlClient.Create()` makes the client, which `SendAsync` sends each `CurlRequest` through and answers with a `CurlResponse`. `CurlRequest` carries `Headers`, a list of name and value pairs, and `Body`, here `CurlContent.FromBytes`. The put needs `x-ms-version` and `x-ms-blob-type: BlockBlob`, and the stand-in is as strict as Azure about both: either one missing is answered `400 MissingRequiredHeader`. A refusal is a response here, not an exception: `SendAsync` returns a `CurlResponse` whose `StatusCode` is 401, 400, 403 or 404, and the error code is in its `x-ms-error-code` header. No token is `401 NoAuthenticationInformation`, a token the server does not hold is `401 InvalidAuthenticationInfo`, and a name with no blob is `404 BlobNotFound`.
+
+The test{apos}s own check is of bytes. `SurlServerFiles.ReadAsync` reads the stored file with no HTTP in between and returns a `SurlFileContents`, whose `Bytes` the program compares with what it sent. The put answer also carries `Content-MD5`, the base64 Message-Digest 5 (MD5) hash of what the server stored, which the test can compare with `MD5.HashData` of its own bytes. A listing, `?restype=container&comp=list`, names the new blob among those already there.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<az-test-an-azure-upload-locally>> for the same test on the console.
+* <<az-test-an-azure-upload-locally-from-an-agent>> for the same test driven by an agent.
+* <<az-list-a-container-in-csharp>> for listing a container over `az://` and TLS.
+* <<surl-readme>>, <<curl-readme>>, <<azure-blob-api>>, <<rfc6750>>.

@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: coaps-serve-over-dtls-in-csharp
+title: Serving CoAP over DTLS in C#
+protocols: [coaps, coap]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlClientOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlResponse, CurlException]
+exit-codes: [0, 28, 35, 58, 60]
+references: [rfc7252, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Surl.Api serves the resource over coaps with the certificate; Curl.Api, trusting it, reads the payload, and the response code 2.05 is the first header line while StatusCode is 0.
+    program: serve-over-dtls.cs
+    args: [coaps]
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 2.05 (StatusCode 0)\n{\"interval\":60}\n"
+
+  - id: untrusted-certificate
+    claim: Without the certificate as an authority, the DTLS handshake fails, PeerFailedVerification (60).
+    program: serve-over-dtls.cs
+    args: [untrusted]
+    expect:
+      exit: 60
+      stdout: "refused: PeerFailedVerification (60)\n"
+
+  - id: plain-to-the-dtls-port
+    claim: Plain coap sent to the coaps port gets no answer; the client's 10-second Timeout ends it, OperationTimedOut (28).
+    program: serve-over-dtls.cs
+    args: [plain-port]
+    timeout: 60
+    expect:
+      exit: 28
+      stdout: "refused: OperationTimedOut (28)\n"
+
+  - id: account-refuses-plain-coap
+    claim: Once the server has an account, a plain coap read is answered 4.01 as an ordinary response, nothing thrown, with no payload.
+    program: serve-over-dtls.cs
+    args: [account]
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01 (StatusCode 0)\n"
+
+  - id: password-not-sent
+    claim: A user name and password in Authentication change nothing over plain coap; the read is still 4.01.
+    program: serve-over-dtls.cs
+    args: [password]
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01 (StatusCode 0)\n"
+
+  - id: account-refuses-coaps-too
+    claim: The account closes coaps as well; a client that trusts the certificate but has no pre-shared key is answered 4.01.
+    program: serve-over-dtls.cs
+    args: [account-dtls]
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01 (StatusCode 0)\n"
+
+  - id: anonymous-allowed
+    claim: With AllowAnonymous, the account no longer closes plain coap; the read is 2.05 with the payload.
+    program: serve-over-dtls.cs
+    args: [anonymous]
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 2.05 (StatusCode 0)\n{\"interval\":60}\n"
+
+  - id: account-alone-is-a-psk
+    claim: coaps with an account and no certificate serves pre-shared keys only; Curl.Api fails the DTLS handshake, SslConnectError (35).
+    program: serve-over-dtls.cs
+    args: [psk]
+    expect:
+      exit: 35
+      stdout: "refused: SslConnectError (35)\n"
+
+  - id: needs-a-certificate-or-an-account
+    claim: coaps with neither a certificate nor an account does not start; StartAsync throws SurlServerStartException with CertificateProblem (58) and surl's message.
+    program: serve-over-dtls.cs
+    args: [nothing]
+    expect:
+      exit: 58
+      stdout: "start refused: CertificateProblem (58)\n(58) coaps://127.0.0.1:0/ needs a certificate or an account: give --cert <file>, --self-signed for a throwaway one, or --user <name:key> for a pre-shared key\n"

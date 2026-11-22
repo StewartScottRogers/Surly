@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: dns-transfer-a-whole-zone-in-csharp
+title: Transferring a Whole Zone in C#
+protocols: [dns]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerZones, CurlClient, CurlRequest, CurlDnsOptions, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc1035, rfc4501]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --allow-zone-transfer given through AdditionalArguments, a CurlRequest for type AXFR with Dns.Transport tcp is answered NOERROR with six records, the SOA record first and last.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "NOERROR: 6 records\nexample.test. SOA\nexample.test. NS\nexample.test. MX\nmail.example.test. A\nns1.example.test. A\nexample.test. SOA\n"
+
+  - id: refused-by-default
+    claim: A server started without --allow-zone-transfer answers the same AXFR over TCP with REFUSED and no records; SendAsync throws nothing.
+    program: program.cs
+    args: [refused-by-default]
+    expect:
+      exit: 0
+      stdout: "REFUSED: 0 records\n"
+
+  - id: refused-by-default-udp
+    claim: The same server refuses the AXFR over UDP too, with REFUSED, so the default holds whichever transport asks.
+    program: program.cs
+    args: [refused-by-default-udp]
+    expect:
+      exit: 0
+      stdout: "REFUSED: 0 records\n"
+
+  - id: refused-over-udp
+    claim: Even with --allow-zone-transfer, an AXFR over UDP is answered NOTIMP with no records; a transfer needs Dns.Transport tcp.
+    program: program.cs
+    args: [refused-over-udp]
+    expect:
+      exit: 0
+      stdout: "NOTIMP: 0 records\n"
+
+  - id: not-an-apex
+    claim: A transfer for a name that is no zone's apex, here a host inside the zone, is answered with RCODE9, which is NOTAUTH, and no records, even with transfers allowed.
+    program: program.cs
+    args: [not-an-apex]
+    expect:
+      exit: 0
+      stdout: "RCODE9: 0 records\n"
+
+  - id: text-answer
+    claim: Without Dns.Json the body is dig-like text; its flags line counts six answers, and the SOA record is the type of the first and of the last record line.
+    program: program.cs
+    args: [text-answer]
+    expect:
+      exit: 0
+      stdout: ";; flags: qr aa rd; QUERY: 1, ANSWER: 6, AUTHORITY: 0, ADDITIONAL: 0\nfirst: SOA, last: SOA\n"
+
+  - id: no-incremental-type
+    claim: Curl.Api asks for AXFR only; the type IXFR makes SendAsync throw a CurlException with curl's code 3 before any query is sent, and the program exits 1.
+    program: program.cs
+    args: [no-incremental-type]
+    expect:
+      exit: 1
+      stdout: "curl exit 3: The dns: URL's query element \"type=IXFR\" is not TYPE= or CLASS= with a known value\n"

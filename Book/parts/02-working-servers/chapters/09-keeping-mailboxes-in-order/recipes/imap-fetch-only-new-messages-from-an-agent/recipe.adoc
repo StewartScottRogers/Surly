@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-fetch-only-new-messages-from-an-agent]]
+=== Fetching Only New Messages from an Agent
+
+==== Problem
+
+You want an agent that reads a mailbox in passes to remember the highest unique identifier (UID) it has read over Internet Message Access Protocol (IMAP), and on its next pass fetch only newer messages, and you want to see from the server that it did.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, seeds mail between passes, runs each pass through the `curl` tool, and reads the `UID FETCH` commands each pass sent from `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, one `imap://` URL on port 0, and `arguments`, `surl`{apos}s own options: `--mail-domain example.com` and `--mailbox ann@example.com:annpass` (<<surl-readme>>). `seed_mail` puts an order into `ann`{apos}s `INBOX`, and `wait_for_event` with `kinds` `store_changed`, `store` `mail`, the message{apos}s name such as `ann@example.com/INBOX/;UID=3`, and `timeout_ms` 10000 holds until it is in.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. The program adds `-s` and `-S`, so only an error reaches standard error, and `-u` is the login. A pass is `-X "UID SEARCH UID 3:*"` on `.../INBOX`, which answers with UIDs, `* SEARCH 3 4` (<<rfc9051>>), then one fetch of `INBOX;UID=3` and of `INBOX;UID=4`, each saved with `-o` into the folder. The agent remembers the highest.
+
+To check a pass from the server{apos}s side, the agent first lets `surl` finish: each call of the `curl` tool is one connection, so it counts the `exchange_started` and `exchange_ended` events with `get_events`, and while fewer have ended it calls `wait_for_event` for the next `exchange_ended` after the last `sequence` it saw, at most ten seconds each. Then `get_exchanges` with `after_exchange_id`, the last exchange before the pass, answers what came in since: each exchange{apos}s `chunks`, each with a `direction`, and the `received` ones carry the commands. The second pass sent `UID FETCH 3 BODY[]` and `UID FETCH 4 BODY[]`, nothing for 1 or 2; the first, from UID 0, fetched both of those. `list_messages` with `after_uid` 2 says the same from the store: UIDs 3 and 4.
+
+One edge needs code in the agent. In IMAP `*` is the largest UID in use, so when nothing is new `UID 5:*` is the range from 4 to 5, and the search answers `* SEARCH 4`, a message already read. The agent keeps only UIDs above the one it remembered, and the third pass fetches nothing: `surl` receives no `UID FETCH`. `-X "STATUS INBOX (UIDNEXT UIDVALIDITY)"` on the root URL is a cheaper question: `UIDNEXT` is `5`, the UID the next message will get, and `UIDVALIDITY` equals the `uid_validity` that `list_mailboxes` gives `INBOX`. The agent keeps it with its last UID, because remembered UIDs mean something only while it stays the same.
+
+UIDs never go back. Another client marks message 1 `\Deleted` and sends `-X EXPUNGE`, answered `* 1 EXPUNGE`; the fifth order then gets UID 5, not 4, though the mailbox holds four messages, and the fourth pass fetches UID 5 alone. Message numbers do shift: the URL query `INBOX?UID%205:*` sends a plain `SEARCH`, which answers message numbers, and names the same message `4`. An agent that keeps that number fetches the wrong message, or a gone one: a fetch of the expunged `INBOX;UID=1` reports `curl`{apos}s exit `78`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-fetch-only-new-messages>> for `UID SEARCH` with `curl` on the console.
+* <<imap-fetch-only-new-messages-in-csharp>> for a C# test of a sync client.
+* <<imap-check-unread-counts-from-an-agent>> for counts an agent reads with `STATUS`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-enforce-a-mailbox-quota-from-an-agent]]
+=== Enforcing a Mailbox Quota from an Agent
+
+==== Problem
+
+You want an agent to fill a mailbox to its quota, as a client sending real mail would, and then explain the refusal it gets: which reply, at which step, and what the server kept.
+
+==== Solution
+
+The program starts `surl-mcp` with a quota on one mailbox, sends through `curl-mcp`{apos}s `curl` tool until a send is refused, and reads the refusal from `get_exchanges` and the store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, an `smtp://` and an `imap://` URL on port 0 over one mail store, and `arguments`, `surl`{apos}s own options. `--mailbox` with `ann@example.com:annpass;quota=1k` is a mailbox, its login, and a cap of 1024 bytes on all its owner holds (<<surl-readme>>); `bob` has no cap. The array passes the semicolon through untouched, so no quoting is needed.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. Each send is the shop{apos}s: `-u` its login, `--mail-from` and `--mail-rcpt` the envelope, `-T newsletter.eml` the message from the folder, and `-w "%{response_code}"` the last reply; `-s` and `-S` leave only `curl`{apos}s error line. Two newsletters are accepted with `250`; the third gets `452`, and `curl` exits `8`, `Weird server reply`, its code for a refusal at the end of the data.
+
+After each send the agent calls `wait_for_event` with `kinds` `exchange_ended`, `scheme` `smtp`, `after_sequence` the last event{apos}s `sequence`, and `timeout_ms` 10000, so it reads the record only once the server has finished. `get_exchanges` with `scheme` `smtp` answers each exchange{apos}s `chunks`, in the order they crossed, each with a `direction`; in the last one, what `surl` sent from the recipient on is `250 2.1.5 Recipient OK`, `354` asking for the data, and only then `452 4.2.2 Mailbox full`, a temporary failure (<<rfc5321>>). The server judged the message once it had all of it, and that is the explanation an agent can give.
+
+Nothing was kept. `list_mailboxes` still counts two messages in `INBOX`, and `list_messages` gives each a `size` of about 460 bytes for a 332-byte file: `surl` adds a `Return-Path` and a dated `Received` line to mail that comes over Simple Mail Transfer Protocol, and the quota counts them. `seed_mail` is held to the quota too: into the full mailbox it is a tool error, `Mail for ann@example.com was refused: QuotaExceeded.` An upload over Internet Message Access Protocol (IMAP) fares no better: `-T note.eml` on `.../INBOX` is an `APPEND`, answered `NO [OVERQUOTA] Mailbox is over its quota`, which `-v` shows in `standardError`, and `curl` exits `25`.
+
+One full mailbox refuses the whole message: sent to `bob` and `ann` together it gets `452`, and `bob`{apos}s `INBOX` stays empty; sent to `bob` alone it is accepted. Room comes back only when mail goes. `-X "STORE 1 +FLAGS (\Deleted)"` on `.../INBOX` marks a message, but the next send is still refused; `-X EXPUNGE`, answered `* 1 EXPUNGE`, removes it, and then the newsletter is accepted.
+
+A quota must be above 0. With `quota=0`, `start_server` is a tool error whose structured content carries `surl`{apos}s `exit_code` 2, `exit_code_name` `FailedInit`, and in `lines` the reason, `option --mailbox: key quota needs a value above 0`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-enforce-a-mailbox-quota>> for the quota on the console.
+* <<imap-enforce-a-mailbox-quota-in-csharp>> for a full mailbox in a C# test.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

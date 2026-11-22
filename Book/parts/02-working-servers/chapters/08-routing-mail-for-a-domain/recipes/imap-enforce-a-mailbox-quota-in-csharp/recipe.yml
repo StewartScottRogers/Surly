@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-enforce-a-mailbox-quota-in-csharp
+title: Enforcing a Mailbox Quota in C#
+protocols: [imap, smtp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlEventQuery, SurlEvent, SurlExchangeRecord, SurlMessagePage, SurlSeedRefusedException, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc5321, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two newsletters fill most of ann's 1k; the third send through Curl.Api is refused, and Curl.Api throws CurlException WeirdServerReply, code 8.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^send 1: 250\nsend 2: 250\nsend 3: CurlException WeirdServerReply \(8\): Weird server reply\n'
+
+  - id: refused-after-the-data
+    claim: The recorded exchange shows the recipient accepted with 250, the 354 that asks for the data, and the refusal, 452 4.2.2 Mailbox full, after it.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nreplies from RCPT on: 250 2\.1\.5 Recipient OK \| 354 End data with <CR><LF>\.<CR><LF> \| 452 4\.2\.2 Mailbox full\n'
+
+  - id: nothing-stored
+    claim: A refused message is not stored; the INBOX still holds two messages.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nINBOX: 2 messages\n'
+
+  - id: stored-size-counts
+    claim: The quota counts each message as stored, Return-Path and Received lines included, so each 332-byte newsletter takes about 460 bytes.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstored sizes: 4[5-6][0-9], 4[5-6][0-9] of 332 sent\n'
+
+  - id: deliver-refused
+    claim: The store's own DeliverAsync obeys the quota too, and throws SurlSeedRefusedException with Refusal QuotaExceeded.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nDeliverAsync: SurlSeedRefusedException QuotaExceeded\n'
+
+  - id: whole-message-refused
+    claim: One full mailbox refuses the whole message, so bob, named with ann, gets nothing either.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbob and ann: CurlException WeirdServerReply \(8\): Weird server reply; bob''s INBOX: 0 messages\n'
+
+  - id: quota-is-per-mailbox
+    claim: Sent to bob alone, who has no quota, the newsletter is accepted with 250.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbob alone: 250\n'
+
+  - id: deleted-still-counts
+    claim: A message marked \Deleted with STORE through CustomRequest still counts, and the next send is refused again.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nSTORE 1 \+FLAGS \(\\Deleted\): \* 1 FETCH \(FLAGS \(\\Deleted\)\)\nsend with UID 1 deleted: CurlException WeirdServerReply \(8\)'
+
+  - id: expunge-frees-room
+    claim: EXPUNGE removes the marked message and frees its room, and the next send is accepted with 250.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nEXPUNGE: \* 1 EXPUNGE\nsend after EXPUNGE: 250\n'
+
+  - id: quota-in-the-log
+    claim: With LogLevel Verbose the log names ann's quota at start, 1k read as 1024 bytes.
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlog: \* Mailbox ann@example\.com: logins on smtp, imap, pop3, quota 1024 bytes\n$'
+
+  - id: quota-zero-refused
+    claim: A quota must be above 0; quota=0 makes StartAsync throw SurlServerStartException, FailedInit.
+    program: full-mailbox.cs
+    args: [zero]
+    expect:
+      exit: 1
+      stdout: "SurlServerStartException: FailedInit, option --mailbox: key quota needs a value above 0\n"

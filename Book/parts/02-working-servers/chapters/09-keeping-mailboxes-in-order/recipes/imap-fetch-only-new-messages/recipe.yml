@@ -1,0 +1,105 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-fetch-only-new-messages
+title: Fetching Only New Messages
+protocols: [imap, smtp]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -v, -o, -T, --crlf, --mail-from, --mail-rcpt, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 78]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  order1.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 1 shipped\n\nYour first order is on its way.\n"
+  order2.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 2 shipped\n\nYour second order is on its way.\n"
+  order3.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 3 shipped\n\nYour third order is on its way.\n"
+  order4.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 4 shipped\n\nYour fourth order is on its way.\n"
+  order5.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 5 shipped\n\nYour fifth order is on its way.\n"
+
+# One surl: SMTP to put mail in, IMAP for the sync job, one mail store.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox shop@example.com:shoppass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# Two orders arrive and the job's last run fetches them, so it remembers UID 2; then two more arrive.
+# Each wait asks for the newest message, a try a second for at most ten, until it is in.
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[1-2].eml" smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 2 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+  - curl -sS -o "synced#1.eml" -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=[1-2]"
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[3-4].eml" smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 4 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+
+cases:
+  - id: solution
+    role: solution
+    claim: The job remembers UID 2; UID SEARCH UID 3:* names the messages that came since, 3 and 4.
+    run: curl -u ann@example.com:annpass -X "UID SEARCH UID 3:*" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* SEARCH 3 4\n"
+
+  - id: fetch-only-those
+    claim: A curl range in the UID fetches just those two; here their Subject lines.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=[3-4];SECTION=HEADER.FIELDS%20(SUBJECT)"
+    expect:
+      exit: 0
+      stdout: "Subject: Order 3 shipped\n\nSubject: Order 4 shipped\n\n"
+
+  - id: nothing-new-is-not-empty
+    claim: With nothing above the UID asked for, UID 5:* still names the highest message, 4, because * is the largest UID in use; the job must drop UIDs it has already seen.
+    run: curl -u ann@example.com:annpass -X "UID SEARCH UID 5:*" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* SEARCH 4\n"
+
+  - id: uidnext
+    claim: STATUS answers UIDNEXT, 5, the UID the next message will get, without opening the mailbox; one above the last UID seen means nothing is new.
+    run: curl -u ann@example.com:annpass -X "STATUS INBOX (UIDNEXT)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (UIDNEXT 5)\n"
+
+  - id: uidvalidity
+    claim: STATUS also answers UIDVALIDITY, a positive number the job keeps beside its last UID.
+    run: curl -u ann@example.com:annpass -X "STATUS INBOX (UIDVALIDITY)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '^\* STATUS INBOX \(UIDVALIDITY [1-9][0-9]*\)\n$'
+
+  - id: url-query-sends-search
+    claim: A query on the URL, INBOX?UID%203:*, sends a plain SEARCH, not UID SEARCH, so its numbers are message numbers.
+    run: curl -s -v -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?UID%203:*"
+    expect:
+      exit: 0
+      stderr-contains: "> A004 SEARCH UID 3:*"
+
+  - id: expunge-renumbers
+    claim: Another client deletes message 1 and expunges it; EXPUNGE answers its number, 1.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X "STORE 1 +FLAGS (\Deleted)" imap://127.0.0.1:{{port2}}/INBOX --next -u ann@example.com:annpass -X EXPUNGE imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* 1 EXPUNGE\n"
+
+  - id: uids-are-not-reused
+    claim: A fifth order arrives, waited for by its UID; it gets UID 5, not 4, although the INBOX holds four messages, and UID SEARCH UID 5:* names it.
+    run: curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T order5.eml smtp://127.0.0.1:{{port}}/example.com --next -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=5" --next -u ann@example.com:annpass -X "UID SEARCH UID 5:*" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* SEARCH 5\n"
+
+  - id: message-numbers-shift
+    claim: After the expunge the URL query, a plain SEARCH, answers 4 for the same message, its message number; only UID SEARCH gives the UID.
+    run: curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?UID%205:*"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 4\n"
+
+  - id: gone-uid
+    claim: Fetching a UID that was expunged, 1, fails with exit 78.
+    run: curl -s -S -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1"
+    expect:
+      exit: 78
+      stderr-contains: "curl: (78)"

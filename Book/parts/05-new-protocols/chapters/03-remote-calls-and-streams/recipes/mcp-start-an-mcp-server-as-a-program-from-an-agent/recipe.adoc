@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mcp-start-an-mcp-server-as-a-program-from-an-agent]]
+=== Starting MCP over Stdio from an Agent
+
+==== Problem
+
+Your agent's Model Context Protocol client starts each of its servers as a child process over standard input and output. You want it to start `surl` that way, with no port, list its tools and call one.
+
+==== Solution
+
+Configure `surl` as a stdio server whose arguments end in `mcp+stdio:`; the agent's client starts it, lists its tools and calls `read_file` and `echo`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The Model Context Protocol (MCP) has a stdio transport: the client starts the server as a program and exchanges JavaScript Object Notation Remote Procedure Call (JSON-RPC) messages with it, one per line, over its standard input and output (<<mcp-spec>>). An agent's client configures such a server as a command and its arguments. Here the command is `surl` and the arguments are `--directory site mcp+stdio:`; `mcp+stdio:` is the listen URL that makes `surl` serve that one session on its own pipes instead of on a port (<<surl-readme>>). The program does it with the official MCP software development kit (SDK): `StdioClientTransport` starts the command found on the `PATH` in the working directory, and `McpClient.CreateAsync` opens the session, whose server information names `surl`. No `surl-mcp` is involved: `surl` is the agent's server here, not a program the agent drives.
+
+`surl` offers two tools by default. `read_file` returns a file from the served directory by its path there, as one text item. `echo` returns the text it is given, unchanged, which is a quick way for an agent to check that the session works. A file that is not there is still an answer: a tool result marked `isError`, with the text `no such file or folder`, which the agent reads as it reads any result.
+
+The session takes no login. With an account given by `--user alice:secret` and no `--allow-anonymous`, a `surl` on a port refuses every request that carries no token, but the stdio session lists the tools all the same: whoever started the program is trusted, and the tools run as the anonymous caller. The options that widen what a client may do still apply. Without `--allow-uploads` there is no `write_file`, and calling it is not a tool result but JSON-RPC error `-32602`, invalid parameters, which the SDK raises as a `McpProtocolException`. With `--allow-uploads`, `write_file` creates `notes.txt` in the served directory and answers how many bytes it wrote. Give an agent `--allow-uploads` only if it should be able to change those files.
+
+`curl-mcp` can start `surl` the same way. Its `curl` tool runs `curl` in-process with the arguments given as a list, and an `mcp+stdio://localhost/surl?--directory&site&mcp+stdio:` URL makes `curl` start the program the path names with the query's items, split at `&`, as its arguments (<<curl-protocols>>, <<curl-readme>>). With `-d` and a `tools/call` naming `echo`, the tool's text is the standard output in `curl`{apos}s answer, and `exitCode` is `0`. That is useful when the agent already has `curl-mcp` and wants one call to a stdio server without adding the server to its own configuration.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mcp-start-an-mcp-server-as-a-program>> for the same session from the command line.
+* <<mcp-start-an-mcp-server-as-a-program-in-csharp>> for the same session from a .NET test.
+* <<http-serve-and-fetch-from-an-agent>> for `surl-mcp` and `curl-mcp`, the hosts an agent drives.
+* <<mcp-spec>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

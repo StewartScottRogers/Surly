@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-search-by-sender-and-date
+title: Searching by Sender and Date
+protocols: [imap, smtp]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -v, -o, --crlf, --mail-from, --mail-rcpt, -T, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 21]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  mail1.eml: "From: shop@example.com\nTo: ann@example.com\nDate: Mon, 02 Mar 2026 10:00:00 +0000\nSubject: Order 1\n\nFirst.\n"
+  mail2.eml: "From: bank@example.org\nTo: ann@example.com\nDate: Wed, 15 Apr 2026 10:00:00 +0000\nSubject: Statement\n\nYour statement.\n"
+  mail3.eml: "From: shop@example.com\nTo: ann@example.com\nDate: Fri, 10 Jul 2026 10:00:00 +0000\nSubject: Order 2\n\nSecond.\n"
+  mail4.eml: "From: Shop Team <shop@example.com>\nTo: ann@example.com\nDate: Tue, 03 Nov 2026 10:00:00 +0000\nSubject: Order 3\n\nThird.\n"
+
+# One surl: SMTP to put mail in, IMAP to search it, one mail store.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# Four mails arrive in one SMTP session; delivery is asynchronous, so the second line waits, a try a
+# second for at most ten, until message 4 exists. FETCH FLAGS sets no flag.
+seed:
+  - curl -sS --crlf -u ann@example.com:annpass --mail-from sender@example.org --mail-rcpt ann@example.com -T "mail[1-4].eml" smtp://127.0.0.1:{{port}}/example.org
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 4 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+
+# The cases run in order on one mailbox; the last two remove a message and so change its numbers.
+cases:
+  - id: solution
+    role: solution
+    claim: A search for FROM shop and SENTSINCE 01-Jun-2026 names messages 3 and 4, and fetching those two by UID gives their From and Subject headers.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20shop%20SENTSINCE%2001-Jun-2026" --next -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=[3-4];SECTION=HEADER.FIELDS%20(FROM%20SUBJECT)"
+    expect:
+      exit: 0
+      stdout-matches: "^\\* SEARCH 3 4\\s+From: shop@example\\.com\\s+Subject: Order 2\\s+From: Shop Team <shop@example\\.com>\\s+Subject: Order 3\\s*$"
+
+  - id: from-is-a-substring
+    claim: FROM matches part of the header in any letter case; shop and SHOP both name messages 1, 3 and 4.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20shop" --next -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20SHOP"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 3 4\n* SEARCH 1 3 4\n"
+
+  - id: from-matches-the-display-name
+    claim: FROM reads the whole From header, display name included; "Shop Team" names message 4 alone.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20%22Shop%20Team%22"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 4\n"
+
+  - id: since-is-the-arrival-date
+    claim: SINCE compares the date the server received a message, not its Date header; all four arrived today, so SINCE 01-Jan-2020 names all of them.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SINCE%2001-Jan-2020"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 2 3 4\n"
+
+  - id: since-the-future
+    claim: Nothing arrived since 01-Jan-2099; the answer is an empty * SEARCH line, and curl exits 0.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SINCE%2001-Jan-2099"
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: sent-dates-use-the-header
+    claim: SENTSINCE and SENTBEFORE compare the Date header; 01-Jul-2026 splits the mailbox into messages 3 and 4 and messages 1 and 2.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SENTSINCE%2001-Jul-2026" --next -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SENTBEFORE%2001-Jul-2026"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 3 4\n* SEARCH 1 2\n"
+
+  - id: criteria-combine
+    claim: Criteria in one search must all hold; FROM shop with SENTSINCE 01-Jun-2026 and SENTBEFORE 01-Oct-2026 names message 3 alone.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20shop%20SENTSINCE%2001-Jun-2026%20SENTBEFORE%2001-Oct-2026"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 3\n"
+
+  - id: or-widens
+    claim: OR takes two criteria and names a message that meets either; OR FROM bank FROM Team names messages 2 and 4.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?OR%20FROM%20bank%20FROM%20Team"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 2 4\n"
+
+  - id: no-match-is-not-an-error
+    claim: A search that matches nothing, FROM nobody, answers an empty * SEARCH line and curl exits 0, so a script reads the line and not the exit code.
+    run: curl -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SINCE%2001-Jan-2020%20FROM%20nobody"
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: bad-date
+    claim: A date must be day-month-year with a month name; SENTSINCE 2026-11-03 is answered BAD Invalid arguments, and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SENTSINCE%202026-11-03"
+    expect:
+      exit: 21
+      stderr-contains: "BAD Invalid arguments"
+
+  - id: numbers-renumber
+    claim: After message 1 is marked deleted and expunged, the same FROM shop search names 2 and 3, because a search answers message numbers and they close up.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X "STORE 1 +FLAGS (\Deleted)" imap://127.0.0.1:{{port2}}/INBOX --next -s -o {{null}} -u ann@example.com:annpass -X "EXPUNGE" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?FROM%20shop"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 2 3\n"
+
+  - id: uid-search
+    claim: UID SEARCH answers UIDs, which do not move; FROM shop now names 3 and 4, and fetching UID 3 gives Order 2.
+    run: curl -s -u ann@example.com:annpass -X "UID SEARCH FROM shop" imap://127.0.0.1:{{port2}}/INBOX --next -s -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=3;SECTION=HEADER.FIELDS%20(SUBJECT)"
+    expect:
+      exit: 0
+      stdout-matches: "^\\* SEARCH 3 4\\s+Subject: Order 2\\s*$"

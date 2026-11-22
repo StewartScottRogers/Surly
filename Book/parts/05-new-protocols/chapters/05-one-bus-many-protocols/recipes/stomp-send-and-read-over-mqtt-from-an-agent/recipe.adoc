@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[stomp-send-and-read-over-mqtt-from-an-agent]]
+=== From STOMP to MQTT from an Agent
+
+==== Problem
+
+Your back end sends over the Simple Text Oriented Messaging Protocol (STOMP) and your devices listen over Message Queuing Telemetry Transport (MQTT). You want an artificial intelligence (AI) agent to send over STOMP, check the message was kept as a retained message, and read it as a device would, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a server with a STOMP and an MQTT listener and `--topic "devices/#;retain"` through `start_server`, sends with the `curl` tool over STOMP, and subscribes with the same tool over MQTT:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here a `stomp` and an `mqtt` URL on port 0, and answers the `server_id` and `bound_urls` in the same order; one `surl` runs one message bus, and both listeners read and write it (<<surl-readme>>). Its `arguments` are other `surl` options in `surl`{apos}s own words: `--topic "devices/#;retain"` keeps every message published on a topic under `devices/`, whichever protocol it arrived on, and a STOMP send has no retain flag to set; `--idle-timeout 1` ends a STOMP subscriber once nothing arrives; `--allow-anonymous` lets both clients in without an account, for a test.
+
+The `curl` tool runs `curl`{apos}s own arguments. A send is `-d` with the body and the STOMP URL, where `topic/devices/lamp/state` is the MQTT topic `devices/lamp/state` (<<stomp12>>, <<mqtt311>>, <<curl-readme>>); `-s` keeps the progress meter out of the output, and `-m` caps a subscribe at ten seconds. The answer is text that is JSON, with `exitCode` and `standardOutput`, whose `content` holds the bytes as text, or as base64 when `isBase64` is true. An MQTT subscribe writes each retained message as the topic{apos}s length in two bytes, the topic and the payload, so one 18-character topic and a two-byte payload are 22 bytes; the program decodes them and prints a line per message. A subscribe to `devices/hall/#` returns both topics under it, 48 bytes; `#` has to be written `%23` in a URL.
+
+A send at the lowest quality of service is not answered, so `curl` can return before the server has applied it. The agent waits with `wait_for_event` for the `exchange_ended` event after the last sequence it saw, with `timeout_ms` as the bound, and reads the sequence from the answer. `read_retained_message` is the other way to check: it reads what the server holds for a topic without a client, as `text`, so an agent can tell a STOMP send was kept without subscribing.
+
+A topic keeps one message. A second send replaces the first, and an empty body clears the topic. Where the server was not told to keep a message, nothing is kept and nothing is raised: a send to `other/lamp`, outside every filter, and a send to a server started with no `--topic` at all, both end with `curl` exit code `0` and no tool error, and the subscriber is sent nothing. A `queue/` destination is a queue and no MQTT topic carries it. A STOMP subscribe to the topic is sent nothing either: `surl` does not replay the retained message to a STOMP subscriber the way it does to an MQTT one, and ends the idle subscription itself, so `curl` exits `0`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<stomp-send-and-read-over-mqtt>> for the same send and read on the console.
+* <<stomp-send-and-read-over-mqtt-in-csharp>> for the same send and read from a C# test.
+* <<mqtt-keep-a-retained-message-from-an-agent>> for retained messages and an agent.
+* <<stomp12>>, <<mqtt311>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

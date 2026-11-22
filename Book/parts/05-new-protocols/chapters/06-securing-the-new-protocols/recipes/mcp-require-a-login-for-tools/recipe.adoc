@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mcp-require-a-login-for-tools]]
+=== Requiring a Login for MCP
+
+==== Problem
+
+Your Model Context Protocol server must not hand its tools to anyone who connects. You want the tools listed only for a client that logs in over Transport Layer Security (TLS), and refused without a login.
+
+==== Solution
+
+Serve `mcps` with your certificate and give `surl` one account with an empty user name, which makes its password a Bearer token; the client trusts the certificate with `--cacert` and sends the token with `--oauth2-bearer`:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run three more `surl` servers, on ports `8081` to `8083`, to show what plain `mcp`, `--allow-plaintext-auth` and `--allow-anonymous` change. You do not need them. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A Model Context Protocol (MCP) server over Hypertext Transfer Protocol (HTTP) takes OAuth 2.1 Bearer tokens as its logins: the client sends `Authorization: Bearer` and the token with every request (<<mcp-spec>>, <<rfc6750>>). `surl` has no token endpoint; a token is an account. `--user :agent-token-1`, with nothing before the colon, adds the token `agent-token-1` (<<surl-readme>>). `--oauth2-bearer agent-token-1` makes `curl` send it (<<curl-readme>>). With it, `curl` lists the tools at `/mcp`, and a `tools/call` sent with `-d @read.json` goes through: `read_file` returns the file's text. A token in a real deployment is long and random; this one is short so the commands stay readable.
+
+Without a token, `surl` answers `401` and `curl` exits `67`, login denied, having listed nothing. A token that is not the account's is the same `401` and `67`. The second account, `--user alice:secret`, is there to show the other half: a user name and password sent with `-u` is not a login the MCP endpoint takes at all, even for an account `surl` has. It answers `400` and `curl` exits `8`. So an MCP client cannot fall back to a password.
+
+TLS is the other lock. `mcps` is the same endpoint inside TLS from the first byte (<<rfc8446>>), and `--cert` and `--key` give `surl` the certificate and key that the first command made with `openssl`; `--directory site` is the folder whose files the tools read. `--cacert server.pem` makes `curl` trust that certificate as its own authority; without it, `curl` cannot verify the server and exits `60`, before the request, and so the token, is sent. An `mcps` listen URL with no certificate does not start: `surl` exits `58`, naming `--cert` and `--self-signed`.
+
+Over plain `mcp`, the right token is refused: `surl` answers `401` without checking it, and `curl` exits `67`, because a token sent in clear is a token anyone on the path can read and reuse. `--allow-plaintext-auth` turns that off, and the same token over `mcp` is checked and accepted. `--allow-anonymous` goes further: a server with the same token lists its tools to a client with no login at all. Both are for a test on your own machine; neither belongs on a server an agent reaches over a network.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mcp-require-a-login-for-tools-in-csharp>> for the same server and client in a .NET test.
+* <<mcp-require-a-login-for-tools-from-an-agent>> for an agent setting it up through `surl-mcp` and `curl-mcp`.
+* <<mcp-call-a-tool>> for the tools and the errors a call can give.
+* <<mcp-spec>>, <<rfc6750>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

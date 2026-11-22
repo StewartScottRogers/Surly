@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-check-the-flags-an-app-left-in-csharp
+title: Checking an App's Flags in C#
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlMessagePage, SurlMessageSummary, SurlMailboxInfo, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]
+exit-codes: [0]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the app's run, ListMessagesAsync gives each message's flags by UID, the two orders \Seen, the spam \Seen and \Deleted, the newsletter none.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^after the app: UID 1 \(\\Seen\); UID 2 \(\\Seen\); UID 3 \(\\Seen \\Deleted\); UID 4 \(\)\n'
+
+  - id: check-sets-no-flag
+    claim: Listing sets no flag; a second listing is the same, and a SEARCH for UNSEEN through Curl.Api still names the newsletter, 4.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisted again: UID 1 \(\\Seen\); UID 2 \(\\Seen\); UID 3 \(\\Seen \\Deleted\); UID 4 \(\)\nIMAP UNSEEN: \* SEARCH 4\n'
+
+  - id: search-deleted
+    claim: A SEARCH for DELETED through Curl.Api names only the spam, 3.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nIMAP DELETED: \* SEARCH 3\n'
+
+  - id: search-processed
+    claim: SEEN NOT DELETED names the messages the app processed and kept, 1 and 2.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nIMAP SEEN NOT DELETED: \* SEARCH 1 2\n'
+
+  - id: deleted-is-still-there
+    claim: \Deleted only marks a message; the store still counts four messages, one unseen.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstore: 4 messages, 1 unseen\n'
+
+  - id: store-read-sets-no-flag
+    claim: ReadMessageAsync gives the test the newsletter's 92 bytes and sets no flag.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nReadMessageAsync UID 4: 92 bytes, flags \(\)\n'
+
+  - id: reading-to-check-spoils-it
+    claim: Checking by fetching the newsletter over IMAP is a read and sets \Seen; a STORE 4 -FLAGS (\Seen) through CustomRequest takes it off again.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter an IMAP fetch of UID 4: [^\n]*UID 4 \(\\Seen\)\nSTORE 4 -FLAGS \(\\Seen\): \* 4 FETCH \(FLAGS \(\)\)\n'
+
+  - id: expunge-removes
+    claim: EXPUNGE through CustomRequest removes the message marked \Deleted and answers its number, 3.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nEXPUNGE: \* 3 EXPUNGE\n'
+
+  - id: check-by-uid
+    claim: After the expunge the store lists UIDs 1, 2 and 4, and UID FETCH over IMAP shows the newsletter is now message 3 with UID 4 still.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter EXPUNGE: UID 1 \(\\Seen\); UID 2 \(\\Seen\); UID 4 \(\)\nIMAP UID FETCH: \* 1 FETCH \(UID 1 FLAGS \(\\Seen\)\) \| \* 2 FETCH \(UID 2 FLAGS \(\\Seen\)\) \| \* 3 FETCH \(UID 4 FLAGS \(\)\)\n$'

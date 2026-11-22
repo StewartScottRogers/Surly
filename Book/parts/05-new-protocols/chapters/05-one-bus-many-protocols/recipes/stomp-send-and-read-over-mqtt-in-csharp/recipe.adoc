@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[stomp-send-and-read-over-mqtt-in-csharp]]
+=== From STOMP to MQTT in C#
+
+==== Problem
+
+Your back end sends over the Simple Text Oriented Messaging Protocol (STOMP) and your devices listen over Message Queuing Telemetry Transport (MQTT). You want a C# test to send over STOMP, see the message kept as a retained message, and read it as an MQTT subscriber would, in one process.
+
+==== Solution
+
+Start a `SurlServer` with a STOMP and an MQTT listener and a `Topics` filter, send with a `CurlClient` over STOMP, and subscribe with the same client over MQTT:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds a `stomp` and an `mqtt` URL on port 0, so each gets a free port, and `BoundUrls` names them in that order. One `surl` runs one message bus, and both listeners read and write it (<<surl-readme>>). `AllowAnonymous` lets both clients in without an account, for a test. `Topics` is `--topic`: `devices/#;retain` keeps every message published on a topic under `devices/`, whichever protocol it arrived on, and a STOMP send has no retain flag to set. `--idle-timeout 1` has no property, so it goes in `AdditionalArguments` in `surl`{apos}s own words; it ends a STOMP subscriber once nothing arrives. `RecordExchanges` makes the server record each exchange, which the program uses to know when one is over.
+
+A STOMP send is a `CurlRequest` with `HttpMethod.Post` and a `Body` made with `CurlContent.FromBytes`; the destination `topic/devices/lamp/state` is the MQTT topic `devices/lamp/state` (<<stomp12>>, <<mqtt311>>). The MQTT read is a `GET` of the topic, and `CurlClient.SendAsync` returns a `CurlResponse` whose `Body` is the bytes, once the retained messages are sent, because `surl` then closes the connection. The body is each message as the topic{apos}s length in two bytes, the topic and the payload, so one 18-character topic and a two-byte payload are 22 bytes (<<curl-readme>>); the program decodes them and prints a line per message. A subscribe to `devices/hall/#` returns both topics under it, 48 bytes; `#` has to be written `%23` in a URL.
+
+The server records an exchange a moment after the client has gone, so after every call the program waits, for at most ten seconds, until every exchange the server started has ended with `SurlEventQuery` counts of `ExchangeStarted` and `ExchangeEnded`. Every subscribe also has a cancellation token of ten seconds as a ceiling.
+
+A topic keeps one message. A second send replaces the first, and an empty body clears the topic. Where the server was not told to keep a message, nothing is kept and nothing is raised: a send to `other/lamp`, outside every filter, and a send to a server with no `Topics` at all, both return a normal response and the subscriber is sent nothing. A `queue/` destination is a queue and no MQTT topic carries it. A STOMP subscribe to the topic is sent nothing either: `surl` does not replay the retained message to a STOMP subscriber the way it does to an MQTT one, and ends the idle subscription after the idle timeout.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<stomp-send-and-read-over-mqtt>> for the same send and read on the console.
+* <<stomp-send-and-read-over-mqtt-from-an-agent>> for an agent that drives them.
+* <<mqtt-keep-a-retained-message>> for the MQTT side of retained messages.
+* <<stomp12>>, <<mqtt311>>, <<surl-readme>>, <<curl-readme>>.

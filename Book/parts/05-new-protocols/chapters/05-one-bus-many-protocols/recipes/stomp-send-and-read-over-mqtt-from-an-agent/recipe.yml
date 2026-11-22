@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: stomp-send-and-read-over-mqtt-from-an-agent
+title: From STOMP to MQTT from an Agent
+protocols: [stomp, mqtt]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, read_retained_message]
+curl-options: [-s, -d, -m]
+exit-codes: [0]
+references: [surl-readme, curl-readme, mcp-spec, stomp12, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A body the curl tool sends over STOMP to /topic/devices/lamp/state is kept as a retained message on the MQTT topic devices/lamp/state, and a later MQTT subscribe through the same tool is sent it, 22 bytes with its two-byte length and topic.
+    program: program.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "devices/lamp/state: on\n1 retained, 22 bytes\ntool error: no\n"
+
+  - id: latest-wins
+    claim: A second STOMP send to the same topic replaces the first; the MQTT subscribe is sent only the second.
+    program: program.cs
+    args: [latest-wins]
+    expect:
+      exit: 0
+      stdout: "devices/fan/state: off\n1 retained, 22 bytes\ntool error: no\n"
+
+  - id: empty-clears
+    claim: A STOMP send with an empty body clears the retained message, and the MQTT subscribe is sent nothing.
+    program: program.cs
+    args: [empty-clears]
+    expect:
+      exit: 0
+      stdout: "0 retained, 0 bytes\ntool error: no\n"
+
+  - id: wildcard
+    claim: An MQTT subscribe to devices/hall/# is sent the retained messages of both topics under it, 48 bytes in all.
+    program: program.cs
+    args: [wildcard]
+    expect:
+      exit: 0
+      stdout: "devices/hall/humidity: 55\ndevices/hall/temp: 21.5\n2 retained, 48 bytes\ntool error: no\n"
+
+  - id: outside-the-filter
+    claim: A STOMP send to a topic outside every --topic filter is accepted, with curl's exit code 0 and no tool error, and nothing is kept; the MQTT subscribe is sent nothing.
+    program: program.cs
+    args: [outside-the-filter]
+    expect:
+      exit: 0
+      stdout: "0 retained, 0 bytes\ntool error: no\n"
+
+  - id: no-filter
+    claim: A server started with no --topic filter keeps nothing either; the MQTT subscribe to the topic just sent over STOMP is sent nothing.
+    program: program.cs
+    args: [no-filter]
+    expect:
+      exit: 0
+      stdout: "0 retained, 0 bytes\ntool error: no\n"
+
+  - id: queue-is-not-a-topic
+    claim: A STOMP send to /queue/devices/jobs goes to a queue, not to an MQTT topic; the MQTT subscribe to devices/jobs is sent nothing.
+    program: program.cs
+    args: [queue-is-not-a-topic]
+    expect:
+      exit: 0
+      stdout: "0 retained, 0 bytes\ntool error: no\n"
+
+  - id: stomp-subscriber
+    claim: A STOMP subscribe to the topic is sent nothing, 0 bytes, though the MQTT subscribe to the same topic is sent the retained message; surl ends the idle STOMP subscription by itself, so curl exits 0.
+    program: program.cs
+    args: [stomp-subscriber]
+    expect:
+      exit: 0
+      stdout: "devices/lamp/state: on\n1 retained, 22 bytes\nSTOMP subscriber was sent 0 bytes, exit 0\ntool error: no\n"
+
+  - id: read-the-store
+    claim: read_retained_message reads the kept message from the server without a client, as text, so an agent can check a STOMP send was kept without subscribing.
+    program: program.cs
+    args: [read-the-store]
+    expect:
+      exit: 0
+      stdout: "retained text: on\ntool error: no\n"

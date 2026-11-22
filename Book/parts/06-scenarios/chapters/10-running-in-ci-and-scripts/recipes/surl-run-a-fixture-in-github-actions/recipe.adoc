@@ -1,0 +1,61 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-a-fixture-in-github-actions]]
+=== Running a Fixture in GitHub Actions
+
+==== Problem
+
+Your workflow needs test servers on Linux, macOS and Windows runners; you want them started, used and stopped in steps, with the log uploaded on failure.
+
+==== Solution
+
+Give the servers three steps of their own: one starts `surl` in the background and hands its URLs to later steps through `$GITHUB_ENV`, the tests use them, and a step with `if: always()` stops it; a last step with `if: failure()` uploads its log. Save the workflow as `.github/workflows/tests.yml`:
+
+[source,yaml]
+----
+include::tests.yml[]
+----
+
+The steps run three scripts, kept in `ci/`. They are POSIX `sh`, which every runner has: `shell: bash` is Git Bash on Windows.
+
+[source,sh]
+----
+include::ci/start-servers.sh[]
+----
+
+[source,sh]
+----
+include::ci/tests.sh[]
+----
+
+[source,sh]
+----
+include::ci/stop-servers.sh[]
+----
+
+A recipe cannot start a runner, so `steps.sh` stands in for one here: it runs the three steps in the workflow{apos}s order, each in a shell of its own, sets what a step appended to `$GITHUB_ENV` for the steps after it, runs the stop step always and keeps the log when a step failed.
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A step{apos}s background processes outlive the step; the runner ends whatever is left only when the job ends. That is what lets one step start `surl` and later steps use it, and it is why the stop step is there: to stop `surl` while the job can still see how that went, and to make sure its log is complete before anything reads it. The start step keeps the process ID in `surl.pid`, since the stop step is another shell and cannot `wait` for a process it did not start; it sends `kill` and then checks with `kill -0` until the process has gone.
+
+`surl` serves both listen URLs from one process. `--directory site` serves the folder over Hypertext Transfer Protocol (HTTP); Simple Mail Transfer Protocol (SMTP, <<rfc5321>>) delivers into a mail store, with `--mail-domain example.com` the domain it accepts mail for and `--mailbox app@example.com:secret` the one mailbox and its login. Port 0 lets the system pick each port, so the job never depends on a port being free on a shared runner. `surl` writes one `Listening on` line per listen URL once both have bound; the start step waits for both, fails with `surl`{apos}s own exit code if it ends first, and appends `HTTP_URL=...` and `SMTP_URL=...` to the file `$GITHUB_ENV` names. The runner sets each such line in the environment of every later step, which is how `ci/tests.sh` finds the servers. `< /dev/null` and the redirections give the background `surl` no handle on the step{apos}s own input and output, so the step ends as soon as the script does.
+
+`-v` writes a line for every event and `--log-file surl.log` sends those lines to a file: what the server recorded, the greeting served 200 and the message stored for one recipient. The upload step sends that file as an artifact named for the runner{apos}s operating system, and only when a step failed. With the wrong mailbox password the test step fails, `curl` exits 67; the stop step runs all the same, the log is kept, and it names the refused login, so the failure can be read without running the job again.
+
+The tests use `curl`: `-f` fails on an error status, `-s` keeps quiet and `-S` still prints an error; `-u` logs in as the mailbox, `--mail-from` and `--mail-rcpt` are the envelope, and `-T -` sends the message from standard input. `set -e` ends the step at the first failure, with `curl`{apos}s exit code.
+
+Before the server steps, the workflow builds `surl` and `curl` from their repositories with the .NET SDK and puts them on `PATH` through `$GITHUB_PATH`, which, like `$GITHUB_ENV`, takes effect from the next step. Neither has published a release yet; once they have, a download replaces the build. The matrix runs the same job on `ubuntu-latest`, `macos-latest` and `windows-latest`, and `fail-fast: false` lets each finish when another fails.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-a-test-server-in-ci>> for one step that starts the server, runs the tests and stops it, with every exit code checked.
+* <<surl-keep-the-server-log-for-a-failed-run>> for keeping the log without its secrets.
+* <<surl-run-a-fixture-from-pester>> for the same fixture from PowerShell tests.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

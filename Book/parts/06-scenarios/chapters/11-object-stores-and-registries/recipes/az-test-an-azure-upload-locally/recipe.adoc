@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[az-test-an-azure-upload-locally]]
+=== Testing an Azure Upload Locally
+
+==== Problem
+
+Your app writes blobs to Azure Blob Storage, and a test of it should not need an Azure account or a certificate. You want a stand-in on your own machine that speaks plain Hypertext Transfer Protocol (HTTP), logs in with a token, and lets the test check that the blob arrived with the right bytes.
+
+==== Solution
+
+Start `surl` with `--az-plaintext`, a token and uploads on, and put a file as the Azure REST (Representational State Transfer) Application Programming Interface does, with `curl` standing in for the app. The answer is `201 Created`, and the blob is a file in the served folder:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Every Azure endpoint is HTTPS, so `az://` is Transport Layer Security (TLS) from the first byte and needs `--cert`, or `--self-signed`, and a client that trusts it. An app's Azure software development kit (SDK) pointed at an emulator-style `http://` address does not do TLS, so for a test `--az-plaintext` serves the same listener as plain HTTP and needs no certificate. It is a loosening and says so: `surl` writes `surl: warning: --az-plaintext: az is served as plain HTTP, without TLS` on start. Without it, an `az` listen URL with no certificate stops the start with exit `58`.
+
+`curl`{apos}s own `az://` scheme is TLS only, so it cannot reach this listener; the test speaks the REST API with `http://` and headers, as an SDK does. The path is `/<container>/<blob>`: `photos` is a folder in `--directory store`, and `note.txt` the file under it, so the blob arrives as `store/photos/note.txt` and a file already there is a blob. `-H` adds a request header, `-T` uploads the file as the body, `-s` quiets the progress meter while `-S` still shows an error, and `-o` sends the answer{apos}s body to nowhere so that `-w` can print only the status. The put needs two headers, and the stand-in is as strict as Azure about both: `x-ms-version`, the REST version the caller speaks, and `x-ms-blob-type`, `BlockBlob` for an ordinary file. Without either the answer is `400 MissingRequiredHeader`. The error code is in the `x-ms-error-code` response header, which `curl` prints with `-w "%header{x-ms-error-code}"`.
+
+`--user :t0ken-abc` is the login. An empty name makes the password a Bearer token, which the app sends as `Authorization: Bearer t0ken-abc`. A token over unencrypted HTTP is a thing `surl` refuses unless told otherwise, so `--allow-plaintext-auth` accepts it, with its own warning, and without it the right token is answered `401 InvalidAuthenticationInfo`. A request with no token is `401 NoAuthenticationInformation`, and a token `surl` does not hold is `401 InvalidAuthenticationInfo`.
+
+`--allow-uploads` is what lets a put write. Without it the put is `403 AuthorizationPermissionMismatch` and gets are still served, so a test of an app{apos}s read path can use a server that cannot be written to. A missing blob is `404 BlobNotFound`.
+
+What a test should compare is the bytes. It can read the file under `store`, or get the blob back, or read the `Content-MD5` header of the put answer, the base64 Message-Digest 5 (MD5) hash of what the server stored, and compare it with its own hash of what it sent. Listing a container, `restype=container&comp=list`, needs `--list-directories`; the listing names the new blob among those already there.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<az-test-an-azure-upload-locally-in-csharp>> for the same test written in a C# program.
+* <<az-test-an-azure-upload-locally-from-an-agent>> for the same test driven by an agent.
+* <<az-put-and-get-a-blob>> for `curl`{apos}s `az://` scheme over TLS.
+* <<surl-readme>>, <<curl-readme>>, <<azure-blob-api>>, <<rfc6750>>.

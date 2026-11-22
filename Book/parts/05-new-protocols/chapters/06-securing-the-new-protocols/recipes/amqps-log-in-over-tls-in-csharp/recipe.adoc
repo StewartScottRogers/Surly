@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqps-log-in-over-tls-in-csharp]]
+=== AMQP Logins over TLS in C#
+
+==== Problem
+
+Your RabbitMQ client logs in with the PLAIN mechanism, which sends the password as it is. You want a C# test to show a broker refusing PLAIN over plain Advanced Message Queuing Protocol (AMQP), where it offers only CRAM-MD5, and accepting it over AMQP on Transport Layer Security (TLS), AMQPS, in one process.
+
+==== Solution
+
+Make a certificate with `openssl`, start a `SurlServer` with one account and both an `amqps` and an `amqp` listener, and read from a queue with a `CurlClient` that trusts the certificate:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds an `amqps` and an `amqp` URL on port 0, so each gets a free port, and `BoundUrls` names them in that order. `CertificateFile` and `KeyFile` are `--cert` and `--key`, the certificate the `setup` step made, self-signed and valid for `127.0.0.1`. `Accounts` is `--user`: one `SurlAccount`, alice. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, off unless a case turns it on (<<surl-readme>>).
+
+`CurlRequest` is the method and the URL. AMQP 0-9-1 names a virtual host and then the queue, and `%2F` is the virtual host `/`. `Authentication` is a `CurlAuthenticationOptions` with the user name and password, which `curl` would take with `-u`, and it logs in with PLAIN (<<rfc4616>>, <<curl-readme>>). `Curl.Api` does not publish over AMQP, so the program puts the message on the queue from the server{apos}s side with `Messages.EnqueueAsync`, after naming the queue in `Queues`; a `GET` then takes one message and the `CurlResponse` body is its text. A `CurlClient` made with `CurlClientOptions` whose `Tls` is a `CurlTlsOptions` whose `Origin` is a `CurlTlsPeerOptions` with `CertificateAuthorityFile` set trusts that file, as `--cacert` does; a self-signed certificate is its own authority.
+
+Over plain `amqp://` with an account the server offers only CRAM-MD5, which `Curl.Api` does not speak, so the call throws a `CurlException` with code 67, `LoginDenied`, and a message naming `CRAM-MD5`. Over `amqps://` the connection is encrypted before the login, so the server offers PLAIN and the read succeeds (<<amqp091>>, <<rfc8446>>). `AllowPlaintextAuthentication` loosens the default: it makes the server offer PLAIN over plain `amqp://` too, and the same login then reads the message. It does not turn off the check.
+
+The refusals over TLS are all the same answer. A wrong password, a user name the server has no account for, and a request with no `Authentication`, when the client logs in as RabbitMQ{apos}s default account, are each answered with `connection.close`, reply code 403 `ACCESS_REFUSED`, and surface as a `CurlException` with code 67. A wrong password with `AllowPlaintextAuthentication` is the same. A client that was not told to trust the certificate throws code 60, `PeerFailedVerification`, before any login; its message is the TLS library{apos}s, so the program prints the code alone.
+
+A listener of the `amqps` scheme without a certificate does not start. `SurlServer.StartAsync` throws a `SurlServerStartException` whose `ExitCode` is `CertificateProblem`, 58, the exit code `surl` would give. The program prints it and exits `1`; that exit code is the program{apos}s choice.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqps-log-in-over-tls>> for the same logins on the console.
+* <<amqps-log-in-over-tls-from-an-agent>> for an agent that drives them.
+* <<mqtts-log-in-over-tls-in-csharp>> for the same two locks on MQTT.
+* <<amqp091>>, <<rfc4616>>, <<rfc8446>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs why-refused.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-see-why-mail-was-refused-from-an-agent
+title: Seeing Why Mail Was Refused from an Agent
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, get_events, list_mailboxes]
+curl-options: [-s, -S, -w, -u, -T, --mail-from, --mail-rcpt]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5321]
+
+fixtures:
+  report.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Nightly report\r\n\r\nAll 42 jobs finished. None failed.\r\n"
+
+cases:
+  - id: app-says-nothing
+    claim: 'The app sends its report through the curl tool to the address in its settings, ann@example.org, a typo; curl exits 55, and run with -s alone it leaves standardError empty.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^app, to ann@example\.org: curl exit 55, standardError ""\n'
+
+  - id: nothing-arrived
+    claim: 'list_mailboxes counts nothing in Ann''s INBOX.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nann''s INBOX holds 0\n'
+
+  - id: solution
+    role: solution
+    claim: 'Once surl has ended the exchange, get_exchanges shows the refused command, RCPT TO:<ann@example.org>, and the reply, 550 5.7.1 Relaying denied.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nrefused: RCPT TO:<ann@example\.org> -> 550 5\.7\.1 Relaying denied\n'
+
+  - id: client-sees-less
+    claim: 'With -S curl''s error line names the command and the code, RCPT failed 550, but not the reason.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwith -S: curl exit 55, curl: \(55\) RCPT failed: 550\n'
+
+  - id: fixed
+    claim: 'With the address corrected the send is answered 250, and the exchange holds no refusal.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\napp, to ann@example\.com: 250; no refusal\n'
+
+  - id: arrived
+    claim: 'Once the report''s store_changed event has come, waited for at most 10 s, list_mailboxes counts one message in Ann''s INBOX.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ndelivered event: True; ann''s INBOX holds 1\n'
+
+  - id: no-login
+    claim: 'Without -u the app never logs in, and MAIL FROM is refused, 530 5.7.0 Authentication required.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno login: MAIL FROM:<app@example\.com> SIZE=[0-9]+ -> 530 5\.7\.0 Authentication required\n'
+
+  - id: wrong-password
+    claim: 'A wrong password is refused at the login, 535 5.7.8, after the client''s CRAM-MD5 answer, a name and a digest in base64, never the password.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong password: [A-Za-z0-9+/]+=* -> 535 5\.7\.8 Authentication credentials invalid\n'
+
+  - id: login-judged
+    claim: 'get_events with kinds login_judged and the account names the refused login: app@example.com, CRAM-MD5, is_accepted false.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin_judged: app@example\.com CRAM-MD5 is_accepted False\n'
+
+  - id: mailbox-full
+    claim: 'To a mailbox it would take past its quota, the send is refused only at the end of the data, the lone dot, 452 4.2.2 Mailbox full.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nto a full mailbox: \. -> 452 4\.2\.2 Mailbox full\n'
+
+  - id: client-sees-even-less
+    claim: 'For that refusal curl says only Weird server reply, exit 8, naming neither the command nor the code.'
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ncurl said: exit 8, curl: \(8\) Weird server reply\n$'

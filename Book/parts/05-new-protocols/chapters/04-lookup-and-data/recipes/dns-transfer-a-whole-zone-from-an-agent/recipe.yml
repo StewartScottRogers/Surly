@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: dns-transfer-a-whole-zone-from-an-agent
+title: Transferring a Whole Zone from an Agent
+protocols: [dns]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, add_dns_zone, curl]
+curl-options: [-s, -S, --dns-json, --dns-transport]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, mcp-spec, rfc1035, rfc4501]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A server started with --allow-zone-transfer in start_server's arguments and seeded with add_dns_zone answers the curl tool's AXFR over TCP with NOERROR and six records, the SOA record first and last, curl's exit code 0 and no tool error.
+    program: program.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "NOERROR: 6 records, curl exit 0\nexample.test. SOA\nexample.test. NS\nexample.test. MX\nmail.example.test. A\nns1.example.test. A\nexample.test. SOA\ntool error: no\n"
+
+  - id: refused-by-default
+    claim: A server started without --allow-zone-transfer answers the same AXFR over TCP with REFUSED and no records; curl exits 0 and the tool reports no error, so the refusal is in status.
+    program: program.cs
+    args: [refused-by-default]
+    expect:
+      exit: 0
+      stdout: "REFUSED: 0 records, curl exit 0\ntool error: no\n"
+
+  - id: refused-by-default-udp
+    claim: The same server refuses the AXFR over UDP too, with REFUSED, so the default holds whichever transport asks.
+    program: program.cs
+    args: [refused-by-default-udp]
+    expect:
+      exit: 0
+      stdout: "REFUSED: 0 records, curl exit 0\ntool error: no\n"
+
+  - id: refused-over-udp
+    claim: Even with --allow-zone-transfer, an AXFR over UDP is answered NOTIMP with no records; a transfer needs --dns-transport tcp.
+    program: program.cs
+    args: [refused-over-udp]
+    expect:
+      exit: 0
+      stdout: "NOTIMP: 0 records, curl exit 0\ntool error: no\n"
+
+  - id: not-an-apex
+    claim: A transfer for a name that is no zone's apex, here a host inside the zone, is answered with RCODE9, which is NOTAUTH, and no records, even with transfers allowed.
+    program: program.cs
+    args: [not-an-apex]
+    expect:
+      exit: 0
+      stdout: "RCODE9: 0 records, curl exit 0\ntool error: no\n"
+
+  - id: text-answer
+    claim: Without --dns-json the curl tool's standard output is dig-like text; its flags line counts six answers, and the SOA record is the type of the first and of the last record line.
+    program: program.cs
+    args: [text-answer]
+    expect:
+      exit: 0
+      stdout: ";; flags: qr aa rd; QUERY: 1, ANSWER: 6, AUTHORITY: 0, ADDITIONAL: 0\nfirst: SOA, last: SOA\ntool error: no\n"
+
+  - id: no-incremental-type
+    claim: curl asks for AXFR only; the type IXFR is refused by curl itself before any query is sent, so the curl tool answers exit code 3 with a message about the query element, and, unlike a refusal in status, that is a tool error.
+    program: program.cs
+    args: [no-incremental-type]
+    expect:
+      exit: 1
+      stdout: "curl exit 3: curl: (3) The dns: URL's query element \"type=IXFR\" is not TYPE= or CLASS= with a known value\ntool error: yes\n"

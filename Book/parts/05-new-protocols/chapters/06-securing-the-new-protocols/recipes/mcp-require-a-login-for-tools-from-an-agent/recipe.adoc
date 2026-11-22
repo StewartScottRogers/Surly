@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mcp-require-a-login-for-tools-from-an-agent]]
+=== Requiring MCP Logins from an Agent
+
+==== Problem
+
+Your Model Context Protocol server must not hand its tools to anyone who connects, and you want your agent to set one up that lists its tools only to a client logged in over Transport Layer Security (TLS), and to check the refusal without a login.
+
+==== Solution
+
+Start `mcps` through `surl-mcp` with the certificate and a token account, then ask for the tool list through `curl-mcp`{apos}s `curl` tool with the certificate trusted and the token sent:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A Model Context Protocol (MCP) server over Hypertext Transfer Protocol (HTTP) takes OAuth 2.1 Bearer tokens as its logins, sent in an `Authorization: Bearer` header with every request (<<mcp-spec>>, <<rfc6750>>). `surl` keeps a token as an account with an empty user name (<<surl-readme>>).
+
+`start_server` takes the listen URL `mcps://127.0.0.1:0`, MCP inside TLS from the first byte on a free port (<<rfc8446>>), and passes everything else to `surl` in `arguments`, in `surl`{apos}s own words: `--cert server.pem --key server.key` for the certificate and key the `setup` step made, read from `SURL_MCP_ROOT`; `--user :agent-token-1` for the token; `--user alice:secret` for a password account; and `files` for the file the tools read. It answers the bound URL; the endpoint is `/mcp` there.
+
+`curl` runs `curl` in-process with its arguments as a list, so the token needs no quoting (<<curl-readme>>, <<curl-protocols>>). `--cacert server.pem`, read from `CURL_MCP_ROOT`, trusts the certificate; `--oauth2-bearer agent-token-1` sends the token. Its answer carries `exitCode`, `0` here, and the tool list as standard output, one line per tool. With `-d` and a `tools/call` naming `read_file`, the call goes through the same gate and returns the file's text. `transfer` reaches the same server from fields instead of a command line: `caFile` is `--cacert`, and the token goes in `headers` as an `Authorization` header whose value is `Bearer agent-token-1`; the list comes back as its body.
+
+A refusal makes the `curl` tool's answer a tool error, with the exit code and `curl`{apos}s message on standard error, because `-sS` keeps the message while hiding the progress meter. No token: `surl` answers `401`, exit code `67`. Another token: the same. A user name and password, even the account `alice`{apos}s, is not a login the MCP endpoint takes: `400`, exit code `8`, so an agent cannot fall back to a password. Without `--cacert`, the handshake fails first, exit code `60`, before the token is sent. And `start_server` for `mcps` with no certificate is itself a tool error, carrying exit code `58`, `CertificateProblem`, and `surl`{apos}s message naming `--cert` and `--self-signed`.
+
+Over plain `mcp://`, the right token is refused without being checked, `401`, exit code `67`: a token sent in clear is one anyone on the path can read and reuse. `--allow-plaintext-auth` in `arguments` turns that off, and the same token is checked and accepted. `--allow-anonymous` lists the tools to a client with no token at all. Both are for a test that wants to skip the login; an agent setting up a server others will reach leaves them off.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mcp-require-a-login-for-tools>> for the same server and client on the console.
+* <<mcp-require-a-login-for-tools-in-csharp>> for the same test in a .NET program.
+* <<mcp-spec>>, <<rfc6750>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

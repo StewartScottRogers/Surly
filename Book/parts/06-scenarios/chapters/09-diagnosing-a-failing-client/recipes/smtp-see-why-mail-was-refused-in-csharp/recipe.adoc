@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-see-why-mail-was-refused-in-csharp]]
+=== Seeing Why Mail Was Refused in C#
+
+==== Problem
+
+Your app{apos}s mail never arrives, and the exception it swallows says little. In a C# test you want the server{apos}s record of the Simple Mail Transfer Protocol (SMTP) dialogue to show which command was refused, with what reply, and why.
+
+==== Solution
+
+Host the server with Surl.Api, recording exchanges and keeping its verbose log; after the app{apos}s send, wait for the exchange to end and read the refusal from the record:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). One `smtp://` URL on port 0, `MailDomains` for `example.com`, and three `Mailboxes`, one of them, `ops@example.com`, with `quota=200`, too small for one report. `RecordExchanges` keeps every byte of every exchange, and `Log` with `LogLevel.Verbose` is `surl -v` into a `TextWriter`, `TextWriter.Synchronized` because the server writes from its own threads.
+
+The app is a `CurlRequest` with `HttpMethod.Put` to the SMTP URL on a fresh `CurlClient`: `CurlMailOptions` the envelope, `CurlAuthenticationOptions` its login, `Body` the report. Its settings name `ann@example.org`, a typo. The send throws `CurlException` with `Code` `SendError`, 55, and the message `RCPT failed: 550`: the command and the code, not why. An app that catches it and moves on leaves only an empty mailbox behind; `server.Mail`, the `SurlServerMail`, counts nothing in Ann{apos}s `INBOX`.
+
+The diagnosis waits first. `server.WaitForEventAsync` with a `SurlEventQuery` for `Kind` `ExchangeEnded` after the last `SurlEvent`{apos}s `Sequence` returns once `surl` has ended the exchange, or throws after ten seconds, so the test never reads a dialogue still under way. Then the last `SurlExchangeRecord` in `server.Exchanges` holds its `Chunks`, each `SurlExchangeChunk` a line with a `Direction`, `Received` from the client or `Sent` by `surl`, in the order they crossed. Each reply starting with `4` or `5` is a refusal, and the line the client sent just before it is the command refused: `RCPT TO:<ann@example.org>`, answered `550 5.7.1 Relaying denied`, a permanent refusal (<<rfc5321>>). The record has no reasons; the log does. Its lines for the exchange start with `#` and the record{apos}s `ExchangeId`, and the event line holding `refused` gives the reason, `RCPT ann@example.org refused: outside every --mail-domain`.
+
+With the address corrected the send returns a `CurlResponse` with `StatusCode` 250 and the exchange holds no refusal. Delivery is asynchronous, so the test waits for the report{apos}s own event, `Store` `StoreKind.Mail` and `Name` `ann@example.com/INBOX/;UID=1`, before it counts one message.
+
+The same reading finds the other refusals. Without `Authentication` the app never logs in and `MAIL FROM` is refused, `530 5.7.0 Authentication required`, with the reason `log in with AUTH first, or give --allow-anonymous`. With a wrong password the refusal is `535 5.7.8 Authentication credentials invalid`, after the client{apos}s answer to the `CRAM-MD5` challenge: the record keeps that line as sent, the account name and a digest in base64, never the password, and the log says `Login refused: CRAM-MD5 app@example.com`. To `ops@example.com` the whole message is sent, and only the end of the data, the lone `.`, is answered `452 4.2.2 Mailbox full`, with the reason `a recipient's mailbox would pass its quota`. That is where the record matters most: Curl.Api throws `WeirdServerReply`, 8, `Weird server reply`, naming neither the command nor the code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-see-why-mail-was-refused>> for the same diagnosis from `surl`{apos}s log on the console.
+* <<smtp-see-why-mail-was-refused-from-an-agent>> for an agent that reads the refusal from `get_exchanges`.
+* <<imap-enforce-a-mailbox-quota-in-csharp>> for the quota behind the `452`.
+* <<surl-readme>>, <<rfc5321>>.

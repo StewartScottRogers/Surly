@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-check-the-flags-an-app-left-from-an-agent]]
+=== Checking an App's Flags from an Agent
+
+==== Problem
+
+A mail client should mark what it processed as seen and mark spam for deletion over Internet Message Access Protocol (IMAP). You want an agent to check, after the client has run, which flags each message carries, without its check changing them.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, seeds four messages, plays the app through the `curl` tool, and reads each message{apos}s flags with `list_messages`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, one `imap://` URL on port 0, and `arguments`, `surl`{apos}s own options: `--mail-domain example.com` and `--mailbox ann@example.com:annpass`, a mailbox whose whole address is the login (<<surl-readme>>). It answers the `server_id` and the `bound_urls` with the real port.
+
+`seed_mail` puts a message into the `INBOX` of the address in `to`, as Simple Mail Transfer Protocol delivery would. Delivery is asynchronous, so after each one the agent calls `wait_for_event` with `kinds` `store_changed`, `store` `mail`, the message{apos}s name, `ann@example.com/INBOX/;UID=4` for the fourth, and `timeout_ms` 10000; without an `event` in the answer the program stops rather than go on early.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. The program adds `-s` and `-S`, so only an error reaches standard error, and `-u` is the login; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `curl` uses. The app{apos}s run is four calls: it fetches both orders, saved with `-o` into the folder, and a fetch sets `\Seen`; it fetches the spam{apos}s subject, which is a read too because `curl` asks for `BODY[...]` and not `BODY.PEEK[...]`; and `-X "STORE 3 +FLAGS (\Deleted)"` on `.../INBOX` marks the spam.
+
+`list_messages`, given the `server_id`, the `owner` and the `mailbox`, answers `messages` in UID order, each with its `uid`, `size`, `flags` and `internal_date`; `flags` is a list of strings such as `\Seen`, in a fixed order, `\Seen \Deleted` for the spam (<<rfc9051>>). The newsletter has none, as the app should have left it. `list_messages` sets no flag, so a second call answers the same, and a search for `UNSEEN` through the `curl` tool, `INBOX?UNSEEN`, still names `4`. When a flag is the whole assertion a search answers it in one line: `INBOX?DELETED` gives `* SEARCH 3`, and `INBOX?SEEN%20NOT%20DELETED` the two processed and kept, `1 2`.
+
+To look inside a message, the agent calls `read_message` with the `uid`: it answers the message{apos}s `text` and sets no flag, so the newsletter still has none. Fetching it through the `curl` tool instead is a read, and `list_messages` then shows `\Seen`, a flag the app never set; `-X "STORE 4 -FLAGS (\Seen)"` takes it off, and its answer, `* 4 FETCH (FLAGS ())`, shows the flags as they now are.
+
+`\Deleted` is a mark, not a removal: `list_mailboxes` still gives `INBOX` a `message_count` of four, with `unseen_count` one. A client that empties the trash sends `-X EXPUNGE`, which answers `* 3 EXPUNGE`. Afterwards `list_messages` gives UIDs `1`, `2` and `4`, and `UID FETCH 1:* FLAGS` shows the newsletter is message 3 over IMAP but keeps UID 4. An agent that remembers which message is which should keep UIDs.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-check-the-flags-an-app-left>> for the same check on the console.
+* <<imap-check-the-flags-an-app-left-in-csharp>> for the check from a C# test.
+* <<imap-check-unread-counts-from-an-agent>> for unread counts checked by an agent.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

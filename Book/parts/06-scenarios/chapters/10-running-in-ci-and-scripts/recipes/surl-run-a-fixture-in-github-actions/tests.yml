@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# .github/workflows/tests.yml: the tests on Linux, macOS and Windows, each job with its own
+# test servers, started, used and stopped in steps, and the server log kept when a step fails.
+name: Tests
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      # surl and curl built from source, until they publish releases.
+      - uses: actions/checkout@v4
+        with: { repository: StewartScottRogers/Surl, path: tools/Surl }
+      - uses: actions/checkout@v4
+        with: { repository: StewartScottRogers/Curl, path: tools/Curl }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - name: Build surl and curl
+        run: |
+          dotnet build tools/Surl/Application/Surl.Console -c Release -o tools/bin/surl -v q
+          dotnet build tools/Curl/Curl.Console -c Release -o tools/bin/curl -v q
+          echo "${{ github.workspace }}/tools/bin/surl" >> "$GITHUB_PATH"
+          echo "${{ github.workspace }}/tools/bin/curl" >> "$GITHUB_PATH"
+      - name: Start test servers
+        run: sh ci/start-servers.sh
+      - name: Run tests
+        run: sh ci/tests.sh
+      - name: Stop test servers
+        if: always()
+        run: sh ci/stop-servers.sh
+      - name: Upload the server log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surl-log-${{ matrix.os }}
+          path: surl.log

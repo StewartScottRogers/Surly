@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-file-mail-into-a-folder]]
+=== Filing Mail into a Folder
+
+==== Problem
+
+You want to file mail the way a mail rule does, over Internet Message Access Protocol (IMAP): create a folder, copy a message into it, and remove the original from `INBOX`, all with `curl -X`.
+
+==== Solution
+
+Chain the four commands with `--next`, one transfer each, then count what each folder holds:
+
+include::.generated/solution.adoc[]
+
+The two seed lines stand in for the mail arriving: a shop sends `ann` three orders, and the second line waits until the third is in.
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL serves both over one mail store (<<surl-readme>>). `--mail-domain example.com` serves mail for the domain, and each `--mailbox` adds a mailbox with the account that logs in to it by its whole address, which `curl` gives with `-u`. The first seed line sends the three order files in one Simple Mail Transfer Protocol (SMTP) session: `-T "order[1-3].eml"` is a `curl` glob that uploads each file, `--crlf` gives each line the carriage return and line feed mail needs, and `--mail-from` and `--mail-rcpt` are the envelope. Delivery is asynchronous, so the second line waits for message 3 with a bound instead of a fixed pause: `-o` sends the answer to the null device, and `FETCH 3 FLAGS` on a message that is not there is refused (`curl` exit `21`), `--retry 10` allows ten more tries, `--retry-all-errors` lets it retry an error that is not a network one, and `--retry-delay 1` spaces them a second apart. Every later command works on mail that is already stored, so none of them waits. The login needs no loosening option: without Transport Layer Security `surl` offers only `CRAM-MD5`, which `curl` uses.
+
+`-X` sends its text as the IMAP command in place of the one `curl` would choose, and the URL says where. A URL ending in `/` sends the command straight after logging in, which is right for `CREATE Archive`. A URL ending in `INBOX` makes `curl` `SELECT` that folder first, which `COPY`, `STORE` and `EXPUNGE` need, because they work on the selected folder (<<rfc9051>>). The numbers in them are message numbers in that folder, not UIDs. `--next` runs each command as its own transfer in one `curl`, and `-s` keeps the progress meter off.
+
+`CREATE Archive` answers nothing on the screen. `COPY 1 Archive` puts a copy of order 1 into `Archive` and leaves the original in `INBOX`: a copy of order 2 later shows `INBOX` still at two messages and `Archive` at two. The copy keeps the original{apos}s flags; order 2 flagged and copied again lands in `Archive` as message 3, and a search for `FLAGGED` there, `Archive?FLAGGED`, names it alone.
+
+Removing the original takes two steps. `STORE 1 +FLAGS (\Deleted)` only marks it, and `curl` prints the new flags, `* 1 FETCH (FLAGS (\Deleted))`. The message is still there: a search for `DELETED` names it, and the folder still counts it. `EXPUNGE` removes every marked message and nothing else, and prints `* 1 EXPUNGE` for each, the number of the message it took out. The counts then read `INBOX` at 2 and `Archive` at 1. Once order 3 is marked and expunged as well, `INBOX` holds one message and its `UIDNEXT` is still `4`: the identifier of a removed message is not handed out again.
+
+`MOVE 1 Archive` does the copy and the removal in one command. `surl` lists `MOVE` among its capabilities, and `-v` shows the command answered `A004 OK MOVE completed`; `INBOX` is then empty.
+
+Three refusals, each answered `NO` or `BAD` and each making `curl` exit `21`, its code for a command the server refused. `CREATE Archive` when it exists is `NO [ALREADYEXISTS] Mailbox already exists`. `COPY 1 Nowhere` into a folder that is not there is `NO [TRYCREATE]`, the server{apos}s hint that the folder must be created first. `COPY 9 Archive` for a message number `INBOX` does not have is `BAD Invalid message sequence number`. `-S` keeps `curl`{apos}s own error line when `-s` is on, and `-v` shows the server{apos}s.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-file-mail-into-a-folder-in-csharp>> for the filing checked from C#.
+* <<imap-file-mail-into-a-folder-from-an-agent>> for the same filing done by an agent.
+* <<imap-rename-and-delete-a-folder>> for renaming and deleting the folder afterwards.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

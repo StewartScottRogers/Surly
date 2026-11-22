@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+schema: 2
+key: gs-read-a-gcs-object-as-a-file-from-an-agent
+title: Reading a GCS Object as a File
+protocols: [gs, https]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_file]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, gcs-xml-api, rfc6750, rfc7617]
+
+# Written into the folder both hosts are confined to.
+fixtures:
+  note.txt: "hello from gcs\n"
+  report.txt: "q1 totals\n"
+  tail.txt: "line one\nline two"
+
+# A certificate for 127.0.0.1 and for Google's storage host, good for 30 days, signed by its own
+# key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:storage.googleapis.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl call writes note.txt through gs:// signed with the HMAC key pair and reads it over https:// with the token, exit 0, with the same bytes; read_file shows the store holds the object.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "put and read: exit 0\nread: hello from gcs\nstored: hello from gcs\n"
+
+  - id: no-trailing-newline
+    claim: An object whose last byte is not a newline is read back with exactly 17 bytes, identical to the upload.
+    program: program.cs
+    args: [no-trailing-newline]
+    expect:
+      exit: 0
+      stdout: "read 17 bytes, identical to the upload: True\n"
+
+  - id: nested-name
+    claim: A slash in an object name makes folders; photos/2026/q1/report.txt is read over https:// at the same path, and read_file finds it there.
+    program: program.cs
+    args: [nested-name]
+    expect:
+      exit: 0
+      stdout: "read: q1 totals\nstored at /photos/2026/q1/report.txt: q1 totals\n"
+
+  - id: file-is-an-object
+    claim: An object that was already in the store is read through gs:// like any other.
+    program: program.cs
+    args: [file-is-an-object]
+    expect:
+      exit: 0
+      stdout: "get: already here\n"
+
+  - id: put-with-the-token
+    claim: A put through gs:// with the OAuth token succeeds, and https:// reads it with the HMAC key pair as a Basic login.
+    program: program.cs
+    args: [put-with-the-token]
+    expect:
+      exit: 0
+      stdout: "put: done\nread: hello from gcs\n"
+
+  - id: content-type
+    claim: Read over https://, an object named .txt is served as Content-Type text/plain.
+    program: program.cs
+    args: [content-type]
+    expect:
+      exit: 0
+      stdout: "Content-Type: text/plain\n"
+
+  - id: https-needs-a-login
+    claim: A read over https:// with no login is answered 401, which curl reports as an ordinary status.
+    program: program.cs
+    args: [https-needs-a-login]
+    expect:
+      exit: 0
+      stdout: "read with no login: 401\n"
+
+  - id: wrong-secret
+    claim: A put signed with the wrong secret ends in curl exit 22, a tool error, and a message naming 403 SignatureDoesNotMatch.
+    program: program.cs
+    args: [wrong-secret]
+    expect:
+      exit: 0
+      stdout: "put: exit 22, tool error: yes, 403 SignatureDoesNotMatch\n"
+
+  - id: refused-is-not-written
+    claim: After the refused put, a read over https:// is 404 and read_file says there is no such object.
+    program: program.cs
+    args: [refused-is-not-written]
+    expect:
+      exit: 0
+      stdout: "put: exit 22, tool error: yes, 403 SignatureDoesNotMatch\nread over https: 404\nstore: no such object\n"
+
+  - id: missing-object
+    claim: A name with no object ends in curl exit 22 and a message naming 404 NoSuchKey.
+    program: program.cs
+    args: [missing-object]
+    expect:
+      exit: 0
+      stdout: "get: exit 22, tool error: yes, 404 NoSuchKey\n"
+
+  - id: uploads-off
+    claim: Without --allow-uploads, a correctly signed put ends in curl exit 22 and a message naming 403 AccessDenied.
+    program: program.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "put: exit 22, tool error: yes, 403 AccessDenied\n"
+
+  - id: uploads-off-reads
+    claim: Without --allow-uploads, the objects already there are still read, through gs:// and over https:// alike.
+    program: program.cs
+    args: [uploads-off-reads]
+    expect:
+      exit: 0
+      stdout: "gs get: already here\nhttps get: already here\n"

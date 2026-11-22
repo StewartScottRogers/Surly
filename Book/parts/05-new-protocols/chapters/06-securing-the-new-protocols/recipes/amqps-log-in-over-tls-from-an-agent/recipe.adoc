@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqps-log-in-over-tls-from-an-agent]]
+=== AMQP Logins over TLS from an Agent
+
+==== Problem
+
+Your RabbitMQ client logs in with the PLAIN mechanism, which sends the password as it is. You want an artificial intelligence (AI) agent to start a test broker that refuses PLAIN over plain Advanced Message Queuing Protocol (AMQP), where it offers only CRAM-MD5, and accepts it over AMQP on Transport Layer Security (TLS), AMQPS, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Make a certificate with `openssl`, then write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a broker with an `amqps` and an `amqp` listener and one account through `start_server`, and logs in with the `curl` tool over AMQPS, publishing a message and reading it back:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`, which is also where the certificate is (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here an `amqps` and an `amqp` URL on port 0, and answers the `server_id` and `bound_urls` in the same order. Its `arguments` are other `surl` options in `surl`{apos}s own words: `--user alice:s3cret` is the one account, and `--cert` and `--key` give the `amqps` listener its certificate (<<surl-readme>>).
+
+The `curl` tool runs `curl`{apos}s own arguments. `-u` logs in with PLAIN (<<rfc4616>>, <<curl-readme>>); `-d` publishes and no `-d` reads one message; `--cacert server.pem` trusts the self-signed certificate, which is its own authority; `-sS` keeps the progress meter out and the error message in, and `-m 10` bounds the call to ten seconds. AMQP 0-9-1 names a virtual host and then the queue, and `%2F` is the virtual host `/`. The answer is text that is JSON, with `exitCode`, `standardOutput.content` and `standardError.content`. A publish is not answered, so the agent waits with `wait_for_event` for the bus to report the message on the queue, with `timeout_ms` as the bound, before it reads.
+
+Over plain `amqp://` with an account the server offers only CRAM-MD5, which `curl` does not speak, so `curl` exits `67` and its message names `CRAM-MD5`. Over `amqps://` the connection is encrypted before the login, so the server offers PLAIN and the login succeeds (<<amqp091>>, <<rfc8446>>). `--allow-plaintext-auth` loosens the default: it makes the server offer PLAIN over plain `amqp://` too, and the same login then publishes and reads back. It does not turn off the check.
+
+The refusals over TLS are all the same answer. A wrong password, a user name the server has no account for, and no `-u` at all, when `curl` logs in as RabbitMQ{apos}s default account, are each answered with `connection.close`, reply code 403 `ACCESS_REFUSED`, and `curl` exits `67`; a wrong password with `--allow-plaintext-auth` is the same. Without `--cacert`, `curl` exits `60` on the untrusted certificate before any login. Every non-zero exit of `curl` makes the call a tool error, so the agent reads `exitCode` and `standardError` and the program exits `1`; that exit code is the program{apos}s choice. A listener of the `amqps` scheme with no certificate does not start: `start_server` is a tool error whose structured content carries `surl`{apos}s own exit code, `exit_code` `58` with `exit_code_name` `CertificateProblem`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqps-log-in-over-tls>> for the same logins on the console.
+* <<amqps-log-in-over-tls-in-csharp>> for the same logins from a C# test.
+* <<mqtts-log-in-over-tls-from-an-agent>> for the same two locks on MQTT.
+* <<amqp091>>, <<rfc4616>>, <<rfc8446>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

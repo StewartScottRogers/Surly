@@ -1,0 +1,102 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: mcp-require-a-login-for-tools-in-csharp
+title: Requiring MCP Logins in C#
+protocols: [mcps, mcp]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlClientOptions, CurlAuthenticationOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0, 8, 58, 60, 67]
+references: [mcp-spec, rfc6750, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Surl.Api serves mcps with the certificate and a token account; Curl.Api, trusting the certificate and sending the token as XOAuth2Bearer, gets the tool list.
+    program: require-a-token.cs
+    args: [token]
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: body-is-not-sent
+    claim: Curl.Api 0.2.0 sends no tools/call over MCP; the same request with a Body still answers the tool list.
+    program: require-a-token.cs
+    args: [with-body]
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: no-login
+    claim: With no token, surl answers 401, and SendAsync throws CurlException with code LoginDenied (67).
+    program: require-a-token.cs
+    args: [none]
+    expect:
+      exit: 67
+      stdout: "refused: LoginDenied (67): The server answered with status 401.\n"
+
+  - id: wrong-token
+    claim: Another token is answered 401 as well, LoginDenied (67).
+    program: require-a-token.cs
+    args: [wrong]
+    expect:
+      exit: 67
+      stdout: "refused: LoginDenied (67): The server answered with status 401.\n"
+
+  - id: password-is-not-a-login
+    claim: A user name and password, even an account's, is not a login the MCP endpoint takes; it answers 400, and the code is WeirdServerReply (8).
+    program: require-a-token.cs
+    args: [password]
+    expect:
+      exit: 8
+      stdout: "refused: WeirdServerReply (8): The server answered with status 400.\n"
+
+  - id: untrusted-certificate
+    claim: Without the certificate as an authority, Curl.Api cannot verify the server, PeerFailedVerification (60).
+    program: require-a-token.cs
+    args: [untrusted]
+    expect:
+      exit: 60
+      stdout-matches: '^refused: PeerFailedVerification \(60\): '
+
+  - id: plain-mcp-refuses-the-token
+    claim: Over plain mcp, the right token is refused unchecked, 401, LoginDenied (67).
+    program: require-a-token.cs
+    args: [plain]
+    expect:
+      exit: 67
+      stdout: "refused: LoginDenied (67): The server answered with status 401.\n"
+
+  - id: plaintext-allowed
+    claim: With AllowPlaintextAuthentication, the token over plain mcp is checked and accepted.
+    program: require-a-token.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: anonymous-allowed
+    claim: With AllowAnonymous, the server lists its tools to a client with no token.
+    program: require-a-token.cs
+    args: [anonymous]
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: mcps-needs-a-certificate
+    claim: An mcps listen URL with no certificate does not start; StartAsync throws SurlServerStartException with exit code CertificateProblem (58) and surl's message.
+    program: require-a-token.cs
+    args: [no-cert]
+    expect:
+      exit: 58
+      stdout-matches: '^start refused: CertificateProblem \(58\)\n[^\n]*mcps://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n$'

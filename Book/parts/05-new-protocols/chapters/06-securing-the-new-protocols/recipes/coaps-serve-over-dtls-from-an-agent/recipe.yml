@@ -1,0 +1,109 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs serve-over-dtls.cs, a C# program on the official
+# MCP SDK that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: coaps-serve-over-dtls-from-an-agent
+title: Serving CoAP over DTLS from an Agent
+protocols: [coaps, coap]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, transfer]
+exit-codes: [0, 28, 35, 58, 60]
+references: [rfc7252, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed; both hosts read them from their root.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: surl-mcp serves the resource over coaps with the certificate; curl-mcp's transfer, trusting it with caFile, returns the payload as the body, with statusCode 0 and no failure.
+    program: serve-over-dtls.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "statusCode: 0, failure: null\nbody: {\"interval\":60}\ntool error: no\n"
+
+  - id: response-code
+    claim: The curl tool with -i writes the response code, 2.05, a blank line and the payload as its standard output.
+    program: serve-over-dtls.cs
+    args: [code]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nCoAP/1.0 2.05\n\n{\"interval\":60}\ntool error: no\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, the DTLS handshake fails; the curl tool's answer is a tool error with exit code 60.
+    program: serve-over-dtls.cs
+    args: [untrusted]
+    expect:
+      exit: 1
+      stdout: "exitCode: 60\ntool error: yes\n"
+
+  - id: plain-to-the-dtls-port
+    claim: Plain coap sent to the coaps port gets no answer; -m 10 ends the wait with exit code 28, a tool error.
+    program: serve-over-dtls.cs
+    args: [plain-port]
+    expect:
+      exit: 1
+      stdout: "exitCode: 28\ntool error: yes\n"
+
+  - id: account-refuses-plain-coap
+    claim: Once the server has an account, a plain coap read is answered 4.01 with no payload, and exit code 0, not a tool error.
+    program: serve-over-dtls.cs
+    args: [account]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nCoAP/1.0 4.01\n\ntool error: no\n"
+
+  - id: transfer-hides-the-code
+    claim: transfer answers the same 4.01 as statusCode 0, an empty body and no failure, so an agent reads CoAP response codes with the curl tool and -i.
+    program: serve-over-dtls.cs
+    args: [account-transfer]
+    expect:
+      exit: 0
+      stdout: "statusCode: 0, failure: null\nbody: \ntool error: no\n"
+
+  - id: password-not-sent
+    claim: -u changes nothing over plain coap; the read is still 4.01.
+    program: serve-over-dtls.cs
+    args: [password]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nCoAP/1.0 4.01\n\ntool error: no\n"
+
+  - id: account-refuses-coaps-too
+    claim: The account closes coaps as well; a client that trusts the certificate but has no pre-shared key is answered 4.01.
+    program: serve-over-dtls.cs
+    args: [account-dtls]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nCoAP/1.0 4.01\n\ntool error: no\n"
+
+  - id: anonymous-allowed
+    claim: With --allow-anonymous in start_server's arguments, the account no longer closes plain coap; the read is 2.05.
+    program: serve-over-dtls.cs
+    args: [anonymous]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nCoAP/1.0 2.05\n\n{\"interval\":60}\ntool error: no\n"
+
+  - id: account-alone-is-a-psk
+    claim: coaps with an account and no certificate serves pre-shared keys only; curl fails the DTLS handshake, exit code 35.
+    program: serve-over-dtls.cs
+    args: [psk]
+    expect:
+      exit: 1
+      stdout: "exitCode: 35\ntool error: yes\n"
+
+  - id: needs-a-certificate-or-an-account
+    claim: start_server for coaps with neither a certificate nor an account is a tool error carrying exit code 58, CertificateProblem, and surl's message.
+    program: serve-over-dtls.cs
+    args: [nothing]
+    expect:
+      exit: 1
+      stdout: "exit_code: 58 (CertificateProblem)\nsurl: (58) coaps://127.0.0.1:0/ needs a certificate or an account: give --cert <file>, --self-signed for a throwaway one, or --user <name:key> for a pre-shared key\n"

@@ -1,0 +1,109 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-enforce-a-mailbox-quota
+title: Enforcing a Mailbox Quota
+protocols: [imap, smtp]
+tier: working-servers
+surl-options: [-v, --log-file, --mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -v, -w, -o, -T, --crlf, --mail-from, --mail-rcpt, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 2, 8, 25]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+fixtures:
+  newsletter.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Our autumn newsletter\n\nNew this autumn: wool coats in five colours, boots with a lighter sole,\nand scarves woven from the same yarn as the coats. Every order over\nfifty pounds ships free until the end of the month, and returns stay\nfree for thirty days. See you in store.\n"
+  note.eml: "From: ann@example.com\r\nTo: ann@example.com\r\nSubject: A note to self\r\n\r\nBuy a scarf to go with the grey coat, the one woven from the same yarn.\r\nAsk whether the boots with the lighter sole come in a half size.\r\n"
+
+# One surl: SMTP and IMAP over one mail store. ann's mailboxes hold at most 1k (1024 bytes); bob has no quota.
+# -v --log-file keeps the server's log in mail.log.
+servers:
+  main:
+    command: surl -v --log-file mail.log --mail-domain example.com --mailbox "ann@example.com:annpass;quota=1k" --mailbox bob@example.com:bobpass --mailbox shop@example.com:shoppass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The shop sends ann the newsletter twice, which fills most of her 1k; the last line waits, a try a second for
+# at most ten, until message 2 is in.
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 2 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+
+cases:
+  - id: solution
+    role: solution
+    claim: A third newsletter would take ann past her quota, so surl answers the message 452, and curl exits 8, Weird server reply.
+    run: curl -sS -w "%{response_code}\n" --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 8
+      stdout: "452\n"
+      stderr-contains: "curl: (8) Weird server reply"
+
+  - id: refused-after-the-data
+    claim: The recipient is accepted with 250 and the message sent in full; the refusal, 452 4.2.2 Mailbox full, answers the end of the data.
+    run: curl -s -v --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com 2>&1 | grep -E "^< (250 2.1.5|354|452)"
+    expect:
+      exit: 0
+      stdout: "< 250 2.1.5 Recipient OK\n< 354 End data with <CR><LF>.<CR><LF>\n< 452 4.2.2 Mailbox full\n"
+
+  - id: nothing-stored
+    claim: A refused message is not stored; the INBOX still holds the two newsletters.
+    run: curl -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 2)\n"
+
+  - id: stored-size-counts
+    claim: The quota counts the message as stored, with the Return-Path and Received lines surl adds, so each 324-byte newsletter takes about 460 bytes.
+    run: curl -u ann@example.com:annpass -X "FETCH 1 RFC822.SIZE" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout-matches: '^\* 1 FETCH \(RFC822\.SIZE 4[5-6][0-9]\)\n$'
+
+  - id: append-refused
+    claim: The quota holds over IMAP too; an APPEND into the full mailbox is answered NO [OVERQUOTA], and curl exits 25.
+    run: curl -sS -v -u ann@example.com:annpass -T note.eml imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 25
+      stderr-contains: "NO [OVERQUOTA] Mailbox is over its quota"
+
+  - id: whole-message-refused
+    claim: One full mailbox refuses the whole message, so bob, named with ann, gets nothing either.
+    run: curl -s -w "%{response_code}\n" --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt bob@example.com --mail-rcpt ann@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com --next -u bob@example.com:bobpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "452\n* STATUS INBOX (MESSAGES 0)\n"
+
+  - id: quota-is-per-mailbox
+    claim: Sent to bob alone, who has no quota, the same newsletter is accepted with 250.
+    run: curl -s -w "%{response_code}\n" --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt bob@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 0
+      stdout: "250\n"
+
+  - id: deleted-still-counts
+    claim: A message marked \Deleted still counts against the quota; with message 1 so marked, the next newsletter is still refused 452.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X "STORE 1 +FLAGS (\Deleted)" imap://127.0.0.1:{{port2}}/INBOX --next -s -w "%{response_code}\n" --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 8
+      stdout: "452\n"
+
+  - id: expunge-frees-room
+    claim: EXPUNGE removes the marked message and frees its room, and the next newsletter is accepted with 250.
+    run: curl -s -o {{null}} -u ann@example.com:annpass -X EXPUNGE imap://127.0.0.1:{{port2}}/INBOX --next -s -w "%{response_code}\n" --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T newsletter.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 0
+      stdout: "250\n"
+
+  - id: quota-in-the-log
+    claim: With -v surl's log names each mailbox at start, and ann's line gives her quota in bytes, 1k read as 1024.
+    run: grep "Mailbox ann@example.com:" mail.log
+    expect:
+      exit: 0
+      stdout: "* Mailbox ann@example.com: logins on smtp, imap, pop3, quota 1024 bytes\n"
+
+  - id: quota-zero-refused
+    claim: A quota must be above 0; quota=0 is refused at start with exit 2.
+    run: surl --mail-domain example.com --mailbox "ann@example.com:annpass;quota=0" smtp://127.0.0.1:{{port3}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --mailbox: key quota needs a value above 0"

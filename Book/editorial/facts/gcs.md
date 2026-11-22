@@ -31,3 +31,8 @@ No login: 401 AuthenticationRequired. Unknown Bearer token: 401 InvalidAuthentic
 
 ## Recipes
 gs-put-and-get-an-object, gs-sign-with-an-hmac-key (+ -in-csharp, -from-an-agent)
+
+## Reading as a file (gs-read-a-gcs-object-as-a-file and twins, Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `surl --directory store --cert .. --key .. --user GOOGTESTKEY:s3cret --user :ya29.t0ken --allow-uploads gs://H:P1/ https://H:P2/`: a gs put is the file `store/<bucket>/<object>` and `https://H:P2/<bucket>/<object>` serves it (`Content-Type: text/plain` for `.txt`); a slash in an object name makes folders. https accepts `-u KEY:SECRET` (Basic) and `--oauth2-bearer`; no login is 401. HTTP/2 is fine here (no SigV4). One command `curl ... -T f gs://b/o --next ... https://...` writes then reads.
+- **Resolved:** with Curl c84035f797 Curl.Api `HttpMethod.Put` with a `Body` to `gs://` works, answered 200, with `UserName`/`Password` (HMAC) and with `XOAuth2Bearer`; over `https://` name the method (`HttpAuthenticationMethods.Basic` or `Bearer`). The program finding above (NotBuiltIn) is out of date for this build. Surl.Api `BoundUrls[0]` is the gs port and `[1]` the https one, in listen order.
+- curl-mcp: `-o got.txt -w "%{size_download}"` works (file written in `CURL_MCP_ROOT`); a refused gs put is exit 22 with `Cloud Storage returned error 403: ...`, a tool error.

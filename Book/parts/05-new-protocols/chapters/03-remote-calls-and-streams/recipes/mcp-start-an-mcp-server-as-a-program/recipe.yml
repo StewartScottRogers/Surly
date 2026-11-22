@@ -1,0 +1,110 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: mcp-start-an-mcp-server-as-a-program
+title: Starting an MCP Server Program
+protocols: [mcp+stdio]
+tier: new-protocols
+surl-options: [--directory, --user, --allow-uploads, --log-file, --fault]
+curl-options: [-d]
+exit-codes: [0, 2, 7, 8]
+references: [mcp-spec, surl-readme, curl-readme, curl-protocols]
+
+# Each call is a JSON file sent with -d @file, so the command reads the same in every shell.
+# session.jsonl is what a client writes to surl's standard input: initialize, the
+# initialized notification, then a ping, one JSON-RPC message per line.
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  read.json: '{"name":"read_file","arguments":{"path":"hello.txt"}}'
+  write.json: '{"name":"write_file","arguments":{"path":"notes.txt","text":"written over stdio\n"}}'
+  session.jsonl: |
+    {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"sh","version":"1"}}}
+    {"jsonrpc":"2.0","method":"notifications/initialized"}
+    {"jsonrpc":"2.0","id":2,"method":"ping"}
+
+# No servers: block. Every case starts its own surl, as an MCP client does, and nothing
+# listens on a port.
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl starts surl from the mcp+stdio URL, with the query's items as its arguments, calls read_file over surl's standard input and output, and writes the file's text, exit 0; surl's log line comes through on standard error.
+    run: curl -d @read.json "mcp+stdio://localhost/surl?--directory&site&mcp+stdio:"
+    expect:
+      exit: 0
+      stdout: "hello from surl\n\n"
+      stderr-contains: "Listening on mcp+stdio:"
+
+  - id: list-tools
+    claim: Without -d, curl lists the tools the started surl offers, read_file and echo, one per line as name, tab, description.
+    run: curl "mcp+stdio://localhost/surl?--directory&site&mcp+stdio:"
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: no-login
+    claim: An mcp+stdio session takes no login; with an account given by --user and no --allow-anonymous, the tools are still listed.
+    run: curl "mcp+stdio://localhost/surl?--directory&site&--user&alice:secret&mcp+stdio:"
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: uploads-gate
+    claim: --allow-uploads still gates write_file over stdio; with it, write_file creates the file in the served directory and answers how many bytes it wrote.
+    run: curl -d @write.json "mcp+stdio://localhost/surl?--directory&site&--allow-uploads&mcp+stdio:"
+    expect:
+      exit: 0
+      stdout: "wrote 19 bytes to notes.txt\n"
+      files:
+        site/notes.txt: "written over stdio\n"
+
+  - id: uploads-off
+    claim: Without --allow-uploads, write_file is not a tool of the session; the call is JSON-RPC error -32602 and curl exits 8.
+    run: curl -d @write.json "mcp+stdio://localhost/surl?--directory&site&mcp+stdio:"
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "MCP server error -32602: Invalid params: unknown tool write_file"
+
+  - id: one-message-per-line
+    claim: surl run by hand with mcp+stdio reads one JSON-RPC message per line from standard input, writes one answer per request on standard output (none for the notification), its log on standard error, and exits 0 when its input ends.
+    run: 'surl --directory site mcp+stdio: < session.jsonl'
+    timeout: 20
+    expect:
+      exit: 0
+      stdout-matches: '^\{"jsonrpc":"2\.0","id":1,"result":\{"protocolVersion":"2025-06-18",[^\n]*"serverInfo":\{"name":"surl"[^\n]*\}\n\{"jsonrpc":"2\.0","id":2,"result":\{\}\}\n$'
+      stderr-contains: "Listening on mcp+stdio:"
+
+  - id: alone
+    claim: mcp+stdio is the only listen URL of its run; beside another, surl refuses to start, exit 2.
+    run: 'surl --directory site mcp+stdio: http://127.0.0.1:0/ 2>&1'
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: mcp+stdio: serves standard input and output and cannot be combined with another listen URL\n"
+
+  - id: stdout-is-mcp-only
+    claim: Standard output carries only MCP messages, so a log or trace sent to - is refused at start, exit 2.
+    run: 'surl --directory site --log-file - mcp+stdio: < session.jsonl 2>&1'
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: mcp+stdio: standard output carries only MCP messages, so --trace, --trace-ascii and --log-file cannot write to '-'\n"
+
+  - id: no-faults
+    claim: An mcp+stdio session takes no --fault, because it is outside the event stream the fault rules act on; exit 2.
+    run: 'surl --directory site --fault drop mcp+stdio: < session.jsonl 2>&1'
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: mcp+stdio: takes no --fault, because an mcp+stdio session is outside the event stream and the fault rules\n"
+
+  - id: program-not-found
+    claim: A program the mcp+stdio URL names that cannot be started is exit 7, naming the program.
+    run: curl "mcp+stdio://localhost/no-such-server?mcp+stdio:"
+    expect:
+      exit: 7
+      stdout: ""
+      stderr-contains: "curl: (7) Failed to start the MCP server no-such-server"

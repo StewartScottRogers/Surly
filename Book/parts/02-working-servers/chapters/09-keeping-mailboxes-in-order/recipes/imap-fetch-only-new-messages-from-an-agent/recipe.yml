@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs sync.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-fetch-only-new-messages-from-an-agent
+title: Fetching Only New Messages from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, get_events, get_exchanges, list_messages, list_mailboxes, curl]
+curl-options: [-s, -S, -u, -X, -o]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Between two passes two orders arrive; the second pass, remembering UID 2, asks UID SEARCH UID 3:*, gets 3 4, and get_exchanges shows it fetched those two and nothing else.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npass 2 \(after UID 2\): \* SEARCH 3 4; fetched 3 4; last UID 4\npass 2, surl received: UID FETCH 3 BODY\[\] \| UID FETCH 4 BODY\[\]\n'
+
+  - id: first-pass-fetches-all
+    claim: The first pass, from UID 0, fetches both messages there, 1 and 2, and remembers UID 2.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^pass 1 \(after UID 0\): \* SEARCH 1 2; fetched 1 2; last UID 2\npass 1, surl received: UID FETCH 1 BODY\[\] \| UID FETCH 2 BODY\[\]\n'
+
+  - id: store-lists-above-a-uid
+    claim: list_messages with after_uid 2 lists what the next pass should fetch, UIDs 3 and 4.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlist_messages after_uid 2: 3 4\n'
+
+  - id: nothing-new-is-not-empty
+    claim: With nothing new, UID SEARCH UID 5:* still answers 4, the largest UID in use; the agent drops it and surl receives no UID FETCH.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npass 3 \(after UID 4\): \* SEARCH 4; fetched none; last UID 4\npass 3, surl received: no UID FETCH\n'
+
+  - id: uidnext-and-uidvalidity
+    claim: STATUS through the curl tool answers UIDNEXT 5, and its UIDVALIDITY equals list_mailboxes' uid_validity.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nSTATUS: UIDNEXT 5; UIDVALIDITY equals uid_validity: True\n'
+
+  - id: expunge-renumbers
+    claim: Another client marks message 1 \Deleted and expunges it; EXPUNGE answers its number, 1.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nEXPUNGE: \* 1 EXPUNGE\n'
+
+  - id: uids-are-not-reused
+    claim: A fifth order then gets UID 5, not 4, though the INBOX holds four messages; the next pass fetches UID 5 alone.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\npass 4 \(after UID 4\): \* SEARCH 5; fetched 5; last UID 5\npass 4, surl received: UID FETCH 5 BODY\[\]\n'
+
+  - id: message-numbers-shift
+    claim: The URL query INBOX?UID%205:* sends a plain SEARCH and answers 4, the same message's number, not its UID.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nURL query INBOX\?UID%205:\*: \* SEARCH 4\n'
+
+  - id: gone-uid
+    claim: Fetching the expunged UID 1 through the curl tool reports curl's exit 78.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nUID 1: curl exit 78\n$'

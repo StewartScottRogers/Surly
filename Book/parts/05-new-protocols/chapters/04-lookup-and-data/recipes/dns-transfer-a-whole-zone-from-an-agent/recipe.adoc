@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-transfer-a-whole-zone-from-an-agent]]
+=== Transferring a Whole Zone from an Agent
+
+==== Problem
+
+Your secondary name server copies zones with a full zone transfer, AXFR. You want an artificial intelligence (AI) agent to start a Domain Name System (DNS) server, see it refuse the transfer by default, see it serve the whole zone over the Transmission Control Protocol (TCP) once allowed, and see it refuse the transfer over the User Datagram Protocol (UDP), with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a `dns` server with `start_server` and `--allow-zone-transfer`, seeds a zone with `add_dns_zone`, and asks for the type `AXFR` with the `curl` tool:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here `dns://127.0.0.1:0`, and answers the `server_id` and, in `bound_urls`, the URL it bound; port 0 asks for a free port, and the one listener serves UDP and TCP on it (<<surl-readme>>). Its `arguments` are any other `surl` options in `surl`{apos}s own words, and `--allow-zone-transfer` goes there. The option widens what a peer may do; without it the server refuses every transfer. `add_dns_zone` takes the `server_id`, the `apex` and `zone_text`, a zone in master-file form (<<rfc1035>>, section 5), where the console recipe writes a file before `surl` starts.
+
+The `curl` tool runs `curl`{apos}s own arguments. The URL is the shape RFC 4501 gives a DNS query: the server and port, the name as the path and `type=` the record type, `AXFR` here (<<rfc4501>>, <<curl-readme>>). `--dns-transport tcp` asks over TCP and `--dns-json` writes the answer as JavaScript Object Notation (JSON); `-s` and `-S` keep the progress meter out and the error message in. `curl-mcp` answers in text that is JSON, with `exitCode`, `standardOutput.content` and `standardError.content`, and the output is itself the JSON the server answered, so the program parses twice.
+
+With the option, over TCP, the answer is `NOERROR` and holds every record in the zone, with the start of authority (SOA) record first and again last, which is how a secondary knows it has read to the end. The zone here has an SOA, a name server, a mail exchange and two address records, so six records come back. Without the option the same request is answered `REFUSED` with no records, over UDP as over TCP. A refusal is a complete answer: `curl` exits `0`, the tool reports no error, and an agent has to read `status`.
+
+Over UDP, with the option, a transfer is answered `NOTIMP`, not implemented, with no records, because a whole zone does not fit a UDP answer. A name that is no zone{apos}s apex, here `mail.example.test`, which the zone holds but does not own, is answered with a status that `curl` writes as `RCODE9`, which is `NOTAUTH`, even with transfers allowed. Without `--dns-json` the output is `dig`-style text, and the program reads the header line that counts six answers and the type of the first and last record lines, which are tab-separated.
+
+`curl` asks for `AXFR` only. The incremental type `IXFR` is refused by `curl` before any query is sent, so the tool answers `exitCode` 3 and a message about the query element in `standardError`. Unlike a refusal in `status`, a non-zero exit code makes the call a tool error, and the program exits `1` on it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-transfer-a-whole-zone>> for the same transfers on the console.
+* <<dns-transfer-a-whole-zone-in-csharp>> for the same transfers from a C# test.
+* <<dns-read-answers-as-json-from-an-agent>> for single lookups and the zone read back.
+* <<rfc1035>>, <<rfc4501>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

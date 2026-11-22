@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-file-mail-into-a-folder-from-an-agent]]
+=== Filing Mail into Folders from an Agent
+
+==== Problem
+
+You want an agent to file a message into a new folder over Internet Message Access Protocol (IMAP) and confirm the counts with `list_mailboxes`.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, seeds three orders, files order 1 with `CREATE`, `COPY`, `STORE` and `EXPUNGE` through the `curl` tool, and counts the folders with `list_mailboxes`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `imap://127.0.0.1:0` for a free port, and `arguments`, the options of `surl`: `--mail-domain` serves the domain and `--mailbox` adds a mailbox with its login (<<surl-readme>>). The answer carries the `server_id` and the `bound_urls`. `seed_mail` puts each order into `ann`{apos}s `INBOX`, and delivery is an event: `wait_for_event` on `store_changed` for the name `ann@example.com/INBOX/;UID=n`, with a ten second bound, answers when the message is in, or says it timed out, so the program never counts mail that has not arrived.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError`; the program adds `-s` to keep the progress meter off and `-S` to keep the error line, and gives the login with `-u`. `-X` sends its text as the IMAP command, and the URL picks the folder: ending in `/` sends it after the login, ending in `INBOX` selects that folder first (<<curl-manual>>, <<rfc9051>>). The answer to `STORE 1 +FLAGS (\Deleted)` is `* 1 FETCH (FLAGS (\Deleted))`, and to `EXPUNGE` `* 1 EXPUNGE`. Without TLS `surl` offers only `CRAM-MD5`, which `curl` uses, so no loosening option is needed.
+
+`list_mailboxes` is the check, and it sets no flag: one entry per folder with `name` and `message_count`. `CREATE Archive` makes the folder, `COPY 1 Archive` puts order 1 there and leaves the original, so the counts read `Archive 1, INBOX 3`. `STORE` only marks the original: `list_messages` shows `\Deleted` among UID 1{apos}s `flags`, a `DELETED` search (`INBOX?DELETED`) names it, and `INBOX` still counts three. `EXPUNGE` removes it and the counts read `Archive 1, INBOX 2`; `STATUS INBOX (MESSAGES UIDNEXT)` answers `MESSAGES 2 UIDNEXT 4`, since an expunged identifier is not reused.
+
+A copy keeps the original{apos}s flags: order 2 flagged and copied is found in `Archive` by a `FLAGGED` search, while `INBOX` still names message 2. `MOVE 1 Archive` is the copy and the removal in one command, and `-v` shows it answered `A004 OK MOVE completed`; the counts go from three in `INBOX` to two, with one in `Archive`.
+
+An agent that sent a wrong command reads the refusal from `-v`, where the server{apos}s tagged line shows, and from `exitCode` `21`, `curl`{apos}s code for a command the server refused. `CREATE Archive` again is `NO [ALREADYEXISTS] Mailbox already exists`. `COPY 1 Nowhere` is `NO [TRYCREATE] Mailbox does not exist`, the hint to create the folder first. `COPY 9 Archive` is `BAD Invalid message sequence number`. In each case `list_mailboxes` shows nothing changed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-file-mail-into-a-folder>> for the same filing on the console.
+* <<imap-file-mail-into-a-folder-in-csharp>> for the filing checked from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

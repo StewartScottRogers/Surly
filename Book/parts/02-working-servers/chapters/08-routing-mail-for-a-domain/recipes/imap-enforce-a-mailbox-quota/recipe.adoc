@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-enforce-a-mailbox-quota]]
+=== Enforcing a Mailbox Quota
+
+==== Problem
+
+You want to see what your mail client does when a mailbox is full: mail refused at the door, an upload over Internet Message Access Protocol (IMAP) refused, nothing stored. For that you need a server whose mailbox fills after a message or two.
+
+==== Solution
+
+Give the mailbox `quota=` on `--mailbox`, fill it, and send one more:
+
+include::.generated/solution.adoc[]
+
+The seed lines put two copies of a newsletter into `ann`{apos}s mailbox, which fills most of her kilobyte, and wait until the second is in.
+
+==== Discussion
+
+`--mailbox "ann@example.com:annpass;quota=1k"` adds a mailbox and its login, as every `--mailbox` does, and `quota=` caps the bytes all of the owner{apos}s mailboxes may hold together (<<surl-readme>>). The value is a whole number of bytes above 0, and suffixes such as `k` are read, so `1k` is 1024. A mailbox without `quota=`, `bob`{apos}s here, has no cap. `--mail-domain example.com` is the domain the mailboxes belong to. The semicolon makes the quotes necessary in a shell.
+
+What counts is the message as stored. `surl` adds a `Return-Path` line and a dated `Received` line at the top of mail that comes over Simple Mail Transfer Protocol (SMTP), so each 324-byte newsletter takes about 460 bytes, as `FETCH 1 RFC822.SIZE` shows, and two take most of the 1024. The third would pass the cap, and `surl` refuses it with `452 4.2.2 Mailbox full`, a temporary failure (<<rfc5321>>): the mail may fit later. The seed lines are plain sends: `-u` is the shop{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `--crlf` gives each line the carriage return and line feed mail needs, and the last line asks with `-X "FETCH 2 FLAGS"` for message 2{apos}s flags until it exists, its answer dropped with `-o /dev/null`, with `--retry 10`, `--retry-all-errors` and `--retry-delay 1` as the bound, since delivery is asynchronous.
+
+The refusal comes late. With `-v`, `curl` shows the recipient accepted, `250 2.1.5 Recipient OK`, the `354` that invites the data, and the `452` only after the whole message has been sent: the server decides once it knows the size. `curl` reports a refused end of data as exit `8`, `Weird server reply`, not the `55` it gives a refused recipient, so a client that reads only exit codes cannot tell a full mailbox from a confused server. `-w "%{response_code}"` prints the reply that settled it, `452`, and `-s` keeps `curl` quiet while `-S` keeps its error line. Nothing is stored: `STATUS INBOX (MESSAGES)` still answers 2.
+
+The quota is the same over IMAP. `-T note.eml` on `.../INBOX` is an `APPEND`, a client saving a draft or a copy; the full mailbox answers `NO [OVERQUOTA] Mailbox is over its quota`, which `-v` shows, and `curl` exits `25`, `Upload failed`. The note has carriage returns in the file already, because `curl` will not convert line ends for an `APPEND`.
+
+One full mailbox refuses the whole message. Sent to `bob` and `ann` together, the newsletter is answered `452`, and `bob`{apos}s `INBOX` stays empty, as `--next` shows in the same command with `bob`{apos}s own login; sent to `bob` alone, it is accepted with `250`. A client that sends one message to many must expect one full mailbox to hold it back from all of them.
+
+Room comes back only when mail goes. `STORE 1 +FLAGS (\Deleted)` marks a message for deletion, but it still counts, and the next newsletter is refused again. `EXPUNGE` removes it, and then the newsletter is accepted.
+
+`surl -v` writes its log to standard error, and `--log-file mail.log` appends it to a file instead. At start it names each mailbox with the protocols it logs in on and its quota, `quota 1024 bytes`, which is the quickest check that the option was read as meant. A quota of `0` is refused before anything starts: `surl` exits `2` with `key quota needs a value above 0`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-enforce-a-mailbox-quota-in-csharp>> for a full mailbox in a C# test.
+* <<imap-enforce-a-mailbox-quota-from-an-agent>> for an agent that fills a mailbox and explains the refusal.
+* <<imap-start-a-mailbox-with-folders>> for the other keys `--mailbox` takes.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

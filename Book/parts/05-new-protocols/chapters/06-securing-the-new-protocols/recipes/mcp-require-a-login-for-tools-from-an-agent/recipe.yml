@@ -1,0 +1,109 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs require-a-token.cs, a C# program on the official
+# MCP SDK that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: mcp-require-a-login-for-tools-from-an-agent
+title: Requiring MCP Logins from an Agent
+protocols: [mcps, mcp]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, transfer]
+exit-codes: [0, 8, 58, 60, 67]
+references: [mcp-spec, rfc6750, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed; both hosts read them from their root.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: surl-mcp starts mcps with the certificate and a token account; curl-mcp's curl tool, trusting the certificate with --cacert and sending the token with --oauth2-bearer, lists the tools, exit code 0.
+    program: require-a-token.cs
+    args: [token]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nread_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\ntool error: no\n"
+
+  - id: call-with-login
+    claim: The same login lets a tools/call through; read_file returns the file's text.
+    program: require-a-token.cs
+    args: [call]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nhello from surl\n\ntool error: no\n"
+
+  - id: transfer-with-a-header
+    claim: The transfer tool, given caFile and the token as an Authorization Bearer header, gets the same list as its body.
+    program: require-a-token.cs
+    args: [transfer]
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\ntool error: no\n"
+
+  - id: no-login
+    claim: With no token, surl answers 401; the curl tool's answer is a tool error with exit code 67 and curl's message.
+    program: require-a-token.cs
+    args: [none]
+    expect:
+      exit: 1
+      stdout: "exitCode: 67\ncurl: (67) The server answered with status 401.\ntool error: yes\n"
+
+  - id: wrong-token
+    claim: Another token is answered 401 as well, exit code 67.
+    program: require-a-token.cs
+    args: [wrong]
+    expect:
+      exit: 1
+      stdout: "exitCode: 67\ncurl: (67) The server answered with status 401.\ntool error: yes\n"
+
+  - id: password-is-not-a-login
+    claim: A user name and password, even an account's, is not a login the MCP endpoint takes; it answers 400, exit code 8.
+    program: require-a-token.cs
+    args: [password]
+    expect:
+      exit: 1
+      stdout: "exitCode: 8\ncurl: (8) The server answered with status 400.\ntool error: yes\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate, exit code 60, before the token is sent.
+    program: require-a-token.cs
+    args: [untrusted]
+    expect:
+      exit: 1
+      stdout-matches: '^exitCode: 60\ncurl: \(60\) [^\n]*\n.*tool error: yes\n$'
+
+  - id: plain-mcp-refuses-the-token
+    claim: Over plain mcp, the right token is refused unchecked, 401, exit code 67.
+    program: require-a-token.cs
+    args: [plain]
+    expect:
+      exit: 1
+      stdout: "exitCode: 67\ncurl: (67) The server answered with status 401.\ntool error: yes\n"
+
+  - id: plaintext-allowed
+    claim: With --allow-plaintext-auth in start_server's arguments, the token over plain mcp is checked and accepted.
+    program: require-a-token.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nread_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\ntool error: no\n"
+
+  - id: anonymous-allowed
+    claim: With --allow-anonymous, the server lists its tools to a client with no token.
+    program: require-a-token.cs
+    args: [anonymous]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nread_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\ntool error: no\n"
+
+  - id: mcps-needs-a-certificate
+    claim: start_server for mcps with no certificate is a tool error carrying exit code 58, CertificateProblem, and surl's message.
+    program: require-a-token.cs
+    args: [no-cert]
+    expect:
+      exit: 1
+      stdout: "exit_code: 58 (CertificateProblem)\nsurl: (58) mcps://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"

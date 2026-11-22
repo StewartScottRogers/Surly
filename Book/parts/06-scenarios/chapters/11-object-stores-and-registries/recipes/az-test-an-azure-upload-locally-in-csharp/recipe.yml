@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: az-test-an-azure-upload-locally-in-csharp
+title: Testing an Azure Upload Locally in C#
+protocols: [az, http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, SurlServerFiles, SurlFileContents, CurlClient, CurlRequest, CurlResponse, CurlContent]
+exit-codes: [0]
+references: [surl-readme, curl-readme, azure-blob-api, rfc6750]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own stand-in through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Put Blob over plain HTTP, with the Bearer token and the two headers Azure requires, is answered 201, and the file the stand-in stored is the upload, byte for byte.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "put: 201\nstored 17 bytes, identical to the upload: True\n"
+
+  - id: get-back
+    claim: A Get Blob with the same token returns the bytes that were put.
+    program: program.cs
+    args: [get-back]
+    expect:
+      exit: 0
+      stdout: "get: 200 uploaded over az\n"
+
+  - id: md5-matches
+    claim: The Put Blob answer carries a Content-MD5 header, gh2yus+eQDJKxhJoEi31AA==, which is the base64 MD5 of the 17 bytes of the upload, so a test can compare it with its own hash.
+    program: program.cs
+    args: [md5]
+    expect:
+      exit: 0
+      stdout: "put: 201\nContent-MD5: gh2yus+eQDJKxhJoEi31AA==\nthe file's own hash agrees: True\n"
+
+  - id: listed
+    claim: With ListDirectories on, List Blobs on the container is answered 200 and names the blob that was put and the one that was already there.
+    program: program.cs
+    args: [listed]
+    expect:
+      exit: 0
+      stdout: "list: 200\nnote.txt listed: True\nseed.txt listed: True\n"
+
+  - id: no-token
+    claim: A put with no token is answered 401 with the error code NoAuthenticationInformation in x-ms-error-code.
+    program: program.cs
+    args: [no-token]
+    expect:
+      exit: 0
+      stdout: "put: 401 NoAuthenticationInformation\n"
+
+  - id: wrong-token
+    claim: A token the server does not hold is answered 401 InvalidAuthenticationInfo.
+    program: program.cs
+    args: [wrong-token]
+    expect:
+      exit: 0
+      stdout: "put: 401 InvalidAuthenticationInfo\n"
+
+  - id: version-header
+    claim: A put without the x-ms-version header is answered 400 MissingRequiredHeader.
+    program: program.cs
+    args: [version-header]
+    expect:
+      exit: 0
+      stdout: "put: 400 MissingRequiredHeader\n"
+
+  - id: blob-type-header
+    claim: A put without the x-ms-blob-type header is answered 400 MissingRequiredHeader too.
+    program: program.cs
+    args: [blob-type-header]
+    expect:
+      exit: 0
+      stdout: "put: 400 MissingRequiredHeader\n"
+
+  - id: missing-blob
+    claim: A name with no blob is answered 404 BlobNotFound.
+    program: program.cs
+    args: [missing-blob]
+    expect:
+      exit: 0
+      stdout: "get: 404 BlobNotFound\n"
+
+  - id: uploads-off
+    claim: With AllowUploads off, a put with the right token is answered 403 AuthorizationPermissionMismatch.
+    program: program.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "put: 403 AuthorizationPermissionMismatch\n"
+
+  - id: uploads-off-reads
+    claim: With AllowUploads off, a get with the token is still served.
+    program: program.cs
+    args: [uploads-off-reads]
+    expect:
+      exit: 0
+      stdout: "get: 200 already here\n"
+
+  - id: plaintext-auth
+    claim: Without AllowPlaintextAuthentication the right token over plain HTTP is answered 401 InvalidAuthenticationInfo.
+    program: program.cs
+    args: [plaintext-auth]
+    expect:
+      exit: 0
+      stdout: "put: 401 InvalidAuthenticationInfo\n"
+
+  - id: no-certificate
+    claim: Without --az-plaintext, an az server given no certificate does not start; StartAsync throws SurlServerStartException with exit code 58 and a message that says so.
+    program: program.cs
+    args: [no-certificate]
+    expect:
+      exit: 0
+      stdout-matches: '^start refused: exit 58, \(58\) az://127\.0\.0\.1:0/ needs a certificate'

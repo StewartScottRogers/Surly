@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: az-test-an-azure-upload-locally
+title: Testing an Azure Upload Locally
+protocols: [az, http]
+tier: scenarios
+surl-options: [--az-plaintext, --allow-plaintext-auth, --directory, --user, --allow-uploads, --list-directories]
+curl-options: [-H, -T, -s, -S, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, azure-blob-api, rfc6750]
+
+fixtures:
+  note.txt: "uploaded over az\n"
+  store/photos/seed.txt: "already here\n"
+  readonly/photos/seed.txt: "already here\n"
+  strict/photos/seed.txt: "already here\n"
+
+# main is the stand-in: az served as plain HTTP, one Bearer token, uploads and listings on.
+# readonly has no --allow-uploads; strict has no --allow-plaintext-auth. Each serves its own
+# folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl --az-plaintext --allow-plaintext-auth --directory store --user :t0ken-abc --allow-uploads --list-directories az://127.0.0.1:{{port}}/
+    ready: port
+  readonly:
+    command: surl --az-plaintext --allow-plaintext-auth --directory readonly --user :t0ken-abc az://127.0.0.1:{{port2}}/
+    ready: port
+  strict:
+    command: surl --az-plaintext --directory strict --user :t0ken-abc --allow-uploads az://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Put Blob over plain HTTP, with the Bearer token and the two headers Azure requires, is answered 201 Created, and the blob is the file store/photos/note.txt, byte for byte.
+    run: 'curl -sS -o {{null}} -w "%{http_code}" -H "x-ms-version: 2023-11-03" -H "x-ms-blob-type: BlockBlob" -H "Authorization: Bearer t0ken-abc" -T note.txt http://127.0.0.1:{{port}}/photos/note.txt'
+    expect:
+      exit: 0
+      stdout: "201"
+      files:
+        store/photos/note.txt: "uploaded over az\n"
+
+  - id: get-back
+    claim: A Get Blob with the same token returns the bytes that were put.
+    run: 'curl -sS -H "x-ms-version: 2023-11-03" -H "Authorization: Bearer t0ken-abc" http://127.0.0.1:{{port}}/photos/note.txt'
+    expect:
+      exit: 0
+      stdout: "uploaded over az\n"
+
+  - id: md5-matches
+    claim: The Put Blob answer carries a Content-MD5 header, here gh2yus+eQDJKxhJoEi31AA==, the base64 MD5 of the 17 bytes of note.txt, so a test can compare it with its own hash.
+    run: 'curl -sS -o {{null}} -w "%header{content-md5}" -H "x-ms-version: 2023-11-03" -H "x-ms-blob-type: BlockBlob" -H "Authorization: Bearer t0ken-abc" -T note.txt http://127.0.0.1:{{port}}/photos/note.txt'
+    expect:
+      exit: 0
+      stdout: "gh2yus+eQDJKxhJoEi31AA=="
+
+  - id: listed
+    claim: With --list-directories, List Blobs on the container names the blob that was put, and the one that was already in the folder.
+    run: 'curl -sS -H "x-ms-version: 2023-11-03" -H "Authorization: Bearer t0ken-abc" "http://127.0.0.1:{{port}}/photos?restype=container&comp=list"'
+    expect:
+      exit: 0
+      stdout-matches: '<Name>note\.txt</Name>.*<Name>seed\.txt</Name>|<Name>seed\.txt</Name>.*<Name>note\.txt</Name>'
+
+  - id: no-token
+    claim: A put with no token is answered 401 with the error code NoAuthenticationInformation in x-ms-error-code.
+    run: 'curl -sS -o {{null}} -w "%{http_code} %header{x-ms-error-code}" -H "x-ms-version: 2023-11-03" -H "x-ms-blob-type: BlockBlob" -T note.txt http://127.0.0.1:{{port}}/photos/other.txt'
+    expect:
+      exit: 0
+      stdout: "401 NoAuthenticationInformation"
+
+  - id: wrong-token
+    claim: A token surl does not hold is answered 401 InvalidAuthenticationInfo.
+    run: 'curl -sS -o {{null}} -w "%{http_code} %header{x-ms-error-code}" -H "x-ms-version: 2023-11-03" -H "x-ms-blob-type: BlockBlob" -H "Authorization: Bearer t0ken-xyz" -T note.txt http://127.0.0.1:{{port}}/photos/other.txt'
+    expect:
+      exit: 0
+      stdout: "401 InvalidAuthenticationInfo"
+
+  - id: version-header
+    claim: A put without the x-ms-version header is answered 400 MissingRequiredHeader, as Azure answers it.
+    run: 'curl -sS -o {{null}} -w "%{http_code} %header{x-ms-error-code}" -H "x-ms-blob-type: BlockBlob" -H "Authorization: Bearer t0ken-abc" -T note.txt http://127.0.0.1:{{port}}/photos/other.txt'
+    expect:
+      exit: 0
+      stdout: "400 MissingRequiredHeader"
+
+  - id: blob-type-header
+    claim: A put without the x-ms-blob-type header is answered 400 MissingRequiredHeader too.
+    run: 'curl -sS -o {{null}} -w "%{http_code} %header{x-ms-error-code}" -H "x-ms-version: 2023-11-03" -H "Authorization: Bearer t0ken-abc" -T note.txt http://127.0.0.1:{{port}}/photos/other.txt'
+    expect:
+      exit: 0
+      stdout: "400 MissingRequiredHeader"
+
+  - id: missing-blob
+    claim: A name with no blob is answered 404 BlobNotFound.
+    run: 'curl -sS -o {{null}} -w "%{http_code} %header{x-ms-error-code}" -H "x-ms-version: 2023-11-03" -H "Authorization: Bearer t0ken-abc" http://127.0.0.1:{{port}}/photos/other.txt'
+    expect:
+      exit: 0
+      stdout: "404 BlobNotFound"
+
+  - id: uploads-off
+    claim: Without --allow-uploads, a put with the right token is answered 403 AuthorizationPermissionMismatch.
+    run: 'curl -sS -o {{null}} -w "%{http_code} %header{x-ms-error-code}" -H "x-ms-version: 2023-11-03" -H "x-ms-blob-type: BlockBlob" -H "Authorization: Bearer t0ken-abc" -T note.txt http://127.0.0.1:{{port2}}/photos/note.txt'
+    expect:
+      exit: 0
+      stdout: "403 AuthorizationPermissionMismatch"
+
+  - id: uploads-off-reads
+    claim: Without --allow-uploads, a get with the token is still served.
+    run: 'curl -sS -H "x-ms-version: 2023-11-03" -H "Authorization: Bearer t0ken-abc" http://127.0.0.1:{{port2}}/photos/seed.txt'
+    expect:
+      exit: 0
+      stdout: "already here\n"
+
+  - id: plaintext-auth
+    claim: Without --allow-plaintext-auth, the same token over plain HTTP is not accepted, 401 InvalidAuthenticationInfo, even though it is the right one.
+    run: 'curl -sS -o {{null}} -w "%{http_code} %header{x-ms-error-code}" -H "x-ms-version: 2023-11-03" -H "x-ms-blob-type: BlockBlob" -H "Authorization: Bearer t0ken-abc" -T note.txt http://127.0.0.1:{{port3}}/photos/note.txt'
+    expect:
+      exit: 0
+      stdout: "401 InvalidAuthenticationInfo"
+
+  - id: needs-a-certificate
+    claim: Without --az-plaintext, an az listen URL with no certificate stops the start with exit 58 and a message that says so.
+    run: surl --user :t0ken-abc az://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) az://127\.0\.0\.1:0/ needs a certificate'

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[az-test-an-azure-upload-locally-from-an-agent]]
+=== Testing an Azure Upload Locally
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to test a blob upload meant for Azure Blob Storage, with no Azure account and no certificate: a Hypertext Transfer Protocol (HTTP) stand-in that logs in with a token, a put as an Azure client sends it, and a check that the blob arrived with the right bytes.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp`, calls `start_server` for an `az` listener served as plain HTTP, calls `transfer` on `curl-mcp` to put a blob, and calls `read_file` to read the stored file:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `az://127.0.0.1:0`, and port 0 takes a free port. An `az` listener is Transport Layer Security (TLS) from the first byte, as every Azure endpoint is, and would need `--cert` and `--key`; an Azure client pointed at an emulator-style `http://` address does not do TLS. `arguments` holds `--az-plaintext`, which serves the same listener as plain HTTP with no certificate, and warns of it on start. Without it the start is a tool error whose structured content carries `surl`{apos}s exit code, `exit_code` `58`, and whose text says the listen URL needs a certificate. `files` seeds the store in memory: `photos/seed.txt` is the blob `seed.txt` in the container `photos`.
+
+`--user :t0ken-abc` makes the password of an account with an empty name a Bearer token, which the client sends as `Authorization: Bearer t0ken-abc`. A token over unencrypted HTTP is refused unless `--allow-plaintext-auth` says otherwise; without it the right token is answered `401 InvalidAuthenticationInfo`. `--allow-uploads` lets a put write; without it the put is `403 AuthorizationPermissionMismatch` and gets are still served. `--list-directories` is what List Blobs needs. `bound_urls` says `az://127.0.0.1:port/`; `curl-mcp`{apos}s own `az://` scheme is TLS only, so the program takes the port from it and sends to `http://127.0.0.1:port/photos/note.txt`, which is the Azure Representational State Transfer (REST) path, `/<container>/<blob>`.
+
+`transfer` makes one request described by fields: `url`, `method` `PUT`, `headers` as a list of `name` and `value` pairs, and `body` with its `content` as text and `isBase64` false. The put needs `x-ms-version` and `x-ms-blob-type: BlockBlob`, and the stand-in is as strict as Azure about both: either one missing is answered `400 MissingRequiredHeader`. `curl-mcp` answers only in text, so the program parses the one text block as JavaScript Object Notation (JSON). A refusal is an answer, not a tool error: `statusCode` is 401, 400, 403 or 404, and the error code is in the `x-ms-error-code` entry of `headers`. No token is `401 NoAuthenticationInformation`, a token the server does not hold is `401 InvalidAuthenticationInfo`, and a name with no blob is `404 BlobNotFound`.
+
+What the agent should check is bytes. `read_file` takes the `server_id` that `start_server` returned and a `path`, `/photos/note.txt`, and answers the stored file as `text`, with no HTTP in between. The put answer also carries `Content-MD5`, the base64 Message-Digest 5 (MD5) hash of what the server stored, which the agent can compare with its own hash of what it sent. A listing, `?restype=container&comp=list`, names the new blob among those already there.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<az-test-an-azure-upload-locally>> for the same test on the console.
+* <<az-test-an-azure-upload-locally-in-csharp>> for the same test in a C# program.
+* <<az-list-a-container-from-an-agent>> for listing a container over `az://` and TLS.
+* <<surl-readme>>, <<curl-readme>>, <<azure-blob-api>>, <<rfc6750>>.

@@ -1,0 +1,115 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+schema: 2
+key: oci-check-an-image-landed
+title: Checking an Image Landed
+protocols: [oci]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, list_files, read_file, put_file, delete_file]
+exit-codes: [0, 22, 25, 67]
+references: [surl-readme, curl-readme, oci-distribution, oci-image-spec]
+
+# The image: an empty config (2 bytes), two layers (16 and 26 bytes) and the manifest that names them by their
+# SHA-256 digests (44136f..., f669b3..., e2cc2c...). broken.json names a layer that is never pushed.
+fixtures:
+  empty.json: "{}"
+  layer1.txt: "layer one bytes\n"
+  layer2.txt: "layer two is a bit longer\n"
+  manifest.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:f669b3e4e4801d51b0ecf4b732f9beaee4f7923d1c0abc524e2f1b564e620888\",\"size\":16},{\"mediaType\":\"text/plain\",\"digest\":\"sha256:e2cc2c09c989aa2d5c2092312d5e747972c6a0b987edd4b53f2ce922f3ddf7ae\",\"size\":26}]}\n"
+  broken.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:f669b3e4e4801d51b0ecf4b732f9beaee4f7923d1c0abc524e2f1b564e620888\",\"size\":16},{\"mediaType\":\"text/plain\",\"digest\":\"sha256:b8fe6f0d8933749da1afc312c871455aaf45f172a02e117cc4ee309ee9d33961\",\"size\":13}]}\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a push of the config, two layers and the manifest under the tag 1.0, the tag is in index.json, the manifest it names is in the store, and so are the config and both layers, each the size the manifest says and hashing to its name.
+    program: check-image.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "tag 1.0 -> sha256:05d4c22255b4\nconfig sha256:44136fa355b3: present, 2 bytes, hash ok\nlayer sha256:f669b3e4e480: present, 16 bytes, hash ok\nlayer sha256:e2cc2c09c989: present, 26 bytes, hash ok\nimage 1.0 landed: yes, the manifest and 3 blobs\n"
+
+  - id: layout
+    claim: The repository is a folder of the registry's store in OCI image layout, holding blobs, index.json and oci-layout, and the four pushed blobs, the manifest among them, are files under blobs/sha256.
+    program: check-image.cs
+    args: [layout]
+    expect:
+      exit: 0
+      stdout: "demo/app: blobs(folder) index.json(file) oci-layout(file)\nblobs: 4\n"
+
+  - id: tag
+    claim: index.json records the tag 1.0 against the manifest's digest and size, and that digest is the SHA-256 of the manifest file that was pushed.
+    program: check-image.cs
+    args: [tag]
+    expect:
+      exit: 0
+      stdout: "index.json: tag 1.0 -> sha256:05d4c22255b47fa2a63c30ed5179adb9c188ada040427906cb8bf3159e1a6965, 479 bytes\nmanifest.json hashes to that digest: True\n"
+
+  - id: pull
+    claim: Pulling the manifest by its tag returns the bytes that were pushed.
+    program: check-image.cs
+    args: [pull]
+    expect:
+      exit: 0
+      stdout: "pulled manifest identical to the pushed one: True\n"
+
+  - id: no-manifest
+    claim: A push that sent the blobs and not the manifest leaves them in the store with no tag; there is no index.json, and the image has not landed.
+    program: check-image.cs
+    args: [no-manifest]
+    expect:
+      exit: 0
+      stdout: "index.json: none, so no tag points at a manifest\nblobs in the store: 3\nimage 1.0 landed: no\n"
+
+  - id: missing-layer
+    claim: A manifest that names a layer the registry does not hold is refused, curl exit 22 and a tool error, and no tag is recorded.
+    program: check-image.cs
+    args: [missing-layer]
+    expect:
+      exit: 0
+      stdout: "push: exit 22, tool error: yes, MANIFEST_BLOB_UNKNOWN\nindex.json: none, so no tag points at a manifest\nblobs in the store: 2\nimage 1.0 landed: no\n"
+
+  - id: lost-layer
+    claim: When a layer is deleted from the store after the push, the check finds it missing and says the image has not landed.
+    program: check-image.cs
+    args: [lost-layer]
+    expect:
+      exit: 0
+      stdout: "tag 1.0 -> sha256:05d4c22255b4\nconfig sha256:44136fa355b3: present, 2 bytes, hash ok\nlayer sha256:f669b3e4e480: present, 16 bytes, hash ok\nlayer sha256:e2cc2c09c989: MISSING\nimage 1.0 landed: no, 1 problem\n"
+
+  - id: corrupt-layer
+    claim: A layer changed in the store to other bytes of the same length passes a size check and fails the hash check, so the check hashes what it reads.
+    program: check-image.cs
+    args: [corrupt-layer]
+    expect:
+      exit: 0
+      stdout: "tag 1.0 -> sha256:05d4c22255b4\nconfig sha256:44136fa355b3: present, 2 bytes, hash ok\nlayer sha256:f669b3e4e480: 16 bytes as the manifest says, but the content does not hash to its name\nlayer sha256:e2cc2c09c989: present, 26 bytes, hash ok\nimage 1.0 landed: no, 1 problem\n"
+
+  - id: digest-checked
+    claim: curl hashes a blob before it sends it, so a file pushed under a digest that is not its own is refused with exit 25 and nothing is stored.
+    program: check-image.cs
+    args: [digest-checked]
+    expect:
+      exit: 0
+      stdout: "push: exit 25, tool error: yes, The upload's digest sha256:f669b3e4e4801d51b0ecf4b732f9beaee4f7923d1c0abc524e2f1b564e620888 does not match the URL's sha256:e2cc2c09c989aa2d5c2092312d5e747972c6a0b987edd4b53f2ce922f3ddf7ae.\nblobs stored: 0\n"
+
+  - id: uploads-off
+    claim: Without --allow-uploads a push is refused 403 DENIED, curl exit 67, and the store stays empty.
+    program: check-image.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "push: exit 67, tool error: yes, DENIED\nblobs stored: 0\n"
+
+  - id: wrong-password
+    claim: A push with the wrong password gets no token, curl exit 67, and the store stays empty.
+    program: check-image.cs
+    args: [wrong-password]
+    expect:
+      exit: 0
+      stdout: "push: exit 67, tool error: yes, The token endpoint answered 401 without a token.\nblobs stored: 0\n"
+

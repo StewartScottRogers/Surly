@@ -1,0 +1,188 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# verify cannot run a workflow. tests.yml is the reader's artefact; the cases check its steps
+# and run the scripts those steps run, in the same order, through steps.sh.
+schema: 1
+key: surl-run-a-fixture-in-github-actions
+title: Running a Fixture in GitHub Actions
+protocols: [http, smtp]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --mail-domain, --mailbox]
+curl-options: [-f, -s, -S, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 67]
+references: [surl-readme, curl-manual, rfc5321]
+
+fixtures:
+  site/greeting.txt: "Welcome aboard.\n"
+  tests.yml: |
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # .github/workflows/tests.yml: the tests on Linux, macOS and Windows, each job with its own
+    # test servers, started, used and stopped in steps, and the server log kept when a step fails.
+    name: Tests
+    on: [push, pull_request]
+    jobs:
+      test:
+        strategy:
+          fail-fast: false
+          matrix:
+            os: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: ${{ matrix.os }}
+        defaults:
+          run:
+            shell: bash
+        steps:
+          - uses: actions/checkout@v4
+          # surl and curl built from source, until they publish releases.
+          - uses: actions/checkout@v4
+            with: { repository: StewartScottRogers/Surl, path: tools/Surl }
+          - uses: actions/checkout@v4
+            with: { repository: StewartScottRogers/Curl, path: tools/Curl }
+          - uses: actions/setup-dotnet@v4
+            with: { dotnet-version: "10.0.x" }
+          - name: Build surl and curl
+            run: |
+              dotnet build tools/Surl/Application/Surl.Console -c Release -o tools/bin/surl -v q
+              dotnet build tools/Curl/Curl.Console -c Release -o tools/bin/curl -v q
+              echo "${{ github.workspace }}/tools/bin/surl" >> "$GITHUB_PATH"
+              echo "${{ github.workspace }}/tools/bin/curl" >> "$GITHUB_PATH"
+          - name: Start test servers
+            run: sh ci/start-servers.sh
+          - name: Run tests
+            run: sh ci/tests.sh
+          - name: Stop test servers
+            if: always()
+            run: sh ci/stop-servers.sh
+          - name: Upload the server log
+            if: failure()
+            uses: actions/upload-artifact@v4
+            with:
+              name: surl-log-${{ matrix.os }}
+              path: surl.log
+  ci/start-servers.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Step "Start test servers": start surl in the background on free ports for HTTP and SMTP,
+    # keep its process ID in surl.pid for the stop step, and hand the URLs to later steps by
+    # appending them to the file $GITHUB_ENV names. Fails the step if surl does not start.
+    : > listening.txt
+    surl -v --log-file surl.log --directory site --mail-domain example.com \
+      --mailbox app@example.com:secret http://127.0.0.1:0/ smtp://127.0.0.1:0/ \
+      < /dev/null > listening.txt 2> surl.err &
+    pid=$!
+    echo "$pid" > surl.pid
+
+    tries=0
+    until [ "$(grep -c '^Listening on ' listening.txt)" -eq 2 ]; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid"; code=$?
+        cat surl.err >&2
+        echo "surl did not start: exit $code" >&2
+        exit "$code"
+      fi
+      tries=$((tries + 1))
+      if [ "$tries" -ge 100 ]; then kill "$pid"; echo "surl did not start in 10 s" >&2; exit 1; fi
+      sleep 0.1
+    done
+    sed -n -e 's|^Listening on \(http://.*\)|HTTP_URL=\1|p' \
+           -e 's|^Listening on \(smtp://.*\)|SMTP_URL=\1|p' listening.txt | tr -d '\r' >> "$GITHUB_ENV"
+  ci/tests.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Step "Run tests": fetch the greeting over HTTP and mail it over SMTP, to the URLs the start
+    # step put in the environment. The first failure ends the step with curl's exit code.
+    # Usage: sh ci/tests.sh [<mailbox password>]
+    set -e
+    greeting=$(curl -fsS "${HTTP_URL}greeting.txt")
+    printf 'Subject: Greeting\r\n\r\n%s\r\n' "$greeting" |
+      curl -sS -u "app@example.com:${1:-secret}" --mail-from app@example.com \
+        --mail-rcpt app@example.com -T - "${SMTP_URL}example.com"
+    echo "mailed: $greeting"
+  ci/stop-servers.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Step "Stop test servers", run whatever the steps before it did: stop the surl the start step
+    # left running and wait until it has gone, so its ports are free and its log is complete.
+    [ -f surl.pid ] || { echo "no surl to stop"; exit 0; }
+    pid=$(cat surl.pid)
+    kill "$pid" 2>/dev/null || { echo "surl had already ended"; exit 1; }
+    tries=0
+    while kill -0 "$pid" 2>/dev/null; do
+      tries=$((tries + 1))
+      if [ "$tries" -ge 150 ]; then echo "surl did not stop in 15 s" >&2; exit 1; fi
+      sleep 0.1
+    done
+    echo "stopped surl"
+  steps.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Stands in for the runner, which a recipe cannot start: runs the workflow's three server
+    # steps in order, each in a shell of its own; sets what a step appended to $GITHUB_ENV for
+    # the steps after it; runs the stop step always; and keeps surl.log when a step failed, as
+    # the upload step would. Exits as the job would: 0, or the first failed step's code.
+    # Usage: sh steps.sh [<mailbox password the tests use>]
+    GITHUB_ENV=$PWD/github.env; export GITHUB_ENV
+    : > "$GITHUB_ENV"
+    status=0
+    sh ci/start-servers.sh || status=$?
+    if [ "$status" -eq 0 ]; then
+      set -a; . "$GITHUB_ENV"; set +a
+      sh ci/tests.sh "$@" || status=$?
+    fi
+    sh ci/stop-servers.sh || [ "$status" -ne 0 ] || status=1
+    if [ "$status" -ne 0 ]; then mkdir -p artifact && cp surl.log artifact/ && echo "kept surl.log"; fi
+    exit "$status"
+  steps-of.py: |
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Prints each step of the workflow's test job: its condition, then what it runs or uses.
+    import sys, yaml
+    job = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))["jobs"]["test"]
+    print("runs-on:", job["runs-on"], "for", ", ".join(job["strategy"]["matrix"]["os"]))
+    for step in job["steps"]:
+        what = step.get("run", step.get("uses", "")).strip().splitlines()[0]
+        print(step.get("if", "-"), "|", what)
+
+cases:
+  - id: solution
+    role: solution
+    claim: Run in the workflow's order, the start step starts surl, the test step fetches the greeting over HTTP and mails it over SMTP, the stop step stops surl, and the job exits 0 with no log kept.
+    run: sh steps.sh
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "mailed: Welcome aboard.\nstopped surl\n"
+
+  - id: workflow-steps
+    claim: The workflow runs the job on Linux, macOS and Windows runners, and its steps run the start, test and stop scripts in that order, the stop step always and the log upload only on failure.
+    run: python3 steps-of.py tests.yml
+    expect:
+      exit: 0
+      stdout: "runs-on: ${{ matrix.os }} for ubuntu-latest, macos-latest, windows-latest\n- | actions/checkout@v4\n- | actions/checkout@v4\n- | actions/checkout@v4\n- | actions/setup-dotnet@v4\n- | dotnet build tools/Surl/Application/Surl.Console -c Release -o tools/bin/surl -v q\n- | sh ci/start-servers.sh\n- | sh ci/tests.sh\nalways() | sh ci/stop-servers.sh\nfailure() | actions/upload-artifact@v4\n"
+
+  - id: urls-for-later-steps
+    claim: The start step appended one NAME=value line per listener to the GITHUB_ENV file, each URL with the port surl bound, which the runner sets in the environment of every later step.
+    run: grep -E "^(HTTP|SMTP)_URL=" github.env
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP_URL=http://127\.0\.0\.1:[1-9]\d*/\nSMTP_URL=smtp://127\.0\.0\.1:[1-9]\d*/\n$'
+
+  - id: server-recorded
+    claim: surl's log, which the upload step would keep, shows the greeting served and the one message stored.
+    run: 'grep -o -e "GET /greeting.txt: 200" -e "Message stored: [0-9]* bytes for 1 recipients" surl.log'
+    expect:
+      exit: 0
+      stdout-matches: '^GET /greeting\.txt: 200\nMessage stored: \d+ bytes for 1 recipients\n$'
+
+  - id: tests-fail
+    claim: When the test step fails, here an SMTP login with the wrong password that curl exits 67 on, the stop step still stops surl, the log is kept, and the job fails with 67.
+    run: sh steps.sh wrong
+    timeout: 60
+    expect:
+      exit: 67
+      stdout: "stopped surl\nkept surl.log\n"
+
+  - id: log-shows-why
+    claim: The kept log names the refused login, so the failure can be read from the artifact without rerunning the job.
+    run: grep -c "Login refused" artifact/surl.log
+    expect:
+      exit: 0
+      stdout: "1\n"

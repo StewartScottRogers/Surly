@@ -1,0 +1,115 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs rename-folders.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-rename-and-delete-a-folder-from-an-agent
+title: Renaming and Deleting Folders from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, list_mailboxes]
+curl-options: [-s, -S, -v, -u, -X, -T]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  first.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 1 shipped\r\n\r\nYour first order is on its way.\r\n"
+  second.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 2 shipped\r\n\r\nYour second order is on its way.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "RENAME Old Archive through the curl tool, then a LIST, shows INBOX, Archive, Drafts and Keep."
+    program: rename-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ INBOX\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Archive\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Drafts\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Keep\\n$"
+
+  - id: rename-keeps-the-messages
+    claim: "The renamed folder keeps its messages; list_mailboxes says Archive 2."
+    program: rename-folders.cs
+    args: ["keeps"]
+    expect:
+      exit: 0
+      stdout-matches: "^folders:\\ Archive\\ 2,\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0\\n$"
+
+  - id: old-name-is-gone
+    claim: "STATUS for the old name is answered NO [NONEXISTENT] and curl exits 21; list_mailboxes lists no Old."
+    program: rename-folders.cs
+    args: ["gone"]
+    expect:
+      exit: 0
+      stdout-matches: "^STATUS\\ Old\\ \\(MESSAGES\\):\\ curl\\ exit\\ 21,\\ <\\ A003\\ NO\\ \\[NONEXISTENT\\]\\ Mailbox\\ does\\ not\\ exist\\nfolders:\\ Archive\\ 2,\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0\\n$"
+
+  - id: delete
+    claim: "DELETE Drafts removes the folder; list_mailboxes lists INBOX, Keep and Old but no Drafts."
+    program: rename-folders.cs
+    args: ["delete"]
+    expect:
+      exit: 0
+      stdout-matches: "^folders:\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: rename-missing-folder
+    claim: "RENAME of a folder that does not exist is answered NO [NONEXISTENT] and curl exits 21; the folders are unchanged."
+    program: rename-folders.cs
+    args: ["no-rename"]
+    expect:
+      exit: 0
+      stdout-matches: "^RENAME\\ Nowhere\\ Elsewhere:\\ curl\\ exit\\ 21,\\ <\\ A003\\ NO\\ \\[NONEXISTENT\\]\\ Mailbox\\ does\\ not\\ exist\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: delete-missing-folder
+    claim: "DELETE of a folder already deleted is answered NO [NONEXISTENT] and curl exits 21."
+    program: rename-folders.cs
+    args: ["no-delete"]
+    expect:
+      exit: 0
+      stdout-matches: "^DELETE\\ Drafts:\\ curl\\ exit\\ 21,\\ <\\ A003\\ NO\\ \\[NONEXISTENT\\]\\ Mailbox\\ does\\ not\\ exist\\nfolders:\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: rename-onto-an-existing-folder
+    claim: "RENAME onto a name in use, Keep to Old, is answered NO [ALREADYEXISTS] and curl exits 21; neither folder changes."
+    program: rename-folders.cs
+    args: ["onto"]
+    expect:
+      exit: 0
+      stdout-matches: "^RENAME\\ Keep\\ Old:\\ curl\\ exit\\ 21,\\ <\\ A003\\ NO\\ \\[ALREADYEXISTS\\]\\ Mailbox\\ already\\ exists\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: delete-inbox
+    claim: "DELETE INBOX is answered NO [CANNOT] INBOX cannot be deleted and curl exits 21; INBOX keeps its message."
+    program: rename-folders.cs
+    args: ["delete-inbox"]
+    expect:
+      exit: 0
+      stdout-matches: "^DELETE\\ INBOX:\\ curl\\ exit\\ 21,\\ <\\ A003\\ NO\\ \\[CANNOT\\]\\ INBOX\\ cannot\\ be\\ deleted\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: rename-inbox
+    claim: "RENAME INBOX is accepted, curl exit 0: list_mailboxes shows Mail2025 with the message and an empty INBOX, and STATUS INBOX answers MESSAGES 0."
+    program: rename-folders.cs
+    args: ["rename-inbox"]
+    expect:
+      exit: 0
+      stdout-matches: "^RENAME\\ INBOX\\ Mail2025:\\ curl\\ exit\\ 0\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 0,\\ Keep\\ 0,\\ Mail2025\\ 1,\\ Old\\ 2\\nSTATUS\\ INBOX:\\ \\*\\ STATUS\\ INBOX\\ \\(MESSAGES\\ 0\\)\\n$"
+
+  - id: delete-takes-the-messages
+    claim: "DELETE of Old, which holds two messages, is accepted with curl exit 0, and the folder and its messages are gone from list_mailboxes."
+    program: rename-folders.cs
+    args: ["delete-full"]
+    expect:
+      exit: 0
+      stdout-matches: "^before:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\nDELETE\\ Old:\\ curl\\ exit\\ 0\\nafter:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0\\n$"
+
+  - id: rename-into-a-path
+    claim: "RENAME Keep Work/Notes lists Work as a parent that cannot be selected, with Work/Notes under it."
+    program: rename-folders.cs
+    args: ["path"]
+    expect:
+      exit: 0
+      stdout-matches: "^\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ INBOX\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Drafts\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Old\\n\\*\\ LIST\\ \\(\\\\Noselect\\ \\\\HasChildren\\)\\ \"/\"\\ Work\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Work/Notes\\n$"
+
+  - id: parent-is-not-a-folder
+    claim: "DELETE Work, the implied parent, is answered NO [NONEXISTENT] and curl exits 21; Work/Notes stays."
+    program: rename-folders.cs
+    args: ["parent"]
+    expect:
+      exit: 0
+      stdout-matches: "^DELETE\\ Work:\\ curl\\ exit\\ 21,\\ <\\ A003\\ NO\\ \\[NONEXISTENT\\]\\ Mailbox\\ does\\ not\\ exist\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Old\\ 2,\\ Work/Notes\\ 0\\n$"

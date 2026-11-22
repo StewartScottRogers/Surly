@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[coaps-serve-over-dtls-from-an-agent]]
+=== Serving CoAP over DTLS from an Agent
+
+==== Problem
+
+Your sensors fetch their configuration over the Constrained Application Protocol (CoAP) secured with Datagram Transport Layer Security (DTLS), and you want your agent to serve it over `coaps` with your certificate and check that plain CoAP reads are refused once the server has an account.
+
+==== Solution
+
+Start `coaps` through `surl-mcp` with the certificate and the resource, then read it through `curl-mcp`{apos}s `transfer` with the certificate trusted:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+CoAP is a small request and response protocol over the User Datagram Protocol (UDP), and `coaps` runs it inside DTLS, Transport Layer Security (TLS) adapted to datagrams (<<rfc7252>>, <<rfc8446>>). `start_server` takes the listen URL `coaps://127.0.0.1:0`, a free UDP port, passes `--cert server.pem --key server.key` in `arguments`, the files the `setup` step made, read from `SURL_MCP_ROOT`, and puts the configuration in memory with `files` (<<surl-readme>>). It answers once the port is bound, so there is nothing to wait for. With neither a certificate nor an account it is a tool error carrying exit code `58`, `CertificateProblem`, and `surl`{apos}s message naming `--cert`, `--self-signed` and `--user`.
+
+`transfer` makes one request from fields: the URL, `caFile` to trust the certificate as `--cacert` does, read from `CURL_MCP_ROOT`, and `timeoutSeconds` to bound it (<<curl-readme>>, <<curl-protocols>>). It answers the payload as the `body`, with `statusCode` `0`, since CoAP has no Hypertext Transfer Protocol (HTTP) status, and `failure` null. That is enough to read a resource, but not to tell why one is empty: a `4.01` comes back the same way, `statusCode` `0`, an empty body and no failure. To see the CoAP response code, the agent uses the `curl` tool with `-i`, whose standard output starts with `CoAP/1.0 2.05`, Content, then a blank line and the payload. `-m 10` bounds each `curl` call at ten seconds.
+
+A failed handshake is a tool error from `curl`, with the exit code in the answer. Without `--cacert`: `60`. Plain `coap` sent to the `coaps` port gets no answer at all, because the port speaks only DTLS, and `-m 10` ends the wait: `28`.
+
+An account in `arguments`, `--user alice:secret`, closes plain CoAP: the read is `4.01`, Unauthorized, with no payload, and `curl` exits `0`, since an answer came. Plain CoAP has no way to carry a login, so `-u alice:secret` changes nothing. `--allow-anonymous` gives that up, and the same read is `2.05` again; it is for a test, never for a server sensors reach. In `coaps`, an account is a pre-shared key that the DTLS handshake itself checks (<<rfc7252>>). `curl` offers certificates, not pre-shared keys, so with an account a `coaps` read that trusts the certificate is still `4.01`, and a `coaps` server with an account and no certificate, which serves pre-shared keys only, fails `curl`{apos}s handshake: exit code `35`. An agent standing in for certificate clients gives the server a certificate and no account, as the Solution does.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<coaps-serve-over-dtls>> for the same server and reads on the console.
+* <<coaps-serve-over-dtls-in-csharp>> for the same server and reads in a .NET test.
+* <<rfc7252>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

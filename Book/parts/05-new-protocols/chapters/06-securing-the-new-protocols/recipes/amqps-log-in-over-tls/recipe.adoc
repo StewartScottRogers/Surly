@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqps-log-in-over-tls]]
+=== Logging In to AMQP over TLS
+
+==== Problem
+
+Your RabbitMQ client logs in with the PLAIN mechanism, which sends the password as it is. You want a test broker that refuses PLAIN over plain Advanced Message Queuing Protocol (AMQP), where it offers only CRAM-MD5, and accepts it over AMQP on Transport Layer Security (TLS), AMQPS.
+
+==== Solution
+
+Make a certificate with `openssl`, start `surl` with one account and both an `amqps` and an `amqp` listener, and log in with `curl` over AMQPS, trusting the certificate with `--cacert`. `curl` publishes `paid` to a queue and, after `--next`, reads it back:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`curl` logs in over AMQP with `-u`, and it uses the PLAIN mechanism, which carries the password unprotected (<<rfc4616>>, <<curl-readme>>). `surl` is surly about that. Over plain `amqp://` with an account it offers only CRAM-MD5, a challenge and response that `curl` does not speak, so the login is refused on the client{apos}s side: `curl` exits `67` and says the server offers no mechanism it can use, naming `CRAM-MD5`. Over `amqps://` the connection is encrypted before the login, so `surl` offers PLAIN (<<amqp091>>, <<surl-readme>>, <<rfc8446>>).
+
+`--user alice:s3cret` is the one account. `--cert` and `--key` give the `amqps` listener its certificate, made by the `setup` step as a self-signed one valid for `127.0.0.1`. A listener of that scheme without one does not start: `surl` exits `58` and says it needs a certificate. The `--cacert server.pem` option tells `curl` to trust that file; a self-signed certificate is its own authority. Without it `curl` exits `60` on the untrusted certificate and the login is never sent. `--next` starts a second transfer with its own options, so the second half repeats `--cacert` and `-u`. `-s` keeps the progress meter out of the output and `-S` keeps the error message in, and `-m 10` bounds each transfer to ten seconds. The queue `orders` comes into being at the first publish, and a get with no `-d` reads one message from it.
+
+The refusals over TLS are all the same answer. A wrong password, a user name `surl` has no account for, and no `-u` at all, when `curl` logs in as RabbitMQ{apos}s default account, are each answered with `connection.close`, reply code 403 `ACCESS_REFUSED`, and `curl` exits `67`. The server does not say which part was wrong.
+
+`--allow-plaintext-auth` loosens the default: it makes `surl` offer PLAIN over plain `amqp://` too. The `plaintext` server in the claims shows it: the same login publishes and reads back over `amqp://`, exit `0`. The option does not turn off the check, and a wrong password there is the same 403. It is for a test whose network nobody can watch, since the password crosses it in clear.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqps-log-in-over-tls-in-csharp>> for the same logins from a C# test.
+* <<amqps-log-in-over-tls-from-an-agent>> for an agent that drives them.
+* <<mqtts-log-in-over-tls>> for the same two locks on MQTT.
+* <<amqp-send-and-receive>> for the queue itself.
+* <<amqp091>>, <<rfc4616>>, <<rfc8446>>, <<surl-readme>>, <<curl-readme>>.

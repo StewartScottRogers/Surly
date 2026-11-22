@@ -1,0 +1,161 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# No servers: block. test-run.sh starts its own seeded surl per run, nonces.sh two of its own.
+schema: 1
+key: surl-repeat-a-failure-with-a-fixed-seed
+title: Repeating a Failure with a Fixed Seed
+protocols: [s3, http]
+tier: scenarios
+surl-options: [-v, --random-seed, --s3-plaintext, --directory, --user, --allow-uploads]
+curl-options: [-s, -S, -f, -o, -D, -T, -X, -u, --aws-sigv4, --data-binary]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-manual, aws-s3-api]
+
+fixtures:
+  test-run.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # One test run: start surl's S3 endpoint on a free port with a random seed, run the app's
+    # upload against it, stop surl, and exit with the app's code. The seed is printed first, so a
+    # failed run's log says how to repeat it.
+    # Usage: sh test-run.sh [<seed>] [probe]     (no seed: draw one; probe: connect once first)
+    seed=${1:-$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')}
+    echo "seed=$seed"
+    rm -rf store && mkdir -p store/photos
+    : > listening.txt
+    surl -v --s3-plaintext --random-seed "$seed" --directory store \
+      --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads s3://127.0.0.1:0/ > listening.txt 2> surl.log &
+    pid=$!
+
+    # Wait for the Listening on line; a surl that exits first refused to start.
+    tries=0
+    until grep -q '^Listening on ' listening.txt; do
+      if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; code=$?; cat surl.log >&2; exit "$code"; fi
+      tries=$((tries + 1))
+      if [ "$tries" -ge 100 ]; then kill "$pid"; echo "surl did not start in 10 s" >&2; exit 1; fi
+      sleep 0.1
+    done
+    url=$(sed -n 's|^Listening on s3://|http://|p' listening.txt | tr -d '\r')
+
+    # A readiness check that connects is one more exchange before the app's.
+    if [ "$2" = probe ]; then curl -s -o /dev/null "$url"; fi
+
+    sh upload.sh "$url"
+    result=$?
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    exit "$result"
+  upload.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The app under test, as a script: a multipart upload of big.bin into the photos bucket.
+    # Usage: sh upload.sh <S3 endpoint URL>
+    sign="--aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret"
+    id=$(curl -sS $sign -X POST "${1}photos/big.bin?uploads" |
+      sed -n 's|.*<UploadId>\([0-9a-f]*\)</UploadId>.*|\1|p')
+    echo "upload $id"
+
+    # The bug the test run trips over, standing in for your app's: it uses the upload ID as a
+    # name, and a name may not begin with a digit. Only some IDs bring it out.
+    case $id in
+      [0-9]*) echo "failed: upload $id cannot be named" >&2; exit 1 ;;
+    esac
+
+    printf 'part one\n' > part1.bin
+    etag=$(curl -sS $sign -D - -o /dev/null -T part1.bin "${1}photos/big.bin?partNumber=1&uploadId=$id" |
+      tr -d '\r' | sed -n 's/^[Ee][Tt]ag: //p')
+    printf '<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>%s</ETag></Part></CompleteMultipartUpload>' \
+      "$etag" > complete.xml
+    curl -sS -f $sign -o /dev/null --data-binary @complete.xml "${1}photos/big.bin?uploadId=$id" || exit
+    echo "stored big.bin"
+  nonces.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Starts two HTTP servers with the same seed and one account, asks each for a file without a
+    # login, and says whether the Digest nonces of their 401s are the same.
+    for n in 1 2; do
+      : > "http-$n.txt"
+      surl --random-seed 3 --user alice:s3cret http://127.0.0.1:0/ > "http-$n.txt" 2> /dev/null &
+      echo $! > "http-$n.pid"
+    done
+    for n in 1 2; do
+      tries=0
+      until grep -q '^Listening on ' "http-$n.txt"; do
+        tries=$((tries + 1)); [ "$tries" -lt 100 ] || break; sleep 0.1
+      done
+      url=$(sed -n 's|^Listening on ||p' "http-$n.txt" | tr -d '\r')
+      curl -s -o /dev/null -D - "${url}a.txt" | sed -n 's/.*nonce="\([0-9a-f]*\)".*/\1/p' | head -n 1 > "nonce-$n.txt"
+      kill "$(cat "http-$n.pid")"
+    done
+    if [ -s nonce-1.txt ] && cmp -s nonce-1.txt nonce-2.txt; then echo "same nonce"; else echo "different nonces"; fi
+
+cases:
+  - id: solution
+    role: solution
+    claim: Rerun with the seed a failed run printed, 3 here, the run draws the same upload ID, 5639b40740dd9a241e86ed60a3306b6a, and fails the same way, exit 1.
+    run: sh test-run.sh 3
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "seed=3\nupload 5639b40740dd9a241e86ed60a3306b6a\n"
+      stderr-contains: "failed: upload 5639b40740dd9a241e86ed60a3306b6a cannot be named"
+
+  - id: again
+    claim: A second rerun with seed 3 draws that ID once more, so the failure repeats as often as it is asked to.
+    run: sh test-run.sh 3
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "seed=3\nupload 5639b40740dd9a241e86ed60a3306b6a\n"
+
+  - id: failed-run-stored-nothing
+    claim: What the server recorded after the failed run is only the upload it began, never completed, so no object big.bin is in its store.
+    run: test -e store/photos/big.bin
+    expect:
+      exit: 1
+
+  - id: other-seed
+    claim: Seed 1 draws a3f0bca96a94bddcbbdee7353d87db57, which the bug lets through, and the run stores big.bin and exits 0.
+    run: sh test-run.sh 1
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "seed=1\nupload a3f0bca96a94bddcbbdee7353d87db57\nstored big.bin\n"
+
+  - id: other-seed-stored
+    claim: After that run the server holds the object the upload completed, its one part.
+    run: test -e store/photos/big.bin
+    expect:
+      exit: 0
+      files:
+        store/photos/big.bin: "part one\n"
+
+  - id: order-matters
+    claim: The IDs follow the order of connections as well as the seed, so seed 3 with one more connection first, a readiness check, draws bb73347a1372eccb4997db86ac06e8c4 for the upload and the failure is gone.
+    run: sh test-run.sh 3 probe
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "seed=3\nupload bb73347a1372eccb4997db86ac06e8c4\nstored big.bin\n"
+
+  - id: no-seed
+    claim: Given no seed, the script draws one and prints it before anything else, so every run's log names the seed that repeats it.
+    run: sh test-run.sh || echo "exit nonzero"
+    timeout: 30
+    expect:
+      exit: 0
+      stdout-matches: '^seed=\d+\nupload [0-9a-f]{32}\n'
+
+  - id: nonces-never-seeded
+    claim: Two HTTP servers with the same seed still send different Digest nonces, because surl never draws a nonce, key, challenge, salt or token from the seed.
+    run: sh nonces.sh
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "different nonces\n"
+
+  - id: bad-seed
+    claim: A seed that is not a whole number from 0 up is refused before anything listens, exit 2.
+    run: surl --random-seed soon http://127.0.0.1:0/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --random-seed: expected a proper numerical parameter"

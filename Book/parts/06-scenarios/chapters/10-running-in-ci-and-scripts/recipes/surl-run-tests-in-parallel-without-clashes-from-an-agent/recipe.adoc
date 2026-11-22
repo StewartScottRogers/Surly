@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-tests-in-parallel-without-clashes-from-an-agent]]
+=== Running Tests in Parallel Without Clashes
+
+==== Problem
+
+As an artificial intelligence (AI) agent: your suite runs in parallel workers; you want each worker on its own server, ports and store, and nothing shared but the binary.
+
+==== Solution
+
+Give each worker its own `start_server` call on port 0 with its files in that server's own memory, run its tests through `curl-mcp`, and end it with `stop_server`. The agent's side is a C# program on the official Model Context Protocol (MCP) software development kit (SDK); its four workers run at once:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from `PATH` over standard input and output, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client (<<mcp-spec>>). One host runs many servers, and tool calls on one client run side by side, so the workers need no host each.
+
+Each worker{apos}s `start_server` names `http://127.0.0.1:0` in `listen_urls`, so the system picks a free port and `bound_urls` reports it: four workers, four ports nobody chose. `files` seeds the server{apos}s own in-memory store, so every worker uploads under the same name, `result.txt`, and reads back its own result, and `read_file` on that worker{apos}s `server_id` shows that result and no other. `arguments` give each server the same account, `--user tester:s3cret`, but each holds its own copy, and `--allow-uploads` lets it store files on that server only. The worker calls `stop_server` in `finally`, so it stops only its own server, and `list_servers` afterwards answers none left running.
+
+The tests go through `curl-mcp`{apos}s `curl` tool: `-u` logs in, `--digest` makes it a Digest login (<<rfc7616>>), `-T` uploads, `-f` fails on an error status and `-sS` keeps quiet but for an error. A worker that fails stays its own business: with a wrong password in worker 2, the tool answers exit code 22 and standard error `curl: (22) The requested URL returned error: 401`; workers 1 and 3 pass, every server is stopped, and the run exits 22.
+
+The two shared things a suite most often slips into are both refused at start, as tool errors carrying `surl`{apos}s `exit_code` and `exit_code_name`. Two servers given one `--directory`: `surl` locks the directory, and the second start is `DataDirectoryInUse`, 124. A fixed port another server holds: `BindFailed`, 45. Port 0 and a store per worker keep either from happening.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-tests-in-parallel-without-clashes>> for the same workers on the console.
+* <<surl-run-tests-in-parallel-without-clashes-in-csharp>> for the same workers in a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<rfc7616>>.

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-enforce-a-mailbox-quota-in-csharp]]
+=== Enforcing a Mailbox Quota in C#
+
+==== Problem
+
+Your C# client must cope with a full mailbox. You want a test with a mailbox small enough to fill in two messages, that checks what Curl.Api reports when the next one is refused and what the server did and did not keep.
+
+==== Solution
+
+Host the server with Surl.Api and a quota on the mailbox, send until it is full, and read the refusal from both sides:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `Mailboxes` takes what `--mailbox` takes, so `"ann@example.com:annpass;quota=1k"` is a mailbox, its login, and a cap of 1024 bytes on everything its owner{apos}s mailboxes hold (<<surl-readme>>); `bob` has no cap. `MailDomains` is `--mail-domain`, and `ListenUrls` holds an `smtp://` and an `imap://` URL on port 0, so one store serves both. `RecordExchanges` keeps every exchange{apos}s bytes, and `Log` with `LogLevel.Verbose` is `surl -v` into a `TextWriter`.
+
+The app is a `CurlRequest` with `HttpMethod.Put` to the Simple Mail Transfer Protocol (SMTP) URL: `CurlMailOptions` gives the envelope, `MailFrom` and `MailRecipients`, `CurlAuthenticationOptions` the shop{apos}s login, and `Body` the message. Each send runs on a fresh `CurlClient`, one exchange each, and returns a `CurlResponse` whose `StatusCode` is the last reply, `250`. The third send is refused: Curl.Api throws `CurlException` with `Code` `WeirdServerReply`, 8, and the message `Weird server reply`. That is how `curl` reports a refusal at the end of the data, and it is all the client learns.
+
+The server{apos}s record says more. After each send the program waits, at most ten seconds, for the exchange to end: `server.WaitForEventAsync` with a `SurlEventQuery` for `Kind` `ExchangeEnded`, `Scheme` `smtp` and `AfterSequence` the last `SurlEvent`{apos}s `Sequence`. Then `server.Exchanges` holds the whole dialogue as `SurlExchangeRecord` values, whose `Chunks` are the lines in the order they crossed, each with a `Direction`. The lines `surl` sent from the recipient on are `250 2.1.5 Recipient OK`, `354` asking for the data, and only then `452 4.2.2 Mailbox full`, a temporary failure (<<rfc5321>>): the server judged the message once it had all of it.
+
+Nothing was stored. `server.Mail` is the mail store, a `SurlServerMail`: `ListMailboxesAsync` still counts two messages in `INBOX`, and `ListMessagesAsync` answers a `SurlMessagePage` whose summaries give each message{apos}s `Size`, about 460 bytes for a 332-byte newsletter, because `surl` adds a `Return-Path` and a dated `Received` line to mail that comes over SMTP. The quota counts those bytes. The store{apos}s own delivery is held to the quota as well: `DeliverAsync` throws `SurlSeedRefusedException` with `Refusal` `QuotaExceeded`, so a test cannot seed past it by accident.
+
+One full mailbox holds back the whole message: sent to `bob` and `ann` together, the newsletter is refused and `bob`{apos}s `INBOX` stays empty; sent to `bob` alone, it is accepted. Room comes back only when mail goes. `CustomRequest`, the `curl -X` of Curl.Api, sends Internet Message Access Protocol (IMAP) commands on `.../INBOX` as `ann`: `STORE 1 +FLAGS (\Deleted)` marks message 1, but the next send is still refused, and `EXPUNGE`, answered `* 1 EXPUNGE`, removes it, after which the newsletter is accepted.
+
+After `StopAsync` the log has every line; at start it named each mailbox, `* Mailbox ann@example.com: logins on smtp, imap, pop3, quota 1024 bytes`, the quickest check that the option was read as meant. A quota must be above 0: with `quota=0`, `StartAsync` throws `SurlServerStartException` with `ExitCode` `FailedInit` and the reason in `Lines`, `option --mailbox: key quota needs a value above 0`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-enforce-a-mailbox-quota>> for the quota on the console, with the IMAP `APPEND` refused too.
+* <<imap-enforce-a-mailbox-quota-from-an-agent>> for an agent that fills a mailbox and explains the refusal.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

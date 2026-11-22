@@ -1,0 +1,119 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-rename-and-delete-a-folder
+title: Renaming and Deleting a Folder
+protocols: [imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -v, -T, --next]
+exit-codes: [0, 21]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  first.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 1 shipped\r\n\r\nYour first order is on its way.\r\n"
+  second.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 2 shipped\r\n\r\nYour second order is on its way.\r\n"
+
+# One IMAP-only surl: ann starts with the folders Old, Drafts and Keep.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox "ann@example.com:annpass;folders=Old,Drafts,Keep" imap://127.0.0.1:{{port}}/
+    ready: port
+
+# An APPEND is stored before curl exits, so nothing below waits: two orders go into Old and one into INBOX.
+seed:
+  - curl -sS -u ann@example.com:annpass -T first.eml imap://127.0.0.1:{{port}}/Old --next -sS -u ann@example.com:annpass -T second.eml imap://127.0.0.1:{{port}}/Old --next -sS -u ann@example.com:annpass -T first.eml imap://127.0.0.1:{{port}}/INBOX
+
+# The cases run in order on one mailbox, and each leaves its changes for the next.
+cases:
+  - id: solution
+    role: solution
+    claim: RENAME Old Archive takes the folder under its new name, and LIST then shows INBOX, Archive, Drafts and Keep.
+    run: curl -s -u ann@example.com:annpass -X "RENAME Old Archive" imap://127.0.0.1:{{port}}/ --next -s -u ann@example.com:annpass imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\HasNoChildren) \"/\" Archive\n* LIST (\\HasNoChildren) \"/\" Drafts\n* LIST (\\HasNoChildren) \"/\" Keep\n"
+
+  - id: rename-keeps-the-messages
+    claim: The renamed folder keeps its messages; Archive still holds the two orders that were appended to Old.
+    run: curl -s -u ann@example.com:annpass -X "STATUS Archive (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS Archive (MESSAGES 2)\n"
+
+  - id: old-name-is-gone
+    claim: The old name no longer exists; STATUS for Old is answered NO [NONEXISTENT], and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "STATUS Old (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [NONEXISTENT] Mailbox does not exist"
+
+  - id: delete
+    claim: DELETE Drafts removes the folder; LIST then shows INBOX, Archive and Keep.
+    run: curl -s -u ann@example.com:annpass -X "DELETE Drafts" imap://127.0.0.1:{{port}}/ --next -s -u ann@example.com:annpass imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\HasNoChildren) \"/\" Archive\n* LIST (\\HasNoChildren) \"/\" Keep\n"
+
+  - id: rename-missing-folder
+    claim: RENAME of a folder that does not exist is answered NO [NONEXISTENT], and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "RENAME Nowhere Elsewhere" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [NONEXISTENT] Mailbox does not exist"
+
+  - id: delete-missing-folder
+    claim: DELETE of a folder that does not exist, Drafts now, is answered NO [NONEXISTENT], and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "DELETE Drafts" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [NONEXISTENT] Mailbox does not exist"
+
+  - id: rename-onto-an-existing-folder
+    claim: RENAME onto a name already in use, Keep to Archive, is answered NO [ALREADYEXISTS], and curl exits 21; neither folder changes.
+    run: curl -s -S -v -u ann@example.com:annpass -X "RENAME Keep Archive" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [ALREADYEXISTS] Mailbox already exists"
+
+  - id: delete-inbox
+    claim: DELETE INBOX is refused, NO [CANNOT] INBOX cannot be deleted, and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "DELETE INBOX" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [CANNOT] INBOX cannot be deleted"
+
+  - id: rename-inbox
+    claim: RENAME INBOX is not refused; it moves INBOX's one message to the new folder Mail2025 and leaves an empty INBOX in place.
+    run: curl -s -u ann@example.com:annpass -X "RENAME INBOX Mail2025" imap://127.0.0.1:{{port}}/ --next -s -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port}}/ --next -s -u ann@example.com:annpass -X "STATUS Mail2025 (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n* STATUS Mail2025 (MESSAGES 1)\n"
+
+  - id: delete-takes-the-messages
+    claim: DELETE removes a folder with its messages and without asking; Archive holds two orders and DELETE Archive answers exit 0.
+    run: curl -s -u ann@example.com:annpass -X "DELETE Archive" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: deleted-folder-is-gone
+    claim: After the delete, STATUS for Archive is answered NO [NONEXISTENT], and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "STATUS Archive (MESSAGES)" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [NONEXISTENT] Mailbox does not exist"
+
+  - id: rename-into-a-path
+    claim: A name with a slash makes a folder under a parent; RENAME Keep Work/Notes lists Work as a parent that cannot be selected and Work/Notes under it.
+    run: curl -s -u ann@example.com:annpass -X "RENAME Keep Work/Notes" imap://127.0.0.1:{{port}}/ --next -s -u ann@example.com:annpass imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\HasNoChildren) \"/\" Mail2025\n* LIST (\\Noselect \\HasChildren) \"/\" Work\n* LIST (\\HasNoChildren) \"/\" Work/Notes\n"
+
+  - id: parent-is-not-a-folder
+    claim: The parent Work is only implied by the path; DELETE Work is answered NO [NONEXISTENT], and curl exits 21.
+    run: curl -s -S -v -u ann@example.com:annpass -X "DELETE Work" imap://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      stderr-contains: "NO [NONEXISTENT] Mailbox does not exist"

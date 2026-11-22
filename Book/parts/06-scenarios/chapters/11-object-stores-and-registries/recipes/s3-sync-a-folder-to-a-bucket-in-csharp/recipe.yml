@@ -1,0 +1,118 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: s3-sync-a-folder-to-a-bucket-in-csharp
+title: Syncing a Folder to a Bucket in C#
+protocols: [s3]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerFiles, SurlFileContents, SurlEventQuery, StoreChangedEvent, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlNetworkOptions, CurlAuthenticationOptions, CurlHttpOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts its own bucket through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The sync puts the three files of the folder, the s3:// listing names them with old.csv, and each object in the server's store is the file it came from, byte for byte.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "synced: a.csv b.csv c.csv\nlisting: a.csv b.csv c.csv old.csv\na.csv in the store matches the folder: True\nb.csv in the store matches the folder: True\nc.csv in the store matches the folder: True\n"
+
+  - id: one-put-per-file
+    claim: The server's change events count three objects stored for the sync, one per file; old.csv was seeded, not put.
+    program: program.cs
+    args: [one-put-per-file]
+    expect:
+      exit: 0
+      stdout: "puts so far: 3\n"
+
+  - id: listing-with-sizes
+    claim: Signed over HTTPS to the bucket's host name, the listing gives a size and an ETag for each key, 24, 23 and 22 bytes, and the ETag is the MD5 of the content, ae51bb33b8abab1fcc34f63346ab15d8 for a.csv.
+    program: program.cs
+    args: [listing-with-sizes]
+    expect:
+      exit: 0
+      stdout: "a.csv 24 ae51bb33b8abab1fcc34f63346ab15d8\nb.csv 23 d15d0cbaa072a2b77975ca7e6dedc95e\nc.csv 22 cf0261da3a2512a7499610f976864853\nold.csv 6 f9be1578d5d2ee1766f9a8d3fe5bbea3\n"
+
+  - id: resync-one-file
+    claim: After b.csv changes, a sync that compares each file's MD5 with the listing's ETags puts only b.csv, and the listing by name is the same as before.
+    program: program.cs
+    args: [resync-one-file]
+    expect:
+      exit: 0
+      stdout: "changed: b.csv\nlisting: a.csv b.csv c.csv old.csv\n"
+
+  - id: one-more-put
+    claim: The server's change events then count four objects stored, the three of the first sync and one more.
+    program: program.cs
+    args: [one-more-put]
+    expect:
+      exit: 0
+      stdout: "changed: b.csv\nputs so far: 4\n"
+
+  - id: listing-proves-it
+    claim: Listed before and after, b.csv went from 23 to 25 bytes with a new ETag, and a.csv, c.csv and the old object kept theirs.
+    program: program.cs
+    args: [listing-proves-it]
+    expect:
+      exit: 0
+      stdout: "a.csv: unchanged, 24 bytes\nb.csv: 23 -> 25 bytes, new ETag\nc.csv: unchanged, 22 bytes\nold.csv: unchanged, 6 bytes\n"
+
+  - id: changed-file-reads-back
+    claim: Getting b.csv through s3:// returns the changed content.
+    program: program.cs
+    args: [changed-file-reads-back]
+    expect:
+      exit: 0
+      stdout: "region,total\nsouth,19500\n"
+
+  - id: nothing-changed
+    claim: A second sync with nothing changed puts nothing, and the change events still count three.
+    program: program.cs
+    args: [nothing-changed]
+    expect:
+      exit: 0
+      stdout: "second sync put: nothing\nputs so far: 3\n"
+
+  - id: wrong-secret
+    claim: A put signed with the wrong secret throws CurlException with code HttpReturnedError, 403 SignatureDoesNotMatch.
+    program: program.cs
+    args: [wrong-secret]
+    expect:
+      exit: 0
+      stdout: "put a.csv: HttpReturnedError 403 SignatureDoesNotMatch\n"
+
+  - id: uploads-off
+    claim: With AllowUploads off, a correctly signed put throws CurlException, 403 AccessDenied.
+    program: program.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "put a.csv: HttpReturnedError 403 AccessDenied\n"
+
+  - id: nothing-arrived
+    claim: After that refused put the bucket holds no a.csv; a get throws CurlException, 404 NoSuchKey.
+    program: program.cs
+    args: [nothing-arrived]
+    expect:
+      exit: 0
+      stdout: "put a.csv: HttpReturnedError 403 AccessDenied\nget a.csv: HttpReturnedError 404 NoSuchKey\n"
+
+  - id: listing-off
+    claim: With ListDirectories off, a signed listing throws CurlException, 403 AccessDenied, so a sync there cannot be checked by listing.
+    program: program.cs
+    args: [listing-off]
+    expect:
+      exit: 0
+      stdout: "list: HttpReturnedError 403 AccessDenied\n"

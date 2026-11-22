@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-file-mail-into-a-folder-in-csharp]]
+=== Filing Mail into a Folder in C#
+
+==== Problem
+
+Your C# mail rule files messages into folders over Internet Message Access Protocol (IMAP), and you want a test that sends the same commands through Curl.Api and checks in the server{apos}s own store that the message moved.
+
+==== Solution
+
+Host the server with Surl.Api, put three orders in, send `CREATE`, `COPY`, `STORE` and `EXPUNGE` as custom requests, and count each folder from the store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` holds one `imap://` URL on port 0, bound to a free port; `MailDomains` is `--mail-domain`; `Mailboxes` is `--mailbox`, an address and password, the address also being the login (<<surl-readme>>). `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrls` gives its real port. `server.Mail` is the mail store, a `SurlServerMail`; its `DeliverAsync` puts each order into `ann`{apos}s `INBOX` and returns once it is stored, so no step waits for mail.
+
+A `CurlRequest` is a method and a URL, and an IMAP URL with a query is a search. For a command with arguments, `CustomRequest` is the spelling of `curl -X`: it is sent as written, spaces and all, in place of the method, which a .NET `HttpMethod` could not carry because it is one token. The folder in the URL is selected first, as the console recipe shows. `CurlAuthenticationOptions` is the login; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `CurlClient` uses, so no loosening option is set. The `CurlResponse` `Body` is the server{apos}s untagged answer, so `STORE` returns `* 1 FETCH (FLAGS (\Deleted))` and `EXPUNGE` returns `* 1 EXPUNGE`. One `CurlClient` keeps its session through all the commands, which is what makes message numbers in `COPY 1` and `STORE 1` mean the same message throughout (<<rfc9051>>).
+
+The store is the check. `ListMailboxesAsync` returns one `SurlMailboxInfo` per folder with its `MessageCount`, read with no client. `CREATE Archive` makes a folder, `COPY 1 Archive` puts order 1 in it and leaves the original, so the store says `Archive 1, INBOX 3`. `STORE 1 +FLAGS (\Deleted)` only marks the original. `ListMessagesAsync` returns a `SurlMessagePage` of `SurlMessageSummary` values, each with its `Uid` and `Flags`, and UID 1 carries `\Deleted`; a `DELETED` search through Curl.Api names it, and `INBOX` still counts three. `EXPUNGE` takes it out, and the store says `Archive 1, INBOX 2`. A `STATUS INBOX (MESSAGES UIDNEXT)` sent the same way answers `MESSAGES 2 UIDNEXT 4`: the identifier of an expunged message is not handed out again.
+
+A copy keeps the original{apos}s flags. Order 2 flagged with `STORE 2 +FLAGS (\Flagged)` and copied is found in `Archive` by a `FLAGGED` search, as message 1 there, while `INBOX` still names message 2. `MOVE 1 Archive` is the copy and the removal in one command: the store goes from `INBOX 3` to `INBOX 2` and `Archive` holds UID 1.
+
+A refusal arrives as a `CurlException`, whose `Code` is `curl`{apos}s exit code, 21, `Quote command returned error`. The exception does not carry the server{apos}s `NO` line; the store shows that nothing changed. A second `CREATE Archive` is refused and the store still lists one `Archive`. `COPY 1 Nowhere` into a folder that does not exist is refused and no folder appears. `COPY 9 Archive` for a message `INBOX` does not have is refused and `Archive` stays empty. The agent recipe and the console recipe show the server{apos}s reply for each.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-file-mail-into-a-folder>> for the same filing on the console.
+* <<imap-file-mail-into-a-folder-from-an-agent>> for the filing done by an agent.
+* <<surl-readme>>, <<rfc9051>>.

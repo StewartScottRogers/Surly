@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-see-why-mail-was-refused-in-csharp
+title: Seeing Why Mail Was Refused in C#
+protocols: [smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlEventQuery, SurlEvent, SurlExchangeRecord, SurlExchangeChunk, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: app-fails
+    claim: The app's send to the address in its settings, ann@example.org, a typo, throws CurlException SendError, code 55, whose message names the command and the code, RCPT failed 550, but not the reason.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^app, to ann@example\.org: CurlException SendError \(55\): RCPT failed: 550\n'
+
+  - id: nothing-arrived
+    claim: Ann's INBOX in the store holds nothing.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nann''s INBOX holds 0\n'
+
+  - id: solution
+    role: solution
+    claim: The recorded exchange, read once it has ended, shows the refused command, RCPT TO:<ann@example.org>, and the reply, 550 5.7.1 Relaying denied; surl's log gives the reason, outside every --mail-domain.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nrefused: RCPT TO:<ann@example\.org> -> 550 5\.7\.1 Relaying denied\n  reason: RCPT ann@example\.org refused: outside every --mail-domain\n'
+
+  - id: fixed
+    claim: With the address corrected the send returns 250, and the exchange holds no refusal.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\napp, to ann@example\.com: 250; no refusal\n'
+
+  - id: arrived
+    claim: Once its delivery event has come, waited for at most 10 s, Ann's INBOX holds the report.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: 'no refusal\nann''s INBOX holds 1\n'
+
+  - id: no-login
+    claim: Without a login the send is refused at MAIL FROM, 530 5.7.0 Authentication required, and the reason says to log in with AUTH first.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno login: CurlException SendError \(55\): MAIL failed: 530\n  refused: MAIL FROM:<app@example\.com> -> 530 5\.7\.0 Authentication required\n  reason: MAIL refused: log in with AUTH first, or give --allow-anonymous\n'
+
+  - id: wrong-password
+    claim: A wrong password is refused at the login, 535 5.7.8; the record keeps the client's CRAM-MD5 answer, a name and a digest, never the password, and the log names the account.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong password: CurlException LoginDenied \(67\): Login denied\n  refused: [A-Za-z0-9+/]+=* -> 535 5\.7\.8 Authentication credentials invalid\n  reason: Login refused: CRAM-MD5 app@example\.com\n'
+
+  - id: mailbox-full
+    claim: To a mailbox it would take past its quota, the send is refused only at the end of the data, the lone dot, 452 4.2.2 Mailbox full, and the reason names the quota.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n  refused: \. -> 452 4\.2\.2 Mailbox full\n  reason: Message refused: a recipient''s mailbox would pass its quota\n$'
+
+  - id: client-sees-even-less
+    claim: For that refusal Curl.Api throws CurlException WeirdServerReply, code 8, Weird server reply, naming neither the command nor the code.
+    program: why-refused.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nto a full mailbox: CurlException WeirdServerReply \(8\): Weird server reply\n'

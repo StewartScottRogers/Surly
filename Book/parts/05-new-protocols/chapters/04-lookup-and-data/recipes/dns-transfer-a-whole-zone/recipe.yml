@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: dns-transfer-a-whole-zone
+title: Transferring a Whole Zone
+protocols: [dns]
+tier: new-protocols
+surl-options: [--directory, --allow-zone-transfer]
+curl-options: [-s, -S, --dns-json, --dns-transport]
+exit-codes: [0, 3]
+references: [surl-readme, curl-readme, rfc1035, rfc4501]
+
+# The zone is a master file under .surl/dns in the served directory, named for its apex. Two servers cannot
+# share a directory (each locks it), so the second has a copy.
+fixtures:
+  site/.surl/dns/example.test.zone: |
+    $ORIGIN example.test.
+    $TTL 300
+    @    IN SOA  ns1.example.test. hostmaster.example.test. 1 3600 600 86400 300
+    @    IN NS   ns1.example.test.
+    @    IN MX   10 mail.example.test.
+    mail IN A    192.0.2.25
+    ns1  IN A    192.0.2.53
+  closed/.surl/dns/example.test.zone: |
+    $ORIGIN example.test.
+    $TTL 300
+    @    IN SOA  ns1.example.test. hostmaster.example.test. 1 3600 600 86400 300
+    @    IN NS   ns1.example.test.
+    @    IN MX   10 mail.example.test.
+    mail IN A    192.0.2.25
+    ns1  IN A    192.0.2.53
+
+# open serves the zone and allows transfers. closed serves a copy of the zone and does not.
+servers:
+  open:
+    command: surl --directory site --allow-zone-transfer dns://127.0.0.1:{{port}}/
+    ready: port
+  closed:
+    command: surl --directory closed dns://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over TCP, a server started with --allow-zone-transfer answers AXFR for example.test with NOERROR and the whole zone as six records, the SOA record first and last, and curl exits 0.
+    run: curl -s --dns-json --dns-transport tcp "dns://127.0.0.1:{{port}}/example.test?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: '\A\{"id":\d+,"opcode":"QUERY","status":"NOERROR","flags":\["qr","aa","rd"\],"question":\[\{"name":"example\.test\.","type":"AXFR","class":"IN"\}\],"answer":\[\{"name":"example\.test\.","type":"SOA","class":"IN","ttl":300,"data":\{"mname":"ns1\.example\.test\.","rname":"hostmaster\.example\.test\.","serial":1,"refresh":3600,"retry":600,"expire":86400,"minimum":300\}\},\{"name":"example\.test\.","type":"NS","class":"IN","ttl":300,"data":\{"nsdname":"ns1\.example\.test\."\}\},\{"name":"example\.test\.","type":"MX","class":"IN","ttl":300,"data":\{"preference":10,"exchange":"mail\.example\.test\."\}\},\{"name":"mail\.example\.test\.","type":"A","class":"IN","ttl":300,"data":\{"address":"192\.0\.2\.25"\}\},\{"name":"ns1\.example\.test\.","type":"A","class":"IN","ttl":300,"data":\{"address":"192\.0\.2\.53"\}\},\{"name":"example\.test\.","type":"SOA","class":"IN","ttl":300,"data":\{"mname":"ns1\.example\.test\.","rname":"hostmaster\.example\.test\.","serial":1,"refresh":3600,"retry":600,"expire":86400,"minimum":300\}\}\],"authority":\[\],"additional":\[\]\}\n\Z'
+
+  - id: refused-by-default
+    claim: A server started without --allow-zone-transfer refuses the same AXFR over TCP with status REFUSED and no records, and curl still exits 0.
+    run: curl -s --dns-json --dns-transport tcp "dns://127.0.0.1:{{port2}}/example.test?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: '\A\{"id":\d+,"opcode":"QUERY","status":"REFUSED","flags":\["qr","rd"\],"question":\[\{"name":"example\.test\.","type":"AXFR","class":"IN"\}\],"answer":\[\],"authority":\[\],"additional":\[\]\}\n\Z'
+
+  - id: refused-by-default-udp
+    claim: The same server refuses the AXFR over UDP too, with status REFUSED, so the default holds whichever transport asks.
+    run: curl -s --dns-json --dns-transport udp "dns://127.0.0.1:{{port2}}/example.test?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: '"status":"REFUSED".*"answer":\[\],"authority":\[\],"additional":\[\]'
+
+  - id: refused-over-udp
+    claim: Even with --allow-zone-transfer, an AXFR over UDP is answered NOTIMP with no records, because a whole zone does not fit a UDP answer; a transfer needs TCP.
+    run: curl -s --dns-json --dns-transport udp "dns://127.0.0.1:{{port}}/example.test?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: '"status":"NOTIMP".*"answer":\[\],"authority":\[\],"additional":\[\]'
+
+  - id: not-an-apex
+    claim: A transfer for a name that is no zone's apex, here a host inside the zone, is answered with RCODE9, which is NOTAUTH, and no records, even with transfers allowed.
+    run: curl -s --dns-json --dns-transport tcp "dns://127.0.0.1:{{port}}/mail.example.test?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: '"status":"RCODE9".*"answer":\[\],"authority":\[\],"additional":\[\]'
+
+  - id: text-answer
+    claim: Without --dns-json, curl writes the transfer as dig-like text, a header line that says six answers, and the SOA record on the first and the last of the six record lines.
+    run: curl -s --dns-transport tcp "dns://127.0.0.1:{{port}}/example.test?type=AXFR"
+    expect:
+      exit: 0
+      stdout-matches: '\A;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: \d+\n;; flags: qr aa rd; QUERY: 1, ANSWER: 6, AUTHORITY: 0, ADDITIONAL: 0\n.*;; ANSWER SECTION:\nexample\.test\.\t300\tIN\tSOA\t.*\nexample\.test\.\t300\tIN\tNS\t.*\nexample\.test\.\t300\tIN\tMX\t.*\nmail\.example\.test\.\t300\tIN\tA\t192\.0\.2\.25\nns1\.example\.test\.\t300\tIN\tA\t192\.0\.2\.53\nexample\.test\.\t300\tIN\tSOA\t.*\n\Z'
+
+  - id: no-incremental-type
+    claim: curl asks for AXFR only; the type IXFR is refused by curl itself, before any query, with exit 3 and a message naming the query element.
+    run: curl -s -S --dns-transport tcp "dns://127.0.0.1:{{port}}/example.test?type=IXFR"
+    expect:
+      exit: 3
+      stderr-contains: 'The dns: URL'

@@ -1,0 +1,93 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs game-session.cs, a C# program on the official
+# MCP SDK that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: webtransport-send-datagrams-and-streams-from-an-agent
+title: Sending WebTransport Datagrams from an Agent
+protocols: [webtransport]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event]
+exit-codes: [0, 22, 55, 58]
+references: [webtransport-http3, rfc9114, rfc9000, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed; both hosts read them from their root.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: surl-mcp starts WebTransport with the certificate and one account; curl-mcp's curl tool logs in with -u, sends the game state as one datagram with ?wt=datagram, and gets it echoed, exit code 0.
+    program: game-session.cs
+    args: [datagram]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nstandardOutput: {\"player\":1,\"x\":3,\"y\":4}\ntool error: no\n"
+
+  - id: one-way-stream
+    claim: With ?wt=uni, the data goes on a unidirectional stream and comes back on one of surl's.
+    program: game-session.cs
+    args: [uni]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nstandardOutput: level 2 loaded\ntool error: no\n"
+
+  - id: two-way-stream
+    claim: With no wt= mode, the data goes on a bidirectional stream and comes back on the same stream.
+    program: game-session.cs
+    args: [bidi]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nstandardOutput: ping\ntool error: no\n"
+
+  - id: stream-carries-any-size
+    claim: 100,000 bytes given as the curl tool's stdin and sent with --data-binary @- on a unidirectional stream come back whole.
+    program: game-session.cs
+    args: [big-stream]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nsent 100000 bytes, echoed 100000\ntool error: no\n"
+
+  - id: datagram-fits
+    claim: A datagram of 1,099 bytes is sent and echoed whole.
+    program: game-session.cs
+    args: [fits]
+    expect:
+      exit: 0
+      stdout: "exitCode: 0\nsent 1099 bytes, echoed 1099\ntool error: no\n"
+
+  - id: datagram-too-big
+    claim: A datagram of 1,100 bytes does not fit; the answer is a tool error with exit code 55 and curl's message naming the limit.
+    program: game-session.cs
+    args: [too-big]
+    expect:
+      exit: 1
+      stdout: "exitCode: 55\nsent 1100 bytes, echoed 0\ncurl: (55) The data does not fit in one datagram: at most 1100 bytes, quarter stream ID included\ntool error: yes\n"
+
+  - id: no-login
+    claim: A session with no login is refused with HTTP status 401; the answer is a tool error with exit code 22 and nothing on standard output.
+    program: game-session.cs
+    args: [none]
+    expect:
+      exit: 1
+      stdout: "exitCode: 22\nstandardOutput: \ncurl: (22) The server refused the WebTransport session: HTTP status 401\ntool error: yes\n"
+
+  - id: wrong-password
+    claim: A wrong password is refused the same way, exit code 22, and wait_for_event finds surl's login_judged event for player1 with is_accepted false.
+    program: game-session.cs
+    args: [wrong]
+    expect:
+      exit: 1
+      stdout: "exitCode: 22\nstandardOutput: \ncurl: (22) The server refused the WebTransport session: HTTP status 401\nlogin_judged: player1, accepted False\ntool error: yes\n"
+
+  - id: needs-a-certificate
+    claim: start_server for webtransport with no certificate is a tool error carrying exit code 58, CertificateProblem, and surl's message.
+    program: game-session.cs
+    args: [no-cert]
+    expect:
+      exit: 1
+      stdout: "exit_code: 58 (CertificateProblem)\nsurl: (58) webtransport://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"

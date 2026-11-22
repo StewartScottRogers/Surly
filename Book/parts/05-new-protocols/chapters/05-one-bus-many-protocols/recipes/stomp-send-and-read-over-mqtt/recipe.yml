@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: stomp-send-and-read-over-mqtt
+title: Sending over STOMP, Reading MQTT
+protocols: [stomp, mqtt]
+tier: new-protocols
+surl-options: [--allow-anonymous, --topic, --idle-timeout]
+curl-options: [-s, -d, -m, --next]
+exit-codes: [0]
+references: [surl-readme, curl-readme, stomp12, mqtt311]
+
+# main keeps every message sent to a topic under devices/. plain has no --topic, so keeps none.
+# Both put STOMP and MQTT on one bus. The idle timeout ends a STOMP subscriber once nothing arrives.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "devices/#;retain" --idle-timeout 1 stomp://127.0.0.1:{{port}}/ mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  plain:
+    command: surl --allow-anonymous stomp://127.0.0.1:{{port3}}/ mqtt://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A message curl sends over STOMP to /topic/devices/lamp/state is kept as a retained message on the MQTT topic devices/lamp/state, and a later MQTT subscriber is sent it, written as the topic's two-byte length, the topic and the payload.
+    run: curl -s -d on stomp://127.0.0.1:{{port}}/topic/devices/lamp/state --next -s mqtt://127.0.0.1:{{port2}}/devices/lamp/state
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x12devices/lamp/stateon\Z'
+
+  - id: latest-wins
+    claim: A second STOMP send to the same topic replaces the first; the MQTT subscriber is sent only the second.
+    run: curl -s -d on stomp://127.0.0.1:{{port}}/topic/devices/fan/state --next -s -d off stomp://127.0.0.1:{{port}}/topic/devices/fan/state --next -s mqtt://127.0.0.1:{{port2}}/devices/fan/state
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x11devices/fan/stateoff\Z'
+
+  - id: empty-clears
+    claim: A STOMP send with an empty body clears the retained message, and the MQTT subscriber is sent nothing.
+    run: curl -s -d on stomp://127.0.0.1:{{port}}/topic/devices/door/state --next -s -d "" stomp://127.0.0.1:{{port}}/topic/devices/door/state --next -s mqtt://127.0.0.1:{{port2}}/devices/door/state
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: wildcard
+    claim: An MQTT subscriber to devices/hall/# is sent the retained messages of both topics under it, each with its own length and topic, 48 bytes in all.
+    run: curl -s -d 21.5 stomp://127.0.0.1:{{port}}/topic/devices/hall/temp --next -s -d 55 stomp://127.0.0.1:{{port}}/topic/devices/hall/humidity --next -s mqtt://127.0.0.1:{{port2}}/devices/hall/%23
+    expect:
+      exit: 0
+      stdout-matches: '(?s)\A(?=.*\x00\x11devices/hall/temp21\.5)(?=.*\x00\x15devices/hall/humidity55).{48}\Z'
+
+  - id: outside-the-filter
+    claim: A STOMP send to a topic outside every --topic filter is accepted, curl exits 0, and nothing is kept; the MQTT subscriber is sent nothing.
+    run: curl -s -d on stomp://127.0.0.1:{{port}}/topic/other/lamp --next -s mqtt://127.0.0.1:{{port2}}/other/lamp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: no-filter
+    claim: A server started with no --topic filter keeps nothing either; the MQTT subscriber to the topic just sent over STOMP is sent nothing.
+    run: curl -s -d on stomp://127.0.0.1:{{port3}}/topic/devices/lamp/state --next -s mqtt://127.0.0.1:{{port4}}/devices/lamp/state
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: queue-is-not-a-topic
+    claim: A STOMP send to /queue/devices/jobs goes to a queue, not to an MQTT topic; the MQTT subscriber to devices/jobs is sent nothing.
+    run: curl -s -d job stomp://127.0.0.1:{{port}}/queue/devices/jobs --next -s mqtt://127.0.0.1:{{port2}}/devices/jobs
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: stomp-subscriber-gets-nothing
+    claim: A STOMP subscriber to the topic is not sent the retained message, though the MQTT one is; surl ends the idle subscription after a second, exit 0.
+    run: curl -s -m 10 stomp://127.0.0.1:{{port}}/topic/devices/lamp/state
+    expect:
+      exit: 0
+      stdout: ""

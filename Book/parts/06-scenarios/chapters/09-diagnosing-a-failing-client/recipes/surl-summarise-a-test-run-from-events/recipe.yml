@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs summarise.cs, a C# program on the official MCP SDK that starts both hosts from
+# PATH; its argument picks the run.
+schema: 2
+key: surl-summarise-a-test-run-from-events
+title: Summarising a Test Run from Events
+protocols: [http, smtp, ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, mcp-spec, rfc7616, rfc959, rfc5321]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a run of five curl calls over five connections, the events show 5 logins accepted and 1 refused (alice's wrong Digest password over http), one upload of /upload.csv over ftp, one message delivered to app@example.com's INBOX over smtp, and fault rule f1 answering /flaky.txt with an error over http.
+    program: summarise.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "curl exits: 0 0 0 0 0\nexchanges: 5\nlogins: 5 accepted, 1 refused\n  refused: alice over http (Digest)\nuploads: 1\n  /upload.csv, 14 bytes over ftp\nmail delivered: 1\n  app@example.com/INBOX/;UID=1, 163 bytes over smtp\nfaults applied: 1\n  f1 error at /flaky.txt over http\n"
+
+  - id: client-side-hides-it
+    claim: curl exits 0 for every call of that run, the refused login and the 503 included (no -f, and --retry fetched /flaky.txt on its second try), so only the server's events show either.
+    program: summarise.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^curl exits: 0 0 0 0 0\n.*refused: alice over http.*f1 error at /flaky\.txt'
+
+  - id: failed-upload
+    claim: With a wrong FTP password the upload is refused (curl exit 67), the events show a second refused login, over ftp with the password mechanism, and no upload at all.
+    program: summarise.cs
+    args: [wrong-ftp-password]
+    expect:
+      exit: 0
+      stdout: "curl exits: 0 0 0 67 0\nexchanges: 5\nlogins: 4 accepted, 2 refused\n  refused: alice over http (Digest)\n  refused: alice over ftp (password)\nuploads: none\nmail delivered: 1\n  app@example.com/INBOX/;UID=1, 163 bytes over smtp\nfaults applied: 1\n  f1 error at /flaky.txt over http\n"
+
+  - id: refused-unread
+    claim: Without --allow-plaintext-auth surl refuses the FTP password sent in the clear before checking it (curl exit 67), and that refusal leaves no login_judged event, so the summary counts no refused FTP login and must be read beside the clients' exit codes.
+    program: summarise.cs
+    args: [no-plaintext]
+    expect:
+      exit: 0
+      stdout-matches: '^curl exits: 0 0 0 67 0\nexchanges: 5\nlogins: 4 accepted, 1 refused\n  refused: alice over http \(Digest\)\nuploads: none\n'

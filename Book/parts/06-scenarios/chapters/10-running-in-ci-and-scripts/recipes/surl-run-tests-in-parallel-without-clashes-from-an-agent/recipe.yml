@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs workers.cs, a C# program on the official MCP SDK that starts both hosts from
+# PATH; its arguments pick the run.
+schema: 2
+key: surl-run-tests-in-parallel-without-clashes-from-an-agent
+title: Running Tests in Parallel Without Clashes
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_file, stop_server, list_servers]
+exit-codes: [0, 22, 45, 124]
+references: [surl-readme, curl-readme, mcp-spec, rfc7616]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Four workers run at once, each on its own surl-mcp server, and each reads back the result it uploaded under the shared name result.txt and its own whoami.txt, with read_file showing that result in its server's store; the four servers had four ports, none is left running, and the run exits 0.
+    program: workers.cs
+    args: ["4"]
+    expect:
+      exit: 0
+      stdout: "worker 1: worker 1, result of worker 1; stored result of worker 1\nworker 2: worker 2, result of worker 2; stored result of worker 2\nworker 3: worker 3, result of worker 3; stored result of worker 3\nworker 4: worker 4, result of worker 4; stored result of worker 4\nports: 4 different; servers left: 0\n"
+
+  - id: one-worker-fails
+    claim: When one worker's tests fail, here worker 2 logging in with a wrong password so curl -f exits 22 on the 401, the other workers still pass, every server is stopped, and the run exits 22.
+    program: workers.cs
+    args: ["3", "2"]
+    expect:
+      exit: 22
+      stdout: "worker 1: worker 1, result of worker 1; stored result of worker 1\nworker 2 failed: curl: (22) The requested URL returned error: 401\nworker 3: worker 3, result of worker 3; stored result of worker 3\nports: 3 different; servers left: 0\n"
+
+  - id: shared-directory
+    claim: Two servers cannot share a data directory; the second start_server is a tool error with exit_code 124, DataDirectoryInUse.
+    program: workers.cs
+    args: [shared-directory]
+    expect:
+      exit: 124
+      stdout: "shared-directory: tool error True, DataDirectoryInUse (124)\n"
+
+  - id: shared-port
+    claim: A fixed port another server holds is a start_server tool error with exit_code 45, BindFailed, which port 0 never meets.
+    program: workers.cs
+    args: [shared-port]
+    expect:
+      exit: 45
+      stdout: "shared-port: tool error True, BindFailed (45)\n"

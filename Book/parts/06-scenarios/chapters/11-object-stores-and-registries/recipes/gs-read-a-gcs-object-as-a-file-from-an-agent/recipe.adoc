@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[gs-read-a-gcs-object-as-a-file-from-an-agent]]
+=== Reading a GCS Object as a File
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to check that an object written to Google Cloud Storage (GCS) is also readable as a plain file: write it through the Cloud Storage interface, read the same bytes back over Hypertext Transfer Protocol (HTTP), and confirm what the store holds, with no Google account.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp`, calls `start_server` for one store served as `gs://` and `https://`, calls `curl` on `curl-mcp` to put through `gs://` and read over `https://`, and calls `read_file` to see the stored object:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` holds two listen URLs, `gs://127.0.0.1:0` and `https://127.0.0.1:0`, and both serve one store, here in memory from `files`: a top-level folder is a bucket, the path under it is the object name, and the object is a file to every protocol. `bound_urls` has one address per listen URL, in the order they were given, so the program takes the Cloud Storage port from the first and the HTTPS port from the second. `arguments` holds `--cert` and `--key`, a certificate that names `storage.googleapis.com` as well as `127.0.0.1`, two logins, and `--allow-uploads`, which is what lets a put write. `--user GOOGTESTKEY:s3cret` is a Hash-based Message Authentication Code (HMAC) key pair, which `curl -u` signs a `gs://` request with and which `https://` takes as an ordinary Basic login; `--user :ya29.t0ken` has an empty name, so its password is an OAuth Bearer token, sent with `--oauth2-bearer`.
+
+`curl` runs `curl-mcp`{apos}s curl as the command line would, from `args`, confined to the folder `CURL_MCP_ROOT` names, so `-T note.txt` and `--cacert server.pem` find their files there. `curl` sends `gs://photos/note.txt` to `storage.googleapis.com:443`, so `--connect-to ::127.0.0.1:PORT` routes it to the server. `--next` starts a second transfer in the same call with its own options, which is how one call writes and reads. The answer is JavaScript Object Notation (JSON) text with `exitCode` and `standardOutput` and `standardError`, each with `content`. A refusal is a tool error: a wrong secret ends in exit `22` with `Cloud Storage returned error 403: SignatureDoesNotMatch`, a name with no object in `404 NoSuchKey`, and a server started without `--allow-uploads` answers a correctly signed put `403 AccessDenied`, though it still reads what is already there. A refusal over `https://` is an ordinary status: `-w "%{http_code}"` prints `401` for a read with no login.
+
+The agent{apos}s assertions are about the bytes and where they are. `read_file` takes the `server_id` that `start_server` returned and a `path`, and answers the stored object as `text`, with no HTTP in between; for a name with no object it is a tool error, which is how the program shows that a refused put wrote nothing. A slash in an object name is a folder, so `photos/2026/q1/report.txt` is read over `https://` at the same path and found at `/photos/2026/q1/report.txt`. `-o got.txt` keeps what `curl` read in a file in the folder and `-w "%{size_download}"` says how many bytes arrived: an object whose last byte is not a newline is 17 bytes in and 17 bytes out. `-w "%{content_type}"` shows that an object named `.txt` is served over `https://` as `text/plain`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<gs-read-a-gcs-object-as-a-file>> for the same test on the console.
+* <<gs-read-a-gcs-object-as-a-file-in-csharp>> for the same test in a C# program.
+* <<gs-sign-with-an-hmac-key-from-an-agent>> for the two kinds of login.
+* <<surl-readme>>, <<curl-readme>>, <<gcs-xml-api>>, <<rfc6750>>, <<rfc7617>>.

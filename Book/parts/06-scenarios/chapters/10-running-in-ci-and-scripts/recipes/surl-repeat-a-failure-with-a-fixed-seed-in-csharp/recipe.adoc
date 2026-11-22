@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-repeat-a-failure-with-a-fixed-seed-in-csharp]]
+=== Repeating a Failure with a Fixed Seed
+
+==== Problem
+
+In a C# test: a failure only shows with certain generated names; you want the server's random seed fixed so the rerun draws the same names and the failure repeats.
+
+==== Solution
+
+Set `RandomSeed` on the `SurlServerOptions` of every test run and print the seed first, so a failed run's log names it; rerun with that seed to draw the same names again. The run here starts an in-process Amazon Simple Storage Service (S3) endpoint, runs the app's multipart upload, which has a bug only some upload IDs bring out, and reads back what the server stored. A run that failed printed `seed=3`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`RandomSeed` on `SurlServerOptions` is `surl --random-seed`: it seeds the identifiers a server draws that grant nothing, such as the `UploadId` an S3 multipart upload is handed and must send with every part (<<aws-s3-api>>). Left null, nothing is seeded and they come from the system's cryptographic source, different every run. Seed 3 draws `5639b40740dd9a241e86ed60a3306b6a` every time, the same ID `surl` draws for seed 3 on the console, and the stand-in bug trips over its leading digit every time. Seed 1 draws an ID that begins with a letter, and that run passes. Nothing prints a seed for you, so the run chooses one when it is given none and writes `seed=<n>` before anything else.
+
+A seed fixes the draws for each exchange, numbered from 1 in the order connections arrive. Each `CurlClient` here makes its own connection, so the upload is exchange 1, unless something connects first: a readiness check on a client of its own makes the upload exchange 2, which draws `bb73347a1372eccb4997db86ac06e8c4`, and the failure is gone. A rerun repeats the names only if it repeats the order, which tests running side by side on one server do not; give each its own server (<<surl-run-tests-in-parallel-without-clashes-in-csharp>>). `StartAsync` returns once the listener has bound, so an in-process run needs no readiness check.
+
+The endpoint is `ListenUrls` `s3://127.0.0.1:0` with `--s3-plaintext` in `AdditionalArguments`, which serves S3 as plain Hypertext Transfer Protocol (HTTP) with no certificate; `Accounts` holds a `SurlAccount` whose name and password are the access key ID and secret, and `AllowUploads` lets signed requests store objects in the in-memory `Files`. The app signs each `CurlRequest` with `CurlAuthenticationOptions` (`AwsSigV4` `aws:amz:us-east-1:s3`): a `POST` to `?uploads` answers the `UploadId`, a `PUT` of `?partNumber=1&uploadId=...` with a `CurlContent` body answers the part{apos}s `ETag` in the `CurlResponse` headers, and a `POST` of the part list completes the object. What the server recorded comes from `server.Files.ReadAsync`, a `SurlFileContents`: the object and its one part after the passing run, and a `SurlNotFoundException` after the failing one, which never completed its upload.
+
+The seed never reaches anything secret. Two HTTP servers started with `RandomSeed` 3 and an account send different Digest nonces, because keys, nonces, challenges, salts and tokens always come from the cryptographic source. A negative seed is refused: `StartAsync` throws `SurlServerStartException`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-repeat-a-failure-with-a-fixed-seed>> for the same rerun on the console.
+* <<surl-repeat-a-failure-with-a-fixed-seed-from-an-agent>> for the same rerun from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.
