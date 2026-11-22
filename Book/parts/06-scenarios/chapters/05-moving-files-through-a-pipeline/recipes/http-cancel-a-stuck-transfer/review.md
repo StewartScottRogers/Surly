@@ -10,3 +10,4 @@ Checked against surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167
 1. Program finding (observed, maybe intended): after the client cancels, surl keeps counting a delay-faulted exchange until its delay ends (no ExchangeEnded within 10 s), so with MaxConnectionsPerAddress 1 the next request is 503. Claimed as observed.
 2. Times stated as a 1 to 5 s range after a warm-up request.
 - CI (re-pin, macOS): Surl now ends a held request when its client leaves (BL-1521), so the one-slot case is a race: 200 on macOS, 503 on Windows and Linux. Claimed as either.
+- CI (Linux, run 45018591547): the next request reused a connection (NumConnects 0), Windows always opens one (1); now accepted as either, and a new line from the server's record shows it is never the given-up connection.
