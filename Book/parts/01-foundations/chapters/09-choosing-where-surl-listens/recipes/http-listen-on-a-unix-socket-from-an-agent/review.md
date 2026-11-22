@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 3. CI run 44906624868: on macOS the curl tool's fetch through the socket failed CurlExit (the surl macOS Unix-socket defect, reported); solution is [windows, linux]. 5 of 5 pass on windows.
 Re-pinned to Surl a423807a5d / Curl 0680b97577: surl now words a taken socket path `Could not bind <path>: the path exists already`; file-exists restated. BL-1565 (the macOS accept crash) is not fixed in a423807a5d, so the solution stays [windows, linux].
 Re-pinned to Surl 5da5b3eaf / Curl c84035f797: Surl fixes the macOS crash on the first Unix-socket accept (BL-1565, BL-1568), so the fetch cases run on all three platforms and the macOS-only failure text is gone; macOS is confirmed only by CI.
+4. Bounded wait before reading the server's record (CI race sweep).

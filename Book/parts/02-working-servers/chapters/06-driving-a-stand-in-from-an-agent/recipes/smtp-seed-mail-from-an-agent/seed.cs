@@ -77,6 +77,13 @@ switch (which)
         await Seed("alice@example.com", Hello);
         await Curl("-S", "--mail-from", "alice@example.com", "--mail-rcpt", "alice@example.com", "-T", "note.eml", smtp);
         await Curl("-S", "-u", "alice:secret", "--mail-from", "alice@example.com", "--mail-rcpt", "alice@example.com", "-T", "note.eml", smtp);
+        // Delivery over SMTP is asynchronous: wait, for up to 10 s, until a message after UID 1 is in the store.
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (await CountAfter(1) == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+        }
+
         await ListMessages(1);
         break;
     case "no-such-account":
@@ -112,6 +119,15 @@ async Task ListMessages(int afterUid)
     {
         Console.WriteLine($"list_messages: uid {m.GetProperty("uid")}, size {m.GetProperty("size")}, flags {m.GetProperty("flags").GetRawText()}");
     }
+}
+
+async Task<int> CountAfter(int afterUid)
+{
+    CallToolResult result = await surl.CallToolAsync("list_messages", new Dictionary<string, object?>
+    {
+        ["server_id"] = server, ["owner"] = "alice", ["mailbox"] = "INBOX", ["after_uid"] = afterUid,
+    });
+    return result.StructuredContent!.Value.GetProperty("messages").GetArrayLength();
 }
 
 // The curl tool runs curl's own arguments; -s keeps the progress meter out of the answer.

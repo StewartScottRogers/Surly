@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. No program finding. The curl tool runs -C - on a file under CURL_MCP_ROOT as curl does; a failed If-Range is exit 33, reported as a tool error with the -w output still in standardOutput.
 2. The request line is read back with get_exchanges, which is how the recipe shows the Range the server saw.
 3. Re-pinned to Surl a423807a5d / Curl 0680b97577: the 416 now has a 26-byte body that size_download counts; curl still does not append it.
+4. Bounded wait before reading the server's record (CI race sweep).

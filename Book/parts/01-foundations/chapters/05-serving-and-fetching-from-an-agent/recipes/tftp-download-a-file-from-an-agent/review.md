@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Carries the console tftp-download-a-file claims plus the --allow-uploads write with read_file. TFTP exchanges are base64 packets; the read request is decoded in the program. The transfer tool reaches tftp (statusCode 0).
 2. RFC 1350 cited.
+3. Bounded wait before reading the server's record (CI race sweep).

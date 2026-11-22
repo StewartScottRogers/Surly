@@ -26,6 +26,7 @@ foreach (string path in paths)
     string reply = await Fetch(path);
 
     // What the server received: the selector alone, without the item type the URL carried.
+    await WaitForEndsAsync();
     string selector = System.Text.Encoding.ASCII.GetString(server.Exchanges[^1].Received).Trim();
     Console.WriteLine($"== /{path} (server received '{selector}')");
 
@@ -55,4 +56,16 @@ async Task<string> Fetch(string path)
     CurlResponse response = await client.SendAsync(new CurlRequest(HttpMethod.Get, server.BoundUrl + path), CancellationToken.None);
     await using Stream body = response.Body;
     return await new StreamReader(body).ReadToEndAsync();
+}
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
 }

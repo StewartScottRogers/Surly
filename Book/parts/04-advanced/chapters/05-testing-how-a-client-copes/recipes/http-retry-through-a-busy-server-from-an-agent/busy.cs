@@ -94,6 +94,15 @@ if (which is "curl" or "transfer")
     Console.WriteLine($"waited between 2 and 20 s: {clock.Elapsed.TotalSeconds is >= 2 and < 20}");
 }
 
+// The server records an exchange a moment after curl has its answer: ask until every exchange
+// that started has ended, for at most 10 s, before reading the record.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    JsonElement seen = (await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = server, ["kinds"] = new[] { "exchange_started", "exchange_ended" } })).StructuredContent!.Value;
+    var kinds = seen.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+    if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) break;
+}
+
 // What the server saw: the request lines it received for the path, the times the rule acted, what is left of it.
 CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server });
 string wire = string.Concat(exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()

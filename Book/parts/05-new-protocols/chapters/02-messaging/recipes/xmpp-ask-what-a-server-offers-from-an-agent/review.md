@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. `get_exchanges` records the wire text of an `xmpp://` exchange after STARTTLS, so the agent can show the one IQ curl sent (`id="disco"`, namespace `disco#info`) for `?disco;items`. That is the case `items-not-asked`; the exchange numbers are not claimed.
 2. The `untrusted` case prints `certificate not trusted` for exit 60 because the TLS library's text differs by platform (schannel here).
 3. Left out on purpose: the fixed `id` `disco` is not claimed beyond the case that prints it.
+4. Bounded wait before reading the server's record (CI race sweep).

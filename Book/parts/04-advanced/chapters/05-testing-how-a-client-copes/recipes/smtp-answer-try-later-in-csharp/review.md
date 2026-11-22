@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Self-review against REVIEW.md. Same 11 claims as the console recipe; one program, each case picks how far it goes and reads its own lines.
 2. Delivery is waited for with a StoreChanged callback and a ten-second bound; a refused send does not wait. Curl.Api reports a 451 as CurlException SendError, not a response.
+3. Bounded wait before reading the server's record (CI race sweep).

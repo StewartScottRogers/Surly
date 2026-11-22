@@ -76,9 +76,15 @@ switch (which)
         await Fetch("fixture.txt");
         await Fetch("hello.txt");
         await Restore();
-        CallToolResult servers = await surl.CallToolAsync("list_servers", new Dictionary<string, object?>());
-        JsonElement mine = servers.StructuredContent!.Value.GetProperty("servers").EnumerateArray()
-            .Single(s => s.GetProperty("server_id").GetString() == server);
+        // The server's count can trail the last transfer by a moment: ask again until it holds all four, for up to 10 s.
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        JsonElement mine = await Listed();
+        while (mine.GetProperty("exchange_count").GetInt32() < 4 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+            mine = await Listed();
+        }
+
         Console.WriteLine($"list_servers: exchange_count {mine.GetProperty("exchange_count")}");
         break;
     case "newest-four":
@@ -106,6 +112,14 @@ switch (which)
 }
 
 return 0;
+
+// list_servers: this server's entry.
+async Task<JsonElement> Listed()
+{
+    CallToolResult servers = await surl.CallToolAsync("list_servers", new Dictionary<string, object?>());
+    return servers.StructuredContent!.Value.GetProperty("servers").EnumerateArray()
+        .Single(s => s.GetProperty("server_id").GetString() == server).Clone();
+}
 
 // What a test might leave behind: a file added and a file deleted.
 async Task LeaveSomethingBehind()

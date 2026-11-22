@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. Fixed: the filter case now proves the answer is exactly exchanges 1 and 2 (the pattern is anchored), and the page case that it is exactly exchange 1, not merely that they are included.
 4. For the author: with a C# program, an empty answer can now be claimed (for example, scheme https on this http-only server keeping nothing). Not added, to keep the claims as they were.
 5. Earlier findings stand: max_exchanges' default and transfer's userAgent field are not claimed; the second client uses -A surly-reader so the exact bytes do not change with Curl's version.
+6. Bounded wait before reading the server's record (CI race sweep).

@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 1. transfer's headers must be built as a JsonArray of JsonObject; a Dictionary array or anonymous type throws NotSupportedException in the SDK's serializer (recorded in facts/faults.md).
 2. The recorded case reads the server's own bytes with get_exchanges, so the refusal is shown from both sides.
 Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 431 now carries a 36-byte text body, `431 Request Header Fields Too Large` (BL-1444); the cases and the Discussion say so.
+3. Bounded wait before reading the server's record (CI race sweep).

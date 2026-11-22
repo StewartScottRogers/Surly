@@ -134,6 +134,12 @@ async Task<int> Run(SurlServer server)
 
     if (mode == "log")
     {
+        // The log line can trail the delivery by a moment: look again until there is one per delivery, for up to 10 s.
+        for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+        {
+            if (System.Text.RegularExpressions.Regex.Matches(log.ToString(), "Message stored: ").Count >= deliveries.Count) break;
+        }
+
         string text = log.ToString();
         Console.WriteLine($"refusals logged: {System.Text.RegularExpressions.Regex.Matches(text, "RCPT answered with the chosen error of fault rule f1; nothing was stored.").Count}");
         Console.WriteLine($"stored logged: {System.Text.RegularExpressions.Regex.Matches(text, "Message stored: ").Count}");

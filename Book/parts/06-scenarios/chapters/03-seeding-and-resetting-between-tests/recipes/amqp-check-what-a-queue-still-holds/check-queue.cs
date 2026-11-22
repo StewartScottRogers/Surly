@@ -58,7 +58,9 @@ switch (which)
         await WaitForAcknowledgedAsync(2);
         Report("while the worker runs", await BrowseAsync("jobs"));
         Console.WriteLine($"worker ended: curl exit {(await worker).GetProperty("exitCode")}");
-        Report("after it ended", await BrowseAsync("jobs"));
+        // The server requeues the three only once it notices the connection has gone, so the agent
+        // browses until they are ready again, for at most 10 s.
+        Report("after it ended", await BrowseUntilAsync("jobs", page => page.GetProperty("ready_count").GetInt32() >= 3));
         break;
     case "no-queue":
         CallToolResult missing = await surl.CallToolAsync("browse_queue", new Dictionary<string, object?> { ["server_id"] = id, ["queue"] = "job" });
@@ -87,6 +89,20 @@ async Task<JsonElement> BrowseAsync(string queue)
 {
     CallToolResult result = await surl.CallToolAsync("browse_queue", new Dictionary<string, object?> { ["server_id"] = id, ["queue"] = queue });
     return result.StructuredContent!.Value.Clone();
+}
+
+// Polls browse_queue until the page is as expected or 10 s pass, then answers the last page.
+async Task<JsonElement> BrowseUntilAsync(string queue, Func<JsonElement, bool> expected)
+{
+    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+    JsonElement page = await BrowseAsync(queue);
+    while (!expected(page) && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100);
+        page = await BrowseAsync(queue);
+    }
+
+    return page;
 }
 
 void Report(string when, JsonElement page)

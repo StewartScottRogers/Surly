@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The listing-off case adds the server's own 404 from get_exchanges, since the exit code 22 alone is ambiguous.
 2. transfer on a ws URL answers statusCode 101, the status of the upgrade.
+3. Bounded wait before reading the server's record (CI race sweep).

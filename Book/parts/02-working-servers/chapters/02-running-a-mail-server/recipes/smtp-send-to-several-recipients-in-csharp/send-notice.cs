@@ -101,7 +101,15 @@ switch (mode)
         Console.WriteLine(Encoding.ASCII.GetString(copy.Bytes.Span).Split("\r\n").First(l => l.StartsWith("To: ")));
         break;
     case "log":
-        int stored = System.Text.RegularExpressions.Regex.Matches(log.ToString(), @"Message stored: \d+ bytes for 3 recipients").Count;
+        // The log line can trail the delivery by a moment: look again until it is there, for up to 10 s.
+        const string storedLine = @"Message stored: \d+ bytes for 3 recipients";
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!System.Text.RegularExpressions.Regex.IsMatch(log.ToString(), storedLine) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+        }
+
+        int stored = System.Text.RegularExpressions.Regex.Matches(log.ToString(), storedLine).Count;
         Console.WriteLine($"stored once for 3 recipients: {stored}");
         break;
     case "refused" or "refused-none":

@@ -42,6 +42,7 @@ await using (CurlClient client = CurlClient.Create())
 }
 
 // The test: split what the server received into request heads and count each header in each.
+await WaitForEndsAsync();
 string received = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Received)));
 string[] heads = received.Split("\r\n\r\n", StringSplitOptions.RemoveEmptyEntries);
 bool passed = true;
@@ -59,3 +60,15 @@ foreach (string head in heads)
 
 Console.WriteLine(passed ? "each header arrived once" : "a header did not arrive exactly once");
 return passed ? 0 : 1;
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

@@ -43,6 +43,13 @@ await using (CurlClient stranger = CurlClient.Create())
     Console.WriteLine($"search, wrong password, GET /invoices.csv: {await Get(one ? billing : stranger, "invoices.csv", "search", "guess")}");
 }
 
+// The server records an exchange's end a moment after the client has gone: wait, for at most 10 s,
+// until every exchange that started has ended, before reading the record.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); options.RecordExchanges && DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    if (server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted }).Count == server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }).Count) break;
+}
+
 IReadOnlyList<SurlEvent> logins;
 try
 {

@@ -51,10 +51,24 @@ JsonElement error = answer.GetProperty("standardError");
 string said = error.ValueKind == JsonValueKind.Null ? "" : error.GetProperty("content").GetString()!.Trim();
 Console.WriteLine($"curl exit {answer.GetProperty("exitCode").GetInt32()} {said}".TrimEnd());
 
-// surl-mcp: the message the broker kept for the topic, if the login let the publish through.
-CallToolResult kept = await surl.CallToolAsync("read_retained_message", new Dictionary<string, object?>
+// surl-mcp: the message the broker kept for the topic, if the login let the publish through. A QoS 0
+// publish is not acknowledged, so curl can return before the broker has kept it: after a publish that
+// went through, ask again until the message is there, for at most 10 s.
+bool through = answer.GetProperty("exitCode").GetInt32() == 0;
+JsonElement kept = await Kept();
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); through && kept.TryGetProperty("retained", out _) && DateTime.UtcNow < deadline; kept = await Kept())
 {
-    ["server_id"] = server, ["topic"] = "home/temp",
-});
-Console.WriteLine($"read_retained_message: {kept.StructuredContent!.Value.GetRawText()}");
+    await Task.Delay(100);
+}
+
+Console.WriteLine($"read_retained_message: {kept.GetRawText()}");
 return 0;
+
+async Task<JsonElement> Kept()
+{
+    CallToolResult result = await surl.CallToolAsync("read_retained_message", new Dictionary<string, object?>
+    {
+        ["server_id"] = server, ["topic"] = "home/temp",
+    });
+    return result.StructuredContent!.Value.Clone();
+}

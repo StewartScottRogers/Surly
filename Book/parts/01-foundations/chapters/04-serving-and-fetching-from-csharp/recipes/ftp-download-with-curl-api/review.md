@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. AllowPlaintextAuthentication is a loosening option: the case without it (refused 67) and the solution with it are both present.
 2. A request with no Authentication and one with the wrong password both throw LoginDenied, so the exception cannot tell them apart.
+3. Bounded wait before reading the server's record (CI race sweep).

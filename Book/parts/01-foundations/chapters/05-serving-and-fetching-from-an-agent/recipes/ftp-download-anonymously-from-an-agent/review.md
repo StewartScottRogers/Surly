@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. --allow-anonymous is a loosening option: the Solution is the refusal, the allowed case the fix, as the task asks.
 2. curl-mcp transfer on ftp answers statusCode 226.
+3. Bounded wait before reading the server's record (CI race sweep).

@@ -68,10 +68,16 @@ bool same = SHA256.HashData(joined).SequenceEqual(SHA256.HashData(original));
 Console.WriteLine($"joined: {joined.Length} bytes, {(same ? "identical" : "differs")}");
 
 // The server's side: the Range header of every request it received, and how many connections carried them.
-var ranged = server.Exchanges
+// The record can trail the answers by a moment: look again until every range is there, for up to 10 s.
+List<List<string>> Ranged() => server.Exchanges
     .Select(exchange => Encoding.ASCII.GetString(exchange.Received).Split("\r\n").Where(l => l.StartsWith("Range: ")).ToList())
     .Where(ranges => ranges.Count > 0)
     .ToList();
+var ranged = Ranged();
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); ranged.Sum(r => r.Count) < count && DateTime.UtcNow < deadline; ranged = Ranged())
+{
+    await Task.Delay(100);
+}
 foreach (string range in ranged.SelectMany(r => r).OrderBy(r => long.Parse(r[13..r.IndexOf('-')])))
 {
     Console.WriteLine($"server received {range}");

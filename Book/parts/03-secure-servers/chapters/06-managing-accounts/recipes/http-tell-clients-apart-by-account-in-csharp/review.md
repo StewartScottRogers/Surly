@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 
 1. RecordExchanges is off by default; the recipe shows the InvalidOperationException rather than hiding it.
 2. An exchange is a connection: the one-client case shows accounts mixing in one exchange; the wrong guess uses its own client to keep the solution clean.
+3. Bounded wait before reading the server's record (CI race sweep).

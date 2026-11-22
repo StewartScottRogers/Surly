@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. Server-recorded check is surl -v's log line `Message stored: N bytes for 1 recipients`, kept in a temporary file.
 4. Failure path: two runs sharing one --directory; the loser exits 124 and the script passes the code on. Order of the two runs is not deterministic, so the script prints the exit codes sorted.
 5. Ran verify three times in a row; stable.
+6. Bounded wait before reading the server's record (CI race sweep).

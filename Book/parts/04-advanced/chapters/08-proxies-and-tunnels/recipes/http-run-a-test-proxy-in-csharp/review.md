@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 
 1. SurlServerOptions has no proxy property; `AdditionalArguments` carries `--proxy`, stated in the Discussion.
 2. Allowed-origin case accepts 504 or 502, as on the console.
+3. Bounded wait before reading the server's record (CI race sweep).

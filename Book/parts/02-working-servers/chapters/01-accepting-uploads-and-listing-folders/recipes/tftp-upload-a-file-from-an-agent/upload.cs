@@ -93,10 +93,15 @@ switch (scenario)
     case "uploads-off-error-two":
         await Put("r1.cfg", "router.cfg");
         // get_exchanges: each chunk is one datagram, base64. An error packet is opcode 5, then a two-byte error code.
-        CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-        var packets = recorded.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks").EnumerateArray()
-            .Where(c => c.GetProperty("direction").GetString() == "sent")
-            .Select(c => Convert.FromBase64String(c.GetProperty("data").GetString()!));
+        // The record can trail curl by a moment, so ask again until the error packet is there, for up to 10 s.
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        byte[][] packets = await SentPackets();
+        while (!packets.Any(p => p[1] == 5) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+            packets = await SentPackets();
+        }
+
         byte[] error = packets.Single(p => p[1] == 5);
         Console.WriteLine($"server sent: opcode {error[1]}, error {error[2] * 256 + error[3]}");
         break;
@@ -117,4 +122,14 @@ async Task<JsonElement> Curl(string[] curlArgs)
 {
     CallToolResult result = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = curlArgs });
     return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text).RootElement;
+}
+
+// The datagrams the server sent in its first exchange, as get_exchanges holds them so far.
+async Task<byte[][]> SentPackets()
+{
+    CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
+    JsonElement exchanges = recorded.StructuredContent!.Value.GetProperty("exchanges");
+    return exchanges.GetArrayLength() == 0 ? [] : exchanges[0].GetProperty("chunks").EnumerateArray()
+        .Where(c => c.GetProperty("direction").GetString() == "sent")
+        .Select(c => Convert.FromBase64String(c.GetProperty("data").GetString()!)).ToArray();
 }

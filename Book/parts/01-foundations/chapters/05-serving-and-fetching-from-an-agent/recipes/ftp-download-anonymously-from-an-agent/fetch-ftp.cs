@@ -43,8 +43,7 @@ switch (which)
         await Show(["-s", root + "hello.txt"]);
 
         // The record of the one control connection: what the client sent. The conversation is text.
-        CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-        JsonElement chunks = recorded.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks");
+        JsonElement chunks = (await RecordedAsync(EndsWithReply)).GetProperty("exchanges")[0].GetProperty("chunks");
         foreach (JsonElement chunk in chunks.EnumerateArray().Where(c => c.GetProperty("direction").GetString() == "received"))
         {
             Console.Write($"client sent: {chunk.GetProperty("data").GetString()}");
@@ -116,3 +115,29 @@ async Task Transfer(string label, string url)
         Console.WriteLine($"{failure.GetProperty("kind")}, exit code {failure.GetProperty("exitCode")}");
     }
 }
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

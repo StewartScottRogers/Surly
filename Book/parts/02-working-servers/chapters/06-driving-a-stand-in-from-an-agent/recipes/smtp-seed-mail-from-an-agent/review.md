@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 3. The SMTP-delivered message's `size` (208, with the headers the server adds) appears in that case's exact output but is not claimed.
 4. Not claimed (observed earlier): `seed_mail` matches the account by the local part only, case-insensitively. Left for the author to judge.
 5. `uid_validity` and `internal_date` vary per run; the program does not print them.
+6. Bounded wait before reading the server's record (CI race sweep).

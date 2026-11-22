@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Response Version for an HTTP/1.0 request is 1.1 (surl answers 1.1 with Connection: close); the recipe reads the server's recorded request line to show what was asked.
 2. Program finding: `CurlResponse.Info.HttpVersion` is 0 when read after SendAsync (Info is not final until the transfer ends); the recipe uses `Version`.
 3. CurlClientOptions.Http as a client-wide default is cited from the Curl.Api docs, not a case.
+4. Bounded wait before reading the server's record (CI race sweep).

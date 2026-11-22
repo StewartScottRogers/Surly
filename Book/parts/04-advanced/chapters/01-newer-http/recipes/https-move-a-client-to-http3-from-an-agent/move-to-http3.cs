@@ -62,8 +62,16 @@ async Task Fetch(string which, string[] version)
     Console.WriteLine($"{which}: exit {answer.GetProperty("exitCode")}, {answer.GetProperty("standardOutput").GetProperty("content").GetString()}");
 
     // surl-mcp's get_exchanges: a QUIC exchange records bytes per stream, with a stream_id; TCP has none.
-    JsonElement seen = (await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId })).StructuredContent!.Value;
-    JsonElement newest = seen.GetProperty("exchanges").EnumerateArray().Last();
-    bool quic = newest.GetProperty("chunks").EnumerateArray().Any(c => c.TryGetProperty("stream_id", out _));
+    // The record can trail curl's answer by a moment, so after an HTTP/3 answer ask again until it is
+    // there, for at most 10 s.
+    bool h3 = answer.GetProperty("standardOutput").GetProperty("content").GetString()!.StartsWith("HTTP/3");
+    bool quic = false;
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); ; await Task.Delay(100))
+    {
+        JsonElement seen = (await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId })).StructuredContent!.Value;
+        JsonElement newest = seen.GetProperty("exchanges").EnumerateArray().Last();
+        quic = newest.GetProperty("chunks").EnumerateArray().Any(c => c.TryGetProperty("stream_id", out _));
+        if (quic || !h3 || DateTime.UtcNow >= deadline) break;
+    }
     Console.WriteLine($"{which}: the server saw {(quic ? "QUIC" : "TCP")}");
 }

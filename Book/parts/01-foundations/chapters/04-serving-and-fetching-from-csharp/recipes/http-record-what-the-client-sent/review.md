@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl comm
 4. Notable for readers: an exchange is a connection, not a request (case one-connection-one-exchange). A test that counts `Exchanges` to count requests will be wrong whenever the client reuses a connection.
 5. Cross-reference <<http-wait-for-an-upload-in-process>> points at a recipe not written yet (chapter 10).
 6. Same package-feed note as http-serve-and-fetch-in-process. No fixtures, so the CRLF fix does not affect it.
+7. Bounded wait before reading the server's record (CI race sweep).

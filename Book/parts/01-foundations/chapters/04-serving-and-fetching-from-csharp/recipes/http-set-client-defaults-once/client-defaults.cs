@@ -66,8 +66,15 @@ for (int n = 1; n <= 3; n++)
     await body.CopyToAsync(Stream.Null);
 }
 
-// The test: the User-Agent line of each request head the server received, in order.
+// The test: the User-Agent line of each request head the server received, in order. The record can
+// trail the client by a moment, so read it again until it holds all three heads, for up to 10 s.
 string received = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Received)));
+for (var waited = Stopwatch.StartNew(); received.Split("\r\n\r\n").Length - 1 < 3 && waited.Elapsed.TotalSeconds < 10;)
+{
+    await Task.Delay(100);
+    received = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Received)));
+}
+
 int count = 0;
 bool passed = true;
 foreach (string head in received.Split("\r\n\r\n", StringSplitOptions.RemoveEmptyEntries))

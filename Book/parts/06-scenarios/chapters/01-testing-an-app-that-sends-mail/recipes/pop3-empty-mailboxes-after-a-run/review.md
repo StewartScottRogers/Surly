@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 1. Probed, not claimed: in a --next chain of DELEs, one that fails (-ERR, exit 8) does not undo the DELEs before it; they are committed.
 2. With a wrong password curl prints Login denied once per --next transfer; the case checks both lines.
 3. That DELE only marks and QUIT commits is cited to <<rfc1939>>; the cases show the counts after the call.
+4. Bounded wait before reading the server's record (CI race sweep).

@@ -76,6 +76,13 @@ await using (CurlClient client = CurlClient.Create())
     }
 }
 
+// The server records an exchange's last bytes and its end a moment after the client has gone: wait,
+// for at most 10 s, until every exchange that started has ended.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    if (server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted }).Count == server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }).Count) break;
+}
+
 // What the server judged, and what the client put on the wire.
 foreach (LoginJudgedEvent login in server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.LoginJudged }).Cast<LoginJudgedEvent>())
 {

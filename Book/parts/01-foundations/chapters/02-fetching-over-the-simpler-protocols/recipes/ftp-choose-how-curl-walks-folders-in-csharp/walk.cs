@@ -74,6 +74,7 @@ return 0;
 async Task Fetch(string label, FtpFileMethod? method, string path)
 {
     int before = server.Exchanges.Count;
+    string outcome;
     try
     {
         await using CurlClient client = CurlClient.Create();
@@ -84,12 +85,15 @@ async Task Fetch(string label, FtpFileMethod? method, string path)
             }, CancellationToken.None);
         await using Stream body = response.Body;
         string text = await new StreamReader(body).ReadToEndAsync();
-        Console.WriteLine($"{label}: {Commands(server.Exchanges[before])} -> {text.TrimEnd()}");
+        outcome = text.TrimEnd();
     }
     catch (CurlException failure)
     {
-        Console.WriteLine($"{label}: {Commands(server.Exchanges[before])} -> {(int)failure.Code} {failure.Code}");
+        outcome = $"{(int)failure.Code} {failure.Code}";
     }
+
+    await WaitForEndsAsync();
+    Console.WriteLine($"{label}: {Commands(server.Exchanges[before])} -> {outcome}");
 }
 
 // The path commands of one exchange, in order: CWD with its argument, SIZE and RETR with theirs.
@@ -100,3 +104,15 @@ static string Commands(SurlExchangeRecord exchange) =>
 // The first line the server sent that starts with a reply code.
 static string Reply(SurlExchangeRecord exchange, string code) =>
     Encoding.ASCII.GetString(exchange.Sent).Split("\r\n").First(line => line.StartsWith(code));
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

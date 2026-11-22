@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Fixed: relies on Curl 7d167fa10a sending a `PUT` with a body to `tftp://` as a TFTP write (BL-5594); before it was sent as a read request (exit 68).
 2. Truth: the error code 2 is read from the recorded exchange's datagrams (opcode 5), not guessed from the exception code.
+3. Bounded wait before reading the server's record (CI race sweep).

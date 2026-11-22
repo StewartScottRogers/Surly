@@ -59,7 +59,8 @@ Console.WriteLine($"viewer over POP3: curl exit {await Exit("-u", "viewer@exampl
 
 // A wrong password for app, an account that may use SMTP, and the reply every SMTP refusal got on the wire.
 Console.WriteLine($"app, wrong password, over SMTP: curl exit {await Exit("--crlf", "-u", "app@example.com:wrong", "--mail-from", "app@example.com", "--mail-rcpt", "viewer@example.com", "-T", "hi.eml", smtp + "example.com")}");
-CallToolResult wire = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["scheme"] = "smtp" });
+await AllEndedAsync();
+CallToolResult wire =await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["scheme"] = "smtp" });
 string[] replies = wire.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()
     .Select(x => string.Concat(x.GetProperty("chunks").EnumerateArray().Where(c => c.GetProperty("direction").GetString() == "sent").Select(c => c.GetProperty("data").GetString())))
     .Select(text => text.Split("\r\n").FirstOrDefault(line => line.StartsWith("535")) ?? "").Where(line => line != "").ToArray();
@@ -90,6 +91,18 @@ async Task<JsonElement> Curl(params string[] curlArguments)
 {
     CallToolResult result = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = curlArguments.Prepend("-s").ToArray() });
     return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text).RootElement.Clone();
+}
+
+// The server records an exchange's last bytes and its end a moment after curl has its answer: ask
+// until every exchange that started has ended, for at most 10 s.
+async Task AllEndedAsync()
+{
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+    {
+        CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = id, ["kinds"] = new[] { "exchange_started", "exchange_ended" } });
+        var kinds = events.StructuredContent!.Value.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+        if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) return;
+    }
 }
 
 async Task<int> Exit(params string[] curlArguments) => (await Curl(curlArguments)).GetProperty("exitCode").GetInt32();

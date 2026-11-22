@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Failure paths: uploads off (25), file too big (70, --max-filesize), login refused (67), and a damaged stored copy (put_file flips one byte) to show the check can say False. Only --allow-anonymous warns on start; --allow-uploads does not.
 2. read_file answers base64, so the comparison is byte exact; TYPE I before STOR is in get_exchanges.
+3. Bounded wait before reading the server's record (CI race sweep).

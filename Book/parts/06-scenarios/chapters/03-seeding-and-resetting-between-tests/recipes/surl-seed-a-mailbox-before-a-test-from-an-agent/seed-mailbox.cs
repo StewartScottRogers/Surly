@@ -59,8 +59,17 @@ Console.WriteLine($"the client read: {message.Split('\n').First(l => l.StartsWit
 await Curl(["-sS", "-u", "ann@example.com:secret", "-X", "DELE 1", urls[2]]);
 Console.WriteLine("the client sent DELE 1");
 
-// After: the store as the client left it, read from the server's side.
+// After: the store as the client left it, read from the server's side. The server commits the DELE
+// as the POP3 session ends, so the agent reads again until the count drops, for at most 10 s.
+int held = inbox.GetProperty("message_count").GetInt32();
 inbox = await Inbox();
+DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+while (inbox.GetProperty("message_count").GetInt32() >= held && DateTime.UtcNow < deadline)
+{
+    await Task.Delay(100);
+    inbox = await Inbox();
+}
+
 Console.WriteLine($"after: {inbox.GetProperty("message_count")} messages, {inbox.GetProperty("unseen_count")} unseen");
 CallToolResult listed = await surl.CallToolAsync("list_messages", new Dictionary<string, object?>
 {

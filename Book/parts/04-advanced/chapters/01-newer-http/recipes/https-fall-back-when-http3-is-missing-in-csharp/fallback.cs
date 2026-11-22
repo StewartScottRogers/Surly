@@ -102,6 +102,13 @@ catch (CurlException e)
 
 if (tftp is not null)
 {
+    // UDP has no answer to wait for: the listener records a packet a moment after it lands, so look
+    // again until it has, for up to 10 s.
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); tftp.Exchanges.Count == 0 && DateTime.UtcNow < deadline;)
+    {
+        await Task.Delay(100);
+    }
+
     Console.WriteLine($"QUIC packets the TFTP listener took as exchanges: {(tftp.Exchanges.Count > 0 ? "some" : "none")}");
     await tftp.DisposeAsync();
 }

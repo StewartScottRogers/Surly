@@ -74,5 +74,18 @@ foreach (string name in names)
 }
 
 await client.DisposeAsync();
+await WaitForEndsAsync();
 Console.WriteLine($"exchanges the server saw: {server.Exchanges.Count - before}");
 return 0;
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

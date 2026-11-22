@@ -60,7 +60,21 @@ if (passed)
     return 0;
 }
 
-// The run failed. The events name each login's method and account, never its secret: keep them whole.
+// The run failed. The server records the end of the last exchange a moment after its client is done:
+// ask again until every exchange it started has ended, for at most 10 s, before keeping the record.
+for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+{
+    CallToolResult ends = await surl.CallToolAsync("get_events", new Dictionary<string, object?>
+    {
+        ["server_id"] = serverId, ["kinds"] = new[] { "exchange_started", "exchange_ended" }, ["max_events"] = 500,
+    });
+    if (ends.StructuredContent!.Value.GetProperty("events").EnumerateArray().Sum(e => e.GetProperty("kind").GetString() == "exchange_started" ? 1 : -1) == 0)
+    {
+        break;
+    }
+}
+
+// The events name each login's method and account, never its secret: keep them whole.
 Directory.CreateDirectory("ci-logs");
 CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = serverId });
 File.WriteAllText("ci-logs/events.json", events.StructuredContent!.Value.GetRawText());

@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Self-review against REVIEW.md; no independent reviewer yet. Every Discussion claim is a case or cited to the bibliography.
 2. Curl.Api has no retry option; the retry case is the app's own loop, and the console's --retry-alone case has no counterpart (no-retry is the nearest).
 3. SELECT answered NO maps to CurlException LoginDenied (67) 'Select failed': noted in the recipe.
+4. Bounded wait before reading the server's record (CI race sweep).

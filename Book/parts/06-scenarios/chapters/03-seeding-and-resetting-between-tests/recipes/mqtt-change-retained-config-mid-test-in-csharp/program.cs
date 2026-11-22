@@ -26,6 +26,7 @@ SurlServerOptions Options()
     {
         ListenUrls = { "mqtt://127.0.0.1:0" },
         AllowAnonymous = which != "closed",
+        RecordExchanges = true,
     };
     if (which != "no-retain")
     {
@@ -108,11 +109,13 @@ async Task Device(string topic)
     Console.WriteLine($"{topic}: device reads {(text.Length == 0 ? "nothing" : text[header..])}");
 }
 
-// A publish as the device's own client makes it, with the retain flag clear.
+// A publish as the device's own client makes it, with the retain flag clear. It is QoS 0, never
+// acknowledged, so the test waits for the broker to end that first exchange before reading the store.
 async Task Publish(string topic, string text)
 {
     var request = new CurlRequest(HttpMethod.Post, $"{server.BoundUrl}{topic}") { Body = CurlContent.FromBytes(Encoding.UTF8.GetBytes(text)) };
     await client.SendAsync(request, CancellationToken.None);
+    await server.WaitForEventAsync(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded, AfterSequence = 0 }, TimeSpan.FromSeconds(10));
 }
 
 // What the broker holds for a topic, read without a client and without dropping it.

@@ -46,7 +46,7 @@ try
         case "commands":
             await Upload("2026/11/13/report.txt", create: true);
             await Upload("2026/11/13/report.txt", create: true);
-            Console.WriteLine($"commands: {string.Join(", ", Commands())}");
+            Console.WriteLine($"commands: {string.Join(", ", await Commands(2))}");
             break;
         default:
             await Upload("2026/11/12/report.txt", create: which != "without");
@@ -81,7 +81,19 @@ async Task List(string folder)
     Console.WriteLine($"{folder}: {string.Join(" ", page.Entries.Select(e => e.IsFolder ? e.Name + "/" : e.Name))}");
 }
 
-// The commands that make folders or store files, with the names they carried.
-IEnumerable<string> Commands() =>
+// The commands that make folders or store files, with the names they carried. The record can trail the
+// client by a moment, so look again until it holds a STOR per upload, for up to 10 s.
+async Task<string[]> Commands(int uploads)
+{
+    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+    while (Recorded().Count(c => c.StartsWith("STOR ")) < uploads && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100);
+    }
+
+    return Recorded();
+}
+
+string[] Recorded() =>
     Encoding.ASCII.GetString(server.Exchanges[0].Received).Split("\r\n")
-        .Where(line => line.StartsWith("MKD ") || line.StartsWith("STOR "));
+        .Where(line => line.StartsWith("MKD ") || line.StartsWith("STOR ")).ToArray();

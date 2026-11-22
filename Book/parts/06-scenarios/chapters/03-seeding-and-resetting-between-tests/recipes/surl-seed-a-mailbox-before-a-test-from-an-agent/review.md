@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The client under test is curl-mcp's curl tool; -X "DELE 1" deletes on QUIT at the end of the command line.
 2. Failure path: seed_mail to an address with no mailbox is a tool error NoSuchAccount.
+3. Bounded wait before reading the server's record (CI race sweep).

@@ -66,6 +66,8 @@ switch (which)
         break;
     case "the-whole-story":
         await Upload("--digest");
+        // The server records the exchange's end a moment after curl has its answer: wait for it, with a bound.
+        await Wait(new() { ["kinds"] = new[] { "exchange_ended" }, ["timeout_ms"] = 10000 });
         await GetEvents(new());
         break;
     case "a-page-at-a-time":

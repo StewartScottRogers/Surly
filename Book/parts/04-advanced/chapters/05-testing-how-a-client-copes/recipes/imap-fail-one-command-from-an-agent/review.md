@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Self-review against REVIEW.md; no independent reviewer yet. Every Discussion claim is a case or cited to the bibliography.
 2. curl tool keeps -w output on a failed exit; retry-alone prints 'retries 0'.
 3. Same ten claims as the console; the console log-count claim is the fault_applied event plus start log line.
+4. Bounded wait before reading the server's record (CI race sweep).

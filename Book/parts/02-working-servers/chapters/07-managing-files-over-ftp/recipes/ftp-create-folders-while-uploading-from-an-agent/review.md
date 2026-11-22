@@ -4,3 +4,4 @@ Verdict: accept
 Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167fa10a), Curl.Api 0.2.0, Surl.Api 1.0.0, surl-mcp 1.0.0, curl-mcp 0.1.0.0, ModelContextProtocol.Core 2.2.0: 5 cases pass on windows.
 ## Findings
 1. list_files answers entries with name and kind; made folders show as folder.
+2. Bounded wait before reading the server's record (CI race sweep).

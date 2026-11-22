@@ -42,6 +42,13 @@ try
             break;
         case "login":
             await List("");
+            // The record can trail the client by a moment: look again until it holds the login, for up to 10 s.
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!Received().Any(l => l.StartsWith("USER ")) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(100);
+            }
+
             Console.WriteLine($"received: {string.Join(", ", Received().Where(l => l.StartsWith("USER ")))}");
             break;
         case "missing":

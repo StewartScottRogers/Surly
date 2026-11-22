@@ -81,8 +81,7 @@ else
     Console.WriteLine($"statusCode: {got.GetProperty("statusCode")}");
 }
 
-CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-JsonElement exchanges = seen.StructuredContent!.Value.GetProperty("exchanges");
+JsonElement exchanges = (await RecordedAsync(answer => fetched.IsError == true || EndsWithReply(answer))).GetProperty("exchanges");
 Console.WriteLine($"requests the server received: {exchanges.GetArrayLength()}");
 foreach (JsonElement exchange in exchanges.EnumerateArray())
 {
@@ -92,3 +91,29 @@ foreach (JsonElement exchange in exchanges.EnumerateArray())
 
 Console.WriteLine($"tool error: {(fetched.IsError == true ? "yes" : "no")}");
 return fetched.IsError == true ? 1 : 0;
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

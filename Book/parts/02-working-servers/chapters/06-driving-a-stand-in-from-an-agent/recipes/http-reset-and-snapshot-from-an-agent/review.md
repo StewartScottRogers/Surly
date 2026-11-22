@@ -8,3 +8,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 3. Snapshot and server IDs stay opaque: the program prints "answered the IDs it was given" after checking them, and `newest-four` matches the IDs in the error with `\S+`.
 4. The `--directory` refusal is a second server in the same run, fixture `site/hello.txt`; the exact refusal text is now matched in full.
 5. Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: restore_server's refusal now gives both reasons a snapshot is missing (never taken of this server, or dropped past the newest 4); case and Discussion quote it.
+6. Bounded wait before reading the server's record (CI race sweep).

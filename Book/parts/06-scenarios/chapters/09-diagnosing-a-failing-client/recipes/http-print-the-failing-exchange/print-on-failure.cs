@@ -51,7 +51,9 @@ if (status == 200)
     return 0;
 }
 
-// The assertion failed: print the exchange this test made, so the CI log shows the cause.
+// The assertion failed: print the exchange this test made, so the CI log shows the cause. The server
+// records the end of an exchange a moment after its client has gone; wait for that, for up to 10 s.
+await server.WaitForEventAsync(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }, TimeSpan.FromSeconds(10));
 SurlExchangeRecord exchange = server.Exchanges[before];
 Console.WriteLine($"FAIL: GET /{path} answered {status}, expected 200");
 Console.WriteLine($"exchange {exchange.ExchangeId} on {exchange.Scheme} from {exchange.Client}");

@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. start_server refusal carries exit_code 45 / exit_code_name BindFailed in structured content (as faults.md says).
 2. The test mails the fetched greeting file (body only, --crlf); list_mailboxes message_count is the server-side check.
+3. Bounded wait before reading the server's record (CI race sweep).

@@ -4,3 +4,4 @@ Verdict: accept
 Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl commit 9ad60d80c), Curl port 8.22.0 (Curl commit 7d167fa10a), surl-mcp 1.0.0, curl-mcp 0.1.0.0, dotnet 11.0.100, ModelContextProtocol.Core 2.2.0: 8 of 8 cases pass on windows.
 ## Findings
 1. Nearest honest form, as the console twin: the program writes the partial file.
+2. Bounded wait before reading the server's record (CI race sweep).

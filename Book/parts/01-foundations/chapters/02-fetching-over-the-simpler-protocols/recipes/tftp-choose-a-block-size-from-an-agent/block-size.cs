@@ -91,8 +91,7 @@ return 0;
 
 async Task<JsonElement> Chunks()
 {
-    CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-    return recorded.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks");
+    return (await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() > 0)).GetProperty("exchanges")[0].GetProperty("chunks");
 }
 
 async Task<byte[]> Datagram(int index) => Bytes((await Chunks())[index]);
@@ -108,3 +107,23 @@ static string Describe(byte[] datagram) => datagram[1] switch
     5 => $"opcode 5, error {datagram[2] * 256 + datagram[3]}",
     _ => $"opcode {datagram[1]}, {string.Join(" ", Encoding.ASCII.GetString(datagram[2..]).Split('\0', StringSplitOptions.RemoveEmptyEntries))}",
 };
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}

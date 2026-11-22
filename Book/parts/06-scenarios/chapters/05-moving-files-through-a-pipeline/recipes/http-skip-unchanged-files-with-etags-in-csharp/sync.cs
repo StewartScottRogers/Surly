@@ -29,6 +29,7 @@ await using CurlClient client = CurlClient.Create();
 var local = new Dictionary<string, (string Text, string ETag)>();
 string folder = Directory.CreateDirectory($"local-{which}").FullName;
 bool showTags = which is "tags" or "older" or "same-second";
+int requests = 0;
 
 await Sync(1);
 await Sync(2);
@@ -58,9 +59,19 @@ await Sync(3);
 Console.WriteLine($"local a.txt: {local["a.txt"].Text.TrimEnd()}");
 Console.WriteLine($"local b.txt: {local["b.txt"].Text.TrimEnd()}");
 
-// What the server sent: every reply head is in the recorded exchanges.
-string sent = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Sent)));
-string received = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Received)));
+// What the server sent: every reply head is in the recorded exchanges. The record can trail the
+// client by a moment, so read it again until it holds a reply for every request, for up to 10 s.
+string sent = "", received = "";
+for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+{
+    sent = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Sent)));
+    received = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Received)));
+    if (Count(sent, "HTTP/1.1 ") >= requests)
+    {
+        break;
+    }
+}
+
 Console.WriteLine($"server answered: {Count(received, "GET /")} GET, {Count(sent, " 200 OK")} with 200, {Count(sent, " 304 Not Modified")} with 304");
 return 0;
 
@@ -76,6 +87,7 @@ async Task Sync(int run)
             Headers = had ? [new("If-None-Match", saved.ETag)] : [],
         };
         CurlResponse response = await client.SendAsync(request, CancellationToken.None);
+        requests++;
         await using Stream body = response.Body;
         string Header(string key) => response.Headers.FirstOrDefault(h => h.Key == key).Value ?? "none";
         if (showTags)

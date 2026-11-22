@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Awaited in turn, so counts are exact. A warm-up request on its own client comes before the count.
 2. CurlNetworkOptions.ForbidReuse and FreshConnect also give three connections (probed, not claimed).
+3. Bounded wait before reading the server's record (CI race sweep).

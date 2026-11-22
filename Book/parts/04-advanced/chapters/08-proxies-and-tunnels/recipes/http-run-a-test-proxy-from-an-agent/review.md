@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 
 1. `transfer` has a `proxy` field but no tunnel field; the tunnel case uses the `curl` tool with `-p`.
 2. `start_server` with an empty `listen_urls` is a JSON-RPC error, so the proxy rides beside an origin listen URL.
+3. Bounded wait before reading the server's record (CI race sweep).

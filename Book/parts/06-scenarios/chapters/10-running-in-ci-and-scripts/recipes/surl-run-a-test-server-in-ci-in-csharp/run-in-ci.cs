@@ -47,8 +47,15 @@ try
     Console.WriteLine($"SMTP_URL={server.BoundUrls[1]}");
     result = await RunTests(server.BoundUrls[0], server.BoundUrls[1], mode == "wrong-password" ? "wrong" : "secret");
 
-    // What the server recorded: the messages in the mailbox the tests mailed.
+    // What the server recorded: the messages in the mailbox the tests mailed. Delivery follows the
+    // accepted send a moment later, so after a passing run read again until the message is in, for up to 10 s.
     SurlMessagePage inbox = await server.Mail.ListMessagesAsync("app@example.com", "INBOX");
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); result == 0 && inbox.Messages.Count == 0 && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+        inbox = await server.Mail.ListMessagesAsync("app@example.com", "INBOX");
+    }
+
     Console.WriteLine($"server stored {inbox.Messages.Count} message(s)");
 }
 finally

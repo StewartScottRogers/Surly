@@ -20,6 +20,7 @@ var options = new SurlServerOptions
     ListenUrls = { $"{scheme}://127.0.0.1:0" },
     Accounts = { new SurlAccount("alice", "s3cret") },
     Topics = { "home/#;retain" },
+    RecordExchanges = true,
 };
 if (scheme == "mqtts")
 {
@@ -50,6 +51,10 @@ catch (CurlException e)
     Console.WriteLine($"refused: curl code {(int)e.Code} {e.Code}: {e.Message}");
     return 8;
 }
+
+// A QoS 0 publish is not acknowledged, so the call can return before the broker has kept it: wait,
+// for at most 10 s, for the end of the client's exchange, which the broker records after applying it.
+await server.WaitForEventAsync(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded, AfterSequence = 0 }, TimeSpan.FromSeconds(10));
 
 // The server kept the message, so it can say what the login let through.
 SurlRetainedMessage kept = await server.Messages.ReadRetainedAsync("home/temp", CancellationToken.None);

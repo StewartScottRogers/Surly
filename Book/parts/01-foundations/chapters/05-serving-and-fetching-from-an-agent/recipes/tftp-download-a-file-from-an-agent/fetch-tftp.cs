@@ -50,8 +50,7 @@ switch (which)
         Console.Write(fetched.GetProperty("standardOutput").GetProperty("content").GetString());
 
         // The first packet the server received, a TFTP read request: opcode 1, the file name, the mode.
-        CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-        JsonElement first = recorded.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks")[0];
+        JsonElement first = (await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() > 0)).GetProperty("exchanges")[0].GetProperty("chunks")[0];
         byte[] packet = Convert.FromBase64String(first.GetProperty("data").GetString()!);
         string[] fields = Encoding.ASCII.GetString(packet[2..]).Split('\0');
         Console.WriteLine($"server received: opcode {packet[1]}, {fields[0]}, {fields[1]}");
@@ -81,8 +80,15 @@ switch (which)
         }
         else
         {
-            // The file the server now holds, read through surl-mcp's own tool.
+            // The file the server now holds, read through surl-mcp's own tool. The store can trail curl by
+            // a moment, so ask again until the file is there, for up to 10 s.
             CallToolResult stored = await surl.CallToolAsync("read_file", new Dictionary<string, object?> { ["server_id"] = serverId, ["path"] = "/upload.txt" });
+            for (var waited = System.Diagnostics.Stopwatch.StartNew(); stored.IsError == true && waited.Elapsed.TotalSeconds < 10;)
+            {
+                await Task.Delay(100);
+                stored = await surl.CallToolAsync("read_file", new Dictionary<string, object?> { ["server_id"] = serverId, ["path"] = "/upload.txt" });
+            }
+
             Console.Write(stored.StructuredContent!.Value.GetProperty("text").GetString());
         }
 
@@ -96,4 +102,24 @@ async Task<JsonElement> Curl(string[] curlArguments)
 {
     CallToolResult result = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = curlArguments });
     return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text).RootElement;
+}
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
 }

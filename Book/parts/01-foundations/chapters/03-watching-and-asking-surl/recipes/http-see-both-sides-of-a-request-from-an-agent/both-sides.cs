@@ -66,6 +66,7 @@ foreach (string verbose in answer.GetProperty("standardError").GetProperty("cont
 
 // The server's side: get_exchanges holds the bytes as they crossed; print each head's first line
 // and the headers that explain the outcome.
+await WaitForEndsAsync();
 CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
 foreach (JsonElement chunk in seen.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray().SelectMany(e => e.GetProperty("chunks").EnumerateArray()))
 {
@@ -94,3 +95,21 @@ foreach (JsonElement e in events.EnumerateArray())
 // The exit code says whether the curl call was a tool error.
 Console.WriteLine($"tool error: {(result.IsError == true ? "yes" : "no")}");
 return result.IsError == true ? 1 : 0;
+
+// The server records an exchange a moment after curl has its answer, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?>
+        {
+            ["server_id"] = id, ["kinds"] = new[] { "exchange_started", "exchange_ended" }, ["max_events"] = 500,
+        });
+        var kinds = events.StructuredContent!.Value.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+        if (kinds.Count(k => k == "exchange_ended") >= kinds.Count(k => k == "exchange_started"))
+        {
+            return;
+        }
+    }
+}

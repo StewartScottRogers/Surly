@@ -21,5 +21,7 @@ export APP_HTTP_URL APP_SMTP_URL
 echo "the app gets $APP_HTTP_URL and $APP_SMTP_URL"
 sh app.sh || exit
 
-# What surl recorded: its log notes each message it stored.
+# What surl recorded: its log notes each message it stored, on its own time, so wait for the
+# line for at most 10 s first.
+i=0; until grep -q 'Message stored: ' "$log"; do i=$((i+1)); [ $i -ge 100 ] && break; sleep 0.1; done
 grep -o 'Message stored: .*' "$log"

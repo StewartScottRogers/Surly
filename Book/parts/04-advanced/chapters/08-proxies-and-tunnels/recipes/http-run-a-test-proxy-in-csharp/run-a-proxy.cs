@@ -75,6 +75,13 @@ catch (CurlException failure)
     return 1;
 }
 
+// The record can trail the answer by a moment: look again until every exchange holds a whole
+// request head, for up to 10 s.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    if (server.Exchanges.All(e => Encoding.ASCII.GetString(e.Received).Contains("\r\n\r\n"))) break;
+}
+
 // What each listener received: the request line, and the Via header if any.
 foreach (SurlExchangeRecord exchange in server.Exchanges)
 {

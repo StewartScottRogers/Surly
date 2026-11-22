@@ -7,6 +7,7 @@
 // A second argument, such as "retries", prints only the lines that start with it.
 #:package ModelContextProtocol.Core@*
 
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -96,6 +97,7 @@ foreach (string path in paths)
 
 // What the server saw: the requests for each path, from the bytes each client sent, and how
 // often each rule answered, from its fault_applied events.
+await WaitForExchangesToEnd();
 CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server });
 string received = string.Concat(exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()
     .SelectMany(e => e.GetProperty("chunks").EnumerateArray())
@@ -110,6 +112,23 @@ var byRule = events.StructuredContent!.Value.GetProperty("events").EnumerateArra
     .GroupBy(e => e.GetProperty("rule_id").GetString()).Select(g => $"{g.Key} {g.Count()}");
 Console.WriteLine($"fault_applied: {string.Join(", ", byRule)}");
 return 0;
+
+// The server records an exchange's end a moment after its client is done: ask again until every
+// exchange it started has ended, for at most 10 s, before reading what it recorded.
+async Task WaitForExchangesToEnd()
+{
+    for (var waited = Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?>
+        {
+            ["server_id"] = server, ["kinds"] = new[] { "exchange_started", "exchange_ended" }, ["max_events"] = 500,
+        });
+        if (events.StructuredContent!.Value.GetProperty("events").EnumerateArray().Sum(e => e.GetProperty("kind").GetString() == "exchange_started" ? 1 : -1) == 0)
+        {
+            return;
+        }
+    }
+}
 
 // curl-mcp answers in text, as JSON.
 static JsonElement Answer(CallToolResult result) =>

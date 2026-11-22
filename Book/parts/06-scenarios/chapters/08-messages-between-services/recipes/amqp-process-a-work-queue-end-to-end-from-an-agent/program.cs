@@ -151,10 +151,21 @@ try
     }
 
     // browse_queue counts what is ready and what a consumer holds, and lists the ready messages, without taking any.
+    // The server puts back what a consumer held only once it notices the consumer has gone, so browse until
+    // nothing is in flight, for at most 10 s.
     async Task<string> Browse()
     {
-        CallToolResult browsed = await surl.CallToolAsync("browse_queue", new Dictionary<string, object?> { ["server_id"] = id, ["queue"] = "jobs" });
-        JsonElement page = browsed.StructuredContent!.Value;
+        JsonElement page = default;
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+        {
+            CallToolResult browsed = await surl.CallToolAsync("browse_queue", new Dictionary<string, object?> { ["server_id"] = id, ["queue"] = "jobs" });
+            page = browsed.StructuredContent!.Value.Clone();
+            if (page.GetProperty("in_flight_count").GetInt32() == 0)
+            {
+                break;
+            }
+        }
+
         string ready = string.Join(", ", page.GetProperty("messages").EnumerateArray().Select(m => m.GetProperty("text").GetString()));
         return $"{page.GetProperty("ready_count").GetInt32()} [{ready}], in flight {page.GetProperty("in_flight_count").GetInt32()}";
     }

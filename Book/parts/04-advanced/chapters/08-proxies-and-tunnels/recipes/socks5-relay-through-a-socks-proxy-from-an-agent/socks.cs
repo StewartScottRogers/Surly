@@ -50,6 +50,7 @@ string origin = server.GetProperty("bound_urls")[0].GetString()!;
 string socks = server.GetProperty("bound_urls")[1].GetString()!.TrimEnd('/');
 int port = new Uri(origin).Port;
 
+bool relayed;
 if (which is "local" or "remote-name")
 {
     // transfer has no field for --resolve: the curl tool takes curl's own words.
@@ -62,6 +63,7 @@ if (which is "local" or "remote-name")
     string output = run.GetProperty("exitCode").GetInt32() == 0
         ? run.GetProperty("standardOutput").GetProperty("content").GetString()! : run.GetProperty("standardError").GetProperty("content").GetString()!;
     Console.WriteLine($"curl tool: exitCode {run.GetProperty("exitCode")}, {output.TrimEnd()}");
+    relayed = run.GetProperty("exitCode").GetInt32() == 0;
 }
 else
 {
@@ -79,14 +81,31 @@ else
     Console.WriteLine(failure.ValueKind == JsonValueKind.Null
         ? $"transfer: statusCode {answer.GetProperty("statusCode")}, {answer.GetProperty("body").GetProperty("content").GetString()!.TrimEnd()}"
         : $"transfer: exitCode {failure.GetProperty("exitCode")}, {failure.GetProperty("text").GetString()!.Split('\n')[0]}, tool error: {(fetched.IsError == true ? "yes" : "no")}");
+    relayed = failure.ValueKind == JsonValueKind.Null;
 }
 
-// surl-mcp get_exchanges: the SOCKS exchange's chunks, base64 when they are not text.
-CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?>
+// surl-mcp get_exchanges: the SOCKS exchange's chunks, base64 when they are not text. The record can
+// trail curl's answer by a moment: ask again until each SOCKS message has its reply, and a relayed
+// request is there when the fetch worked, for at most 10 s.
+JsonElement recorded = default;
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); ; await Task.Delay(100))
 {
-    ["server_id"] = server.GetProperty("server_id").GetString(), ["listen_url"] = socks + "/",
-});
-foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())
+    CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?>
+    {
+        ["server_id"] = server.GetProperty("server_id").GetString(), ["listen_url"] = socks + "/",
+    });
+    recorded = exchanges.StructuredContent!.Value.GetProperty("exchanges").Clone();
+    bool settled = recorded.EnumerateArray().All(x =>
+    {
+        var c = x.GetProperty("chunks").EnumerateArray().ToList();
+        int last = c.FindLastIndex(k => k.GetProperty("direction").GetString() == "received" && k.GetProperty("encoding").GetString() != "text");
+        return c.Skip(last + 1).Any(k => k.GetProperty("direction").GetString() == "sent")
+            && (!relayed || c.Any(k => k.GetProperty("encoding").GetString() == "text" && k.GetProperty("data").GetString()!.StartsWith("GET /hello.txt")));
+    });
+    if (settled || DateTime.UtcNow >= deadline) break;
+}
+
+foreach (JsonElement exchange in recorded.EnumerateArray())
 {
     var chunks = exchange.GetProperty("chunks").EnumerateArray()
         .Select(c => (Sent: c.GetProperty("direction").GetString() == "sent", Text: c.GetProperty("encoding").GetString() == "text",

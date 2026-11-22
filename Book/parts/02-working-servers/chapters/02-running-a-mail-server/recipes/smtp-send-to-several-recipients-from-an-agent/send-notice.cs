@@ -106,7 +106,12 @@ switch (which)
         Console.WriteLine(text.Split("\r\n").First(l => l.StartsWith("To: ")));
         break;
     case "exchange":
-        // The SMTP conversation, byte for byte: what the client sent is the chunks that were received.
+        // The SMTP conversation, byte for byte: what the client sent is the chunks that were received. The record
+        // of an exchange can trail curl by a moment, so wait for the server to end it first, with a bound.
+        await surl.CallToolAsync("wait_for_event", new Dictionary<string, object?>
+        {
+            ["server_id"] = id, ["kinds"] = new[] { "exchange_ended" }, ["timeout_ms"] = 10000,
+        });
         CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["scheme"] = "smtp" });
         var received = new StringBuilder();
         foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())

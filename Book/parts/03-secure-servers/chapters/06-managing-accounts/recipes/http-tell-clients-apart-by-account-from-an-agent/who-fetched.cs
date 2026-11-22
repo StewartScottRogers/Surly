@@ -41,6 +41,14 @@ Console.WriteLine($"billing GET /invoices.csv: {await Fetch("billing:b1-secret",
 Console.WriteLine($"search GET /index.html: {await Fetch("search:s1-secret", "index.html")}");
 Console.WriteLine($"search, wrong password, GET /invoices.csv: {await Fetch("search:guess", "invoices.csv")}");
 
+// The server records an exchange's end a moment after curl has its answer: ask until every exchange
+// that started has ended, for at most 10 s, before reading the record.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    var kinds = (await Events(new() { ["kinds"] = new[] { "exchange_started", "exchange_ended" } })).EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+    if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) break;
+}
+
 switch (which)
 {
     case "by-account" or "nobody":

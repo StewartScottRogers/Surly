@@ -73,6 +73,12 @@ switch (which)
             Console.Write($"fetched: {fetched.RootElement.GetProperty("body").GetProperty("content")}");
         }
 
+        // The server's count can trail the transfer by a moment: ask until it holds the one exchange, for up to 10 s.
+        for (var waited = System.Diagnostics.Stopwatch.StartNew(); await ExchangeCount(newId) < 1 && waited.Elapsed.TotalSeconds < 10;)
+        {
+            await Task.Delay(100);
+        }
+
         await ListServers();
         await Stop(newId);
         break;
@@ -98,4 +104,12 @@ async Task Stop(string serverId)
     CallToolResult stopped = await surl.CallToolAsync("stop_server", new Dictionary<string, object?> { ["server_id"] = serverId });
     JsonElement exit = stopped.StructuredContent!.Value;
     Console.WriteLine($"stopped {exit.GetProperty("server_id")}: exit_code {exit.GetProperty("exit_code")} ({exit.GetProperty("exit_code_name")})");
+}
+
+// The exchange_count list_servers gives for one server.
+async Task<int> ExchangeCount(string serverId)
+{
+    CallToolResult listed = await surl.CallToolAsync("list_servers", new Dictionary<string, object?>());
+    return listed.StructuredContent!.Value.GetProperty("servers").EnumerateArray()
+        .Single(server => server.GetProperty("server_id").GetString() == serverId).GetProperty("exchange_count").GetInt32();
 }

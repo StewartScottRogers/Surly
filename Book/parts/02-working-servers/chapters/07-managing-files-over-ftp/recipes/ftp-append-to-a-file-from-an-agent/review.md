@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The line to send is written to the confined folder by the program before curl-mcp reads it with -T.
 2. read_file answers text; get_exchanges gives APPE and STOR lines across both exchanges.
+3. Bounded wait before reading the server's record (CI race sweep).

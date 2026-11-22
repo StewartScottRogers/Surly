@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 4. Protocols are https, ftps and ldap: passwords over plain http/ftp are refused unchecked by default, and TLS keeps the recipe free of loosening options; the LDAP bind is refused unchecked and still traced.
 5. Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: surl withholds HTTPS and FTPS credentials from the trace; the awk filter is no longer needed for them and is kept only for LDAP, which still logs the bind password.
 6. Re-pinned to Surl a423807a5d / Curl 0680b97577: surl now withholds the LDAP simple bind password (cn=app..****); the still-traced case became a withheld case, and drop-received.sh is kept for an artifact with no client bytes at all.
+7. Bounded wait before reading the server's record (CI race sweep).

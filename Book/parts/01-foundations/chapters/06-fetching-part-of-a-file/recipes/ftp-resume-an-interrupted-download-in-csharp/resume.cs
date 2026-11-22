@@ -66,6 +66,7 @@ catch (CurlException failure)
 }
 
 // The test's check: the local file against the server's, and the commands the server received.
+await WaitForEndsAsync();
 byte[] got = File.ReadAllBytes(Local);
 byte[] expected = which == "offset" ? image[100_000..] : image;
 bool same = got.AsSpan().SequenceEqual(expected);
@@ -74,3 +75,15 @@ string[] received = Encoding.ASCII.GetString(server.Exchanges[0].Received).Split
 Console.WriteLine($"server received: {string.Join(", ", received.Where(l => l.StartsWith("REST ") || l.StartsWith("RETR ")))}");
 Console.WriteLine($"server answered: {Encoding.ASCII.GetString(server.Exchanges[0].Sent).Split("\r\n").FirstOrDefault(l => l.StartsWith("350")) ?? "no 350"}");
 return same ? 0 : 1;
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

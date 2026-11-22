@@ -66,6 +66,7 @@ catch (CurlException failure)
 }
 
 // The datagrams of the one exchange: each chunk is one datagram, and its first two bytes are the opcode.
+await WaitForEndsAsync();
 SurlExchangeRecord exchange = server.Exchanges.Single();
 var datagrams = exchange.Chunks
     .Select(chunk => (From: chunk.Direction, Bytes: chunk.Bytes.ToArray()))
@@ -86,3 +87,15 @@ static string Describe(byte[] datagram) => datagram[1] switch
     5 => $"error {datagram[2] * 256 + datagram[3]}",
     _ => string.Join(" ", Encoding.ASCII.GetString(datagram[2..]).Split('\0', StringSplitOptions.RemoveEmptyEntries)),
 };
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

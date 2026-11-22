@@ -77,12 +77,25 @@ foreach (JsonElement login in logins.StructuredContent!.Value.GetProperty("event
 }
 
 // What the client put on the wire: the AUTH line, and whether the password is there as is or in base64.
+await AllEndedAsync();
 CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["scheme"] = "smtp" });
 string received = string.Concat(exchanges.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks").EnumerateArray()
     .Where(c => c.GetProperty("direction").GetString() == "received").Select(c => c.GetProperty("data").GetString()));
 string auth = received.Split("\r\n").FirstOrDefault(l => l.StartsWith("AUTH ")) ?? "(no AUTH)";
 Console.WriteLine($"get_exchanges: {auth}; password on the wire: {received.Contains("annpass") || received.Contains("AGFubkBleGFtcGxlLmNvbQBhbm5wYXNz")}");
 return sent.GetProperty("exitCode").GetInt32() == 0 ? 0 : 1;
+
+// The server records an exchange's last bytes and its end a moment after curl has its answer: ask
+// until every exchange that started has ended, for at most 10 s.
+async Task AllEndedAsync()
+{
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+    {
+        CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = id, ["kinds"] = new[] { "exchange_started", "exchange_ended" } });
+        var kinds = events.StructuredContent!.Value.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+        if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) return;
+    }
+}
 
 // The curl tool runs curl's own arguments and answers in text that is JSON; -s keeps the progress meter out.
 async Task<JsonElement> Curl(params string[] curlArguments)

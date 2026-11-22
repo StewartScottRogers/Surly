@@ -72,6 +72,7 @@ foreach (JsonElement e in judged.StructuredContent!.Value.GetProperty("events").
 if (which == "apop")
 {
     // The exchange of that login: the timestamp is in what the server sent, the APOP line in what it received.
+    await AllEndedAsync();
     CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["scheme"] = "pop3" });
     JsonElement chunks = exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()
         .Select(x => x.GetProperty("chunks")).Last(c => c.EnumerateArray().Any(k => k.GetProperty("data").GetString()!.Contains("APOP ann@")));
@@ -92,4 +93,16 @@ async Task<JsonElement> Curl(params string[] curlArguments)
 {
     CallToolResult result = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = curlArguments.Prepend("-s").ToArray() });
     return JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text).RootElement.Clone();
+}
+
+// The server records an exchange's last bytes and its end a moment after curl has its answer: ask
+// until every exchange that started has ended, for at most 10 s.
+async Task AllEndedAsync()
+{
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+    {
+        CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = id, ["kinds"] = new[] { "exchange_started", "exchange_ended" } });
+        var kinds = events.StructuredContent!.Value.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+        if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) return;
+    }
 }

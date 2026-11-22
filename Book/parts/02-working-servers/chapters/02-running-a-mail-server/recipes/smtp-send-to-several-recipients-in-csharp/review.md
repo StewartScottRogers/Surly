@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Self-review against REVIEW.md; no independent reviewer yet. Every Discussion claim is a case or cited to the bibliography.
 2. A refusal is CurlException SendError (55); MailRecipientAllowFails is the property for --mail-rcpt-allowfails.
 3. The last recipient's delivery event is the bounded wait; later mailboxes are ordered after it.
+4. Bounded wait before reading the server's record (CI race sweep).
