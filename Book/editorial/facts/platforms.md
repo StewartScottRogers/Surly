@@ -118,3 +118,10 @@ http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it, htt
 
 - A .NET program that starts `curl` with `Process`/`ProcessStartInfo("curl")` on Windows gets `C:\Windows\System32\curl.exe` (Windows searches System32 before PATH), not the port's curl; it fails `Protocol "webtransport" not supported`. `Process("surl")` is fine (nothing of that name in System32). Batch 11 C# recipes start only surl that way (`mcp-start-an-mcp-server-as-a-program-in-csharp`).
 - WebTransport datagram limit (1,099-byte payload, 1,100 refused with exit 55) and the coaps PSK refusal (exit 35) are the port's own QUIC/DTLS code on both sides; probed on Windows only, not marked `platforms:` (batch 11, `webtransport-send-datagrams-and-streams`, `coaps-serve-over-dtls`).
+- rediss, signalrs, socketios, stomps (batch 12, 2026-11-22, Windows only): no `platforms:` marks; the servers speak TLS from the first byte and the client speaks first (HELLO, HTTP negotiate, Engine.IO request, CONNECT), unlike natss where the server's plain INFO comes first (Curl BL-5750). Linux and macOS are for CI to confirm.
+
+## Client certificates and TLS-SRP (batch 12, Curl c84035f797, 2026-11-22, Windows probed)
+- Client certificate on Windows: curl, Curl.Api and curl-mcp read it from a P12 file only, as the Schannel build; PEM `--cert`/`--key` is exit 58 `schannel: Failed to import cert file` (Curl.Api `SslCertProblem`). Linux and macOS (OpenSSL build) are expected to take PEM; cases `[windows]` 58 and `[linux, macos]` 0 in the https-require-a-client-certificate triplet, not yet seen in CI. P12 is used everywhere else.
+- A refused client certificate's curl exit code depends on TLS version and library (55/35/56 seen on Windows): claim only that it failed.
+- TLS-SRP: no client on any platform (curl 8.22.0 dropped it; Curl ADR-0480). openssl s_client SRP fails on this Windows machine (MSYS2 3.5.9 segfault, Git for Windows 3.5.7 stall); Linux s_client unprobed.
+- Recipes (batch 12): https-require-a-client-certificate (and twins), https-log-in-with-tls-srp (and twins).

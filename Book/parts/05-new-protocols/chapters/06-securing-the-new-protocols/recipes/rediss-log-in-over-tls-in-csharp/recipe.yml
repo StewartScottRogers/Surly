@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: rediss-log-in-over-tls-in-csharp
+title: Redis Logins over TLS in C#
+protocols: [rediss, redis]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 60, 67]
+references: [surl-readme, curl-readme, redis-resp, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over rediss the right password reads the seeded key, with the certificate trusted and no loosening option on the server.
+    program: program.cs
+    args: ["rediss", "alice", "s3cret"]
+    expect:
+      exit: 0
+      stdout: "read: hello\n"
+
+  - id: wrong-password
+    claim: A wrong password makes SendAsync throw CurlException with code 67 and the WRONGPASS error.
+    program: program.cs
+    args: ["rediss", "alice", "wrong"]
+    expect:
+      exit: 67
+      stdout-matches: '\Arefused: curl code 67 \w+: .*WRONGPASS'
+
+  - id: unknown-user
+    claim: A user name the server has no account for is the same WRONGPASS as a wrong password.
+    program: program.cs
+    args: ["rediss", "bob", "s3cret"]
+    expect:
+      exit: 67
+      stdout-matches: '\Arefused: curl code 67 \w+: .*WRONGPASS'
+
+  - id: no-login
+    claim: A request with no login is a different refusal, NOAUTH, also code 67.
+    program: program.cs
+    args: ["rediss", "none", "x"]
+    expect:
+      exit: 67
+      stdout-matches: '\Arefused: curl code 67 \w+: .*NOAUTH'
+
+  - id: plain-refuses-the-password
+    claim: Over plain redis the right password is answered WRONGPASS, because the server will not take a password in the clear.
+    program: program.cs
+    args: ["redis", "alice", "s3cret"]
+    expect:
+      exit: 67
+      stdout-matches: '\Arefused: curl code 67 \w+: .*WRONGPASS'
+
+  - id: plaintext-option-loosens
+    claim: With AllowPlaintextAuthentication set, the same login over plain redis reads the key.
+    program: program.cs
+    args: ["redis", "alice", "s3cret", "plaintext"]
+    expect:
+      exit: 0
+      stdout: "read: hello\n"
+
+  - id: untrusted-certificate
+    claim: With no certificate authority file the client does not trust the certificate and SendAsync throws code 60, before any login is sent.
+    program: program.cs
+    args: ["rediss", "alice", "s3cret", "untrusted"]
+    expect:
+      exit: 60
+      stdout-matches: '\Arefused: curl code 60 PeerFailedVerification'

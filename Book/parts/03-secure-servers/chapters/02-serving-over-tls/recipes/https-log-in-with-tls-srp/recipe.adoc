@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-log-in-with-tls-srp]]
+=== Logging In with TLS-SRP
+
+==== Problem
+
+Your device authenticates the Transport Layer Security (TLS) connection with a user name and password, TLS-SRP (Secure Remote Password), instead of a certificate. You want a test server that holds the device's account, needs no certificate, and refuses in the handshake any client that cannot log in.
+
+==== Solution
+
+Start `surl` with `--tlsuser` and `--tlspassword` and no certificate, point the device at it, and read the server's log for each handshake it refused:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+TLS-SRP runs the password check inside a TLS 1.2 handshake: the client proves it knows the password, the server proves it holds the account, and no certificate is involved (<<surl-readme>>). `--tlsuser device --tlspassword s3cret` gives the server one account, and it implies `--tlsauthtype SRP`: every TLS listen URL then serves TLS 1.2 with the SRP cipher suites and nothing else. No `--cert` and no `--self-signed` is needed. `--directory site` is the folder served, and `--log-file srp.log` writes the server's log to a file.
+
+The client has to be one that speaks TLS-SRP: your device, or a TLS library built with SRP. `curl` is not one. This `curl` follows curl 8.22.0, which dropped TLS-SRP: it still takes `--tlsauthtype SRP --tlsuser device --tlspassword s3cret`, warns on standard error that each `is deprecated and has no function anymore` (`-s` silences the warning along with the progress meter, which is why the Solution leaves it off), and sends a handshake with no SRP suite in it (<<curl-manual>>). The server refuses it and `curl` exits 35, a failed handshake. Leaving out `-k`, as the second check does (with `-s` and `-S`, which keeps the error line), changes nothing, because no certificate is ever sent for `curl` to check: the failure is 35, not the 60 of an untrusted certificate. So these builds cannot show a login with the right password, and this recipe claims none.
+
+What the server does show is why it refused. Each refused handshake is a line in its log, `TLS handshake failed: The ClientHello offers no SRP suite the server can serve.`: the client's first message (<<rfc8446>> calls it the ClientHello) offered nothing the server serves. A device that does speak TLS-SRP and gives the wrong password, or an unknown user, fails later in the handshake, after the password check; `surl`{apos}s documentation says both end in the same alert, so the device cannot tell which was wrong (<<surl-readme>>). No case here can show it.
+
+The server is strict about how it is started. `--tlsuser` without `--tlspassword`, `--tlsauthtype SRP` with no account, an account with no listen URL that uses TLS, and TLS-SRP beside `--tlsv1.3` are each refused at start, exit 2, with a line naming the problem; TLS-SRP is a TLS 1.2 method, so asking for TLS 1.3 only cannot be met. For more than one account `surl` reads the files GnuTLS{apos}s own test server reads: `--srp-verifiers tpasswd` for the accounts and `--srp-groups tpasswd.conf` for the groups. A file with a line it cannot read is refused at start, exit 37, naming the file and the line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-log-in-with-tls-srp-in-csharp>> for the same server from C#, with accounts changed while it runs.
+* <<https-log-in-with-tls-srp-from-an-agent>> for the same server driven by an agent.
+* <<https-require-a-client-certificate>> for authenticating the client with a certificate instead.
+* <<surl-readme>>, <<curl-manual>>, <<rfc8446>>.

@@ -1,0 +1,114 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt-check-an-app-published-a-reading-in-csharp
+title: Checking an App's Reading in C#
+protocols: [mqtt]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlRetainedMessage, SurlEventQuery, SurlEventKind, SurlEvent, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0, 1, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "The app publishes 21.5 through Curl.Api, the test waits for the end of that exchange, and ReadRetainedAsync holds 21.5 at QoS 0, so the check passes."
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 21.5 at QoS 0\n"
+
+  - id: wrong-reading
+    claim: "A check that expects 22.0 fails, exit 1, and its message says what the broker holds, 21.5."
+    program: program.cs
+    args: [wrong]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: sensors/kitchen/temp is 21.5 at QoS 0, expected 22.0\n"
+
+  - id: reading-not-used-up
+    claim: "Reading the retained message does not use it up, so a second check finds it again."
+    program: program.cs
+    args: [twice]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 21.5 at QoS 0\nok: sensors/kitchen/temp is 21.5 at QoS 0\n"
+
+  - id: last-reading-wins
+    claim: "When the app publishes 21.5 and then 22.0, the check finds 22.0."
+    program: program.cs
+    args: [replaced]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 22.0 at QoS 0\n"
+
+  - id: earlier-reading-replaced
+    claim: "The first reading is gone, so after the same two publishes a check that expects 21.5 fails and reports 22.0."
+    program: program.cs
+    args: [earlier]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: sensors/kitchen/temp is 22.0 at QoS 0, expected 21.5\n"
+
+  - id: nothing-published
+    claim: "A topic the app never published to holds nothing, ReadRetainedAsync answers null, and the check fails saying so."
+    program: program.cs
+    args: [nothing]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/hall/temp\n"
+
+  - id: misspelt-topic
+    claim: "An app that publishes to the misspelt topic sensors/hall/temprature leaves the reading under that name, so the check on sensors/hall/temp finds nothing."
+    program: program.cs
+    args: [misspelt]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/hall/temp\n"
+
+  - id: misspelt-topic-is-kept
+    claim: "The misspelt topic does hold the reading, which shows where the app sent it."
+    program: program.cs
+    args: [misspelt-kept]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/hall/temprature is 19.0 at QoS 0\n"
+
+  - id: outside-the-filter
+    claim: "A publish outside the filter, to lab/kitchen/temp, is accepted and nothing is kept, so the check fails."
+    program: program.cs
+    args: [outside]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on lab/kitchen/temp\n"
+
+  - id: no-filter-keeps-nothing
+    claim: "A broker with no Topics keeps nothing a client publishes, because Curl.Api publishes with the retain flag clear, so the same check fails."
+    program: program.cs
+    args: [no-filter]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/kitchen/temp\n"
+
+  - id: closed-without-anonymous
+    claim: "The filter does not open the broker: without AllowAnonymous the app's publish throws a CurlException with code 8."
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 8
+      stdout-matches: '^curl error 8: '

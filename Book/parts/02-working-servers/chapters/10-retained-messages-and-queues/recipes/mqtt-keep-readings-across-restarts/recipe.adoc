@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-keep-readings-across-restarts]]
+=== Keeping Readings Across Restarts
+
+==== Problem
+
+You want the retained readings on a Message Queuing Telemetry Transport (MQTT) broker to survive a restart, kept on disk under `--directory`, so that a subscriber in the new run is sent the readings published in the old one.
+
+==== Solution
+
+Start `surl` with `--directory` and a folder that exists, and with the filter that keeps the topics, `--topic 'sensors/#;retain'`. Two readings are published before the cases run; the server is then stopped outright and started again with the same command, and a subscriber is sent the kitchen{apos}s reading:
+
+include::.generated/solution.adoc[]
+
+In a real test the server is yours to stop and start; the point is that the same command, on the same folder, serves the same readings. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`--directory state` names the folder `surl` keeps its state in. `state` must exist, so a fixture puts a file in it. `surl` then writes `state/.surl/lock`, which says the folder is in use, and the broker{apos}s retained messages in one file, `state/.surl/bus/retained`, which is the file the case looks for (<<surl-readme>>). `--topic "sensors/#;retain"` declares the topics under `sensors/` and keeps every message published on them, whatever its retain flag, because `curl -d` publishes with the flag clear and a broker keeps a message only when it is set (<<mqtt311>>). `--allow-anonymous` lets a client connect with no user name; it is a loosening for a test on one machine, and `surl` warns when it starts with it.
+
+The `restart:` of a case stops the server outright, the way a crash does, and starts it again with the same command and the same port, before the case runs. The reading published before is sent to the subscriber: `curl` writes each message it receives as the topic{apos}s length in two bytes, the topic and the payload, so the kitchen{apos}s reading is `\x00\x14sensors/kitchen/temp21.5`, twenty being the length of the topic (<<curl-readme>>). `-d` gives `curl` a message to publish, and without it `curl` subscribes; `-s` keeps the progress meter quiet and `-S` brings an error message back when something fails. `surl` ends the subscription itself once it has sent the retained messages, so `curl` returns with exit `0`. A subscription to `sensors/#`, written `sensors/%23` in the URL, is sent every topic that was kept, the hall{apos}s and the kitchen{apos}s, 49 bytes in all.
+
+What is kept is what the filter keeps. A publish to `lab/kitchen/temp`, outside `sensors/#`, is accepted but never kept, and the restarted server has nothing for it. A publish after the restart is kept too: a new hall reading, `20.0`, replaces `19.0`, and after a second restart the subscription is sent `20.0` for the hall and the kitchen{apos}s `21.5`, one message for each topic.
+
+A publish at quality of service 0 gets no answer, so `curl` can return before the broker has kept the message, and a server stopped straight after it could lose the reading. `wait.sh` does not assume: it subscribes every half second, at most twenty times, until the kept reading is the one published, and only then does the test go on. It needs a POSIX shell, Git Bash on Windows:
+
+[source,shell]
+----
+include::wait.sh[]
+----
+
+A folder belongs to one `surl` at a time. A second `surl` started on `state` while the first runs stops with exit `124`, `Directory state is in use by another surl process`. A folder that does not exist is refused at the start, exit `37`, `Could not open directory nosuch`, which is why the fixture makes `state`.
+
+Without `--directory` the retained messages live in memory. The second server runs the same filter and is sent the same reading while it runs, but after a restart the broker starts over and a subscriber to the same topic is sent nothing: a test that must find readings after a restart needs the folder. The filter does not open the server either: the third server has it and no `--allow-anonymous`, and a publish with no login is refused with `CONNACK` return code 5, which `curl` reports as exit `8` and `Expected 0000 but got 0005`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-keep-readings-across-restarts-in-csharp>> for the same task from a C# test.
+* <<mqtt-keep-readings-across-restarts-from-an-agent>> for the same task from an agent.
+* <<mqtt-keep-a-retained-message>> for how the filter keeps a message.
+* <<smtp-keep-mail-across-restarts>> for the same on a mail store.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

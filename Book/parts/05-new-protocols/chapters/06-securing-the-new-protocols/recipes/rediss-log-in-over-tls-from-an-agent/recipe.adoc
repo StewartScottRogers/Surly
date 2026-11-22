@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[rediss-log-in-over-tls-from-an-agent]]
+=== Redis Logins over TLS from an Agent
+
+==== Problem
+
+Your cache client authenticates, and the password must not cross the network in clear. You want an artificial intelligence (AI) agent to see the login refused over plain Redis, accepted over Transport Layer Security (TLS), and a wrong password told apart from no password at all, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for a Redis server with one account, seeds a key with `set_key`, and logs in with `curl-mcp`{apos}s `curl` tool. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, which is where `server.pem` and `server.key` are. The arguments after `--` pick the scenario: the scheme and the login, then optional words.
+
+`start_server` takes `listen_urls`, here `rediss://127.0.0.1:0`, port 0 for a free one, and answers a `server_id` with `bound_urls`. The rest goes in `arguments`, `surl`{apos}s own options one list item each: `--user alice:s3cret` is the account, `--cert` and `--key` the certificate and its private key. `--allow-plaintext-auth` is added in one case only; it loosens security (<<surl-readme>>). `set_key` seeds `greeting` with `hello` and needs no login, because it writes into the server's memory rather than speaking Redis.
+
+`curl-mcp`{apos}s `transfer` tool has no field for a login or a certificate to trust, so the agent uses the `curl` tool, which takes `curl`{apos}s arguments as a list with no shell and no quoting: `-u` is the login, `--cacert server.pem` the certificate to trust, and `-sS` hides the progress meter but keeps the error text (<<curl-readme>>). The answer is text holding JSON; the program reads `exitCode`, `standardOutput` and `standardError`, either of which is null when empty. A Redis URL path is a command, so `GET/greeting` reads the key.
+
+Redis answers a login in its reply to `HELLO` (<<redis-resp>>). The right password over `rediss` is accepted: `curl` exits `0` and writes `hello`. A wrong password and a user name with no account are both `WRONGPASS`, exit `67`, the same answer for both. A request with no login is `NOAUTH`, also exit `67`, the answer for a client that did not try to log in; the exit code does not tell them apart, the message does. Over plain `redis` the right password is answered `WRONGPASS`, because the server does not check a password that crosses the network readable, and the same login is accepted once `--allow-plaintext-auth` is given. Without `--cacert`, the `curl` tool exits `60`: it does not trust a certificate that signed itself and never sends the login (<<rfc8446>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<rediss-log-in-over-tls>> for the same task on the console.
+* <<rediss-log-in-over-tls-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-readme>>, <<redis-resp>>, <<rfc8446>>.

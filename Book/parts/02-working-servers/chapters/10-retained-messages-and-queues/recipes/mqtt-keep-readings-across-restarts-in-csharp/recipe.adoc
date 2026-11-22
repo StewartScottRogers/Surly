@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-keep-readings-across-restarts-in-csharp]]
+=== Keeping Readings Across Restarts in C#
+
+==== Problem
+
+Your C# test needs the retained readings on a Message Queuing Telemetry Transport (MQTT) broker to survive a restart, so that a client that connects to the new run is told what the old run was told. You want to restart a server on the same `DataDirectory` and check the reading is still there with `Messages.ReadRetainedAsync`.
+
+==== Solution
+
+Start a `SurlServer` as an MQTT broker with a `DataDirectory` and the filter that keeps `sensors/`, publish two readings with a `CurlClient`, wait for the broker, dispose it, start a second on the same folder, and read the reading as a subscriber and from the store. The program takes the case to run as its argument; the first case is the whole task:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `mqtt://127.0.0.1:0`, a broker on a free port. `DataDirectory` is `--directory`: the folder, which must exist, that the broker keeps its state in. It writes `.surl/lock` there, which says the folder is in use, and the retained messages in one file, `.surl/bus/retained`. `Topics` is `--topic`, and `"sensors/#;retain"` declares the topics under `sensors/` and keeps every message published on them, whatever its retain flag; `AllowAnonymous` is `--allow-anonymous`, which lets a client connect with no user name and makes the broker a loosening, for a test on one machine (<<surl-readme>>, <<mqtt311>>). `RecordExchanges` makes the server record each client{apos}s exchange as an event, which the waits use.
+
+The client is a `CurlClient`, Curl.Api{apos}s counterpart of the `curl` tool, and each `SendAsync` answers a `CurlResponse`, whose `Body` is the stream the broker sent back. A client{apos}s publish is a `CurlRequest` for `HttpMethod.Post` of `mqtt://host:port/sensors/kitchen/temp`, with a `Body` of `CurlContent` bytes. It goes out with the retain flag clear, as `curl -d` does, so what keeps it is the filter (<<curl-readme>>, <<mqtt311>>). A publish at quality of service 0 gets no answer, so `SendAsync` can return before the broker has applied the message, and a broker disposed straight after it could lose the reading. The program does not sleep. After each publish it calls `WaitForEventAsync` with a `SurlEventQuery` for the next `SurlEventKind.ExchangeEnded` after the last `SurlEvent` it saw, which the broker records once what the client sent has been applied, with a ten second bound that a failure alone ever reaches.
+
+The restart is a dispose and a new server on the same folder. A `SurlServer` that is disposed stops and releases the folder; the new one is a new server, with a port of its own, and its own record of events, so the program starts counting sequences again. The lock file is left behind, and is no obstacle to the next broker. A subscriber is a `CurlRequest` for `HttpMethod.Get` of the topic{apos}s URL: the response `Body` is what the broker sends, the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters and prints the text, and it returns by itself once the retained messages are sent. `server.Messages`, a `SurlServerMessages`, is the broker{apos}s message bus: `ReadRetainedAsync` reads what it holds with no client and answers a `SurlRetainedMessage`, with its `Payload` and its `QualityOfService`, which is `0`, or `null` for a topic with nothing kept.
+
+Every topic that was kept comes back. A subscription to `sensors/#`, written `sensors/%23` in a URL, is sent the hall{apos}s and the kitchen{apos}s readings, 49 bytes in all. What is kept is what the filter keeps: a publish to `lab/kitchen/temp` is accepted, never kept and not there after the restart. A reading seeded with `PublishAsync` and `retain` `true` sets the flag itself, so it is kept with or without a filter, and is written to the folder as well. A reading published after the restart is kept too: the hall{apos}s `20.0` replaces `19.0`, and after a second restart the subscription is sent `20.0` and the kitchen{apos}s `21.5`.
+
+A folder belongs to one `surl` at a time. A second server on a `DataDirectory` in use makes `StartAsync` throw a `SurlServerStartException`, whose `ExitCode` is `DataDirectoryInUse`, `124`, the exit code `surl` gives, and a folder that does not exist makes it throw with `37`, `Could not open directory`. A broker with no `DataDirectory` keeps its retained messages in memory: it is read the same reading while it runs, but after a restart it starts over, the subscriber reads nothing and `ReadRetainedAsync` answers `null`.
+
+Last, the filter does not open the broker: on one without `AllowAnonymous` the client{apos}s `SendAsync` throws a `CurlException` whose `Code` is `8`, the code `curl` exits with.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-keep-readings-across-restarts>> for the same task on the console, with a server stopped outright.
+* <<mqtt-keep-readings-across-restarts-from-an-agent>> for the same task from an agent.
+* <<mqtt-keep-a-retained-message-in-csharp>> for how the filter keeps a message.
+* <<smtp-keep-mail-across-restarts-in-csharp>> for the same on a mail store.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

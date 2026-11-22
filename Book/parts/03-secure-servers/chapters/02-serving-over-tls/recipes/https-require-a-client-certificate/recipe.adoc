@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-require-a-client-certificate]]
+=== Requiring a Client Certificate
+
+==== Problem
+
+Your service uses mutual Transport Layer Security (TLS), and the client under test must present a certificate from your own test authority. You want a server that refuses the handshake without a certificate, refuses one from another authority, and serves the right one.
+
+==== Solution
+
+Make a test certificate authority and a client certificate it signs, start `surl` with `--cacert` naming that authority, and fetch with the client certificate:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--cert` and `--key` give the server its own certificate and key, as in any HTTPS (Hypertext Transfer Protocol Secure) recipe, and `--directory site` serves the folder; the client trusts it with `curl --cacert server.pem`, because it signed itself. `--cacert ca.pem` on the server is the other direction: it names the authority a client certificate must come from, and giving it is what makes the server ask for one in the handshake (<<rfc8446>>). Without it nothing is asked: the second server, started the same way without `--cacert`, serves a client that has no certificate at all.
+
+`openssl` makes everything in the setup. `ca.pem` is the test authority, marked as one that may sign; `client.pem` is the device's certificate, `CN=device-1`, signed by it (<<rfc5280>>). A second authority signs a stranger's certificate with the same subject name, so the only difference between the two is who signed them. Each client certificate is packed with its key into a PFX (PKCS #12, or P12) file under the passphrase `s3cret`.
+
+On the client, `--cert client.p12:s3cret` presents that certificate, the passphrase after the colon, and `--cert-type P12` says the file is a P12 file (<<curl-manual>>); `-s` hides the progress meter and `-S` keeps the error line. The P12 form works on every platform. On Windows `curl` reads a client certificate from a P12 file only, as the Schannel build it follows does, and refuses a certificate and key in PEM (Privacy-Enhanced Mail) files with exit 58, `Failed to import cert file`, and fetches nothing. On Linux and macOS it follows the OpenSSL build and takes `--cert client.pem` with `--key client.key` as well.
+
+A client with no certificate, and a client whose certificate another authority signed, are both refused in the handshake, so no request is read and no status code comes back. `curl`{apos}s exit code is its TLS library's account of a connection closed in the handshake and differs with the TLS version and the platform, so the checks only ask that it failed. The server's side is plainer. `--log-file tls.log` writes the server's log to a file, and it holds one line for each refusal, `TLS handshake failed: The remote certificate was rejected`: the same words for a missing certificate and a wrong one.
+
+A `--cacert` file that does not exist is refused at start, exit 2, and one that holds no certificate exits 77; the server never starts without the authority it was told to check against.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-require-a-client-certificate-in-csharp>> for the same server and client from C#.
+* <<https-require-a-client-certificate-from-an-agent>> for the same task driven by an agent.
+* <<https-serve-a-pfx-certificate>> for a P12 file on the server's side.
+* <<surl-readme>>, <<curl-manual>>, <<rfc8446>>, <<rfc5280>>.

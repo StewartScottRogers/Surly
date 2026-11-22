@@ -1,0 +1,62 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs try-logins.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its arguments pick the server's options and app's password.
+schema: 2
+key: http-try-every-login-method-in-turn
+title: Trying Every Login Method in Turn
+protocols: [http, https]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_events]
+curl-options: [-s, -D, -o, -w, --cacert, --max-time, --basic, --digest, -u, --oauth2-bearer]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc7617, rfc7616, rfc6750, rfc9110]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Against surl's defaults over http://, the agent finds Digest alone usable; Basic and Bearer are answered 403, and the record holds one accepted login, Digest as app.
+    program: try-logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbasic: 403\ndigest: 200\nbearer: 403\nusable: digest\nrecorded: Digest app accepted\n\Z'
+
+  - id: default-offers-digest
+    claim: By default a request with no login over http:// is answered 401 and offered Digest only.
+    program: try-logins.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\Ano login: 401, offered \[Digest\]\n'
+
+  - id: plaintext-digest-and-bearer
+    claim: With --allow-plaintext-auth and --auth digest,bearer the 401 offers Digest and Bearer; both log in (200) and are recorded as accepted, and Basic, not offered, is answered 401.
+    program: try-logins.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "no login: 401, offered [Digest, Bearer]\nbasic: 401\ndigest: 200\nbearer: 200\nusable: digest, bearer\nrecorded: Digest app accepted\nrecorded: Bearer bearer token accepted\n"
+
+  - id: basic-only-over-https
+    claim: Over https:// with --auth basic the 401 offers Basic alone; Basic logs in, Digest and Bearer are answered 401.
+    program: try-logins.cs
+    args: [basic-only]
+    expect:
+      exit: 0
+      stdout: "no login: 401, offered [Basic]\nbasic: 200\ndigest: 401\nbearer: 401\nusable: basic\nrecorded: Basic app accepted\n"
+
+  - id: wrong-password-is-recorded
+    claim: With a wrong password on the same server Digest is answered 401 too, but the record tells the two apart; the Digest login is recorded as refused, while Basic, a method not accepted, left no login at all.
+    program: try-logins.cs
+    args: [plaintext, guess]
+    expect:
+      exit: 0
+      stdout: "no login: 401, offered [Digest, Bearer]\nbasic: 401\ndigest: 401\nbearer: 200\nusable: bearer\nrecorded: Digest app refused\nrecorded: Bearer bearer token accepted\n"

@@ -46,3 +46,7 @@ No account and no `--allow-anonymous`: the negotiate request is refused 401; cur
 
 ## Recipes
 signalr-receive-a-message, signalr-stream-items-from-a-hub (and twins)
+
+## Logging in over TLS (signalrs-log-in-to-a-hub and twins, Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `signalrs://` with `--cert --key --user alice:s3cret`; `curl --cacert server.pem -u alice:s3cret -d <Echo json> signalrs://h:p/` writes `"hi"`. Wrong password, unknown user, no login: negotiate 401, exit 22. Plain `signalr://` with ANY password (right or wrong): 403; no login on plain: 401; with `--allow-plaintext-auth` the right password works (wrong: 401). No `--cacert`: exit 60.
+- Curl.Api: the negotiate step alone works as `HttpMethod.Post` to `https://h:p/negotiate?negotiateVersion=1` (replace `signalrs://` by `https://`, `signalr://` by `http://`) with `CurlAuthenticationOptions` and `CertificateAuthorityFile`: 200 with `connectionToken`, 401/403 are responses (`StatusCode` int), untrusted is `CurlException` 60. surl-mcp `start_server` and curl-mcp `curl` tool as for the console.

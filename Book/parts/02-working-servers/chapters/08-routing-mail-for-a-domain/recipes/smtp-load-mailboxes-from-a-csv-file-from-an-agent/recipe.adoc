@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-load-mailboxes-from-a-csv-file-from-an-agent]]
+=== Loading Mailboxes from CSV from an Agent
+
+==== Problem
+
+You want an agent to set up forty test mailboxes by writing them to a comma-separated values (CSV) file, start a mail server from it, and, when the server refuses the file, find the record it names and fix it without a person reading the error.
+
+==== Solution
+
+The program writes `mailboxes.csv` into its folder, starts `surl-mcp` with `--mailbox-file`, reads the line number from the tool error, fixes that line and starts again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The program writes the file there itself, as an agent with a file tool would: a header naming the columns `address`, `password` and `protocols`, then one mailbox a record, read as `--mailbox` reads its value (<<surl-readme>>). The last ten testers have `imap` in the `protocols` column and the rest an empty field; `ops` has a comma in its password, so its field is in double quotes; and the last record, after a blank line, is for `carol@elsewhere.org`, a domain the server will not serve.
+
+`start_server` takes `listen_urls`, Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP) and Post Office Protocol version 3 (POP3) on port 0 over one mail store, and `arguments`: `-v`, `--mail-domain example.com` and `--mailbox-file mailboxes.csv`. The path is read relative to `SURL_MCP_ROOT`, and one outside it, `../mailboxes.csv`, is refused before `surl` runs at all: `--mailbox-file names ../mailboxes.csv, which is not inside the root`.
+
+The first start is a tool error. Its structured content carries `exit_code` 2, `exit_code_name` `FailedInit`, and in `lines` the reason, `Mailbox file mailboxes.csv, line 44: mailbox carol@elsewhere.org is not in any --mail-domain`. Line 44 is the line of the file, the blank one counted, though Carol is only the 42nd mailbox, so the agent can index its own list of lines with it. It moves Carol into the served domain, writes the file again, and calls `start_server` with the same arguments; this time it answers `server_id`, `bound_urls`, and `log_lines`, which with `-v` name every mailbox and the protocols it logs in on: forty testers, `tester31` with `logins on imap`.
+
+The mailboxes then work like any others. The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`; `-s` and `-S` leave only `curl`{apos}s error line (<<curl-manual>>). `tester01` sends `note.eml` to `tester02`, with `-T` the message file, `-u` its login and `--mail-from` and `--mail-rcpt` the envelope. The agent waits for the delivery with `wait_for_event`, `kinds` `store_changed`, `store` `mail`, `name` `tester02@example.com` and `timeout_ms` 10000, then reads the subject over IMAP. Over POP3, `tester31`{apos}s right password gets `exitCode` 67, `Login denied`, while IMAP reads its mailbox (`-X` sends the `STATUS` command); `tester02`, with an empty field, lists the same message over POP3; and `ops` logs in with `s3cret,too`.
+
+Other mistakes come back the same way, each in `lines`. `--mailbox-file` may be given twice, and an address the second file repeats is refused at its line, `is given twice`; a header column `surl` does not know is refused at line 1; and a file that is not there is `exit_code` 37, `CouldNotReadFile`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-load-mailboxes-from-a-csv-file>> for the file on the console.
+* <<smtp-load-mailboxes-from-a-csv-file-in-csharp>> for a file written by a C# fixture for each run.
+* <<surl-readme>>, <<curl-manual>>.

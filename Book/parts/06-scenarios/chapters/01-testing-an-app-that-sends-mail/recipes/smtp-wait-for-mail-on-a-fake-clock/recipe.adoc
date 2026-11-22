@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-wait-for-mail-on-a-fake-clock]]
+=== Waiting for Mail on a Fake Clock
+
+==== Problem
+
+Your tests run on a fake `TimeProvider` so that nothing waits in real time, and your app sends mail over Simple Mail Transfer Protocol (SMTP). You want the test{apos}s wait for that mail to time out on the fake clock, so a mail that never comes fails the test at once and not after the real thirty seconds.
+
+==== Solution
+
+Give the `SurlServer` the test{apos}s clock in `SurlServerOptions.TimeProvider`, start a wait for the mail, and move the clock with the test:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.TimeProvider` is a `System.TimeProvider`, the .NET base class for a clock, and the server asks it for the time and for the timers behind its timeouts. The program carries a small `FakeClock` of its own, since the book pins no testing package: `GetUtcNow` answers a time the test holds, `CreateTimer` hands back a timer that fires only when `Advance` moves the time past its due time, and nothing else moves it. If your tests already use `FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing`, it goes in the same property. `RecordExchanges` is on because the wait reads the events the server records (<<surl-readme>>).
+
+`SurlServer.WaitForEventAsync` takes a `SurlEventQuery`, a timeout and a `CancellationToken`, and answers the first matching event. The query asks for `SurlEventKind.StoreChanged`, in the mail store, named `ann@example.com`, which matches Ann{apos}s mailboxes and messages and nobody else{apos}s. The timeout of thirty seconds is counted on the server{apos}s clock. When the app{apos}s mail for Ann arrives, the wait ends with the event, whose `Change` is `Delivered`, and the fake clock has not moved: a mail that comes costs the test no time at all (<<rfc5321>>).
+
+When no mail comes, the wait stays open, and it stays open however much real time runs, because the clock stands still. The program checks after 300 real milliseconds and then after the clock has moved 29 seconds, and both times the wait is still open. Moving it one second more takes it to the thirty, the timer fires and the wait throws a `TimeoutException`, in the time the test needs to call `Advance`, well under ten real seconds. That is the test: the failure is the `TimeoutException`, and the program returns `1`. The `CancellationToken` is real time, twenty seconds, and is only a guard: if a wait were not governed by the clock, it would end there with an `OperationCanceledException` and not hang the run.
+
+A mail the app sends to the wrong person is delivered, and it does not end the wait for Ann, which times out in the same way; `SurlServer.Mail`, a `SurlServerMail`, lists Bob{apos}s inbox with `ListMessagesAsync` and finds the one message, so the test can say what the app did instead of only that Ann got nothing. The app{apos}s password crosses a plain connection, so `AllowPlaintextAuthentication`, the spelling of `--allow-plaintext-auth`, is on for the other cases, a loosening for a test on one machine. Without it, which is the last case, `SmtpClient` fails with `MustIssueStartTlsFirst`, nothing is delivered, and the test sees a timeout. Read the app{apos}s own error as well as the timeout.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-wait-for-an-apps-mail>> for waiting with `wait_for_event` and a real timeout from an agent.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for checking a mail once it has arrived.
+* <<smtp-assert-mail-in-an-xunit-fixture>> for a fixture that resets the store between tests.
+* <<surl-readme>>, <<rfc5321>>.

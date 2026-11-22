@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-list-keys-by-pattern-from-an-agent]]
+=== Listing Redis Keys by Pattern
+
+==== Problem
+
+Your cache wrote many Redis keys, and you want an artificial intelligence (AI) agent to page through the ones that match a pattern and read one of them, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a Redis server, lets the cache write its keys through the `curl` tool, and reads them back with `list_keys` and `read_key`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here one `redis` listener on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--user app:s3cret` is the account, which Redis here requires of every client, and `--allow-plaintext-auth` lets its password cross a plain connection, a loosening for a test on one machine (<<surl-readme>>, <<redis-resp>>).
+
+The cache is the `curl` tool, which takes `curl`{apos}s own arguments; `-s` and `-S` keep the progress meter out and the error message in, and `-u` gives the login (<<curl-readme>>). A Redis command is the URL path, so `redis://host:port/SET/cache:page:1/home` writes one key, and one `curl` run with seven such URLs writes seven: five pages, a user and a session. The last page has `/EX/600` on the end, a life of ten minutes. `curl-mcp` answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`. The program then calls `wait_for_event` for a `store_changed` event in the `keyspace` store named `0/cache:page:5`, the database and the key, with a bound of ten seconds, so it reads only once the server has recorded the last write.
+
+`list_keys` takes the `server_id`, a `pattern`, `after_key`, a `limit` and a `database`. The pattern is a Redis glob: `*` matches any run of characters, `?` one character, and brackets a range, as in `[1-2]`. `cache:*` answers the six keys of the cache and leaves out the session, in order, as objects with a `key`, with `has_more` false. A page is a window. With a `limit` of `2` and `cache:page:*` the first answer holds `cache:page:1` and `cache:page:2` and `has_more` is true; the agent passes the last key it saw as `after_key` and gets the next two, and then the last one with `has_more` false. A pattern that matches nothing answers no keys, a result and not a tool error, so the agent has to read the list and not wait for a failure.
+
+`read_key` takes the `server_id` and a `key`, and answers the `type`, the `byte_count` and the `text` of the value, and an `expires_at` when the key has an expiry. The agent reads `cache:page:3`, a string of `7` bytes with the text `contact`, and no `expires_at`; the page written with `/EX/600` has one, and the program says only that it is set, since the time is not the same twice. A key that is not there is a tool error, `No such key.`, which is how the agent learns a key it expected was never written.
+
+Last, a server without `--allow-plaintext-auth` refuses the cache{apos}s password. `curl` exits `67` and writes `WRONGPASS`, and the agent finds no key: the list says what the cache achieved, whatever the cache reported.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-inspect-keys-an-app-left>> for listing the keys an app left, on the console.
+* <<redis-seed-keys-from-an-agent>> for an agent that writes keys itself with `set_key`.
+* <<redis-check-what-an-app-cached>> for proving from C# that a response came from the cache.
+* <<redis-resp>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-keep-a-pinned-host-key-across-restarts-in-csharp]]
+=== Keeping a Pinned Host Key Across Restarts in C#
+
+==== Problem
+
+Your SSH File Transfer Protocol (SFTP) client pins the server's host key, and your .NET tests start and stop the server many times. You want the server's key to stay the same across those restarts, and a test that proves a server with a changed key is refused.
+
+==== Solution
+
+Make the host key once with `ssh-keygen`, start a `SurlServer` with that file in `HostKeyFiles` three times, and fetch each time with a `CurlClient` pinned to the key's fingerprint:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A Secure Shell (SSH) server proves who it is with its host key, and a client that pins the key's fingerprint refuses any server that presents another (<<rfc4251>>). `ssh-keygen` in the setup writes `host_key`, the key that is kept, and `other_key`, which stands for a key made up by a server that kept none. The program's argument picks the scenario.
+
+The pin is made once, before any server runs, from `host_key.pub`: the SHA-256 of the key's blob in base64 without padding, the form `ssh-keygen -l` prints and `curl --hostpubsha256` takes. `CurlSshOptions.HostPublicKeySha256` carries it on each `CurlRequest`, beside `CurlAuthenticationOptions` with the user name and password (`curl -u`). `CurlClient.SendAsync` returns a `CurlResponse` whose body is the file.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `HostKeyFiles` is `--hostkey`, `Accounts` holds one `SurlAccount` (`--user alice:s3cret`), and `Files` the file served. Each start is a new `SurlServer` on a free port, disposed at the end of the start: the port changes from start to start, the key does not, and the pin is about the key. `Log` with `LogLevel.Verbose` is `surl -v` to a `TextWriter`: it begins each run with `Serving SSH host key ssh-rsa, --hostpubsha256 ...`, and the program compares that fingerprint across the three starts.
+
+The failure path is a server with `other_key`. The request throws `CurlException` with `Code` `PeerFailedVerification`, `curl`{apos}s exit 60, after the key exchange and before any login: the server's verbose log has `SSH negotiated kex` and no `login request`, so the password never left the client.
+
+`ThrowawayHostKey` is `--throwaway-hostkey`: the server makes a key when it starts, and the log's first line is `surl`{apos}s warning with the fingerprint to pin. Two starts serve two different keys, so a pin from the first is useless after a restart. With neither property, `StartAsync` throws `SurlServerStartException` with `ExitCode` `FailedInit` (2): `surl` will not make up a key unless told it may.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-keep-a-pinned-host-key-across-restarts>> for the same test on the console.
+* <<sftp-keep-a-pinned-host-key-across-restarts-from-an-agent>> for the same test driven by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4251>>.

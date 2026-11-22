@@ -58,6 +58,7 @@ curl-mcp: `curl(args)` as the command line.
 
 ## Recipes
 ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scope (and its twins), ldaps-search-over-tls (and its twins), ldap-seed-a-directory-in-process, ldap-seed-a-directory-from-an-agent.
+ldap-provision-a-user-and-bind-as-it (and its twins), ldap-provision-users-for-a-test.
 
 ## Seeding in steps (ldap-seed-a-directory-in-process / -from-an-agent; Surl 9ad60d80c, 2026-11-20, windows)
 - A new server's directory is empty: a search for any base is exit 39 (`LdapSearchFailed`). Seeding needs the parent first: a batch starting with `dc=example,dc=com` (domain) and `ou=people` works; entries accumulate across calls on a running server; a second server is empty again.
@@ -65,3 +66,11 @@ ldap-search-a-directory, ldap-bind-with-ntlm, ldap-search-with-a-filter-and-scop
 - `ExportLdifAsync()` / surl-mcp `read_directory(server_id)` (text content, LDIF) hold the seeded entries and omit every `userPassword` value (the attribute name too).
 - Searching normalised: split the body on `DN: `, trim lines, sort; works on WinLDAP and OpenLDAP layouts. `-u :` needs `--allow-anonymous`. surl-mcp `curl` with exit 39 has `standardOutput` null, so read `.ValueKind`.
 - No `rfc2849` entry in the bibliography.
+
+## Provisioning and binding as the new user (ldap-provision-a-user-and-bind-as-it + twins, ldap-provision-users-for-a-test; Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- A simple bind is checked against accounts only (`--user`, `--user-file`, added ones), never an entry's `userPassword`: an entry added alone is found by search but its DN and password bind is refused (Windows 38 `Invalid Credentials`, Linux/macOS 67). Provisioning = add the entry AND an account named the DN's leading `uid`/`cn` value.
+- Console seeding at run time, on top of `--directory`: control `POST /v1/directory` (`Content-Type: text/plain`, LDIF body) -> 204; `GET /v1/directory` -> 200 LDIF (`version: 1` first, `userPassword` left out). Events: `store_changed` `{"store":"directory","change":"seeded","name":"<dn>","byte_count":N}`; `login_judged` scheme `ldap`, mechanism `password`, account the bind name (`bob` for `uid=bob,...`).
+- `GET /v1/events/wait?kind=login_judged&account=bob&timeout_ms=10000` answers `{"event":{...}}` (the first matching kept event, at once if already there). Surl.Api `WaitForEventAsync(new SurlEventQuery { Kind = StoreChanged, Store = StoreKind.Directory, Name = dn }, timeout)` -> `StoreChangedEvent` (`Store` Directory, `Change` Seeded); surl-mcp `wait_for_event(kinds:["store_changed"], store:"directory", name:dn)`.
+- On Windows one refused bind gives TWO `login_judged` refused events in the one exchange (WinLDAP retries); do not count refusals.
+- surl-mcp `read_directory`'s text block is JSON `{"ldif":"..."}`; read `StructuredContent.ldif`. `add_account` adds a mail INBOX too (`store_changed` mail `bob/INBOX`).
+- `reset_server` (and control `POST /v1/reset`) empties a directory seeded at run time on a server started without one: the search then exits 39. `-u :` without `--allow-anonymous` exits 38 (Windows; Linux/macOS per the table above).

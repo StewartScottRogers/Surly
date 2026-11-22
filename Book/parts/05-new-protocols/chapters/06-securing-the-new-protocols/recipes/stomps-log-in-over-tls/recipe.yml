@@ -1,0 +1,88 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: stomps-log-in-over-tls
+title: Logging In to STOMP over TLS
+protocols: [stomps, stomp]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--cacert, -u, -d, -m, --next, -s, -S]
+exit-codes: [0, 28, 60, 67]
+references: [surl-readme, curl-readme, stomp12, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main: stomps with one account and no loosening option. plain: the same account over stomp://.
+# plaintext: the same again with --allow-plaintext-auth.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret stomps://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --user alice:s3cret stomp://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth stomp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over stomps curl logs in as alice with -u, trusting the certificate with --cacert, sends a message to a queue and then subscribes and receives it, with no loosening option on surl; the subscription has no end, so -m 3 stops it, exit 28.
+    run: curl -s --cacert server.pem -u alice:s3cret -d hello stomps://127.0.0.1:{{port}}/queue/jobs --next -s -m 3 --cacert server.pem -u alice:s3cret stomps://127.0.0.1:{{port}}/queue/jobs
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "hello"
+
+  - id: wrong-password
+    claim: A wrong password is answered with a STOMP ERROR frame, Authentication failed, and curl exits 67.
+    run: curl -sS -m 5 --cacert server.pem -u alice:wrong -d x stomps://127.0.0.1:{{port}}/queue/jobs
+    timeout: 30
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "STOMP server sent ERROR: Authentication failed"
+
+  - id: unknown-user
+    claim: A user name surl has no account for gets the same ERROR as a wrong password.
+    run: curl -sS -m 5 --cacert server.pem -u bob:s3cret -d x stomps://127.0.0.1:{{port}}/queue/jobs
+    timeout: 30
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authentication failed"
+
+  - id: no-login
+    claim: A connection that sends no login gets the same ERROR, so the message does not tell a missing login from a wrong one.
+    run: curl -sS -m 5 --cacert server.pem -d x stomps://127.0.0.1:{{port}}/queue/jobs
+    timeout: 30
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authentication failed"
+
+  - id: plain-refuses-the-password
+    claim: Over plain stomp:// the right password gets the same ERROR, because surl will not take a password in the clear.
+    run: curl -sS -m 5 -u alice:s3cret -d x stomp://127.0.0.1:{{port2}}/queue/jobs
+    timeout: 30
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authentication failed"
+
+  - id: plaintext-option-loosens
+    claim: With --allow-plaintext-auth the same login over stomp:// is accepted and the message is sent, exit 0.
+    run: curl -s -m 5 -u alice:s3cret -d x stomp://127.0.0.1:{{port3}}/queue/jobs
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: untrusted-certificate
+    claim: Without --cacert curl does not trust the certificate, never sends the login, and exits 60.
+    run: curl -s -m 5 -u alice:s3cret -d x stomps://127.0.0.1:{{port}}/queue/jobs
+    timeout: 30
+    expect:
+      exit: 60
+      stdout: ""

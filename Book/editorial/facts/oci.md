@@ -27,3 +27,8 @@ No `-u` or wrong password: curl exit 67, `The token endpoint answered 401 withou
 
 ## Recipes
 oci-push-and-pull-an-image, oci-check-an-image-landed
+
+## Tokens over https:// (http-expire-a-token-mid-session + twins, 2026-11-22, windows)
+- A plain `https://127.0.0.1:P/` URL reaches the oci listener (HTTP/1.1 over TLS): token endpoint `GET /token?service=surl` with Basic (`-u`), `GET /v2/` with `--oauth2-bearer`. Token lifetime 300 s; control `POST /v1/reset` / `ResetAsync` / `reset_server` revokes every token. Details in `http-auth.md`.
+- `--fault "error;scheme=oci;path=/v2/;reply=401 UNAUTHORIZED"` answers `/v2/` calls 401 after the token is accepted (no `WWW-Authenticate` on it); the token endpoint is untouched. Surl.Api `SurlFault.ProtocolError("401 UNAUTHORIZED") with { Scheme = "oci", Path = "/v2/" }`; surl-mcp `add_fault`.
+- Surl.Api `SelfSigned = true` on an oci listener gives `SelfSignedCertificatePem`; Curl.Api trusts it via `CertificateAuthorityBlob` at `https://127.0.0.1:{BoundUrl.Port}/`.

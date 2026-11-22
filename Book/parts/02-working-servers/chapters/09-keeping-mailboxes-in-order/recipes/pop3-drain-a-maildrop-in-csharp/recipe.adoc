@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-drain-a-maildrop-in-csharp]]
+=== Draining a POP3 Maildrop in C#
+
+==== Problem
+
+Your C# poller drains a Post Office Protocol version 3 (POP3) maildrop: it retrieves every message into a file and deletes each. You want a test that puts messages into an in-process server, drains them with Curl.Api and checks that the store and a new session find the maildrop empty.
+
+==== Solution
+
+Host the server with Surl.Api, deliver three messages with `Mail.DeliverAsync`, and let the program list the maildrop, retrieve each message into a file, delete each, and end the session. The program takes the case to run as its argument; the first case is the whole task:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` holds one `pop3://` URL on port 0, bound to a free port; `MailDomains` is `--mail-domain`; `Mailboxes` is `--mailbox`, whose address is also the login (<<surl-readme>>). With a mailbox account no loosening option is needed. `server.Mail`, a `SurlServerMail`, puts the three orders into the `INBOX` with `DeliverAsync`, which returns once each is stored, so the test has nothing to wait for before it drains.
+
+A `CurlRequest`{apos}s method is the POP3 command, and `curl` appends the URL{apos}s path to it. A `GET` of the root URL is the listing, `LIST`, a line a message with its number and its size in octets; the program counts the lines to learn how many messages there are, and the sizes are the ones the store gives in each `SurlMessageSummary` of a `SurlMessagePage`. `new HttpMethod("RETR")` with the path `1` retrieves message 1 and the `CurlResponse` `Body` is the message, which the program writes to `msg1.eml`; the files hold the three orders, in the order they arrived, the bytes delivered (<<rfc1939>>). `new HttpMethod("DELE")` with the same path deletes it. The order is the point: every message is retrieved and saved before the first `DELE`, so a message is only marked for deletion after it is in a file. `CurlAuthenticationOptions` is the login, the spelling of `curl -u`; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `CurlClient` uses.
+
+`DELE` only marks a message. The server removes the marked messages when the session ends with `QUIT`, and `RSET` before then unmarks them (<<rfc1939>>). A `CurlClient` keeps its connection, so the session lasts until the client is disposed, which sends `QUIT`. The program does not read the store straight after the last `DELE`. It disposes the client and calls `WaitForEventAsync` with a `SurlEventQuery` for the next `SurlEventKind.ExchangeEnded` after the last `SurlEvent` it saw, which the server records once the session has ended and `QUIT` has been handled, with a ten second bound that a failure alone ever reaches. `RecordExchanges` is the option that makes the server record these events. After it, `ListMessagesAsync` finds `INBOX` empty with no client, and a new `CurlClient` is a new session whose listing has no lines. A session that sends `DELE` for each message and then `RSET` deletes nothing, and the next session lists all three.
+
+Retrieving a message of the drained maildrop, `RETR` with the path `1`, is answered `-ERR`, and Curl.Api throws a `CurlException` whose `Code` is `8`, `Weird server reply`, the code `curl` exits with, so a drain that finds nothing does not look like one that worked. The failure to plan for is a delete that follows a save that did not happen. When the folder for the files does not exist, `File.WriteAllBytesAsync` throws on the first message, before the loop of `DELE` calls begins, so no `DELE` is sent; the `await using` of the client still sends `QUIT`, and after the end of that session the store still holds all three messages.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-drain-a-maildrop>> for the same task on the console.
+* <<pop3-drain-a-maildrop-from-an-agent>> for the same task from an agent.
+* <<pop3-peek-at-headers-with-top-in-csharp>> for reading headers before retrieving.
+* <<surl-readme>>, <<rfc1939>>.

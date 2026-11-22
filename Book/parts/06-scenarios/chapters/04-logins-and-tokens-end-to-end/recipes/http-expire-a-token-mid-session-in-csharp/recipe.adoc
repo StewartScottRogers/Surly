@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-expire-a-token-mid-session-in-csharp]]
+=== Expiring a Token Mid-Session in C#
+
+==== Problem
+
+In a C# test, your client keeps a Bearer token between calls. You want the token revoked between two calls, so the test proves the client sees `401`, logs in again for a new token and retries the call once.
+
+==== Solution
+
+Host `surl`{apos}s container registry with `Surl.Api`; its token endpoint issues a new token at every login. Let the client call, revoke every token with `ResetAsync`, let it call again, and wait for the logins the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+An account in `SurlServerOptions.Accounts` holds a password, and one with an empty user name holds one fixed Bearer token (<<rfc6750>>). The server that issues tokens is the registry: an `oci://` listen URL serves the Open Container Initiative (OCI) distribution interface (<<oci-distribution>>) over Hypertext Transfer Protocol Secure (HTTPS). `GET /token?service=surl` checks a Basic login (<<rfc7617>>) as `app`, a `SurlAccount`, and answers JSON with a new random `token` good for `expires_in` 300 seconds; every request under `/v2/` needs one. `GET /v2/` is the registry's smallest call and stands in for your API. `SelfSigned` makes a certificate for the Transport Layer Security (<<rfc8446>>) the listener speaks, and `SelfSignedCertificatePem` as the `CertificateAuthorityBlob` of a `CurlTlsPeerOptions` inside `CurlTlsOptions` makes `Curl.Api` trust exactly that one. The client asks for `https://` on the bound port.
+
+`TokenClient` is the client under test. It keeps its token; with none it logs in, a `CurlRequest` whose `CurlAuthenticationOptions` carry the name and password with `HttpAuthenticationMethods.Basic`, and reads the token from the JSON. Each call sends it as `XOAuth2Bearer` with `HttpAuthenticationMethods.Bearer`. A `CurlResponse` of `401` is an answer, not an exception, so the client looks at `StatusCode`: on `401` it logs in once more, says whether the token is new, and retries once. One `CurlClient` makes every request.
+
+Three hundred seconds is a long time for a test to wait, so the test revokes the token instead. `ResetAsync` returns every store to how the server started; tokens are not part of that start, so every token issued so far stops at once, while `app` stays. A call with no token is answered `401` with a `Bearer` challenge whose `realm` is the token endpoint.
+
+The arguments pick the other paths. `steady` calls twice with no revocation, and the kept token works both times without a second login. `broken` adds a `SurlFault.ProtocolError` for the `oci` scheme and the path `/v2/` that answers every call `401`, even after a new login, and the client gives up after its one retry instead of looping. `guess` starts with a stale token and a wrong password: the call is `401`, the login is refused `401`, and the client stops there.
+
+`RecordExchanges` keeps the server's events. `WaitForEventAsync` with a `SurlEventQuery` whose `Kind` is the `SurlEventKind` `LoginJudged` returns the first login after `AfterSequence`, waiting up to 10 seconds for it, so the program waits for each login the client made in turn, then lists them with `FindEvents` as `LoginJudgedEvent` records. The session is two logins, both `app`{apos}s password at the token endpoint and both accepted; a call with a token is checked but is not a login, so it is not among them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-expire-a-token-mid-session>> for the same test on the console.
+* <<http-expire-a-token-mid-session-from-an-agent>> for the same test from an agent.
+* <<http-exchange-a-password-for-a-token-in-csharp>> for a fixed token served as a file.
+* <<surl-readme>>, <<curl-readme>>, <<oci-distribution>>, <<rfc6750>>, <<rfc7617>>, <<rfc8446>>.

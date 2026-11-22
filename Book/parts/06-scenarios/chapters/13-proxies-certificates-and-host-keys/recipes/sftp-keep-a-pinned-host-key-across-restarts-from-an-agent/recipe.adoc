@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-keep-a-pinned-host-key-across-restarts-from-an-agent]]
+=== Keeping a Pinned Host Key Across Restarts from an Agent
+
+==== Problem
+
+Your SSH File Transfer Protocol (SFTP) client pins the server's host key, and an agent starts and stops the test server. You want the agent to keep the server's key the same across restarts, and to prove that a server with a changed key is refused before the client logs in.
+
+==== Solution
+
+Start the server with `surl-mcp`{apos}s `start_server`, giving `--hostkey host_key` in `arguments`, stop it with `stop_server` and start it again, and fetch each time with `curl-mcp`{apos}s `curl` tool pinned to the key's fingerprint:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A Secure Shell (SSH) server proves who it is with its host key, and a client that pins the key's fingerprint refuses any server that presents another (<<rfc4251>>). `ssh-keygen` in the setup writes `host_key`, the key that is kept, and `other_key`, which stands for a key made up by a server that kept none. `StdioClientTransport` starts both hosts by name, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine them to the folder that holds the keys. The program's argument picks the scenario.
+
+The pin is made once, before any server runs, from `host_key.pub`: the SHA-256 of the key's blob in base64 without padding, the form `ssh-keygen -l` prints. The `curl` tool takes a `curl` command line in `args`; `--hostpubsha256` carries the pin and `-u alice:s3cret` the login (<<curl-manual>>). Its answer holds `exitCode` and the two output streams, and a nonzero exit is a tool error.
+
+`start_server` starts a server that behaves as `surl` with the same options; `arguments` holds `--hostkey host_key`, `--user alice:s3cret` and `-v`. `stop_server` stops it by `server_id` and frees its port. Each start gets a new free port and a new `server_id`; the key stays, and the pin is about the key. With `-v` the answer's `log_lines` include `Serving SSH host key ssh-rsa, --hostpubsha256 ...`, so the agent can read which key a start serves without connecting, and the three starts name one fingerprint.
+
+The failure path is a server with `--hostkey other_key`. The `curl` tool answers `exitCode` 60, `Denied establishing ssh session: mismatch SHA256 fingerprint`. `wait_for_event` with `kinds` `exchange_ended` waits until the server has closed that connection, and `get_events` with `kinds` `login_judged` then finds none: the client stopped after the key exchange, before any login, so the password never left it.
+
+`--throwaway-hostkey` makes a key when the server starts; `log_lines` begins with `surl`{apos}s warning naming the fingerprint to pin, and a second start serves a different key, so a pin from the first is useless after a restart. With neither option, `start_server` is a tool error whose structured content carries `exit_code` 2 (`FailedInit`) and `surl`{apos}s message: it will not make up a key unless told it may.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-keep-a-pinned-host-key-across-restarts>> for the same test on the console.
+* <<sftp-keep-a-pinned-host-key-across-restarts-in-csharp>> for the same test from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc4251>>.

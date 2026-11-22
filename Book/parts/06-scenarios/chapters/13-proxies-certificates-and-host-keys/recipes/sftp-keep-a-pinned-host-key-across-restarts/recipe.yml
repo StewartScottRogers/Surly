@@ -1,0 +1,102 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: sftp-keep-a-pinned-host-key-across-restarts
+title: Keeping a Pinned Host Key Across Restarts
+protocols: [sftp]
+tier: scenarios
+surl-options: [-v, --directory, --log-file, --hostkey, --throwaway-hostkey, --user]
+curl-options: [-s, -S, -K, --hostpubsha256, -u]
+exit-codes: [0, 2, 45, 60]
+references: [surl-readme, curl-manual, rfc4251]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  rekeyed/hello.txt: "hello from surl\n"
+  # Writes the host key's SHA-256 fingerprint into a curl config file, as the client's pin.
+  pin.sh: |
+    #!/bin/sh
+    # Usage: sh pin.sh KEY.pub > pin.cfg
+    fingerprint=$(ssh-keygen -l -f "$1" | cut -d' ' -f2 | sed 's/^SHA256://')
+    printf 'hostpubsha256 = "%s"\n' "$fingerprint"
+
+# The server's host key, kept in a file, and the pin the client keeps for it. other_key stands
+# for the key a server makes up when nobody kept one.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f other_key
+  - sh pin.sh host_key.pub > pin.cfg
+
+servers:
+  main:
+    command: surl -v --directory site --log-file main.log --hostkey host_key --user alice:s3cret sftp://127.0.0.1:{{port}}/
+    ready: port
+  # The same server with a different host key.
+  rekeyed:
+    command: surl -v --directory rekeyed --log-file rekeyed.log --hostkey other_key --user alice:s3cret sftp://127.0.0.1:{{port2}}/
+    ready: port
+  # A server that keeps no key: --throwaway-hostkey makes one at each start.
+  fresh:
+    command: surl -v --log-file fresh.log --throwaway-hostkey --user alice:s3cret sftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the server with --hostkey host_key is stopped outright and started again with the same command, the client with the pinned fingerprint connects and fetches the file.
+    restart: [main]
+    run: curl -sS -K pin.cfg -u alice:s3cret sftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: second-restart
+    claim: A second restart keeps the same key, and the same pin still connects.
+    restart: [main]
+    run: curl -sS -K pin.cfg -u alice:s3cret sftp://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: same-key-logged
+    claim: The server's verbose log names the host key it serves at each start, and all three starts, the first and two restarts, served the same fingerprint.
+    run: grep "Serving SSH host key" main.log
+    expect:
+      exit: 0
+      stdout-matches: '\A\* Serving SSH host key ssh-rsa, --hostpubsha256 (\S+) [^\n]*\n(?:\* Serving SSH host key ssh-rsa, --hostpubsha256 \1 [^\n]*\n){2}\Z'
+
+  - id: changed-key-refused
+    claim: A server with any other host key is refused before any login, curl exit 60, mismatch SHA256 fingerprint.
+    run: curl -sS -K pin.cfg -u alice:s3cret sftp://127.0.0.1:{{port2}}/hello.txt
+    expect:
+      exit: 60
+      stderr-contains: "Denied establishing ssh session: mismatch SHA256 fingerprint"
+
+  - id: no-login-recorded
+    claim: The rekeyed server's verbose log records the refused client's key exchange and no login request, so the password was never sent.
+    run: cat rekeyed.log
+    expect:
+      exit: 0
+      stdout-matches: '\A(?:(?!login request).)*SSH negotiated kex(?:(?!login request).)*\Z'
+
+  - id: throwaway-changes
+    claim: A server started with --throwaway-hostkey serves a different key after a restart, so no pin survives it.
+    restart: [fresh]
+    run: grep "Serving SSH host key" fresh.log
+    expect:
+      exit: 0
+      stdout-matches: '\A\* Serving SSH host key ssh-rsa, --hostpubsha256 (\S+) [^\n]*\n\* Serving SSH host key ssh-rsa, --hostpubsha256 (?!\1 )\S+ [^\n]*\n\Z'
+
+  - id: throwaway-warns
+    claim: --throwaway-hostkey warns on standard error at start, with the fingerprint to pin; here the port is taken, so surl then exits 45.
+    run: surl --throwaway-hostkey --user alice:s3cret sftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 45
+      stderr-contains: "surl: warning: --throwaway-hostkey: serving a throwaway SSH host key (--hostpubsha256 "
+
+  - id: no-host-key
+    claim: An sftp listen URL with neither --hostkey nor --throwaway-hostkey is refused at start, exit 2.
+    run: surl --user alice:s3cret sftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 2
+      stderr-contains: "needs a host key: give --hostkey <file>, or --throwaway-hostkey for a throwaway one"

@@ -1,0 +1,102 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ldap-provision-a-user-and-bind-as-it-in-csharp
+title: Provisioning a User and Binding as It
+protocols: [ldap]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerDirectory, SurlServerAccounts, SurlEventQuery, SurlEventKind, LoginJudgedEvent, StoreChangedEvent, StoreKind, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc4511, rfc4516]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the job adds bob's entry and his account, a search as tester for (uid=bob) finds the entry, and a bind as bob's DN with his password reads it.
+    program: provision-and-bind.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsearch as tester: 1 \[uid=bob,ou=people,dc=example,dc=com, cn: Bob Jones, mail: bob@example\.com\]\nbind as bob: 1 \[uid=bob,ou=people,dc=example,dc=com, uid: bob\]\n'
+
+  - id: server-recorded-the-bind
+    claim: WaitForEventAsync answers bob's first judged login, an accepted password login over ldap, and the directory change that seeded his entry.
+    program: provision-and-bind.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nrecorded: ldap password bob accepted\nrecorded: Directory Seeded uid=bob,ou=people,dc=example,dc=com\n'
+
+  - id: read-back-without-password
+    claim: ExportLdifAsync reads the directory back as LDIF with bob's entry in it and his userPassword left out.
+    program: provision-and-bind.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nexport: bob present, userPassword absent, b0b-pass absent\n$'
+
+  - id: wrong-password
+    claim: On Windows a bind as bob with a wrong password throws CurlException 38, LdapCannotBind, and the record holds his login as refused.
+    platforms: [windows]
+    program: provision-and-bind.cs
+    args: [guess]
+    expect:
+      exit: 0
+      stdout-matches: '\nbind as bob: refused, CurlException 38 LdapCannotBind\nrecorded: ldap password bob refused\n'
+
+  - id: wrong-password-on-openldap
+    claim: On Linux and macOS the same refusal throws CurlException 67, LoginDenied.
+    platforms: [linux, macos]
+    program: provision-and-bind.cs
+    args: [guess]
+    expect:
+      exit: 0
+      stdout-matches: '\nbind as bob: refused, CurlException 67 LoginDenied\nrecorded: ldap password bob refused\n'
+
+  - id: before-the-job
+    claim: Before the job runs, the same search as tester finds nothing.
+    program: provision-and-bind.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\Abefore the job: 0 \[\]\n'
+
+  - id: entry-without-account
+    claim: When the job adds only the entry, its userPassword included, the search finds bob.
+    program: provision-and-bind.cs
+    args: [entry-only]
+    expect:
+      exit: 0
+      stdout-matches: '\nsearch as tester: 1 \[uid=bob,ou=people,dc=example,dc=com, cn: Bob Jones, mail: bob@example\.com\]\n'
+
+  - id: entry-without-account-cannot-bind
+    claim: On Windows, with the entry but no account, a bind as bob with his password throws CurlException 38, LdapCannotBind, because the server checks binds against its accounts.
+    platforms: [windows]
+    program: provision-and-bind.cs
+    args: [entry-only]
+    expect:
+      exit: 0
+      stdout-matches: '\nbind as bob: refused, CurlException 38 LdapCannotBind\n'
+
+  - id: entry-without-account-cannot-bind-on-openldap
+    claim: On Linux and macOS the same refused bind throws CurlException 67, LoginDenied.
+    platforms: [linux, macos]
+    program: provision-and-bind.cs
+    args: [entry-only]
+    expect:
+      exit: 0
+      stdout-matches: '\nbind as bob: refused, CurlException 67 LoginDenied\n'
+
+  - id: clear-password-refused
+    claim: Without AllowPlaintextAuthentication a simple bind over ldap:// is refused unchecked, the right password included, CurlException 38, LdapCannotBind, on every platform.
+    program: provision-and-bind.cs
+    args: [strict]
+    expect:
+      exit: 0
+      stdout: "bind as tester: refused, CurlException 38 LdapCannotBind\n"

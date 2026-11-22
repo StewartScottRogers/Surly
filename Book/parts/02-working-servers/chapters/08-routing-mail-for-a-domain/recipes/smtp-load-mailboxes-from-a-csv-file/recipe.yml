@@ -1,0 +1,124 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-load-mailboxes-from-a-csv-file
+title: Loading Mailboxes from a CSV File
+protocols: [smtp, imap, pop3]
+tier: working-servers
+surl-options: [-v, --log-file, --mail-domain, --mailbox-file]
+curl-options: [-s, -S, -u, -X, --crlf, --mail-from, --mail-rcpt, -T, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 2, 37, 67]
+references: [surl-readme, curl-manual]
+
+# make-mailboxes.sh writes mailboxes.csv, forty test mailboxes. quoted.csv has a password with a
+# comma in it. The other three files each hold one mistake.
+fixtures:
+  make-mailboxes.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Writes mailboxes.csv: forty test mailboxes, tester01 to tester40. The last ten log in over IMAP
+    # only; the rest have an empty protocols field, which means every mail protocol.
+    echo "address,password,protocols" > mailboxes.csv
+    i=1
+    while [ "$i" -le 40 ]; do
+      n=$(printf '%02d' "$i")
+      if [ "$i" -le 30 ]; then protocols=""; else protocols="imap"; fi
+      echo "tester$n@example.com,pass$n,$protocols" >> mailboxes.csv
+      i=$((i + 1))
+    done
+  quoted.csv: "address,password,protocols\nops@example.com,\"s3cret,too\",imap\n"
+  outside.csv: "address,password,protocols\nops@example.com,\"s3cret,too\",imap\n\ncarol@elsewhere.org,carolpass,\n"
+  again.csv: "address,password\ntester05@example.com,another\n"
+  columns.csv: "address,pass\nann@example.com,annpass\n"
+  note.eml: "From: tester01@example.com\nTo: tester02@example.com\nSubject: Build 812 passed\n\nAll 40 suites passed.\n"
+
+setup:
+  - sh make-mailboxes.sh
+
+# main loads the forty mailboxes, with a verbose log; quoted loads quoted.csv.
+servers:
+  main:
+    command: surl -v --log-file surl.log --mail-domain example.com --mailbox-file mailboxes.csv smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/ pop3://127.0.0.1:{{port3}}/
+    ready: port
+  quoted:
+    command: surl --mail-domain example.com --mailbox-file quoted.csv imap://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Mailboxes read from the file work like --mailbox ones; tester01 mails tester02, who reads it over IMAP once it is there, waited for at most ten tries a second apart.
+    run: curl -sS --crlf -u tester01@example.com:pass01 --mail-from tester01@example.com --mail-rcpt tester02@example.com -T note.eml smtp://127.0.0.1:{{port}}/ci.example.com --next -sS --retry 10 --retry-all-errors --retry-delay 1 -u tester02@example.com:pass02 "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)"
+    expect:
+      exit: 0
+      stdout: "Subject: Build 812 passed\n\n"
+
+  - id: forty-loaded
+    claim: The verbose log names every mailbox read from the file when surl starts, forty lines, before any listener binds.
+    run: 'grep -c "^\* Mailbox tester[0-9]*@example.com: logins on " surl.log'
+    expect:
+      exit: 0
+      stdout: "40\n"
+
+  - id: protocols-column
+    claim: The protocols column limits tester31 to IMAP, and the log says so.
+    run: 'grep "^\* Mailbox tester31@example.com:" surl.log'
+    expect:
+      exit: 0
+      stdout: "* Mailbox tester31@example.com: logins on imap\n"
+
+  - id: imap-only-refused-on-pop3
+    claim: tester31's right password is refused over POP3, exit 67, Login denied.
+    run: curl -sS -u tester31@example.com:pass31 pop3://127.0.0.1:{{port3}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: imap-only-reads-imap
+    claim: The same login reads its mailbox over IMAP.
+    run: curl -sS -u tester31@example.com:pass31 -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n"
+
+  - id: empty-protocols-is-every-mail-protocol
+    claim: An empty protocols field means every mail protocol, so tester02 lists the same message over POP3.
+    run: curl -sS -u tester02@example.com:pass02 pop3://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout-matches: '^1 \d+\n$'
+
+  - id: quoted-field
+    claim: A field holding a comma is quoted; ops logs in over IMAP with the password s3cret,too.
+    run: curl -sS -u "ops@example.com:s3cret,too" -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port4}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 0)\n"
+
+  - id: refusal-names-the-line
+    claim: A record outside every --mail-domain stops surl at start, exit 2, naming the file and the line the record is on, line 4, the blank line counted.
+    run: surl --mail-domain example.com --mailbox-file outside.csv smtp://127.0.0.1:0/
+    expect:
+      exit: 2
+      stderr-contains: "surl: (2) Mailbox file outside.csv, line 4: mailbox carol@elsewhere.org is not in any --mail-domain"
+
+  - id: twice-across-files
+    claim: --mailbox-file may be given again, and an address the second file repeats is refused at its line, exit 2.
+    run: surl --mail-domain example.com --mailbox-file mailboxes.csv --mailbox-file again.csv smtp://127.0.0.1:0/
+    expect:
+      exit: 2
+      stderr-contains: "surl: (2) Mailbox file again.csv, line 2: mailbox tester05@example.com is given twice"
+
+  - id: unknown-column
+    claim: A header naming a column surl does not know is refused at line 1, exit 2.
+    run: surl --mail-domain example.com --mailbox-file columns.csv smtp://127.0.0.1:0/
+    expect:
+      exit: 2
+      stderr-contains: "surl: (2) Mailbox file columns.csv, line 1: unknown column pass"
+
+  - id: missing-file
+    claim: A file that cannot be read stops surl with exit 37.
+    run: surl --mail-domain example.com --mailbox-file missing.csv smtp://127.0.0.1:0/
+    expect:
+      exit: 37
+      stderr-contains: "surl: (37) Could not read mailbox file missing.csv"

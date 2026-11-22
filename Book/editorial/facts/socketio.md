@@ -31,3 +31,9 @@ Not probed.
 
 ## Recipes
 socketio-receive-an-event
+
+## Logging in over TLS (socketio-log-in-to-a-namespace and twins, Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `socketios://` with `--cert --key --user alice:s3cret`; `curl -m 3 --cacert server.pem -u alice:s3cret -d '["chat","hi"]' socketios://...` writes the event back, exit 28. Wrong password, unknown user, no login, right password over plain `socketio://`: exit 22 `Socket.IO server refused namespace /: {"message":"Not authorized"}`. With `--allow-plaintext-auth` plain joins. No `--cacert`: 60.
+- DEFECT (BL-1589, fixed in Surl master, not in this build): `--user :tok123` (token account) refuses every form tried (`-u tok123:`, `-u :tok123`, `--oauth2-bearer tok123`) over `socketios://`, `Not authorized`. The recipes' last case records the refusal; replace it when the build is fixed. Surl.Api `new SurlAccount("", "tok123")`.
+- Curl.Api: `SendAsync` does not return while a session is open (cancelling a token inside it gave no body). `CurlClientOptions.Timeout` = `-m`: an accepted join throws `CurlException` 28 `OperationTimedOut`; a refusal is 22 with `Not authorized` in the message. `RecordExchanges = true` then `server.WaitForEventAsync(new SurlEventQuery { Kind = SurlEventKind.LoginJudged, AfterSequence = 0 }, ...)` cast to `Surl.Protocol.Abstractions.LoginJudgedEvent` has `IsAccepted`.
+- curl-mcp `curl` tool: args `-sS -m 3 --cacert server.pem -u alice:s3cret -d [json] url`; exit 28 with the event in `standardOutput`.

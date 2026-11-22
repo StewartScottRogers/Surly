@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-limit-a-mailbox-to-imap-in-csharp]]
+=== Limiting a Mailbox to IMAP in C#
+
+==== Problem
+
+Your C# test must show that a mail client never uses Post Office Protocol version 3 (POP3). You want a stand-in whose mailbox logs in over Internet Message Access Protocol (IMAP) only, a POP3 login that fails, and an assertion on the server{apos}s record that no POP3 login ever got in.
+
+==== Solution
+
+Host the server with Surl.Api, give the mailbox `;protocols=imap`, try POP3 through Curl.Api, and count the POP3 logins the server accepted:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). Each `Mailboxes` entry is a `--mailbox`, and `"ann@example.com:annpass;protocols=imap"` limits Ann{apos}s logins to IMAP and its encrypted twin; `bob` and `shop` have no `protocols=`, so they log in on every mail protocol. `MailDomains` is `--mail-domain`, and `ListenUrls` puts Simple Mail Transfer Protocol (SMTP), IMAP and POP3 over one mail store. `RecordExchanges` keeps the exchanges and events the test reads, and `Log` with `LogLevel.Verbose` is `surl -v` into a `TextWriter`.
+
+The shop sends Ann a message with a `CurlRequest` of `HttpMethod.Put` on a fresh `CurlClient`, `CurlMailOptions` the envelope and `CurlAuthenticationOptions` its login, and the test waits for the delivery: `server.WaitForEventAsync` with a `SurlEventQuery` for `Kind` `StoreChanged`, `Store` `Mail` and `Name` `ann@example.com`, at most ten seconds.
+
+A POP3 listing is a `CurlRequest` of `HttpMethod.Get` to the POP3 URL. With Ann{apos}s right password it throws `CurlException` with `Code` `LoginDenied`, 67, `Login denied`. The exception carries no server text, so the program waits for the exchange to end, `Kind` `ExchangeEnded` and `Scheme` `pop3` after the last `SurlEvent`{apos}s `Sequence`, and reads the last line the server sent from the `SurlExchangeRecord`: `-ERR [AUTH] Authentication failed`, POP3{apos}s negative answer (<<rfc1939>>). An address with no mailbox, `nobody@example.com`, and a wrong password for `bob` get the same exception and the same line, so the refusal does not tell a client that Ann{apos}s account exists.
+
+Over IMAP nothing has changed: the same login reads the message SMTP delivered (<<rfc9051>>), and the `CurlResponse` body is its subject. A client that catches `LoginDenied` on POP3 and tries IMAP instead gets the mail, `* SEARCH 1`.
+
+The assertion reads the server{apos}s events, not the client{apos}s. `server.FindEvents` with `Kind` `LoginJudged` and `Scheme` `pop3` returns every POP3 login the server judged, each a `LoginJudgedEvent` with its `Scheme`, `Mechanism`, `Account` and `IsAccepted`. Ann{apos}s, Nobody{apos}s and Bob{apos}s look alike, `CRAM-MD5` and `IsAccepted` false: the record names the account but not why it failed. The count of accepted POP3 logins is 0, which is the test{apos}s answer to whether the client ever used POP3; the waits on each exchange{apos}s end make sure every login has been judged before the count. After `StopAsync` the log is complete, and its start line `* Mailbox ann@example.com: logins on imap` shows the limit was read as meant.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-limit-a-mailbox-to-imap>> for the limit on the console.
+* <<pop3-limit-a-mailbox-to-imap-from-an-agent>> for an agent that finds out by trying.
+* <<imap-keep-a-mailbox-off-smtp-in-csharp>> for keeping a mailbox off SMTP.
+* <<surl-readme>>, <<rfc1939>>, <<rfc9051>>.

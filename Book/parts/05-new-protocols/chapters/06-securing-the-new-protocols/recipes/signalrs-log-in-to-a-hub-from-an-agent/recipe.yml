@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: signalrs-log-in-to-a-hub-from-an-agent
+title: SignalR Hub Logins from an Agent
+protocols: [signalrs, signalr]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl]
+exit-codes: [0]
+references: [surl-readme, curl-readme, signalr-hub-protocol, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over signalrs the right password lets curl-mcp's curl tool call the Echo method and get its argument back, exit 0, with no loosening option.
+    program: program.cs
+    args: ["signalrs", "alice:s3cret"]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nout: \"hi\"\nerr: \n"
+
+  - id: wrong-password
+    claim: A wrong password gets the negotiate request refused with HTTP status 401, and the curl tool exits 22.
+    program: program.cs
+    args: ["signalrs", "alice:wrong"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*HTTP status 401'
+
+  - id: unknown-user
+    claim: A user name the server has no account for gets the same 401.
+    program: program.cs
+    args: ["signalrs", "bob:s3cret"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*HTTP status 401'
+
+  - id: no-login
+    claim: A request with no login gets 401 too, so over TLS the status does not tell a missing login from a wrong one.
+    program: program.cs
+    args: ["signalrs", "none"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*HTTP status 401'
+
+  - id: plain-refuses-the-password
+    claim: Over plain signalr the right password is refused with 403, a different status from the 401 of a wrong login over TLS, because the server will not take a password in the clear.
+    program: program.cs
+    args: ["signalr", "alice:s3cret"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*HTTP status 403'
+
+  - id: plain-no-login
+    claim: Over plain signalr a request with no login at all is still refused with 401.
+    program: program.cs
+    args: ["signalr", "none"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*HTTP status 401'
+
+  - id: plaintext-option-loosens
+    claim: Started with --allow-plaintext-auth, the same server accepts the login over plain signalr and Echo answers.
+    program: program.cs
+    args: ["signalr", "alice:s3cret", "plaintext"]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nout: \"hi\"\nerr: \n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert the curl tool does not trust the certificate and exits 60, before any login is sent.
+    program: program.cs
+    args: ["signalrs", "alice:s3cret", "untrusted"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 60\nout: \nerr: '

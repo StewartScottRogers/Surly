@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-require-a-client-certificate-from-an-agent]]
+=== Requiring a Client Certificate from an Agent
+
+==== Problem
+
+Your service uses mutual Transport Layer Security (TLS), and an agent runs your tests. You want the agent to stand up a server that refuses the handshake without a certificate from your test authority, refuses one from another authority, and serves the right one, and to see from the server's side that a refused client got nowhere.
+
+==== Solution
+
+Start the server with `surl-mcp`{apos}s `start_server`, giving `--cacert` in `arguments`, fetch with `curl-mcp`{apos}s `curl` tool presenting the client certificate, and on a refusal ask `wait_for_event` what the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`openssl` makes the files in the setup: a test authority, `ca.pem`, that signs the device's certificate, `CN=device-1`; a second authority that signs a stranger's certificate with the same subject name; and the server's own self-signed certificate, `server.pem` (<<rfc5280>>). Each client certificate is packed with its key into a PFX (PKCS #12, or P12) file under the passphrase `s3cret`. `StdioClientTransport` starts both hosts by name, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine them to the folder that holds those files. The program's first argument is the authority to give the server, `none` for none; the second picks the client's certificate.
+
+`start_server` starts a server that behaves as `surl` with the same options. The TLS options go in `arguments`, one list item each: `--cert server.pem --key server.key` is the server's own certificate, and `--cacert ca.pem` names the authority a client certificate must come from. Giving `--cacert` is what makes the server ask for a certificate in the handshake (<<rfc8446>>); without it the same client, with no certificate, fetches the file. A `--cacert` file that does not exist, or holds no certificate, makes `start_server` a tool error whose structured content carries `surl`{apos}s exit code, `2` (`FailedInit`) or `77` (`CaCertificateBadFile`), and its message.
+
+`curl-mcp`{apos}s `transfer` tool has no field for a client certificate, so the program uses the `curl` tool, whose `args` are a `curl` command line. `--cert client.p12:s3cret --cert-type P12` presents the device's certificate with its passphrase, and `--cacert server.pem` trusts the server (<<curl-manual>>). The answer holds `exitCode` and the two output streams; a nonzero exit is a tool error. The P12 form works on every platform. On Windows `curl` reads a client certificate from a P12 file only, as its Schannel build does, so a certificate and key in PEM (Privacy-Enhanced Mail) files give `exitCode` 58, `Failed to import cert file`; Linux and macOS take them.
+
+A client with no certificate, and one with the stranger's, are refused in the handshake. The `exitCode` is the TLS library's account of the closed connection and varies with the TLS version and platform, so the claims only ask that it is not 0. The server's side is plainer. `wait_for_event` with `kinds` `exchange_ended` returns the first event of that kind: the refused connection's exchange ended with `received_byte_count` 0, so the server read no request from it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-require-a-client-certificate>> for the same task on the console.
+* <<https-require-a-client-certificate-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc8446>>, <<rfc5280>>.

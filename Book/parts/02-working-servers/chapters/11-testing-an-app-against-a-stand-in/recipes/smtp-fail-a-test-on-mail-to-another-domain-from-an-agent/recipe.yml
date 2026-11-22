@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs foreign-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-fail-a-test-on-mail-to-another-domain-from-an-agent
+title: Failing on Foreign Mail from an Agent
+protocols: [smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges]
+curl-options: [-s, -S, -w, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5321]
+
+# invoice.eml is the app's mail; cc-outside.eml names an outside address in its header only.
+fixtures:
+  invoice.eml: "From: billing@example.com\r\nTo: ann@example.com\r\nSubject: Your invoice\r\n\r\nInvoice 1042 is attached.\r\n"
+  cc-outside.eml: "From: billing@example.com\r\nTo: ann@example.com\r\nCc: carol@elsewhere.org\r\nSubject: Your invoice\r\n\r\nInvoice 1043 is attached.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "The app, logged in, mails carol@elsewhere.org through the curl tool, outside both served domains; the tool answers exitCode 55 and RCPT failed 550, which fails the test."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^carol@elsewhere\\.org: curl exit 55, 550, curl: \\(55\\) RCPT failed: 550\n"
+
+  - id: recorded-reply
+    claim: "get_exchanges, read after wait_for_event says the exchange ended, shows the app's RCPT TO and the server's answer, 550 5.7.1 Relaying denied."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nrecorded: RCPT TO:<carol@elsewhere\\.org> -> 550 5\\.7\\.1 Relaying denied\\n"
+
+  - id: second-domain
+    claim: "--mail-domain may be given again in arguments, and a recipient in the second domain, sales@example.org, is accepted 250."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nsales@example\\.org: curl exit 0, 250\\n"
+
+  - id: subdomain-is-foreign
+    claim: "A subdomain is another domain; ann@mail.example.com is refused 550."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nann@mail\\.example\\.com: curl exit 55, 550, curl: \\(55\\) RCPT failed: 550\n"
+
+  - id: look-alike-is-foreign
+    claim: "A domain that only starts with a served one, ann@example.com.evil.org, is refused 550 too."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nann@example\\.com\\.evil\\.org: curl exit 55, 550, curl: \\(55\\) RCPT failed: 550\n"
+
+  - id: case-is-ignored
+    claim: "Letter case is not a difference; ANN@EXAMPLE.COM is accepted 250, and the store_changed event, waited for at most ten seconds, names ann's INBOX."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nANN@EXAMPLE\\.COM: curl exit 0, 250\\ndelivered: ann@example\\.com/INBOX/;UID=1\\n"
+
+  - id: sender-not-checked
+    claim: "Only recipients are judged; a foreign envelope sender, noreply@elsewhere.org, mailing ann is accepted 250."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nfrom noreply@elsewhere\\.org: curl exit 0, 250\\n"
+
+  - id: header-not-checked
+    claim: "Only the envelope is judged; a message whose Cc field names carol@elsewhere.org, sent to ann alone, is accepted 250."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nCc carol@elsewhere\\.org, sent to ann: curl exit 0, 250\\n"
+
+  - id: record-names-every-refusal
+    claim: "Scanning every SMTP exchange get_exchanges returns for a RCPT TO answered 550 names each refused recipient."
+    program: foreign-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nrefused: <carol@elsewhere\\.org>, <ann@mail\\.example\\.com>, <ann@example\\.com\\.evil\\.org>\\n$"

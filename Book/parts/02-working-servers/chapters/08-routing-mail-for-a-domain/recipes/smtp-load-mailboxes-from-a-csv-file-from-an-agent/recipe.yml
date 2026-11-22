@@ -1,0 +1,115 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs mailbox-file.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+# The program writes mailboxes.csv and other.csv into its folder itself, as an agent would.
+schema: 2
+key: smtp-load-mailboxes-from-a-csv-file-from-an-agent
+title: Loading Mailboxes from CSV from an Agent
+protocols: [smtp, imap, pop3]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event]
+curl-options: [-s, -S, -u, -X, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  note.eml: "From: tester01@example.com\r\nTo: tester02@example.com\r\nSubject: Build 812 passed\r\n\r\nAll 40 suites passed.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "The agent's first start_server is a tool error naming the bad record's file and line, 44, the blank line counted; the agent fixes that line and the second start succeeds."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^start_server: tool error, exit_code 2 \\(FailedInit\\), \\(2\\) Mailbox file mailboxes\\.csv, line 44: mailbox carol@elsewhere\\.org is not in any --mail-domain\\nfixed line 44: carol@example\\.com,carolpass,\\ntesters in log_lines: "
+
+  - id: forty-loaded
+    claim: "With -v, start_server's log_lines name every tester read from the file, forty lines."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntesters in log_lines: 40\\n"
+
+  - id: protocols-column
+    claim: "The protocols column limits tester31 to IMAP, and log_lines say so."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nlog: \\* Mailbox tester31@example\\.com: logins on imap\\n"
+
+  - id: mailboxes-work
+    claim: "Mailboxes read from the file work like any others; tester01 mails tester02 through the curl tool, and after the store_changed event, waited for at most ten seconds, tester02 reads the subject over IMAP."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntester02 over IMAP: Subject: Build 812 passed\\n"
+
+  - id: imap-only-refused-on-pop3
+    claim: "tester31's right password is refused over POP3; the curl tool answers exitCode 67, Login denied."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntester31 over POP3: exitCode 67, curl: \\(67\\) Login denied\\n"
+
+  - id: imap-only-reads-imap
+    claim: "The same login reads its mailbox over IMAP."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntester31 over IMAP: \\* STATUS INBOX \\(MESSAGES 0\\)\\n"
+
+  - id: empty-protocols-is-every-mail-protocol
+    claim: "An empty protocols field means every mail protocol, so tester02 lists the same message over POP3."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntester02 over POP3: 1 \\d+\\n"
+
+  - id: quoted-field
+    claim: "A field holding a comma is quoted; ops logs in over IMAP with the password s3cret,too."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nops over IMAP: \\* STATUS INBOX \\(MESSAGES 0\\)\\n$"
+
+  - id: twice-across-files
+    claim: "--mailbox-file may be given again, and an address the second file repeats is refused at its line."
+    program: mailbox-file.cs
+    args: ["twice"]
+    expect:
+      exit: 1
+      stdout: "start_server: tool error, exit_code 2 (FailedInit), (2) Mailbox file other.csv, line 2: mailbox tester05@example.com is given twice\n"
+
+  - id: unknown-column
+    claim: "A header naming a column surl does not know is refused at line 1."
+    program: mailbox-file.cs
+    args: ["column"]
+    expect:
+      exit: 1
+      stdout: "start_server: tool error, exit_code 2 (FailedInit), (2) Mailbox file mailboxes.csv, line 1: unknown column pass\n"
+
+  - id: missing-file
+    claim: "A file that cannot be read is refused with exit_code 37, CouldNotReadFile."
+    program: mailbox-file.cs
+    args: ["missing"]
+    expect:
+      exit: 1
+      stdout: "start_server: tool error, exit_code 37 (CouldNotReadFile), (37) Could not read mailbox file missing.csv\n"
+
+  - id: confined-to-the-root
+    claim: "surl-mcp reads the file relative to its root and refuses a path outside it before surl runs."
+    program: mailbox-file.cs
+    args: ["outside"]
+    expect:
+      exit: 1
+      stdout: "start_server: tool error, --mailbox-file names ../mailboxes.csv, which is not inside the root\n"

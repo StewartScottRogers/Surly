@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-keep-a-pinned-host-key-across-restarts]]
+=== Keeping a Pinned Host Key Across Restarts
+
+==== Problem
+
+Your SSH File Transfer Protocol (SFTP) client pins the server's host key. You want a test server whose key stays the same across restarts, so the pin keeps working, and a test that proves a server with a changed key is refused.
+
+==== Solution
+
+Make the host key once with `ssh-keygen`, start `surl` with `--hostkey` naming the file, pin its fingerprint in a `curl` config file, and fetch after a restart:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A Secure Shell (SSH) server proves who it is with its host key; a client that pins the key's fingerprint refuses any server that presents another (<<rfc4251>>). The key therefore has to outlive the server process. `ssh-keygen -t rsa -b 3072 -N "" -f host_key` writes a key pair with no passphrase, and `--hostkey host_key` tells `surl` to serve that key, so every start of the same command serves the same key. `--user alice:s3cret` is the account, which the client logs in as with `-u`, and `--directory site` the folder served.
+
+The pin is the key's SHA-256 fingerprint. `pin.sh` reads it from `host_key.pub` with `ssh-keygen -l` and writes it into `pin.cfg`, a `curl` config file holding one line, `hostpubsha256 = "..."`; `-K pin.cfg` reads it as if `--hostpubsha256` were on the command line (<<curl-manual>>). That is the client's side of the test kept apart from the server's: the pin is made once, from the key file, before any server runs. `pin.sh` needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::pin.sh[]
+----
+
+The test is in steps. The Solution's server is stopped outright and started again, then fetched with the pin; a second restart, and the pin still connects. The server's own record agrees: `-v` with `--log-file main.log` makes `surl` write a verbose log, which starts each run with the key it serves, `Serving SSH host key ssh-rsa, --hostpubsha256 ...`, and the three starts name one fingerprint. (`-s` hides `curl`{apos}s progress meter and `-S` keeps its error line.)
+
+The failure path is a server with another key, `other_key` here, standing in for a server whose key was lost or regenerated. `curl` refuses it with exit 60, `Denied establishing ssh session: mismatch SHA256 fingerprint`, after the key exchange and before any login: that server's verbose log has the key exchange and no `login request`, so the password never left the client.
+
+`--throwaway-hostkey` is what a server without a key file uses. It makes a key when the server starts and warns that it did, with the fingerprint to pin; the `fresh` server's log after one restart names two different fingerprints, so a pin taken from the first start is useless after the second. An SFTP listen URL with neither option is refused at start, exit 2: `surl` will not make up a key unless told it may.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-keep-a-pinned-host-key-across-restarts-in-csharp>> for the same test from C#.
+* <<sftp-keep-a-pinned-host-key-across-restarts-from-an-agent>> for the same test driven by an agent.
+* <<sftp-upload-a-batch-and-verify-it>> for uploads against a pinned key.
+* <<surl-readme>>, <<curl-manual>>, <<rfc4251>>.

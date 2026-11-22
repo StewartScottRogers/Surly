@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-log-in-with-tls-srp-in-csharp]]
+=== Logging In with TLS-SRP in C#
+
+==== Problem
+
+Your device authenticates the Transport Layer Security (TLS) connection with a user name and password, TLS-SRP (Secure Remote Password), instead of a certificate. You want a test server inside your .NET tests that holds the device's account, needs no certificate, lets the test add, change and remove accounts while it runs, and refuses in the handshake any client that cannot log in.
+
+==== Solution
+
+Start a `SurlServer` with `--tlsuser` and `--tlspassword` in `AdditionalArguments`, change its accounts through `TlsSrpAccounts`, and read its log for each handshake it refused:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+TLS-SRP runs the password check inside a TLS 1.2 handshake, with no certificate involved (<<surl-readme>>). `SurlServerOptions` has no property for it, so `surl`{apos}s own options go into `AdditionalArguments`, a word at a time: `--tlsuser device --tlspassword s3cret` is one account, and it implies `--tlsauthtype SRP`, so the HTTPS listen URL serves TLS 1.2 with the SRP cipher suites and nothing else. No `CertificateFile` and no `SelfSigned` is set. `Log` takes a `TextWriter` for the server's log. `SurlServer.StartAsync` starts it; asking for TLS 1.3 beside TLS-SRP cannot be met, so `--tlsv1.3` makes it throw `SurlServerStartException` with `ExitCode` `FailedInit` (2) and `surl`{apos}s line in `Lines`.
+
+The client has to be one that speaks TLS-SRP: your device, or a TLS library built with SRP. `Curl.Api` is not one. `CurlAuthenticationOptions` still has `TlsAuthType`, `TlsAuthUserName` and `TlsAuthPassword`, the `CURLOPT_TLSAUTH_*` options that `curl --tlsauthtype --tlsuser --tlspassword` set, but `Curl.Api` follows curl 8.22.0, which dropped TLS-SRP, and they have no effect (<<curl-readme>>). The `CurlClient` (with `CurlTlsPeerOptions.VerifyPeer` off, `curl -k`, inside `CurlTlsOptions` and `CurlClientOptions`) sends a `CurlRequest` with no SRP suite in its handshake, and `SendAsync` throws `CurlException` with `Code` `SslConnectError`, `curl`{apos}s exit 35. So the program cannot show a login with the right password, and claims none.
+
+The server's log says why it refused: `TLS handshake failed: The ClientHello offers no SRP suite the server can serve.` The client's first message (<<rfc8446>> calls it the ClientHello) offered nothing the server serves. The program waits up to five seconds for that line, since the server writes it on its own thread.
+
+`SurlServer.TlsSrpAccounts` is a `SurlServerTlsSrpAccounts`: the accounts a TLS-SRP handshake runs against. `Add` adds one while the server runs, and adding a user that has one throws `ArgumentException`. `SetPassword` changes a password, the account given at start included, and throws `ArgumentException` for a user with no account. `Remove` removes one and answers `true`, or `false` when there was none. On a server started without TLS-SRP, every one of those calls throws `InvalidOperationException`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-log-in-with-tls-srp>> for the same server on the console.
+* <<https-log-in-with-tls-srp-from-an-agent>> for the same server driven by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc8446>>.

@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-expire-a-token-mid-session-in-csharp
+title: Expiring a Token Mid-Session in C#
+protocols: [https, oci]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFault, SurlEventQuery, SurlEventKind, LoginJudgedEvent, CurlClient, CurlRequest, CurlResponse, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, oci-distribution, rfc6750, rfc7617, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The client logs in and calls the API (200); the test revokes every token with ResetAsync; the next call with the kept token is answered 401, the client logs in again, gets a new token and retries once, 200.
+    program: token-session.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\Alogin: token issued\ncall: 200\nreset: every token revoked\ncall: 401\nlogin: new token\nretry: 200\n'
+
+  - id: server-recorded-two-logins
+    claim: Waiting for each login in turn, the server judged two for the session, both app's password at the token endpoint, both accepted; the calls with a token are not logins.
+    program: token-session.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nretry: 200\nrecorded: app password accepted\nrecorded: app password accepted\n\Z'
+
+  - id: token-endpoint-answer
+    claim: The token endpoint answers a Basic login with JSON whose expires_in is 300.
+    program: token-session.cs
+    args: [endpoint]
+    expect:
+      exit: 0
+      stdout-matches: '\Atoken endpoint: expires_in 300\n'
+
+  - id: token-kept-without-revocation
+    claim: Without a revocation the second call reuses the kept token, 200, and the client does not log in again.
+    program: token-session.cs
+    args: [steady]
+    expect:
+      exit: 0
+      stdout: "login: token issued\ncall: 200\ncall: 200\nrecorded: app password accepted\n"
+
+  - id: no-token-challenge
+    claim: A call with no token is answered 401 with a Bearer challenge naming the token endpoint as its realm.
+    program: token-session.cs
+    args: [endpoint]
+    expect:
+      exit: 0
+      stdout-matches: '\nno token: 401 Bearer realm="https://127\.0\.0\.1:\d+/token",service="surl"\n\Z'
+
+  - id: retries-once-only
+    claim: When a fault answers the call 401 even after the new login, the client stops after its one retry and the program exits 1.
+    program: token-session.cs
+    args: [broken]
+    expect:
+      exit: 1
+      stdout: "login: token issued\ncall: 401\nlogin: new token\nretry: 401\nrecorded: app password accepted\nrecorded: app password accepted\n"
+
+  - id: login-refused
+    claim: With a stale token and a wrong password the call is answered 401, the login again is refused 401, and the client stops without a retry; the server recorded the login as refused.
+    program: token-session.cs
+    args: [guess]
+    expect:
+      exit: 1
+      stdout: "call: 401\nlogin: 401\nrecorded: app password refused\n"

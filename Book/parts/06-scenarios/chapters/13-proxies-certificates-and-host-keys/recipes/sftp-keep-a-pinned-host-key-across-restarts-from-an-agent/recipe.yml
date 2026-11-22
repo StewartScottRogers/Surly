@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: sftp-keep-a-pinned-host-key-across-restarts-from-an-agent
+title: Keeping a Pinned Host Key Across Restarts from an Agent
+protocols: [sftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, stop_server, curl, wait_for_event, get_events]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-manual, rfc4251]
+
+fixtures: {}
+
+# The server's host key, kept in a file; other_key stands for the key a server makes up when nobody kept one.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f other_key
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts the server three times with --hostkey host_key in start_server's arguments, stopping it with stop_server in between, and curl-mcp's curl tool, pinned with --hostpubsha256 to host_key.pub's fingerprint, fetches the file each time.
+    program: program.cs
+    args: ["kept"]
+    expect:
+      exit: 0
+      stdout-matches: '\Astart 1: hello from surl\nstart 2: hello from surl\nstart 3: hello from surl\n'
+
+  - id: same-key-logged
+    claim: With -v, each start_server answer's log_lines name the host key served, and all three starts name the same fingerprint.
+    program: program.cs
+    args: ["kept"]
+    expect:
+      exit: 0
+      stdout-matches: '\none key served\n\Z'
+
+  - id: changed-key-refused
+    claim: A server with any other host key is refused before any login; the curl tool answers exitCode 60, mismatch SHA256 fingerprint.
+    program: program.cs
+    args: ["rekeyed"]
+    expect:
+      exit: 1
+      stdout-matches: '\AexitCode 60: curl: \(60\) Denied establishing ssh session: mismatch SHA256 fingerprint'
+
+  - id: no-login-recorded
+    claim: After that connection ends, get_events finds no login_judged event, so no login was ever made.
+    program: program.cs
+    args: ["rekeyed"]
+    expect:
+      exit: 1
+      stdout-matches: '\nlogin_judged events: 0\n\Z'
+
+  - id: throwaway-changes
+    claim: A server started twice with --throwaway-hostkey serves a different key the second time, so no pin survives a restart.
+    program: program.cs
+    args: ["throwaway"]
+    expect:
+      exit: 0
+      stdout-matches: '\na different key after the restart\n\Z'
+
+  - id: throwaway-warns
+    claim: --throwaway-hostkey puts surl's warning first in log_lines, with the fingerprint to pin.
+    program: program.cs
+    args: ["throwaway"]
+    expect:
+      exit: 0
+      stdout-matches: '\Asurl: warning: --throwaway-hostkey: serving a throwaway SSH host key \(--hostpubsha256 \S+\); clients must pin it or skip the check \(curl -k\)\n'
+
+  - id: no-host-key
+    claim: An sftp listen URL with neither --hostkey nor --throwaway-hostkey makes start_server a tool error with exit_code 2, FailedInit.
+    program: program.cs
+    args: ["nokey"]
+    expect:
+      exit: 2
+      stdout: "exit_code: 2 (FailedInit)\n(2) sftp://127.0.0.1:0/ needs a host key: give --hostkey <file>, or --throwaway-hostkey for a throwaway one\n"

@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: signalrs-log-in-to-a-hub-in-csharp
+title: SignalR Hub Logins in C#
+protocols: [signalrs, signalr]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 60]
+references: [surl-readme, curl-readme, signalr-hub-protocol, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over signalrs the right password gets the negotiate request answered 200 with a connection token, with the certificate trusted and no loosening option on the server.
+    program: program.cs
+    args: ["signalrs", "alice", "s3cret"]
+    expect:
+      exit: 0
+      stdout: "negotiate: 200\nconnection token: True\n"
+
+  - id: wrong-password
+    claim: A wrong password gets the negotiate request refused with 401.
+    program: program.cs
+    args: ["signalrs", "alice", "wrong"]
+    expect:
+      exit: 0
+      stdout: "negotiate: 401\n"
+
+  - id: unknown-user
+    claim: A user name the server has no account for gets the same 401.
+    program: program.cs
+    args: ["signalrs", "bob", "s3cret"]
+    expect:
+      exit: 0
+      stdout: "negotiate: 401\n"
+
+  - id: no-login
+    claim: A request with no login gets 401 too, so over TLS the status does not tell a missing login from a wrong one.
+    program: program.cs
+    args: ["signalrs", "none", "x"]
+    expect:
+      exit: 0
+      stdout: "negotiate: 401\n"
+
+  - id: plain-refuses-the-password
+    claim: Over plain signalr the right password is refused with 403, a different status from the 401 of a wrong login over TLS, because the server will not take a password in the clear.
+    program: program.cs
+    args: ["signalr", "alice", "s3cret"]
+    expect:
+      exit: 0
+      stdout: "negotiate: 403\n"
+
+  - id: plain-no-login
+    claim: Over plain signalr a request with no login at all is still refused with 401.
+    program: program.cs
+    args: ["signalr", "none", "x"]
+    expect:
+      exit: 0
+      stdout: "negotiate: 401\n"
+
+  - id: plaintext-option-loosens
+    claim: With AllowPlaintextAuthentication set, the same login over plain signalr is accepted with a connection token.
+    program: program.cs
+    args: ["signalr", "alice", "s3cret", "plaintext"]
+    expect:
+      exit: 0
+      stdout: "negotiate: 200\nconnection token: True\n"
+
+  - id: untrusted-certificate
+    claim: With no certificate authority file the client does not trust the certificate and SendAsync throws code 60, before any login is sent.
+    program: program.cs
+    args: ["signalrs", "alice", "s3cret", "untrusted"]
+    expect:
+      exit: 60
+      stdout: "refused: curl code 60 PeerFailedVerification\n"

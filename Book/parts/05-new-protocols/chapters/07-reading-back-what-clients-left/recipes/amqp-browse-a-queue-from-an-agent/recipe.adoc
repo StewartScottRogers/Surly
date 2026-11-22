@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-browse-a-queue-from-an-agent]]
+=== Browsing a Queue from an Agent
+
+==== Problem
+
+Your app queued jobs on an Advanced Message Queuing Protocol (AMQP) queue, and you want an artificial intelligence (AI) agent to list them in delivery order, with Model Context Protocol (MCP) tool calls and no shell, without taking any off the queue.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts an AMQP broker with the queue `jobs`, lets the app queue through the `curl` tool, and lists the queue with `browse_queue`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The argument picks the scenario. `start_server` takes `listen_urls`, here one `amqp` listener on a free port, and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--queue jobs` makes the queue exist from the start, and `--allow-anonymous` lets the app connect with no account, a loosening for a test on one machine (<<surl-readme>>, <<amqp091>>).
+
+The app is the `curl` tool, which takes `curl`{apos}s own arguments; `-s` and `-S` keep the progress meter out and the error message in. `curl -d "resize cat.png" amqp://host:port/%2F/jobs` publishes one message to the queue `jobs` of the virtual host `/`, written `%2F` in the path, and with no `-d` the same URL takes one message off the queue (<<curl-readme>>). `curl-mcp` answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses. After each publish the program calls `wait_for_event` for a `store_changed` event in the `bus` store named `$queue/jobs`, with `after_sequence` the last one seen and a bound of ten seconds, so it reads only once the broker has recorded the job.
+
+`browse_queue` takes the `server_id`, the `queue`, `after_position`, with `-1` for the start, and a `limit`. It answers `messages`, each with a `position` and the `text` of its payload, in delivery order, with `ready_count`, the messages waiting, and `in_flight_count`, the messages delivered and not yet acknowledged, which are counted and not listed. The agent finds `resize cat.png`, `resize dog.png` and `mail ann` at positions `0`, `1` and `2`, and a second browse answers the same: the call takes nothing. That is the difference from a `curl` with no `-d`, which does take a message. The `untouched` case shows it: after two browses the worker{apos}s `curl` gets `resize cat.png`, the first job, and the next browse lists the other two.
+
+A page is a window. With a `limit` of `2` the first answer holds positions `0` and `1` and `has_more` is true; the agent passes the last `position` it saw as `after_position` and gets position `2` with `has_more` false. An empty queue answers `ready_count` `0` and no `messages`, a result and not an error, so the agent has to read the count and not wait for a failure. A queue the server does not have is a tool error, `No queue nope.`, which is how an agent learns the app used the wrong name.
+
+Last, a broker without `--allow-anonymous` refuses the app. `curl` exits `67` and writes that the server offers only `CRAM-MD5`, a mechanism it does not use, and the agent finds the queue empty: the browse says what the app achieved, whatever the app reported.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-check-what-a-queue-holds-in-process>> for the same browse from C# code.
+* <<amqp-check-what-a-queue-still-holds>> for browsing what a worker left, and the jobs it holds unfinished.
+* <<amqp-send-and-receive>> for publishing and receiving over AMQP on the console.
+* <<amqp091>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: socketio-log-in-to-a-namespace-in-csharp
+title: Socket.IO Logins in C#
+protocols: [socketio, socketios]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlContent, CurlException]
+exit-codes: [0, 22, 60]
+references: [surl-readme, curl-readme, socketio-protocol, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over socketios the right password joins the main namespace, the session stays open until the 3 s time limit ends it with curl code 28, and the server judged the login accepted, with no loosening option.
+    program: program.cs
+    args: ["socketios", "alice", "s3cret"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "joined: curl code 28 OperationTimedOut; login accepted True\n"
+
+  - id: wrong-password
+    claim: A wrong password makes SendAsync throw CurlException with code 22 and the Not authorized refusal.
+    program: program.cs
+    args: ["socketios", "alice", "wrong"]
+    timeout: 60
+    expect:
+      exit: 22
+      stdout-matches: '\Arefused: curl code 22 \w+: .*Not authorized'
+
+  - id: unknown-user
+    claim: A user name the server has no account for gets the same refusal as a wrong password.
+    program: program.cs
+    args: ["socketios", "bob", "s3cret"]
+    timeout: 60
+    expect:
+      exit: 22
+      stdout-matches: '\Arefused: curl code 22 \w+: .*Not authorized'
+
+  - id: no-login
+    claim: A request with no login is refused with the same Not authorized, so the message does not tell a missing login from a wrong one.
+    program: program.cs
+    args: ["socketios", "none", "x"]
+    timeout: 60
+    expect:
+      exit: 22
+      stdout-matches: '\Arefused: curl code 22 \w+: .*Not authorized'
+
+  - id: plain-refuses-the-password
+    claim: Over plain socketio the right password is refused with the same Not authorized, because the server will not take a password in the clear.
+    program: program.cs
+    args: ["socketio", "alice", "s3cret"]
+    timeout: 60
+    expect:
+      exit: 22
+      stdout-matches: '\Arefused: curl code 22 \w+: .*Not authorized'
+
+  - id: plaintext-option-loosens
+    claim: With AllowPlaintextAuthentication set, the same login over plain socketio joins and the server judged it accepted.
+    program: program.cs
+    args: ["socketio", "alice", "s3cret", "plaintext"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "joined: curl code 28 OperationTimedOut; login accepted True\n"
+
+  - id: untrusted-certificate
+    claim: With no certificate authority file the client does not trust the certificate and SendAsync throws code 60, before any login is sent.
+    program: program.cs
+    args: ["socketios", "alice", "s3cret", "untrusted"]
+    timeout: 60
+    expect:
+      exit: 60
+      stdout-matches: '\Arefused: curl code 60 PeerFailedVerification'
+
+  - id: token-login-refused-in-this-build
+    claim: In this build a token account refuses even the right token over socketios, with the same Not authorized; this is a known fault, BL-1589, fixed in Surl master.
+    program: program.cs
+    args: ["socketios", "tok123", "", "token"]
+    timeout: 60
+    expect:
+      exit: 22
+      stdout-matches: '\Arefused: curl code 22 \w+: .*Not authorized'

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-check-what-an-upload-stored-from-an-agent]]
+=== Checking an S3 Upload
+
+==== Problem
+
+Your app uploaded an object over the Simple Storage Service (S3) protocol, and you want an artificial intelligence (AI) agent to read the stored bytes back and compare them with the file, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts an S3 server, lets the app upload through the `curl` tool, waits for the write, and reads the object back with `read_file`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). The folder holds the files the app uploads. The argument picks the scenario. `start_server` takes `listen_urls`, here one `s3` listener on a free port, `arguments`, which pass `surl`{apos}s own options, and `files`, an object held in memory so that the bucket `photos` exists. `--user` is the access key and the secret, which every request must sign; `--s3-plaintext` serves S3 as plain Hypertext Transfer Protocol (HTTP), so no certificate is needed, a loosening for a test on one machine; and `--allow-uploads` lets a signed put through, which without it is refused (<<surl-readme>>, <<aws-s3-api>>).
+
+The app is the `curl` tool, which takes `curl`{apos}s own arguments; `-s` and `-S` keep the progress meter out and the error message in. `-T report.csv` puts the file, and `--aws-sigv4 aws:amz:us-east-1:s3` with `-u` signs the request with the key and secret, to a URL of the form `http://127.0.0.1:port/photos/reports/report.csv`, with the bucket first in the path (<<curl-readme>>). `curl-mcp` answers in text that is JavaScript Object Notation (JSON), with `exitCode` and the standard output. Over plain HTTP a refusal is an ordinary response, so `curl` exits `0` and the S3 error code is in the body, which the program reads.
+
+The program does not read the object the moment `curl` returns. It calls `wait_for_event` for a `store_changed` event in the `content` store named `/photos/reports/report.csv`, with `after_sequence` the last one seen and a bound of ten seconds, until the change is `written`; an earlier upload{apos}s own events, such as its metadata, can arrive first, so each one seen moves the sequence on. Only then does it call `read_file`, which takes the `server_id` and the request `path`, `/photos/reports/report.csv`, and answers the `byte_count`, the `content_type` and the `text` of the stored file. The agent finds `23` bytes of type `text/csv`, and the program compares the text with the file it uploaded, which is the check an upload test needs: not that the put returned, but that the stored bytes are the bytes.
+
+A second upload to the same key replaces the object. The program waits for the second write, and `read_file` answers `28` bytes holding the second file{apos}s text and none of the first{apos}s.
+
+The two refusals leave nothing stored, and the program says so from the server{apos}s side. A put signed with a wrong secret is answered `SignatureDoesNotMatch`, and a signed put to a server without `--allow-uploads` is answered `AccessDenied`; in both `curl` exits `0`, the wait times out after two seconds with nothing written, and `read_file` of the key is a tool error and not an empty file, so the agent can tell an object that is empty from one that was never stored. The program returns `1`, which is what a failing check needs to show.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-put-and-get-an-object>> for putting and getting an object on the console.
+* <<s3-serve-a-plain-http-endpoint-from-an-agent>> for serving S3 as plain HTTP and the refusals an agent sees.
+* <<s3-list-a-bucket-from-an-agent>> for listing what a bucket holds.
+* <<aws-s3-api>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

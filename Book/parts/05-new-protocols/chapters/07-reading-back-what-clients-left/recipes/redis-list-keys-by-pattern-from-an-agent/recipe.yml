@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: redis-list-keys-by-pattern-from-an-agent
+title: Listing Redis Keys by Pattern
+protocols: [redis]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_keys, read_key]
+curl-options: [-s, -S, -u]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, redis-resp, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a cache writes seven keys, list_keys with the pattern cache:* answers the six that match, in order, with has_more false, and read_key of cache:page:3 answers a string of 7 bytes with the text contact and no expiry.
+    program: program.cs
+    args: [list]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "cache:*: 6 keys: cache:page:1, cache:page:2, cache:page:3, cache:page:4, cache:page:5, cache:user:ann (has_more False)\ncache:page:3: string, 7 bytes, text contact, expires never\n"
+
+  - id: paging
+    claim: With a limit of 2 and the pattern cache:page:*, the first page holds cache:page:1 and cache:page:2 with has_more true, a page after cache:page:2 holds the next two, and a page after cache:page:4 holds cache:page:5 with has_more false.
+    program: program.cs
+    args: [paging]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "cache:page:* after (start): cache:page:1, cache:page:2 (has_more True)\ncache:page:* after cache:page:2: cache:page:3, cache:page:4 (has_more True)\ncache:page:* after cache:page:4: cache:page:5 (has_more False)\n"
+
+  - id: other-patterns
+    claim: A question mark matches one character and brackets a range, so cache:page:? lists five keys and cache:page:[1-2] two, and a pattern that matches nothing answers no keys and has_more false, which is a result and not a tool error.
+    program: program.cs
+    args: [patterns]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "cache:page:?: 5 keys: cache:page:1, cache:page:2, cache:page:3, cache:page:4, cache:page:5 (has_more False)\ncache:page:[1-2]: 2 keys: cache:page:1, cache:page:2 (has_more False)\nnothing:*: 0 keys (has_more False)\n"
+
+  - id: expiry
+    claim: read_key answers an expires_at only for the key the cache wrote with a life of 600 seconds, and none for a key written with no expiry.
+    program: program.cs
+    args: [read]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "cache:page:2: string, 5 bytes, text about, expires never\ncache:page:5: string, 4 bytes, text blog, expires set\n"
+
+  - id: no-such-key
+    claim: read_key of a key that is not there is a tool error that reads No such key.
+    program: program.cs
+    args: [no-key]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "cache:page:9: tool error, No such key.\n"
+
+  - id: plaintext-refused
+    claim: Without --allow-plaintext-auth the cache's password is refused over redis://, curl exits 67 with WRONGPASS in its message, and list_keys finds no key.
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "cache could not write: exit 67, WRONGPASS in the message: True\n*: 0 keys (has_more False)\n"

@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-load-mailboxes-from-a-csv-file-in-csharp
+title: Loading Mailboxes from CSV in C#
+protocols: [smtp, imap, pop3]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program writes its own CSV and hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Mailboxes read from the fixture's file work like any others; tester01 mails tester02, and after the delivery event, waited for at most ten seconds, tester02 reads the subject over IMAP."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^tester02 over IMAP: Subject: Build 812 passed\\n"
+
+  - id: forty-loaded
+    claim: "The verbose log names every tester read from the file when the server starts, forty lines."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntesters in the log: 40\\n"
+
+  - id: protocols-column
+    claim: "The protocols column limits tester31 to IMAP, and the log says so."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nlog: \\* Mailbox tester31@example\\.com: logins on imap\\n"
+
+  - id: imap-only-refused-on-pop3
+    claim: "tester31's right password is refused over POP3; Curl.Api throws CurlException LoginDenied, 67."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntester31 over POP3: CurlException LoginDenied \\(67\\): Login denied\\n"
+
+  - id: imap-only-reads-imap
+    claim: "The same login reads its mailbox over IMAP."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntester31 over IMAP: \\* STATUS INBOX \\(MESSAGES 0\\)\\n"
+
+  - id: empty-protocols-is-every-mail-protocol
+    claim: "An empty protocols field means every mail protocol, so tester02 lists the same message over POP3."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\ntester02 over POP3: 1 \\d+\\n"
+
+  - id: quoted-field
+    claim: "A field holding a comma is quoted; ops logs in over IMAP with the password s3cret,too."
+    program: mailbox-file.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nops over IMAP: \\* STATUS INBOX \\(MESSAGES 0\\)\\n$"
+
+  - id: refusal-names-the-line
+    claim: "A record outside every mail domain makes StartAsync throw SurlServerStartException, FailedInit, naming the file and the line the record is on, line 4, the blank line counted."
+    program: mailbox-file.cs
+    args: ["outside"]
+    expect:
+      exit: 1
+      stdout: "SurlServerStartException: FailedInit, (2) Mailbox file mailboxes.csv, line 4: mailbox carol@elsewhere.org is not in any --mail-domain\n"
+
+  - id: twice-across-files
+    claim: "MailboxFiles may hold several files, and an address the second repeats is refused at its line."
+    program: mailbox-file.cs
+    args: ["twice"]
+    expect:
+      exit: 1
+      stdout: "SurlServerStartException: FailedInit, (2) Mailbox file other.csv, line 2: mailbox tester05@example.com is given twice\n"
+
+  - id: unknown-column
+    claim: "A header naming a column surl does not know is refused at line 1."
+    program: mailbox-file.cs
+    args: ["column"]
+    expect:
+      exit: 1
+      stdout: "SurlServerStartException: FailedInit, (2) Mailbox file mailboxes.csv, line 1: unknown column pass\n"
+
+  - id: missing-file
+    claim: "A file that cannot be read is refused with ExitCode CouldNotReadFile, 37."
+    program: mailbox-file.cs
+    args: ["missing"]
+    expect:
+      exit: 1
+      stdout: "SurlServerStartException: CouldNotReadFile, (37) Could not read mailbox file missing.csv\n"

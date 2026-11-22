@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: socketio-log-in-to-a-namespace-from-an-agent
+title: Socket.IO Logins from an Agent
+protocols: [socketio, socketios]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl]
+exit-codes: [0]
+references: [surl-readme, curl-readme, socketio-protocol, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over socketios the right password lets curl-mcp's curl tool join, emit an event and get it back; the tool stops at its 3 s time limit, exit 28, with the event already written.
+    program: program.cs
+    args: ["socketios", "alice:s3cret"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 28\nout: \["chat","hi"\]\nerr: .*timed out'
+
+  - id: wrong-password
+    claim: A wrong password gets the join refused with Not authorized, and the curl tool exits 22 with nothing written.
+    program: program.cs
+    args: ["socketios", "alice:wrong"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*Not authorized'
+
+  - id: unknown-user
+    claim: A user name the server has no account for gets the same refusal as a wrong password.
+    program: program.cs
+    args: ["socketios", "bob:s3cret"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*Not authorized'
+
+  - id: no-login
+    claim: A request with no login is refused with the same Not authorized, so the message does not tell a missing login from a wrong one.
+    program: program.cs
+    args: ["socketios", "none"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*Not authorized'
+
+  - id: plain-refuses-the-password
+    claim: Over plain socketio the right password is refused with the same Not authorized, because the server will not take a password in the clear.
+    program: program.cs
+    args: ["socketio", "alice:s3cret"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*Not authorized'
+
+  - id: plaintext-option-loosens
+    claim: Started with --allow-plaintext-auth, the same server accepts the login over plain socketio and the event comes back.
+    program: program.cs
+    args: ["socketio", "alice:s3cret", "plaintext"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 28\nout: \["chat","hi"\]\nerr: .*timed out'
+
+  - id: untrusted-certificate
+    claim: Without --cacert the curl tool does not trust the certificate and exits 60, before any login is sent.
+    program: program.cs
+    args: ["socketios", "alice:s3cret", "untrusted"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 60\nout: \nerr: '
+
+  - id: token-login-refused-in-this-build
+    claim: In this build a token account refuses even the right token over socketios, with the same Not authorized; this is a known fault, BL-1589, fixed in Surl master.
+    program: program.cs
+    args: ["socketios", "tok123:", "token"]
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 22\nout: \nerr: .*Not authorized'

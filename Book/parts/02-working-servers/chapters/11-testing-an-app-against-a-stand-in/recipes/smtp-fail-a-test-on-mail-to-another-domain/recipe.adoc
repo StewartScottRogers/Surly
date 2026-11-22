@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-fail-a-test-on-mail-to-another-domain]]
+=== Failing a Test on Foreign Mail
+
+==== Problem
+
+Your app must never mail anyone outside your company{apos}s domains, and in a test it must not be able to. You want a test mail server that serves only those domains, so an app that mails an outside address is refused with `550 Relaying denied` and its test fails, and you want to know exactly which addresses the server counts as outside.
+
+==== Solution
+
+Run `surl` with a `--mail-domain` for each domain you own, point the app at it, and send to an outside address; the recipient is refused and the send fails:
+
+include::.generated/solution.adoc[]
+
+Here `curl` plays the app; a test that runs the app sees its send fail the same way, and reads the reason from the server{apos}s log.
+
+==== Discussion
+
+`--mail-domain` makes `surl` serve mail for a domain, and may be given once per domain: here `example.com` and `example.org`. Each `--mailbox` adds a mailbox and the account that logs in to it, named by its whole address; the app logs in as `billing@example.com` (<<surl-readme>>). `-v` and `--log-file surl.log` write a verbose log to a file, and the `pop3://` listener shares the mail store, so the test can look at what Ann received. On the `curl` side, `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope sender and recipient (`MAIL FROM` and `RCPT TO`, <<rfc5321>>), `-T` the message, and `--crlf` turns its line feeds into the carriage return and line feed mail is made of. `-s` hides the progress meter and `-S` keeps the error line.
+
+A recipient outside every served domain is refused at `RCPT TO` with `550 5.7.1 Relaying denied`, though the app has logged in, and `curl` exits `55`, `RCPT failed: 550`. A server that accepted it would be an open relay; `surl` delivers only to its own domains, so the mail cannot leave the test. A recipient in either served domain is accepted `250` (`-w "%{response_code}"` prints the last reply code).
+
+The match is on the whole domain, and the claims pin down its edges. A subdomain is another domain: `ann@mail.example.com` is refused, as `--mail-domain` matches no subdomains (<<surl-readme>>). So is a look-alike that merely begins with a served name, `ann@example.com.evil.org`. Letter case is no difference, as in every domain name: `ANN@EXAMPLE.COM` is accepted and reaches Ann. The test checks that with `--next`, a second transfer with options of its own: `-X "LIST 1"` asks Ann{apos}s Post Office Protocol version 3 (POP3) maildrop for message 1, which is an error until it has arrived, so `--retry 10` with `--retry-all-errors` tries again up to ten times, `--retry-delay 1` a second apart (<<curl-manual>>).
+
+Only recipients are judged, and only in the envelope. A foreign envelope sender, `noreply@elsewhere.org`, mailing Ann is accepted, since a logged-in app may name any sender. A message whose `Cc` field names `carol@elsewhere.org` but which is sent to Ann alone is accepted too: header fields are text, and the server delivers to the envelope (<<rfc5321>>). That is a hole a test can fall into. Many mail libraries build the envelope from the `To` and `Cc` fields, but if the app gives its own recipient list, the stray address in the header never reaches the server and the test passes. Check the header in what was delivered, as in <<smtp-check-an-app-sent-the-right-mail>>.
+
+The server{apos}s log says why each recipient was refused, which the test can show when it fails. `wait-for-log.sh` waits, at most ten seconds, until the log holds as many lines with a text as it expects, then prints them without their exchange numbers; the log is written as the server works, so a test that read it at once could miss the last line:
+
+[source,sh]
+----
+include::wait-for-log.sh[]
+----
+
+Each refusal is one line, `* RCPT <address> refused: outside every --mail-domain`, and the reply that followed it is logged as sent, `> 550 5.7.1 Relaying denied\r\n`. The script needs a POSIX shell (Git Bash on Windows).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-fail-a-test-on-mail-to-another-domain-in-csharp>> for the same test in C#, with the refusal found in the recorded exchange.
+* <<smtp-fail-a-test-on-mail-to-another-domain-from-an-agent>> for an agent that spots the refusal with `get_exchanges`.
+* <<smtp-fail-a-test-on-a-wrong-recipient>> for the `curl` options that can hide a refusal.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

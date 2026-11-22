@@ -1,0 +1,114 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt-keep-readings-across-restarts-in-csharp
+title: Keeping Readings Across Restarts in C#
+protocols: [mqtt]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlRetainedMessage, SurlServerStartException, SurlEventQuery, SurlEventKind, SurlEvent, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Two readings are published through Curl.Api and waited for; after the broker is disposed and a second one started on the same DataDirectory, a subscriber reads the kitchen's 21.5, and ReadRetainedAsync holds it at QoS 0."
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/temp: subscriber reads 21.5\nkept: 21.5 at QoS 0\n"
+
+  - id: every-topic
+    claim: "Every topic that was kept comes back: a subscription to sensors/# is sent both readings, the hall's 19.0 and the kitchen's 21.5, 49 bytes in all."
+    program: program.cs
+    args: [every-topic]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/#: 49 bytes, hall True, kitchen True\n"
+
+  - id: on-disk
+    claim: "While the broker runs the folder holds the lock file and the retained messages, .surl/bus/retained; after it is disposed both files are still there, the lock as a stale file that is no obstacle to the next broker."
+    program: program.cs
+    args: [on-disk]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "running: lock True, retained True\nstopped: lock True, retained True\n"
+
+  - id: outside-the-filter
+    claim: "A client's publish outside the filter, to lab/kitchen/temp, was never kept, so after the restart ReadRetainedAsync answers null and a subscriber reads nothing, while the kitchen's reading under the filter is there."
+    program: program.cs
+    args: [outside]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "lab/kitchen/temp, kept: nothing\nlab/kitchen/temp: subscriber reads nothing\nsensors/kitchen/temp, kept: 21.5 at QoS 0\n"
+
+  - id: seeded-reading
+    claim: "A reading seeded with Messages.PublishAsync and retain true is written to the folder too, and is there after the restart."
+    program: program.cs
+    args: [seeded]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/temp, kept: 21.5 at QoS 0\nsensors/kitchen/temp: subscriber reads 21.5\n"
+
+  - id: second-restart
+    claim: "The restarted broker keeps what is published to it: after a new hall reading, 20.0, and a second restart the subscription is sent 20.0 for the hall and 21.5 for the kitchen."
+    program: program.cs
+    args: [twice]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/#: 49 bytes, hall True, kitchen True\n"
+
+  - id: memory-holds-while-running
+    claim: "A broker with no DataDirectory is read the same reading while it runs."
+    program: program.cs
+    args: [memory-holds]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/temp: subscriber reads 21.5\n"
+
+  - id: memory-forgets
+    claim: "Without DataDirectory a restart starts the retained messages over: the subscriber reads nothing and ReadRetainedAsync answers null."
+    program: program.cs
+    args: [memory]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "sensors/kitchen/temp: subscriber reads nothing\nkept: nothing\n"
+
+  - id: directory-in-use
+    claim: "A second broker on the folder while the first runs is refused, SurlServerStartException with exit code 124, Directory in use by another surl process."
+    program: program.cs
+    args: [in-use]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "second broker: exit 124, in use: True\n"
+
+  - id: directory-must-exist
+    claim: "A DataDirectory that does not exist is refused at the start, SurlServerStartException with exit code 37, Could not open directory."
+    program: program.cs
+    args: [missing]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "exit 37, could not open: True\n"
+
+  - id: closed-without-anonymous
+    claim: "The filter does not open the broker: without AllowAnonymous the client's publish throws a CurlException with code 8."
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 8
+      stdout-matches: '^curl error 8: '

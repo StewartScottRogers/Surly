@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-provision-users-for-a-test]]
+=== Provisioning Users for a Test
+
+==== Problem
+
+A test needs a set of users in a Lightweight Directory Access Protocol (LDAP) directory. You want your artificial intelligence (AI) agent to add them, read the directory back as LDAP Data Interchange Format (LDIF), and search for each one over LDAP.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it builds one LDIF batch from the list of users, adds it with `surl-mcp`{apos}s `add_ldap_entries`, waits for the record, reads it back with `read_directory`, searches with `curl-mcp`{apos}s `curl` tool, and resets the server for the next test:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` listens on `ldap://127.0.0.1:0`, a free port, with an empty directory. The program turns its list of users into one batch: the top of the tree, `dc=example,dc=com` and `ou=people`, then an entry per user under the branch the list names. `add_ldap_entries` takes the batch as `ldif` and answers `entry_count`, the entries it added. A batch is all or none: with the argument `bad-batch` a fourth user sits under `ou=contractors`, which does not exist, so the call is a tool error and nothing of the batch is added, not even the users that were fine. Seed the tree's top in the same batch as the users, or in an earlier one.
+
+`wait_for_event` with `kinds` `store_changed`, `store` `directory` and the last user's distinguished name as `name` answers the change, `seeded`, or waits up to `timeout_ms` for it, so nothing is read before the batch is in. `read_directory` answers `ldif`, the whole directory as text, in the order the entries were added; it leaves out every `userPassword`, so a test can print or keep it.
+
+Each search is an LDAP Uniform Resource Locator (URL, <<rfc4516>>), `dc=example,dc=com?cn?sub?(uid=ann)`: the subtree, the `cn` attribute, and a filter on the user's `uid`. `curl` runs `curl` with the argument list given; `-u :`, an empty name and password, is an anonymous bind (<<rfc4511>>), `-s` keeps it quiet and `-S` still writes an error. The answer's `exitCode` is `curl`{apos}s and `standardOutput` the entries, which the program prints as one line so the layout of the LDAP library under `curl` does not matter. A search whose base does not exist exits 39.
+
+`--allow-anonymous` in `start_server`{apos}s `arguments` loosens a default for the test: with the argument `strict` it is left out, the same users are added, and the anonymous bind is refused with exit 38 on every platform. A test that keeps the default gives the server an account and searches as it, as <<ldap-provision-a-user-and-bind-as-it-from-an-agent>> does.
+
+`reset_server` returns every store to how the server started. Here that is an empty directory, so the next test begins clean on the same server and port: the search for ann exits 39 again.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-provision-a-user-and-bind-as-it-from-an-agent>> for one user, bound as with a password.
+* <<ldap-seed-a-directory-from-an-agent>> for seeding in steps.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>.

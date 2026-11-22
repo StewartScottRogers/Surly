@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-check-an-app-published-a-reading]]
+=== Checking an App Published a Reading
+
+==== Problem
+
+Your device code publishes a temperature over Message Queuing Telemetry Transport (MQTT), and a test has to check afterwards what it sent. You want a test server that keeps the last reading on the topic, and a check that reads it back and fails with the value the app actually published.
+
+==== Solution
+
+Start `surl` with `--topic 'sensors/#;retain'` so that it keeps what is published under `sensors/`, let the app publish, and run `check.sh`, which reads the topic from the server and compares the reading with the one expected. Here `curl -d` stands in for the app. The script needs a POSIX shell, Git Bash on Windows:
+
+include::.generated/solution.adoc[]
+
+The script:
+
+[source,shell]
+----
+include::check.sh[]
+----
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The app is on one side of the server and the test on the other, and the test needs the server to remember. An MQTT publish carries a retain flag, and a broker keeps a message as the topic{apos}s last one only when it is set (<<mqtt311>>). `curl -d` always sends the flag clear, and an application{apos}s own client may as well, so `--topic "sensors/#;retain"` closes the gap from the server{apos}s side: `surl` keeps every publish on a topic under `sensors/`, whatever its flag (<<surl-readme>>). The check is then a subscribe, because a subscriber is sent the topic{apos}s retained message and `surl` ends the exchange itself, so `curl mqtt://127.0.0.1:8080/sensors/kitchen/temp` returns by itself (<<curl-readme>>). `-d` gives `curl` a message to publish, and without it `curl` subscribes; `-s` keeps the progress meter quiet and `-S` brings an error message back when something fails. `curl` writes the message as the topic{apos}s length in two bytes, the topic and the reading, and the script skips the first `2 + length` bytes with `tail -c +` and compares what is left. Reading does not use the reading up, so the check can run again.
+
+A publish at quality of service 0 gets no answer, so the app{apos}s `curl` can return before the server has kept the message, and a check straight after it could find nothing. The script does not assume. It reads again every half second, at most twenty times by default, until the kept reading is the expected one, so a slow machine costs time and not a false failure; its fourth argument lowers the bound, and the failing cases here use `2` to fail quickly. When the bound is spent it prints what it saw and exits `1`: `FAIL: sensors/kitchen/temp is 21.5, expected 22.0` for a different reading, `FAIL: nothing kept on sensors/hall/temp` for none. The last reading wins, so after the app publishes `22.0` the check for `22.0` passes and one for `21.5` fails.
+
+A check that finds nothing is the test{apos}s way to find three mistakes. An app that publishes to a misspelt topic, `sensors/hall/temprature`, leaves its reading under that name, and the check on the right name finds nothing while a check on the misspelling finds the reading. An app that publishes outside the filter, `lab/kitchen/temp`, is accepted, `curl` exits `0`, and nothing is kept. And a server started with no `--topic`, the second one here, keeps nothing a client publishes. If a retained reading is missing, look at the filter and the topic first.
+
+The filter does not open the server. The third server has it and no `--allow-anonymous`, and an app with no login is refused with `CONNACK` return code 5, which `curl` reports as exit `8` and `Expected 0000 but got 0005`. The first two servers use `--allow-anonymous`, which accepts any login or none and warns on start; it is a loosening for a test on one machine, and <<mqtt-grant-a-topic>> shows accounts instead.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-check-an-app-published-a-reading-in-csharp>> for the same task from a C# test, waiting for the app{apos}s publish with `WaitForEventAsync`.
+* <<mqtt-check-an-app-published-a-reading-from-an-agent>> for the same task from an agent.
+* <<mqtt-keep-a-retained-message>> for how the filter keeps a message.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-prove-a-client-uses-its-proxy
+title: Proving a Client Uses Its Proxy
+protocols: [http]
+tier: scenarios
+surl-options: [--directory, --trace-ascii, --proxy]
+curl-options: [-s, -S, -x, -o, -w]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  site/prices.json: "{\"widget\": 3}\n"
+  # The test: reads the server's trace and counts the requests the origin received, with the
+  # proxy's Via header and without. Any request without it came directly, and the test fails.
+  via-proxy.awk: |
+    { sub(/\r$/, "") }
+    # A request head in origin form (GET /path) is one the origin received.
+    /^[0-9a-f]+: [A-Z]+ \// { open = 1; via = 0; next }
+    open && /^[0-9a-f]+: Via: 1\.1 surl$/ { via = 1 }
+    # The blank line that ends the head.
+    open && /^[0-9a-f]+: ?$/ { if (via) proxied++; else direct++; open = 0 }
+    END {
+      printf "%d via the proxy, %d direct\n", proxied, direct
+      exit (direct > 0)
+    }
+
+servers:
+  # One surl: the origin on 8080 and its proxy on 8081, with every byte both receive in traffic.txt.
+  main:
+    command: surl --directory site --trace-ascii traffic.txt http://127.0.0.1:{{port}}/ --proxy http://127.0.0.1:{{port2}}/
+    ready: port
+
+# The client under test, set to use the proxy, fetches two files.
+seed:
+  - curl -sS -x http://127.0.0.1:{{port2}}/ -o hello.txt http://127.0.0.1:{{port}}/hello.txt -o prices.json http://127.0.0.1:{{port}}/prices.json
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the client fetched two files with -x, the origin's trace holds two requests, both carrying the proxy's Via 1.1 surl header and none without it; the check exits 0.
+    run: awk -f via-proxy.awk traffic.txt
+    expect:
+      exit: 0
+      stdout: "2 via the proxy, 0 direct\n"
+
+  - id: client-got-the-files
+    claim: The client received both files through the proxy.
+    run: cat hello.txt prices.json
+    expect:
+      exit: 0
+      stdout: "hello from surl\n{\"widget\": 3}\n"
+
+  - id: proxy-forwarded
+    claim: The same trace holds the proxy's side, one Forwarded GET line for each request it passed to the origin.
+    run: grep -c "Forwarded GET to 127.0.0.1" traffic.txt
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: via-on-the-answer
+    claim: The client can see it too; the answer that came through the proxy carries Via 1.1 surl.
+    run: curl -s -o {{null}} -w "%header{via}" -x http://127.0.0.1:{{port2}}/ http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "1.1 surl"
+
+  - id: bypass
+    claim: A client that skips its proxy still gets the file, because the origin answers anyone; the request itself does not show the mistake.
+    run: curl -sS http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: bypass-caught
+    claim: The check catches it; the trace now holds one request without Via, and the check exits 1.
+    run: awk -f via-proxy.awk traffic.txt
+    expect:
+      exit: 1
+      stdout: "3 via the proxy, 1 direct\n"

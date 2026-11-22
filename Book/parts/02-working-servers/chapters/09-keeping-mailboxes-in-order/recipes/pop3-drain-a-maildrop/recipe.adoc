@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-drain-a-maildrop]]
+=== Draining a POP3 Maildrop
+
+==== Problem
+
+You want to retrieve every message in a Post Office Protocol version 3 (POP3) maildrop and delete each, and then check that a new session finds the maildrop empty. The deletion has to wait until the mail is safe in files, and `DELE` only takes effect when the session ends.
+
+==== Solution
+
+Retrieve the messages into files with one transfer, and delete them with a second after `--next`, in the same `curl` command. The `[1-3]` in each URL is a `curl` range, so one URL stands for the three message numbers:
+
+include::.generated/solution.adoc[]
+
+The shop mailed Ann three orders before the cases ran, so there are three messages to drain. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+POP3 reads a single maildrop: list it, retrieve a message by its number, delete it (<<rfc1939>>). `surl` runs three servers here over one mail store: Simple Mail Transfer Protocol (SMTP) on `8080` to put mail in, POP3 on `8081` to drain it, and Internet Message Access Protocol (IMAP) on `8082` to show the store (<<surl-readme>>). Each `--mailbox` adds a mailbox and the account that logs in to it by its whole address, so `-u ann@example.com:annpass` is Ann{apos}s login and no loosening option is needed (<<rfc5321>>).
+
+`curl` takes `pop3://127.0.0.1:8081/[1-3]` as three URLs, `/1`, `/2` and `/3`, and a message number in a POP3 URL is a retrieval, `RETR`. `-o "msg#1.eml"` writes each to a file of its own: `#1` stands for the first range in the URL, so the files are `msg1.eml`, `msg2.eml` and `msg3.eml`. `-X DELE` replaces the command, and `curl` appends the number in the path to it, so the second transfer sends `DELE 1`, `DELE 2` and `DELE 3` (<<curl-manual>>). `--next` starts a transfer with options of its own, and the POP3 transfers after it use the one connection, so the retrievals and the deletions are one session. Order is the point: every retrieval is sent before the first deletion, so a message is only marked for deletion after it was fetched. The files hold the three orders, in the order they arrived.
+
+The rest of the command line is the setup. `--mail-domain example.com` makes `surl` serve that domain, and a `--mailbox` account is the one a message to its address is kept for. The shop sends the orders before the cases run with `--mail-from` and `--mail-rcpt`, the envelope, and `-T`, the message file, `--crlf` turning each line ending into the carriage return and line feed a message is made of. `-s` keeps `curl` quiet and `-S` lets it still print an error. Delivery is asynchronous, so the setup does not assume a message has arrived: `--retry 10` allows ten retries at most, `--retry-all-errors` makes every failure count, which a message not yet stored is, and `--retry-delay 1` waits a second between tries, until `LIST 3` succeeds, with no fixed sleep.
+
+`DELE` only marks a message. The server removes the marked messages when the session ends with `QUIT`, which `curl` sends when its command finishes, and `RSET` before then unmarks them (<<rfc1939>>). A session that sends `DELE` for each and then `RSET` deletes nothing, and the next session finds all three; the drain is committed by the end of the command, not by the `DELE` lines. In the next session after the drain the maildrop is empty: the listing, a POP3 URL with no message number, is a lone blank line, and `curl` exits `0`. The listeners share one store, so IMAP sees it too: `-X "STATUS INBOX (MESSAGES)"` answers `MESSAGES 0`.
+
+A drain has to know how many messages there are. A POP3 URL with no message number lists the maildrop, one line a message with its number and its size in octets, which is how a poller counts before it picks the range. Run again on the now empty maildrop, the retrieval fails at the first number, which is not there, `-ERR`, and `curl` exits `8`, so a drain that finds nothing does not look like one that worked.
+
+The failure to plan for is a delete that runs after a retrieval that did not save the mail. If `curl` cannot write a file, here because the folder `nosuch` does not exist, it stops with exit `2` and the message `Could not create the output file`, before any `DELE` is sent, and Bob{apos}s maildrop still holds all three messages.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-drain-a-maildrop-in-csharp>> for the same task from a C# poller.
+* <<pop3-drain-a-maildrop-from-an-agent>> for the same task from an agent.
+* <<pop3-retrieve-and-delete-a-message>> for one message, and for `RSET` and the renumbering.
+* <<pop3-peek-at-headers-with-top>> for reading headers before retrieving.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>, <<rfc5321>>, <<rfc9051>>.

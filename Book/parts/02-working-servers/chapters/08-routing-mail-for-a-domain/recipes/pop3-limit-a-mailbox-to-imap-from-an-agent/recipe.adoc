@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-limit-a-mailbox-to-imap-from-an-agent]]
+=== Limiting Mailboxes to IMAP from an Agent
+
+==== Problem
+
+You want an agent that reads a mailbox to cope with one limited to Internet Message Access Protocol (IMAP): it tries Post Office Protocol version 3 (POP3), is refused, works out from what it can see that the login is fine but the protocol is not, and switches.
+
+==== Solution
+
+The program starts `surl-mcp` with a mailbox given `;protocols=imap`, tries POP3 through `curl-mcp`{apos}s `curl` tool, and on the refusal tries IMAP with the same login:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, Simple Mail Transfer Protocol (SMTP), IMAP and POP3 on port 0 over one mail store, and `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com`, and a `--mailbox` each for Ann, Bob and the shop. Ann{apos}s value ends `;protocols=imap`, which limits her logins to IMAP and its encrypted twin; the array passes the semicolon through untouched. With `-v`, the answer{apos}s `log_lines` name the protocols each mailbox logs in on, and Ann{apos}s line says `logins on imap`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`; `-s` and `-S` leave only `curl`{apos}s error line (<<curl-manual>>). The shop sends Ann `order.eml` over SMTP, `-u` its login, `--mail-from` and `--mail-rcpt` the envelope and `-T` the file, and the agent waits for the delivery with `wait_for_event`, `kinds` `store_changed`, `store` `mail`, `name` `ann@example.com`, at most ten seconds.
+
+The agent{apos}s POP3 try with Ann{apos}s right password gets `exitCode` 67 and `curl: (67) Login denied`; with `-v`, `standardError` also holds the server{apos}s line, `< -ERR [AUTH] Authentication failed`, POP3{apos}s negative answer (<<rfc1939>>). On that, the agent switches to IMAP with the same login, and `INBOX?ALL`, a `SEARCH`, answers `* SEARCH 1` (<<rfc9051>>): the login was right, POP3 was not.
+
+The refusal alone could not have told it so. An address with no mailbox, `nobody@example.com`, and a wrong password for `bob`, who may use POP3, get the same exit code and the same line; the server answers every failed login alike, so a client probing names learns nothing. The server{apos}s record does not say why either. After each try the agent waits for the exchange to end, `wait_for_event` with `kinds` `exchange_ended`, `scheme` `pop3` and `after_sequence` the last event{apos}s `sequence`, and then `get_events` with `kinds` `login_judged` and `scheme` `pop3` lists each judged login with its `mechanism`, `CRAM-MD5`, its `account`, and `is_accepted` false, the same for all three. What tells the agent the mailbox is IMAP-only is the IMAP login that works; an agent that started the server can also read it in `log_lines`.
+
+Over IMAP nothing has changed: the same login reads the subject of the message SMTP delivered, since the limit is on how Ann logs in, not on what her mailbox receives.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-limit-a-mailbox-to-imap>> for the limit on the console.
+* <<pop3-limit-a-mailbox-to-imap-in-csharp>> for a C# test that a client never uses POP3.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>, <<rfc9051>>.

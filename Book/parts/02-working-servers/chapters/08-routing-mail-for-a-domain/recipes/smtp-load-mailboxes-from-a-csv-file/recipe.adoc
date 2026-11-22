@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-load-mailboxes-from-a-csv-file]]
+=== Loading Mailboxes from a CSV File
+
+==== Problem
+
+Your test suite needs forty mailboxes, some of which may only use Internet Message Access Protocol (IMAP). Forty `--mailbox` options make a command line nobody can read, so you want them in a comma-separated values (CSV) file, and when a record in it is wrong you want `surl` to say which one.
+
+==== Solution
+
+Write the mailboxes into a CSV file with an `address`, a `password` and a `protocols` column, and give it to `surl` with `--mailbox-file`:
+
+include::.generated/solution.adoc[]
+
+The setup line writes `mailboxes.csv` with a short script, which needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::make-mailboxes.sh[]
+----
+
+==== Discussion
+
+`--mailbox-file mailboxes.csv` reads one mailbox from each record after the first, which names the columns: `address` and `password`, and optionally `protocols`, in any order (<<surl-readme>>). Each record is read as `--mailbox` reads its value, so `tester01@example.com,pass01,` is a mailbox and the login named by its whole address, and the file still needs `--mail-domain` for the domain its addresses are in. The forty mailboxes then behave like any others: `tester01` sends over Simple Mail Transfer Protocol (SMTP), with `-u` its login, `--mail-from` and `--mail-rcpt` the envelope, `-T` the message and `--crlf` the line ends mail needs, and `--next` starts a second transfer in which `tester02` reads the message{apos}s subject over IMAP. Delivery takes its own time, so that read retries while the message is missing: `--retry 10` with `--retry-all-errors` up to ten more tries, `--retry-delay 1` a second apart (<<curl-manual>>). `-s` keeps `curl` quiet and `-S` keeps its error line.
+
+`-v` and `--log-file surl.log` write a verbose log, and at start it names each mailbox and the protocols it logs in on, one line each: forty lines for this file. The file is read before any listener binds, so those lines are written by the time the server answers at all, and a test can count them to check the file it meant was the file that was read. `-X` sends a command of `curl`{apos}s choosing, here an IMAP `STATUS`.
+
+The `protocols` column is the `protocols=` key of `--mailbox`. `imap` limits `tester31` to IMAP and its encrypted twin (<<surl-readme>>), and the log says `logins on imap`; over Post Office Protocol version 3 (POP3) the right password is refused, exit `67`, `Login denied`, as if there were no such account, while IMAP reads the mailbox. An empty field means every mail protocol, SMTP, IMAP and POP3, so `tester02` lists the same message over POP3 that it read over IMAP.
+
+The file is CSV as most tools write it: a field holding a comma, a quote or a line break is put in double quotes, and a quote inside is doubled (<<surl-readme>>). There is no percent-encoding as on the command line, so `"s3cret,too"` is the password `s3cret,too`, and `ops` logs in with it. The passwords are in clear, so keep the file where only the user `surl` runs as can read it.
+
+Every record is checked at start, and a bad one stops `surl` before it listens, exit `2`, with the file and the line the record starts on: `Mailbox file outside.csv, line 4: mailbox carol@elsewhere.org is not in any --mail-domain`. Line 4, though Carol is only the second mailbox: the number counts every line of the file, the blank one included, so an editor{apos}s go-to-line finds it. `--mailbox-file` may be given more than once, and an address two files share is refused at the line of the second, `is given twice`. A header with a column `surl` does not know is refused at line 1, and a file that cannot be read at all is exit `37`, `Could not read mailbox file`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-load-mailboxes-from-a-csv-file-in-csharp>> for a file written by a C# fixture for each run.
+* <<smtp-load-mailboxes-from-a-csv-file-from-an-agent>> for an agent that writes the file and fixes the record a refusal names.
+* <<pop3-limit-a-mailbox-to-imap>> for a mailbox limited to IMAP.
+* <<surl-readme>>, <<curl-manual>>.

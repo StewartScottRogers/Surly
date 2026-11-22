@@ -1,0 +1,60 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: amqp-check-what-a-queue-holds-in-process
+title: Checking a Queue in Process
+protocols: [amqp]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlQueuePage, SurlQueueMessage, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, amqp091, stomp12]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the app queues three jobs over STOMP, BrowseQueueAsync lists them in the order sent with ready 3 and in flight 0, and a second browse finds the same three, because browsing takes nothing.
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "app queued 3 jobs\nbrowse: ready 3, in flight 0\n  0 resize cat.png\n  1 resize dog.png\n  2 mail ann\nbrowse again: ready 3\nqueue holds exactly what the test expects: True\n"
+
+  - id: paging
+    claim: Taking the queue two at a time, the first page holds positions 0 and 1 with HasMore true, and a browse after position 1 holds position 2 with HasMore false.
+    program: program.cs
+    args: [paging]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "app queued 3 jobs\npage after -1: 0 resize cat.png, 1 resize dog.png (more: True)\npage after 1: 2 mail ann (more: False)\n"
+
+  - id: after-a-take
+    claim: When a worker takes the first job over AMQP, the browse lists only the other two, in order, with ready 2.
+    program: program.cs
+    args: [taken]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "app queued 3 jobs\nworker took resize cat.png\nbrowse: ready 2, in flight 0\n  0 resize dog.png\n  1 mail ann\nbrowse again: ready 2\nqueue holds exactly what the test expects: True\n"
+
+  - id: wrong-queue
+    claim: An app that queues to a name the server was not started with is not refused over STOMP, but the queue jobs stays empty and the three jobs are in a queue named job, so the test's check fails.
+    program: program.cs
+    args: [wrong-queue]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "app queued 3 jobs\nbrowse: ready 0, in flight 0\nbrowse again: ready 0\nqueue holds exactly what the test expects: False\nqueue job: ready 3\n"
+
+  - id: anonymous-refused
+    claim: Without AllowAnonymous the app has no login to give, Curl.Api throws a CurlException with code 67 on its first send, and the queue holds nothing.
+    program: program.cs
+    args: [no-anonymous]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "app could not queue: curl error 67\nbrowse: ready 0, in flight 0\nbrowse again: ready 0\nqueue holds exactly what the test expects: False\n"

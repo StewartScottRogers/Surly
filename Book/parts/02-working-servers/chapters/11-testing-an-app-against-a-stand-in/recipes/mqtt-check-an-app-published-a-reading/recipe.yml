@@ -1,0 +1,147 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: mqtt-check-an-app-published-a-reading
+title: Checking an App Published a Reading
+protocols: [mqtt]
+tier: working-servers
+surl-options: [--allow-anonymous, --topic]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 1, 8]
+references: [surl-readme, curl-readme, mqtt311]
+
+# check.sh is the test's check: it reads the reading the broker kept on a topic and compares it with the one
+# expected. A publish at QoS 0 is not acknowledged, so it tries every half second, 20 times at most by default,
+# until the kept reading is the expected one. It needs a POSIX shell, Git Bash on Windows.
+fixtures:
+  check.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh check.sh <mqtt port> <topic> <expected reading> [tries]
+    port=$1
+    topic=$2
+    expected=$3
+    tries=${4:-20}
+    try=0
+    while :; do
+      # The broker sends the topic's length in two bytes, the topic, then the reading: keep what follows.
+      kept=$(curl -s "mqtt://127.0.0.1:$port/$topic" | tail -c +$(( ${#topic} + 3 )))
+      if [ "$kept" = "$expected" ]; then
+        echo "ok: $topic is $kept"
+        exit 0
+      fi
+      try=$(( try + 1 ))
+      if [ "$try" -ge "$tries" ]; then
+        break
+      fi
+      sleep 0.5
+    done
+    if [ -z "$kept" ]; then
+      echo "FAIL: nothing kept on $topic"
+    else
+      echo "FAIL: $topic is $kept, expected $expected"
+    fi
+    exit 1
+
+# main keeps what is published under sensors/. bare has no --topic, so it keeps nothing. closed has the filter
+# and no --allow-anonymous.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "sensors/#;retain" mqtt://127.0.0.1:{{port}}/
+    ready: port
+  bare:
+    command: surl --allow-anonymous mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  closed:
+    command: surl --topic "sensors/#;retain" mqtt://127.0.0.1:{{port3}}/
+    ready: port
+
+# The cases run in order against the same servers. curl stands in for the app under test.
+cases:
+  - id: solution
+    role: solution
+    claim: "The app publishes 21.5 to sensors/kitchen/temp; the check reads the topic from the broker and finds 21.5, exit 0."
+    run: curl -s -d 21.5 mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp && sh check.sh {{port}} sensors/kitchen/temp 21.5
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 21.5\n"
+
+  - id: wrong-reading
+    claim: "A check that expects another reading fails, exit 1, and says what the broker holds, so the test fails with the value the app sent."
+    run: sh check.sh {{port}} sensors/kitchen/temp 22.0 2
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "FAIL: sensors/kitchen/temp is 21.5, expected 22.0\n"
+
+  - id: reading-not-used-up
+    claim: "Reading the topic does not use the reading up, so a second check, and a third, find it again."
+    run: sh check.sh {{port}} sensors/kitchen/temp 21.5 && sh check.sh {{port}} sensors/kitchen/temp 21.5
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 21.5\nok: sensors/kitchen/temp is 21.5\n"
+
+  - id: last-reading-wins
+    claim: "When the app publishes again, the check finds the newer reading, 22.0."
+    run: curl -s -d 22.0 mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp && sh check.sh {{port}} sensors/kitchen/temp 22.0
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 22.0\n"
+
+  - id: earlier-reading-replaced
+    claim: "The first reading is gone, so a check that expects 21.5 now fails and reports 22.0."
+    run: sh check.sh {{port}} sensors/kitchen/temp 21.5 2
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "FAIL: sensors/kitchen/temp is 22.0, expected 21.5\n"
+
+  - id: nothing-published
+    claim: "A topic the app never published to has no reading, and the check fails, exit 1, saying so."
+    run: sh check.sh {{port}} sensors/hall/temp 19.0 2
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/hall/temp\n"
+
+  - id: misspelt-topic
+    claim: "An app that publishes to a misspelt topic, sensors/hall/temprature, leaves the reading under that name, so the check on sensors/hall/temp still finds nothing."
+    run: curl -s -d 19.0 mqtt://127.0.0.1:{{port}}/sensors/hall/temprature && sh check.sh {{port}} sensors/hall/temp 19.0 2
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/hall/temp\n"
+
+  - id: misspelt-topic-is-kept
+    claim: "The misspelt topic does hold the reading, which is how the check shows where the app sent it."
+    run: sh check.sh {{port}} sensors/hall/temprature 19.0
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "ok: sensors/hall/temprature is 19.0\n"
+
+  - id: outside-the-filter
+    claim: "A publish to a topic outside the filter, lab/kitchen/temp, is accepted, curl exits 0, and nothing is kept, so the check fails."
+    run: curl -s -d 21.5 mqtt://127.0.0.1:{{port}}/lab/kitchen/temp && sh check.sh {{port}} lab/kitchen/temp 21.5 2
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on lab/kitchen/temp\n"
+
+  - id: no-filter-keeps-nothing
+    claim: "A server started with no --topic keeps nothing the app publishes, because curl publishes with the retain flag clear, so the same check fails."
+    run: curl -s -d 21.5 mqtt://127.0.0.1:{{port2}}/sensors/kitchen/temp && sh check.sh {{port2}} sensors/kitchen/temp 21.5 2
+    timeout: 30
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/kitchen/temp\n"
+
+  - id: closed-without-anonymous
+    claim: "The filter does not open the server: with no --allow-anonymous the app is refused with CONNACK return code 5, and curl exits 8."
+    run: curl -s -S -d 21.5 mqtt://127.0.0.1:{{port3}}/sensors/kitchen/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Expected 0000 but got 0005\n"

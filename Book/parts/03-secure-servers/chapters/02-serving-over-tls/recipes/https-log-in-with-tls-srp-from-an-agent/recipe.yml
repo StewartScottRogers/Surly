@@ -1,0 +1,70 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: https-log-in-with-tls-srp-from-an-agent
+title: Logging In with TLS-SRP from an Agent
+protocols: [https]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, add_tls_srp_account, set_tls_srp_account_password, remove_tls_srp_account]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-manual, rfc8446]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent starts an HTTPS server with --tlsuser and --tlspassword in start_server's arguments and no certificate; curl-mcp's curl tool, as curl 8.22.0, warns that --tlsauthtype, --tlsuser and --tlspassword have no function, and the handshake fails, exitCode 35, a tool error.
+    program: program.cs
+    args: ["fetch"]
+    expect:
+      exit: 1
+      stdout-matches: '\AexitCode 35, tool error: True\nWarning: --tlsauthtype is deprecated and has no function anymore\nWarning: --tlsuser is deprecated and has no function anymore\nWarning: --tlspassword is deprecated and has no function anymore\ncurl: \(35\) '
+
+  - id: nothing-read
+    claim: The server's exchange_ended event for that connection, from wait_for_event, counts 0 bytes received; the handshake ended it before any request.
+    program: program.cs
+    args: ["fetch"]
+    expect:
+      exit: 1
+      stdout-matches: '\nserver: exchange ended, 0 bytes received\n\Z'
+
+  - id: add-an-account
+    claim: add_tls_srp_account adds an account while the server runs and answers the user; adding the same user again is a tool error.
+    program: program.cs
+    args: ["accounts"]
+    expect:
+      exit: 0
+      stdout-matches: '\Aadd device-2: \{"user":"device-2"\}\nadd device-2 again: tool error: user device-2 cannot be added: it holds .:. or already has a TLS-SRP account\n'
+
+  - id: change-a-password
+    claim: set_tls_srp_account_password changes the password of the account given at start; a user with no account is a tool error.
+    program: program.cs
+    args: ["accounts"]
+    expect:
+      exit: 0
+      stdout-matches: "\\nset device's password: \\{\"user\":\"device\"\\}\\nset nobody's password: tool error: user nobody has no account\\n"
+
+  - id: remove-an-account
+    claim: remove_tls_srp_account removes the account given at start and answers the user; removing it again is a tool error.
+    program: program.cs
+    args: ["accounts"]
+    expect:
+      exit: 0
+      stdout-matches: '\nremove device: \{"user":"device"\}\nremove device again: tool error: server s1 has no TLS-SRP account device\n\Z'
+
+  - id: not-an-srp-server
+    claim: On a server started without TLS-SRP, each account tool is a tool error saying the server was not started with TLS-SRP.
+    program: program.cs
+    args: ["not-srp"]
+    expect:
+      exit: 0
+      stdout-matches: '\A(?:[^\n]*: tool error: server s1 was not started with TLS-SRP\n){6}\Z'
+
+  - id: srp-needs-tls-1-2
+    claim: TLS-SRP beside --tlsv1.3 makes start_server a tool error with exit_code 2, FailedInit.
+    program: program.cs
+    args: ["tls13"]
+    expect:
+      exit: 2
+      stdout: "exit_code: 2 (FailedInit)\noption --tlsuser: cannot be used with --tlsv1.3\n"
