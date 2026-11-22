@@ -9,3 +9,4 @@ Checked against surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167
 
 1. Truth: a case that counted connections (at most eight with --parallel-max 8) was dropped: curl opened a ninth once, closing and reopening one, without a 503. The solution held across five runs; if CI ever sees a 503 there, lower --parallel-max below the limit.
 2. Uses a fixture script (make-site.sh) in setup to make fifty random files; diff -r -x .surl compares the folders.
+- CI (race sweep run, Linux): the transfers finished too fast to overlap, so none met the limit; the server now holds each request 300 ms (a delay fault), so they overlap on every platform.
