@@ -1,0 +1,98 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: redis-test-a-session-that-expires
+title: Testing a Session That Expires
+protocols: [redis, http]
+tier: scenarios
+surl-options: [--user, --allow-plaintext-auth, --directory]
+curl-options: [-s, -S, -u]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, rfc9110]
+
+# app.sh stands in for the app: it looks the session up in Redis and, when it is there, shows the account
+# page it fetches over HTTP. session.sh is the test: it seeds a session that lives six seconds, asks the app,
+# then asks again once a second, at most fifteen times, until the app says the user is logged out. Both
+# need a POSIX shell.
+fixtures:
+  site/account.txt: "your orders and settings\n"
+  app.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The app: answers a request that carries a session ID.
+    # Usage: sh app.sh <redis port> <http port> <session id>
+    user=$(curl -s -u app:s3cret "redis://127.0.0.1:$1/GET/session:$3")
+    if [ -z "$user" ]; then
+      echo "logged out: sign in again"
+    else
+      echo "logged in as $user: $(curl -s -u app:s3cret "http://127.0.0.1:$2/account.txt")"
+    fi
+  session.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The test: a session that expires after six seconds, and the app's answer before and after.
+    # Usage: sh session.sh <redis port> <http port>
+    echo "seeded: $(curl -s -u app:s3cret "redis://127.0.0.1:$1/SET/session:abc/alice/EX/6")"
+    echo "at once: $(sh app.sh "$1" "$2" abc)"
+    for try in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+      sleep 1
+      answer=$(sh app.sh "$1" "$2" abc)
+      case $answer in "logged out"*) break ;; esac
+    done
+    echo "later: $answer"
+
+# main is the recipe: one account for both listeners, whose password may cross them in clear. strict has the
+# account on Redis only, without the loosening.
+servers:
+  main:
+    command: surl --user app:s3cret --allow-plaintext-auth --directory site redis://127.0.0.1:{{port}} http://127.0.0.1:{{port2}}
+    ready: port
+  strict:
+    command: surl --user app:s3cret redis://127.0.0.1:{{port3}}
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test seeds session abc for alice with a life of six seconds; the app shows her account page at once, and once the session has expired the app says she is logged out.
+    run: sh session.sh {{port}} {{port2}}
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "seeded: OK\nat once: logged in as alice: your orders and settings\nlater: logged out: sign in again\n"
+
+  - id: gone-from-the-store
+    claim: The expired session is gone from the store, not only from the app's view; TTL answers -2 and EXISTS 0.
+    run: curl -s -u app:s3cret redis://127.0.0.1:{{port}}/TTL/session:abc redis://127.0.0.1:{{port}}/EXISTS/session:abc
+    expect:
+      exit: 0
+      stdout: "-2\n0\n"
+
+  - id: time-to-live
+    claim: A session seeded with EX 60 has a time to live of at most 60 seconds, which TTL reports as it counts down.
+    run: curl -s -u app:s3cret redis://127.0.0.1:{{port}}/SET/session:def/bob/EX/60 redis://127.0.0.1:{{port}}/TTL/session:def
+    expect:
+      exit: 0
+      stdout-matches: '\AOK\n(5[0-9]|60)\n\Z'
+
+  - id: no-time-to-live
+    claim: 'A session set with no expiry, the bug this test is for, never goes: TTL answers -1.'
+    run: curl -s -u app:s3cret redis://127.0.0.1:{{port}}/SET/session:ghi/carol redis://127.0.0.1:{{port}}/TTL/session:ghi
+    expect:
+      exit: 0
+      stdout: "OK\n-1\n"
+
+  - id: unknown-session
+    claim: A session ID the store never held gets the same answer as an expired one; the app says the user is logged out.
+    run: sh app.sh {{port}} {{port2}} nobody
+    expect:
+      exit: 0
+      stdout: "logged out: sign in again\n"
+
+  - id: plaintext-refused
+    claim: Without --allow-plaintext-auth the app's password over redis:// is refused, WRONGPASS, and curl exits 67.
+    run: curl -s -S -u app:s3cret redis://127.0.0.1:{{port3}}/GET/session:abc
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"

@@ -71,4 +71,8 @@ Curl.Api and a first request are slow to start (about a second or more): give an
 - Expiry in a scenario: seed the short key only after a first (warm) request has been made; set 4 s, wait 5 s (recipes redis-seed-a-cache-for-a-test and twins).
 
 ## Recipes
-redis-seed-keys-from-an-agent, redis-expire-a-key (and twins), redis-inspect-keys-an-app-left, redis-keep-keys-apart-in-databases (and twins), redis-seed-a-cache-for-a-test (and twins)
+redis-seed-keys-from-an-agent, redis-expire-a-key (and twins), redis-inspect-keys-an-app-left, redis-keep-keys-apart-in-databases (and twins), redis-seed-a-cache-for-a-test (and twins), redis-test-a-session-that-expires (and twins)
+
+## Session expiry scenario (redis-test-a-session-that-expires and twins, Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- Seed `EX 6` (console `SET/session:abc/alice/EX/6`, Surl.Api `Keys.SetAsync(k, v, TimeSpan.FromSeconds(6))`, surl-mcp `set_key expire_ms 6000`), ask the app at once, then poll once a second at most 15 times until it reads null: passes on all three surfaces; C# and agent make one warm-up request before seeding.
+- After expiry: `TTL` -2 and `EXISTS` 0 in one curl run; Surl.Api `GetAsync` `SurlNotFoundException`; surl-mcp `read_key` tool error `No such key.`. `SET/k/v/EX/60` then `TTL` answers 59 or 60. surl-mcp `start_server` takes `files` with a redis and an http listener; one `--user` covers both.

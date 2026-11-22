@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-test-a-sensor-to-alert-flow-in-csharp]]
+=== Testing a Sensor-to-Alert Flow in C#
+
+==== Problem
+
+In a C# test, a sensor publishes readings over MQTT and a service mails an alert past a threshold; you want the test to publish a reading and find the alert mail.
+
+==== Solution
+
+One program starts a server with `Surl.Api` that is both the MQ Telemetry Transport (MQTT) broker and the mail server. The test publishes a reading through a `CurlClient`, as the sensor would, runs the service, here a method that stands in for yours, and waits for the alert to reach a mailbox:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for an `mqtt://` and an `smtp://` listener on port `0`, so the system picks free ports, and `BoundUrls` lists them in that order. The second takes mail over the Simple Mail Transfer Protocol (SMTP). `AllowAnonymous` is `--allow-anonymous`: the sensor, the service and the mail get in with no login, every recipient lands in one mailbox, and `surl` warns on start while it is on, so it is for a test server (<<surl-readme>>). `RecordExchanges` makes the server keep its events, for the waits and the checks.
+
+The sensor is a `CurlRequest` with `POST` to `mqtt://host:port/sensors/boiler/temp` and the reading as its body, which publishes it (<<mqtt311>>). A broker passes a message to the subscribers it has at that moment and keeps nothing, and the service reads only when the test runs it, so `Topics` holds `sensors/#;retain`, as `--topic` does: the latest message on every topic under `sensors/` is kept as the topic{apos}s retained message. The publish is not acknowledged, and `SendAsync` can return before the broker has kept it. So the test waits, at most ten seconds, for an `ExchangeEnded` event after the last sequence it saw before the publish: once the sensor{apos}s exchange has ended, the broker has applied what it sent.
+
+The service is a `GET` of the topic{apos}s URL: a later subscriber is sent the retained message, as the topic{apos}s length in two bytes, the topic and the payload, and the `CurlResponse` ends by itself. It tries five times, a second apart, as a service polling a sensor would. Past the limit it sends the alert: a `CurlRequest` with `PUT` to the `smtp://` URL, whose `CurlMailOptions` give the sender in `MailFrom` and the recipient in `MailRecipients`, and whose `CurlContent` is the message (<<rfc5321>>, <<rfc5322>>).
+
+The test{apos}s check is the mail itself, read from the server{apos}s side. `WaitForEventAsync` with a `SurlEventQuery` for `StoreChanged` on the mail store returns the first delivery, waiting at most ten seconds, and its `StoreChangedEvent.Name` says where the mail went, `<owner>/INBOX/;UID=1`. `server.Mail.ListMessagesAsync` gives a `SurlMessagePage` of that mailbox, and `ReadMessageAsync` the `SurlMailMessage`, whose `Bytes` are the message as stored: the alert, behind the `Return-Path` and `Received` lines `surl` adds. The mailbox holds that one message, and `server.Messages`, the `SurlServerMessages`, has the reading the service read: `ReadRetainedAsync` answers a `SurlRetainedMessage` with the payload `81.5`.
+
+The failure paths run on a second server, so its record holds only what they do. A reading of `64.0` is under the limit and the service sends nothing; `75` is not past it either. `FindEvents` then finds no delivery to any mailbox. A sensor that never published leaves nothing to read: each subscribe answers no bytes at all, and after five tries the service says so, the sign of a broken sensor rather than a quiet one. `CurlClientOptions.Timeout` bounds every call, so a hang fails the test instead of stopping it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-test-a-sensor-to-alert-flow>> for the same task on the console.
+* <<mqtt-test-a-sensor-to-alert-flow-from-an-agent>> for the same task from an agent.
+* <<mqtt-publish-a-retained-reading-in-process>> for retained messages through `Surl.Api`.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<rfc5321>>, <<rfc5322>>.

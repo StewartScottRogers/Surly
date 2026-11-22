@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-compare-a-good-and-a-bad-request-from-an-agent]]
+=== Comparing a Good and a Bad Request
+
+==== Problem
+
+One client works and another gets `400 Bad Request` from the same Hypertext Transfer Protocol (HTTP) server. You want an artificial intelligence (AI) agent to put their two requests side by side, as the server recorded them, and name the header that differs.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a server with `start_server`, makes the two requests with the `curl` tool, waits with `get_events` until both exchanges have ended, then reads them with `get_exchanges` and compares the lines each request held:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server on port 0 with the report in `files` and answers its `server_id` and `bound_urls`. Each client is one call of `curl-mcp`{apos}s `curl` tool, whose `args` are `curl`{apos}s command line: the good one passes `-H "X-Api-Key: k123"` and gets `200`, the bad one passes `-H "X-Api-Key : k123"`, with a space before the colon, and gets `400 Bad Request` with that one line as the body (<<rfc9110>>). `-s` keeps `curl` quiet, `-o` writes each body to a file under `CURL_MCP_ROOT`, and `-w "%{http_code}"` prints the status, which the tool answers in `standardOutput`. To `curl` a `400` is an answer, so `exitCode` is `0` and the call is not a tool error: the client's side knows only that it was refused. Each call is a connection, so each request is an exchange of its own.
+
+An exchange is recorded as it happens, and its end comes a moment after its client has gone. The agent calls `get_events` with `kinds` `exchange_started` and then `exchange_ended`, every 100 milliseconds for at most 10 seconds, until it finds as many ended as started, so it never reads a record half kept. `get_exchanges` then answers every exchange with its `exchange_id` and its `chunks` in the order they crossed, each with a `direction`, `received` or `sent`, and its `data` as text. The agent picks the exchange whose first `sent` chunk begins `HTTP/1.1 200` and the one whose first begins `HTTP/1.1 400`, and splits their `received` chunks into lines. `get_exchanges` keeps at most 64 kibibytes (KiB) of an exchange and says so with `is_cut`; the agent checks it, though two short requests never come near it. Lines only the good request holds are printed with `-`, lines only the bad one holds with `+`: the header with and without the space. The other four, the request line, `Host`, `User-Agent` and `Accept`, are the same, so the header is the whole difference.
+
+`surl-mcp` keeps no log an agent can read, so the reason `surl` gives in its log (see <<http-compare-a-good-and-a-bad-request>>) is not there; the recorded answer is. The `400`{apos}s head says `Connection: close`: `surl` ends the connection after a head it refused. The comparison finds any header, not only this one: with `no-host` the bad client also passes `-H "Host:"`, which drops the header, and the two requests differ by the `Host` line.
+
+The bad client cannot be made with `transfer`. That tool takes `headers` as `name` and `value` pairs and checks each name before it sends anything, so `X-Api-Key ` with its trailing space is refused, `failure` `InvalidRequest` with the text `Invalid headers[0].name: 'X-Api-Key ' is not a header name.`, a tool error. To reproduce a client that gets a header wrong, an agent uses the `curl` tool, which sends what it is given.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-compare-a-good-and-a-bad-request>> for the same comparison on the console, with `surl`{apos}s reason.
+* <<http-compare-a-good-and-a-bad-request-in-csharp>> for the same comparison from a .NET test.
+* <<http-see-what-the-client-sent-from-an-agent>> for reading back what one request sent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

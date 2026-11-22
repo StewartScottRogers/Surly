@@ -1,0 +1,131 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the pinned
+# surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: ftp-resume-an-interrupted-upload
+title: Resuming an FTP Upload
+protocols: [ftp]
+tier: working-servers
+surl-options: [--allow-anonymous, --allow-uploads, --directory]
+curl-options: [-C, -T, -w, -v, -s, -S]
+exit-codes: [0, 25]
+references: [surl-readme, curl-readme, rfc959, rfc3659]
+
+fixtures: {}
+
+# A 200,000-byte image of random bytes, and what an upload cut off at 65,536 bytes leaves on the server: the
+# first 65,536 bytes, under a name for each case. zeros.iso is 65,536 zeros, the right length and the wrong
+# bytes; longer.iso is 300,000 zeros, longer than the file being sent.
+setup:
+  - mkdir site
+  - mkdir other
+  - head -c 200000 /dev/urandom > update.iso
+  - head -c 65536 update.iso > site/first.iso
+  - head -c 65536 update.iso > site/second.iso
+  - head -c 65536 update.iso > site/third.iso
+  - head -c 65536 update.iso > site/fourth.iso
+  - head -c 65536 update.iso > site/offset.iso
+  - head -c 65536 /dev/zero > site/zeros.iso
+  - head -c 300000 /dev/zero > site/longer.iso
+  - head -c 65536 update.iso > other/first.iso
+
+servers:
+  main:
+    command: surl --allow-anonymous --allow-uploads --directory site ftp://127.0.0.1:{{port}}/
+    ready: port
+  read-only:
+    command: surl --allow-anonymous --directory other ftp://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With -C -, curl asks the server for the size of first.iso, 65,536 bytes, and sends only the other 134,464 of the 200,000; exit 0.
+    run: curl -sS -C - -T update.iso -w "%{size_upload}\n" ftp://127.0.0.1:{{port}}/first.iso
+    expect:
+      exit: 0
+      stdout: "134464\n"
+
+  - id: joined-matches
+    claim: The file on the server is now the local file, byte for byte.
+    run: cmp update.iso site/first.iso && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: size-then-append
+    claim: The commands that did it are SIZE, answered 213 with 65536, and then APPE, which adds to the file; there is no REST and no STOR.
+    run: curl -sS -v -C - -T update.iso ftp://127.0.0.1:{{port}}/second.iso 2>&1 | grep -E "^(> (SIZE|REST|STOR|APPE)|< 213) "
+    expect:
+      exit: 0
+      stdout: "> SIZE second.iso\n< 213 65536\n> APPE second.iso\n"
+
+  - id: second-matches
+    claim: The file that was resumed with -v on is also the server's file, byte for byte.
+    run: cmp update.iso site/second.iso && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: no-remote-file
+    claim: With nothing on the server there is nothing to resume, and the same command line sends the whole 200,000 bytes with STOR, after SIZE is answered 550; exit 0.
+    run: curl -sS -v -C - -T update.iso -w "%{size_upload}\n" ftp://127.0.0.1:{{port}}/fresh.iso 2>&1 | grep -E "^(> (SIZE|STOR|APPE)|< 550|[0-9]+$)"
+    expect:
+      exit: 0
+      stdout-matches: "^> SIZE fresh.iso.*< 550.*> STOR fresh.iso.*200000"
+
+  - id: already-complete
+    claim: Run again on a file the server already holds whole, curl sends 0 bytes and exits 0, so the command is safe to repeat.
+    run: curl -sS -C - -T update.iso -w "%{size_upload}\n" ftp://127.0.0.1:{{port}}/first.iso
+    expect:
+      exit: 0
+      stdout: "0\n"
+
+  - id: without-C-starts-over
+    claim: Without -C, curl sends all 200,000 bytes from byte 0 with STOR over the partial file, and the result is still the local file.
+    run: curl -sS -T update.iso -w "%{size_upload}\n" ftp://127.0.0.1:{{port}}/third.iso
+    expect:
+      exit: 0
+      stdout: "200000\n"
+
+  - id: third-matches
+    claim: The replaced file is the local file, byte for byte.
+    run: cmp update.iso site/third.iso && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: explicit-offset
+    claim: -C with a number instead of - sends everything after that byte of the local file, here 100000, and asks the server nothing about its size.
+    run: curl -sS -v -C 100000 -T update.iso -w "%{size_upload}\n" ftp://127.0.0.1:{{port}}/offset.iso 2>&1 | grep -E "^(> (SIZE|STOR|APPE)|[0-9]+$)"
+    expect:
+      exit: 0
+      stdout: "> APPE offset.iso\n100000\n"
+
+  - id: never-compares
+    claim: curl compares sizes and never bytes, so a partial file of zeros the right length is resumed all the same, exit 0, and the result is not the local file.
+    run: curl -sS -C - -T update.iso ftp://127.0.0.1:{{port}}/zeros.iso && (cmp -s update.iso site/zeros.iso || echo different)
+    expect:
+      exit: 0
+      stdout: "different\n"
+
+  - id: longer-left-alone
+    claim: A server file longer than the local one leaves nothing to send; curl sends 0 bytes, exit 0, and the server's file is untouched at 300,000 bytes.
+    run: curl -sS -C - -T update.iso -w "%{size_upload}\n" ftp://127.0.0.1:{{port}}/longer.iso && wc -c < site/longer.iso | tr -d " "
+    expect:
+      exit: 0
+      stdout: "0\n300000\n"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads answers APPE 550 Not permitted, so the resume is refused, curl exits 25, and the partial file is as it was.
+    run: curl -sS -C - -T update.iso ftp://127.0.0.1:{{port2}}/first.iso && echo sent
+    expect:
+      exit: 25
+
+  - id: partial-untouched
+    claim: The partial file on the read-only server is still 65,536 bytes.
+    run: wc -c < other/first.iso | tr -d " "
+    expect:
+      exit: 0
+      stdout: "65536\n"

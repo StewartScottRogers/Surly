@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-offer-a-share-to-ftp-only-in-csharp]]
+=== Offering FTP-only Shares in C#
+
+==== Problem
+
+Your C# test checks that a drop folder is reachable over File Transfer Protocol (FTP) and hidden over Hypertext Transfer Protocol (HTTP). You want one `Surl.Api` server that offers the folder to FTP only, and `Curl.Api` fetches against each of its listeners.
+
+==== Solution
+
+Start a `SurlServer` with two shares, one limited to FTP, listening for FTP, HTTP and FTP over Transport Layer Security (TLS), and read the same path from each:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.Shares` is `--share`: each entry is `name=path` with the flags after a `;`, so `"drop=" + folder + ";protocols=ftp"` serves the folder as `/drop/`. The folder must already exist; `surl` creates none, and the program makes two in a temporary folder. `protocols=ftp` lists the schemes that may reach the share, and any other scheme is answered as though the share were not there (<<surl-readme>>). `ListenUrls` holds an FTP, an HTTP and an FTPS URL, each with port 0 for a free port, and the program picks them out of `BoundUrls` in that order. All three listeners serve one root, so the share applies to each.
+
+`CurlClient.Create` makes a client, and a `CurlClientOptions` with a `CurlTlsOptions` in `Tls` holds its TLS settings. `CurlClient.SendAsync` takes a `CurlRequest`, here `HttpMethod.Get` for a URL, and returns a `CurlResponse` with a `StatusCode` and a `Body` stream. Over FTP, `drop/report.txt` is the file. Over HTTP the same path is answered `404`, and the program prints the status, since `Curl.Api` returns a `404` as a response and does not throw. `public`, a share with no `protocols=`, is read over both, which shows the `404` for `drop` is the share{apos}s limit and not a fault in the HTTP listener. The share{apos}s folder, `/drop/`, is also `404` over HTTP.
+
+`protocols=` admits the secure twin of each scheme it names, so `protocols=ftp` also serves `ftps`. `SelfSigned` is `--self-signed`, a throwaway certificate for FTPS, and the client{apos}s `CurlTlsPeerOptions.VerifyPeer = false` accepts it; both are for a test on your own machine only. `AllowAnonymous` lets the anonymous login in and checks nothing, and `ListDirectories` lets the FTP server list folders.
+
+A `GET` on the root URL is the long listing, one line per entry, the last word of each its name; the program sorts the names and prints `drop public`, the two shares. A value that names no scheme stops the start: `SurlServer.StartAsync` throws a `SurlServerStartException`, and the first of its `Lines` is `option --share: unknown scheme nope`, the line `surl` would have written after `surl: `.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-offer-a-share-to-ftp-only>> for the same share on the console with `--share`.
+* <<ftp-offer-a-share-to-ftp-only-from-an-agent>> for an agent that tries the schemes in turn.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

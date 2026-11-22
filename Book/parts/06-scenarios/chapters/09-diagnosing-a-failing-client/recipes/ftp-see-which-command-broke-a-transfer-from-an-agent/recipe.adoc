@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-see-which-command-broke-a-transfer-from-an-agent]]
+=== Seeing Which FTP Command Failed from an Agent
+
+==== Problem
+
+A File Transfer Protocol (FTP) job fails now and then, and `curl`{apos}s exit code alone does not say where. You want an artificial intelligence (AI) agent to read the server{apos}s record of each failing session and report the command the job sent last and the reply that ended it, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP server with two fault rules that make the job fail the way a flaky server would, runs the job three times with `curl-mcp`{apos}s `curl` tool, waits for the record to settle, and reads it with `get_exchanges` and `get_events`. The argument picks what to print; the solution is `failed`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, where it writes `nightly.csv`, the file the job uploads. `start_server` takes `listen_urls`, port `0` for a free one, and answers a `server_id` and `bound_urls`; `files` seeds `outbox/` and `inbox/orders.csv`. `arguments` holds `surl`{apos}s own words: `--allow-anonymous` lets the job log in without an account, and without it the login is refused and `curl` exits `67`; `--allow-uploads` takes the upload, which the server refuses by default. Each `--fault` rule makes the server misbehave on purpose, for tests only: `error` scoped to `STOR` under `/outbox` answers the upload `451 Local error in processing`, and `drop` at `stage=command` scoped to `RETR` under `/inbox` closes the connection when the download is asked for, with no reply. `times=1` spends each rule once, which is what makes the job fail now and then (<<surl-readme>>).
+
+The job is two `curl` tool calls, each its own connection: `-T` uploads and `-o` saves the download, and `-sS` hides the progress meter but keeps the error text. The answer is text holding JSON, with `exitCode` and `standardError`; a refusal is an answer with a non-zero `exitCode`, not a failure of the call (<<curl-readme>>). Run three times, the job fails at the upload with exit `25`, then at the download with exit `56`, then passes.
+
+The record says more. It is kept as exchanges run, so the agent first waits until it has settled: it asks `get_events` for the `exchange_started` and `exchange_ended` events five times a second until the counts agree, for ten seconds at most. `get_exchanges` answers each exchange with an `exchange_id` and its `chunks`, in the order they crossed, each with a `direction`, `received` or `sent`, and its `data`. The agent keeps the last command received before `QUIT` and the last reply sent to it (<<rfc959>>). A file{apos}s bytes are recorded too, between a 1xx reply and the next reply, and are skipped, because they are not commands. A session whose last command got no reply, or one that was not 2xx or 3xx, is reported. `get_events` with `kinds: ["fault_applied"]` gives each time a rule acted, with its `exchange_id`, `rule_id`, `fault_kind`, `stage` and `target`, so the agent can tell an injected failure from a real one. Sessions that ended well are left out: three sessions sent `STOR nightly.csv`, one per run, and only the failed one is reported.
+
+A real failure reads the same way without the rule. On a server with no fault rule and no `--allow-uploads`, the job fails at its upload with exit `25`, and the record gives `STOR nightly.csv -> 550 Not permitted` with no fault rule after it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-see-which-command-broke-a-transfer>> for the same task on the console.
+* <<ftp-see-which-command-broke-a-transfer-in-csharp>> for the same task from C#.
+* <<ftp-find-which-account-uploaded-a-file-from-an-agent>> for finding who stored a file in the same record.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<mcp-spec>>.

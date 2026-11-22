@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-make-and-remove-folders-from-an-agent]]
+=== Making and Removing Folders from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to clear a folder on a File Transfer Protocol (FTP) server, learning from a refused `RMD` that it must delete the files first.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP listener holding a folder with a file in it, calls `curl` with `-Q "RMD reports"` and reads the refusal, calls `list_files`, deletes what it finds with `DELE`, and sends `RMD` again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program makes a folder, and the case named `clear-a-folder` runs the story above.
+
+FTP (<<rfc959>>) has `MKD`, make a directory, and `RMD`, remove one. `curl` has no option for either, but `-Q` is a quote, a command sent to the server as it is, before the transfer. A quote needs a transfer to ride on, so each call asks for the root listing and writes it to a file the agent ignores; `-s` keeps the progress meter out of the answer. `start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port, and `files` seeds the in-memory store. `arguments` is `surl`{apos}s other options in its own words: `--list-directories` lets the FTP server list folders, which `surl` does not do unless asked; `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; and `--allow-uploads` permits `MKD`, `RMD` and `DELE` as it permits `STOR`, and loosens the server, though `surl` prints no warning for it.
+
+`curl` answers in JSON text with `exitCode`. `MKD reports` exits `0` and the server answers `257 "/reports" created`; `list_files` lists one folder of the store, one level, as `entries` each with a `name` and a `kind`, `folder` or `file`, and shows `reports` beside `hello.txt`. The server{apos}s answers come from `get_exchanges`, which returns what each client sent and received byte for byte as `chunks` with a `direction` and its `data`; the program reads the `sent` ones of the exchange that call made, and looks again for up to 10 s, since the record can trail `curl` by a moment. `MKD` makes the last folder of its path only: `reports/2026` is made inside `reports`; a path whose parent is not there is `550 No such directory` and nothing is made; a folder already there is `550 Already exists`, and each of those is `curl` exit `21`, quote command failed.
+
+`RMD` removes an empty folder, `250 Directory removed`. For a folder that still holds a file the answer is `550 Directory not empty`, exit `21`, and the folder and its file are still listed. That is the agent{apos}s cue: it lists the folder with `list_files`, sends `DELE` for each file it finds, and sends `RMD` again, which now exits `0`, and the store holds only `hello.txt`. `RMD` of a name that is a file is `550 No such directory`, and the file stays.
+
+An agent should read each refusal in `exitCode` and in the reply. A server started without `--allow-uploads` answers `MKD` with `550 Not permitted`, exit `21`; `RMD` is answered the same and not `Directory not empty`, so the agent learns the cause is the server{apos}s setting and not the folder{apos}s contents. One started without `--allow-anonymous` refuses the login before any command is sent and `curl` exits `67`, login denied (<<curl-readme>>). That is the server being surly on purpose.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-make-and-remove-folders>> for the same commands on the console.
+* <<ftp-make-and-remove-folders-in-csharp>> for the same commands from C#.
+* <<ftp-create-folders-while-uploading-from-an-agent>> for making folders on the way to an upload.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-find-which-account-uploaded-a-file-in-csharp]]
+=== Finding Who Uploaded a File in C#
+
+==== Problem
+
+Two accounts upload to one File Transfer Protocol (FTP) server, and a file on it is wrong. You want a test in your own .NET code to find which account stored it, from the in-process server{apos}s record, by account and path.
+
+==== Solution
+
+The program starts `SurlServer` in process with two accounts, makes three uploads with `CurlClient`, waits for the record to settle, and asks it which account{apos}s exchanges changed the file. The argument picks what to print; the solution is `who`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `Accounts` holds two `SurlAccount` entries, `alice` and `bob`, each `--user name:password`. FTP sends the password in clear, and the server refuses one over plain `ftp://` unless `AllowPlaintextAuthentication` (`--allow-plaintext-auth`) is set, a stand-in{apos}s choice and not a production server{apos}s: without it every upload throws `CurlException` with code 67, `LoginDenied`. `AllowUploads` is `--allow-uploads` and `MaxFileSize` is `--max-filesize`, here 100 bytes. `RecordExchanges` keeps the record the test reads, and `Log` with `LogLevel.Verbose` is `surl -v` written to a `TextWriter` (<<surl-readme>>).
+
+The story is the same in every case. Each upload is a `CurlRequest`, a `PUT` of a `CurlContent` body, sent by its own `CurlClient`, so each is one connection and one exchange, and `CurlAuthenticationOptions` carries the account. `alice` uploads the right `export.csv`, `bob` a wrong one to the same name, and the server replaces `alice`{apos}s file with `bob`{apos}s without telling either client. `alice`{apos}s third upload is past the limit and throws code 70, `RemoteDiskFull`, and `bob`{apos}s file stays (<<curl-readme>>, <<rfc959>>).
+
+The record is kept as exchanges run, so the test first waits until it has settled: it polls `FindEvents` for `SurlEventKind.ExchangeStarted` and `ExchangeEnded` events five times a second until the counts agree, for ten seconds at most. Then a `SurlEventQuery` with `Account`, `Store` set to `StoreKind.Content` and `Name` set to the path asks, for one account at a time, for the `StoreChangedEvent` entries to that path in exchanges that judged a login for that account. Each event has an `ExchangeId` and a `Sequence`; sorted by sequence they say `alice` stored the file and then `bob` did, so `bob` stored it last. `FindExchanges` with the same `Account` returns `SurlExchangeRecord` entries instead, whose `Received` bytes show what the client sent: two of `alice`{apos}s hold `STOR export.csv`, the refused one included, while only one store change is hers. A store change is what proves a file was written; a command only shows it was asked for. With `RecordExchanges` off nothing is recorded, and `FindEvents` throws `InvalidOperationException` rather than find nothing.
+
+The log and the record differ on secrets. The verbose log has each of the three logins with its password replaced by `pass:[****]`, so it can be kept with a failed test{apos}s output. The recorded exchanges keep the bytes as they were received, and each `PASS` command there has its password in clear: print a record only where a password may be seen.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-find-which-account-uploaded-a-file>> for the same task on the console.
+* <<ftp-find-which-account-uploaded-a-file-from-an-agent>> for the same task from an agent.
+* <<ftp-see-which-command-broke-a-transfer-in-csharp>> for finding the command that failed in the same record.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt5-refuse-a-publish-by-reason-code-in-csharp
+title: MQTT 5 Reason Codes in C#
+protocols: [mqtt5]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, SurlEvent, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, mqtt5]
+triplet: mqtt5-refuse-a-publish-by-reason-code
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: ann, granted pubsub on plant/#, publishes 21 to plant/line1/temp, and bob, granted sub, subscribes over mqtt5:// and reads 21, the payload alone.
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "bob reads 21\n"
+
+  - id: subscribe-outside-the-grant
+    claim: A topic no grant covers is refused in the SUBACK even for ann, and SendAsync throws a CurlException of code 8 whose message names reason code 0x87, not authorized.
+    program: program.cs
+    args: [outside]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann refused: curl error 8: MQTT 5 SUBACK reason code 0x87 NotAuthorized\n"
+
+  - id: publish-only-cannot-subscribe
+    claim: dan, granted pub, has a subscribe refused with the same code 8 and reason code 0x87.
+    program: program.cs
+    args: [pub-only]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dan refused: curl error 8: MQTT 5 SUBACK reason code 0x87 NotAuthorized\n"
+
+  - id: no-grant-cannot-subscribe
+    claim: cy has a valid login and no grant, so a subscribe is refused with 0x87.
+    program: program.cs
+    args: [no-grant]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "cy refused: curl error 8: MQTT 5 SUBACK reason code 0x87 NotAuthorized\n"
+
+  - id: subscribe-only-publish-dropped
+    claim: bob, granted only sub, publishes 99 over mqtt:// and gets no exception and no reason code, and ann, reading after, still receives 21.
+    program: program.cs
+    args: [sub-only]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann reads 21\n"
+
+  - id: no-grant-publish-dropped
+    claim: cy, with no grant, has a publish dropped the same way, and the topic stays at 21.
+    program: program.cs
+    args: [no-grant-pub]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann reads 21\n"
+
+  - id: wrong-password
+    claim: A wrong password is refused at the login with CONNACK reason code 0x86, bad user name or password, as a CurlException of code 67.
+    program: program.cs
+    args: [wrong-password]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann refused: curl error 67: MQTT 5 CONNACK reason code 0x86 BadUserNameOrPassword\n"
+
+  - id: no-login
+    claim: A client that sends no login is refused with CONNACK reason code 0x87, as a CurlException of code 67.
+    program: program.cs
+    args: [no-login]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "anonymous refused: curl error 67: MQTT 5 CONNACK reason code 0x87 NotAuthorized\n"
+
+  - id: clear-password-refused
+    claim: With AllowPlaintextAuthentication off, the right password over mqtt5:// is refused unchecked with 0x87, as a CurlException of code 67.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann refused: curl error 67: MQTT 5 CONNACK reason code 0x87 NotAuthorized\n"

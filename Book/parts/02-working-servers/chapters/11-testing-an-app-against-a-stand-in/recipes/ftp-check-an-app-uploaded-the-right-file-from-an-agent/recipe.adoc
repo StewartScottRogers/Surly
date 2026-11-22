@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-check-an-app-uploaded-the-right-file-from-an-agent]]
+=== Checking an App's Upload from an Agent
+
+==== Problem
+
+An app uploads a nightly export over the File Transfer Protocol (FTP). You want an artificial intelligence (AI) agent to run it against a stand-in, read what arrived with `read_file`, and report whether it is the file you expected, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for one server with an FTP and a Hypertext Transfer Protocol (HTTP) listener, plays the app with `curl-mcp`{apos}s `curl` tool, and reads the uploaded file with `read_file`. The argument picks the scenario; the first, `matches`, is an app that uploads the right export:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, where the app writes `nightly.csv` before it uploads it. `start_server` takes `listen_urls`, here an FTP and an HTTP URL, each on port `0` for a free port of its own; it answers a `server_id` and `bound_urls` in the same order. Both listeners read and write one store, held in memory. `arguments` holds `surl`{apos}s own words: `--allow-uploads` lets a client write, which the server refuses by default, and `--allow-anonymous` lets the client log in without an account (<<surl-readme>>).
+
+The app is the `curl` tool, which takes `curl`{apos}s arguments as a list with no shell. `-T` uploads the export and `--ftp-create-dirs` makes the `exports` folder when it is missing; `-sS` hides the progress meter but keeps the error text (<<curl-readme>>, <<rfc959>>). The answer is text holding JSON, of which the program reads `exitCode`, `standardOutput` and `standardError`; a refusal is an answer with a non-zero `exitCode`, not a failure of the call. Without `--allow-uploads` making the folder is the first write the server refuses, exit `9`, and without `--allow-anonymous` the anonymous login is refused, exit `67`. The broken app leaves out the last row and still exits `0`: nothing in the app{apos}s own result says the file is wrong.
+
+The check is what finds the fault. `read_file` takes the `server_id` and a `path` and reads the file from the server{apos}s store, with no client and no login; it answers `byte_count`, `content_type` and the content as `text`, which the agent compares with the expected text. With the last row missing the `byte_count` is 27 where 38 were expected. When nothing arrived, `read_file` is a tool error, `No file at /exports/nightly-2.csv.` The same file is served over HTTP at the same path, and `curl` with `-s` on the second bound URL prints it (<<rfc9110>>), the way another client of the server would see it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-check-an-app-uploaded-the-right-file>> for the same task on the console.
+* <<ftp-check-an-app-uploaded-the-right-file-in-csharp>> for the same task from C#.
+* <<ftp-check-an-app-cleaned-up-from-an-agent>> for a check of what an app left behind.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc9110>>, <<mcp-spec>>.

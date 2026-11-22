@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ws-test-a-chat-round-trip]]
+=== Testing a WebSocket Chat Round Trip
+
+==== Problem
+
+You want a WebSocket client in Curl.Api to send chat messages and the test to check each comes back, in order, from the server.
+
+==== Solution
+
+One program starts a WebSocket server with `Surl.Api` that echoes every message, sends three chat messages from a `CurlWebSocket`, reads what comes back and closes; then it checks what the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for a `ws://` listener on port `0`, so the system picks a free one, and `BoundUrl` says which. `--ws-echo` makes the WebSocket server an echo server: it looks no path up, sends nothing of its own, and sends every whole message a client sends back to it, until the client closes (<<surl-readme>>). It has no property of its own, so it goes in `AdditionalArguments`, which passes `surl` options as written. That is a stand-in for a chat server whose answer the test can predict: what goes out must come back unchanged. `RecordExchanges` makes the server keep what it sent, for the last check.
+
+`ConnectWebSocketAsync` on a `CurlClient` makes the upgrade request and answers a `CurlWebSocket` once the server has switched protocols (<<rfc6455>>). `SendTextAsync` sends one text message, and `ReceiveAsync` answers the next whole message as a `CurlWebSocketMessage`, with its `Type` and its `Text`, the fragments of a message joined. The program sends all three messages first and then reads three, so the check is order as well as content: each comes back whole, as text, in the order sent. A 20-second `CancellationToken` on every call makes a server that never answers fail the test instead of hanging it.
+
+The client ends the chat with `CloseAsync`, code 1000, a normal closure. The server answers with a close frame of its own carrying the same code, which `ReceiveAsync` gives as a message of `Type` `Close` with its `CloseStatus`. The exchange then ends, and the program waits, at most ten seconds, for the server{apos}s `ExchangeEnded` event, asked for with a `SurlEventQuery`, before it reads the record, since the record is complete only then. `server.Exchanges` has one `SurlExchangeRecord`, and its `Sent` is every byte the server sent: the `101 Switching Protocols` head, then frames. A server never masks its frames, so the program reads each as a byte of flags and opcode, a length under 126 and the payload. They are the three messages, one text frame each, in order, and the close.
+
+Two failure paths have a sign each. A server with `--max-message 1k` does not echo a message of 2000 bytes: it answers with a close frame, code 1009, message too big. Without `--ws-echo` the server serves files: it looks `/chat` up, finds nothing, and refuses the upgrade, so `ConnectWebSocketAsync` throws a `CurlException` with `Code` `22`, `HttpReturnedError`. No account is configured, so the upgrade needs no login (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ws-receive-a-message-with-curl-api>> for receiving a file as a message through `Curl.Api`.
+* <<ws-receive-a-large-file-in-frames-in-csharp>> for messages cut into several frames.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6455>>.

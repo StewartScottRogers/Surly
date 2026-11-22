@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-find-which-account-uploaded-a-file-from-an-agent
+title: Finding Who Uploaded from an Agent
+protocols: [ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges, read_file]
+curl-options: [-u, -T, -sS]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, mcp-spec]
+
+fixtures: {}
+
+# Every case runs the same three uploads: alice the right export.csv, bob a wrong one, alice one past 100 bytes.
+cases:
+  - id: alice-and-bob-store
+    claim: "alice's and bob's uploads of export.csv both exit 0; alice's next one, past --max-filesize, is refused and curl exits 70."
+    program: program.cs
+    args: ["uploads"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "alice good.csv: exit 0\nbob bad.csv: exit 0\nalice big.csv: exit 70 curl: (70) Exceeded storage allocation\n"
+
+  - id: bob-replaces
+    claim: "bob's upload replaced alice's file without telling either client, and the refused upload left it as bob wrote it."
+    program: program.cs
+    args: ["file"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "id,total\n1,0\n"
+
+  - id: solution
+    role: solution
+    claim: "Once every exchange has ended, get_events lists each store change to /export.csv with its exchange_id, the login_judged event of that exchange names the account, alice then bob, and the agent names bob as the account that stored it last."
+    program: program.cs
+    args: ["who"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "exchange 1: alice stored /export.csv\nexchange 2: bob stored /export.csv\nlast stored by bob\n"
+
+  - id: refused-store-in-record
+    claim: "get_exchanges shows STOR export.csv received in three exchanges, the refused one included, but get_events has only two store changes to the file."
+    program: program.cs
+    args: ["refused"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "3 exchanges with STOR export.csv, 2 store changes\n"
+
+  - id: no-log-file
+    claim: "start_server refuses --log-file and points to get_exchanges and get_events instead."
+    program: program.cs
+    args: ["log-file"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "start_server: refused: --log-file is not accepted: surl-mcp writes each server's log to its own standard error; use get_exchanges and get_events to see what a client sent\n"
+
+  - id: record-keeps-passwords
+    claim: "get_exchanges keeps the bytes as they were received, so each PASS command is there with its password in clear."
+    program: program.cs
+    args: ["record"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "PASS north-7\nPASS south-9\nPASS north-7\n"
+
+  - id: plaintext-refused
+    claim: "Without --allow-plaintext-auth the server refuses a password sent over plain FTP, and every upload exits 67."
+    program: program.cs
+    args: ["plaintext-off"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "alice good.csv: exit 67 curl: (67) Access denied: 530\nbob bad.csv: exit 67 curl: (67) Access denied: 530\nalice big.csv: exit 67 curl: (67) Access denied: 530\n"

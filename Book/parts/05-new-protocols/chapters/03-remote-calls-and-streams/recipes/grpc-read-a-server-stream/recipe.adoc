@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-read-a-server-stream]]
+=== Reading a gRPC Server Stream
+
+==== Problem
+
+Your client reads a server-streaming method's replies one by one. You want each streamed reply written as JavaScript Object Notation (JSON), in order, and you want to know what the client has when the stream ends early.
+
+==== Solution
+
+Start `surl` as a gRPC (gRPC Remote Procedure Calls) server, and call its streaming method `Expand` with `curl`, asking for three replies with `count`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A server-streaming call is one request answered by many replies on one HTTP/2 (Hypertext Transfer Protocol version 2) stream, ended by a status (<<grpc-http2>>). Upstream curl has no `grpc` scheme; the Curl port adds it, and `surl` serves it (<<curl-protocols>>, <<surl-readme>>). The built-in `surl.test.Echo` service has the method `Expand`: it answers `count` replies, each carrying the request{apos}s `message` and its own `index`. `curl` finds the method{apos}s types by reflection, takes the request as JSON with `-d`, and prints each reply as one JSON object, one after another, in the order the server sent them. The first reply has no `index` because its value is `0`, and a reply leaves out a field that has its default value. `-s` keeps `curl` quiet and `-S` still shows an error.
+
+`--next` makes one `curl` command run a second request with its own options. A stream may have no replies. `count` `0`, and a request with no `count`, are successes: `curl` prints nothing and exits `0`, so an empty stream is not a failure and a client should not treat it as one. The count has a limit, 1000; `1001` is refused as `INVALID_ARGUMENT`, `request field out of range`, with no replies, and `curl` exits `22`, which is how it exits for every status other than `0`.
+
+Replies are printed as they arrive, not when the stream ends. `delayMilliseconds` holds each reply back, here 300 milliseconds for each of ten, and `-m 1` stops the call after one second: `curl` has printed the first replies, not all ten, and exits `28`, timed out. The case checks for some and not all, since how many fit in a second depends on the machine. `curl` also sends `-m` to the server as the `grpc-timeout` header, and `surl` would end the call at the same moment with a status, so `-H "grpc-timeout:"`, a header with nothing after the colon, leaves it off (see <<grpc-time-out-a-slow-call>>).
+
+A stream can also end in a failure after some replies. With `count` 3 and `statusCode` 13, `INTERNAL`, `curl` prints the three replies, then writes `grpc-status 13 (INTERNAL): boom` on standard error and exits `22`. The replies already sent are kept; a client that reads a stream has to keep what arrived before the status (<<grpc-test-a-failing-call>>).
+
+`--allow-anonymous` lets a call with no credentials in, and `surl` writes a `surl: warning:` line on start while it is on (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-call-a-method>> for calling a method, the call shapes and the login rules.
+* <<grpc-read-a-server-stream-in-csharp>> for the same task in a C# test.
+* <<grpc-read-a-server-stream-from-an-agent>> for the same task from an agent.
+* <<grpc-time-out-a-slow-call>> for giving a call a deadline, and <<grpc-test-a-failing-call>> for failing one.
+* <<grpc-http2>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

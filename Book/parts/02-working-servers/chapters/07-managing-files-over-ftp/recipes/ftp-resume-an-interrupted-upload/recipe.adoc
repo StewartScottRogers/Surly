@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-an-interrupted-upload]]
+=== Resuming an FTP Upload
+
+==== Problem
+
+An upload of a large file was cut off and the File Transfer Protocol (FTP) server kept the part that arrived. You want to send only the rest, not the whole file again.
+
+==== Solution
+
+Give `curl` the whole local file and `-C -`, and let it ask the server how much it already holds:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`-C -` tells `curl` to work out the offset itself. For an upload it asks the server for the size of the remote file with `SIZE` (<<rfc3659>>), here answered `213 65536`, skips that many bytes of the local file, and sends the rest with `APPE`, the command that appends to a file. The download side of this, `REST`, is not used: a resumed upload is an append. The case that shows the commands lists `SIZE`, `APPE` and nothing else, and `-w "%{size_upload}\n"` prints the bytes sent, 134,464, the 200,000 of the file less the 65,536 already there. The joined file is the local file, byte for byte. The setup cuts the partial files from the random local file with `head`, so each stands for an upload that stopped at 65,536 bytes; <<ftp-resume-an-interrupted-download>> is the same thing in the other direction.
+
+With nothing on the server there is nothing to resume. `SIZE` is answered `550`, and `curl` sends the whole file with `STOR`, the ordinary upload, exit `0`; the same command line therefore serves the first upload and every retry. Run again on a file the server already holds whole, it sends `0` bytes and exits `0`, which makes it safe to repeat. A server file longer than the local file leaves nothing to send either: `curl` sends `0` bytes and the server{apos}s file stays as it was. Without `-C`, `curl` starts at byte 0 with `STOR` and replaces the partial file whole, 200,000 bytes.
+
+`-C` with a number, `-C 100000`, names the offset itself: `curl` sends everything after that byte of the local file with `APPE` and asks the server nothing, so the number must be right. Even `-C -` trusts the size: `curl` compares sizes and never bytes. A partial file of zeros the right length is resumed all the same, exit `0`, and the result is a corrupt file. When a resumed upload matters, compare the result with the local file, as the cases do with `cmp`.
+
+An append needs a server that takes uploads. `--allow-uploads` permits `APPE` as it permits `STOR`; it loosens the server, though `surl` prints no warning for it. A server started without it answers `APPE` with `550 Not permitted`, `curl` exits `25`, upload failed, and the partial file is as it was. `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only. `-s` keeps the progress meter away, `-S` still shows an error, `-T update.iso` names the local file to upload, `--directory site` serves the files under `site`, and `-v` shows the commands.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-an-interrupted-upload-in-csharp>> for the same resume from C#.
+* <<ftp-resume-an-interrupted-upload-from-an-agent>> for the same resume made by an agent.
+* <<ftp-resume-an-interrupted-download>> for resuming a download with `REST`.
+* <<ftp-append-to-a-file>> for `--append` on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

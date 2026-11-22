@@ -1,0 +1,124 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: xmpp-require-tls-before-login
+title: Requiring TLS before XMPP Login
+protocols: [xmpp, xmpps]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--cacert, -u, -s, -S, -m, -T]
+exit-codes: [0, 28, 58, 60, 67]
+references: [surl-readme, curl-readme, curl-protocols, rfc6120, rfc4616, rfc8446]
+triplet: xmpp-require-tls-before-login
+
+# The two files are what a chat client sends: its stream header, and the header followed by a SASL PLAIN login
+# of alice with the password s3cret (the base64 of NUL alice NUL s3cret). curl sends them as they are, over telnet://.
+fixtures:
+  open.xml: |-
+    <?xml version='1.0'?><stream:stream to='127.0.0.1' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>
+  login.xml: |-
+    <?xml version='1.0'?><stream:stream to='127.0.0.1' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'><auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>AGFsaWNlAHMzY3JldA==</auth>
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main has an account and a certificate, and serves xmpp (STARTTLS) and xmpps (TLS from the first byte).
+# plaintext has no certificate and --allow-plaintext-auth, the only way surl serves xmpp without TLS.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret xmpp://127.0.0.1:{{port}}/ xmpps://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth xmpp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the server's certificate trusted through --cacert, curl upgrades the xmpp:// connection with STARTTLS, logs in as alice and prints the disco info answer, exit 0.
+    run: curl -sS --cacert server.pem -u alice:s3cret xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: starttls-is-all-that-is-offered
+    claim: A client that sends only its stream header is offered STARTTLS, marked required, and no login mechanism at all.
+    run: curl -sS -m 3 -T open.xml telnet://127.0.0.1:{{port}}
+    expect:
+      exit: 28
+      stdout-matches: '\A<\?xml version=.1\.0.\?><stream:stream from=.127\.0\.0\.1. id=.[0-9a-f]+. version=.1\.0. xml:lang=.en. xmlns=.jabber:client. xmlns:stream=.http://etherx\.jabber\.org/streams.><stream:features><starttls xmlns=.urn:ietf:params:xml:ns:xmpp-tls.><required/></starttls></stream:features>\Z'
+
+  - id: login-before-tls-refused
+    claim: A SASL PLAIN login sent before STARTTLS, with the right password, is answered with the failure encryption-required and nothing is accepted.
+    run: curl -sS -m 3 -T login.xml telnet://127.0.0.1:{{port}}
+    expect:
+      exit: 28
+      stdout-matches: '<failure xmlns=.urn:ietf:params:xml:ns:xmpp-sasl.><encryption-required/></failure>\Z'
+
+  - id: implicit-tls
+    claim: Over xmpps://, the TLS handshake comes first and the login is accepted at once, with no upgrade, and the disco answer is the same.
+    run: curl -sS --cacert server.pem -u alice:s3cret xmpps://127.0.0.1:{{port2}}/127.0.0.1
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, ends the upgrade before it sends a password, and exits 60.
+    run: curl -sS -u alice:s3cret xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: wrong-password
+    claim: A wrong password, once TLS is up, is refused with the SASL error not-authorized, and curl exits 67.
+    run: curl -sS --cacert server.pem -u alice:wrong xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "XMPP authentication failed: not-authorized"
+
+  - id: no-login
+    claim: With no -u, curl has nothing to log in with, and exits 67 because the server offers no anonymous login.
+    run: curl -sS --cacert server.pem xmpp://127.0.0.1:{{port}}/127.0.0.1
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "does not offer SASL ANONYMOUS"
+
+  - id: no-certificate-no-server
+    claim: Without --cert, --self-signed or --allow-plaintext-auth, surl refuses to serve xmpp, exits 58 and says it needs a certificate, so a login never has to be refused in clear.
+    run: surl --user alice:s3cret xmpp://127.0.0.1:{{port9}}/
+    expect:
+      exit: 58
+      stdout: ""
+      stderr-contains: "needs a certificate"
+
+  - id: plaintext-offers-mechanisms
+    claim: With --allow-plaintext-auth and no certificate, the server offers its login mechanisms at once, PLAIN among them, and no STARTTLS.
+    run: curl -sS -m 3 -T open.xml telnet://127.0.0.1:{{port3}}
+    expect:
+      exit: 28
+      stdout-matches: '<stream:features><mechanisms xmlns=.urn:ietf:params:xml:ns:xmpp-sasl.>(<mechanism>[A-Z0-9-]+</mechanism>)*<mechanism>PLAIN</mechanism>(<mechanism>[A-Z0-9-]+</mechanism>)*</mechanisms></stream:features>\Z'
+
+  - id: plaintext-login-accepted
+    claim: With --allow-plaintext-auth the same PLAIN login, sent in clear, is accepted with a success.
+    run: curl -sS -m 3 -T login.xml telnet://127.0.0.1:{{port3}}
+    expect:
+      exit: 28
+      stdout-matches: '<success xmlns=.urn:ietf:params:xml:ns:xmpp-sasl./>'
+
+  - id: plaintext-curl-login
+    claim: curl logs in over xmpp:// with no TLS at all, no --cacert, and prints the disco answer, exit 0.
+    run: curl -sS -u alice:s3cret xmpp://127.0.0.1:{{port3}}/127.0.0.1
+    expect:
+      exit: 0
+      stdout-matches: '\A<query xmlns="http://jabber.org/protocol/disco#info"><identity category="server" type="im" />'
+
+  - id: plaintext-wrong-password
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused with not-authorized, exit 67.
+    run: curl -sS -u alice:wrong xmpp://127.0.0.1:{{port3}}/127.0.0.1
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "XMPP authentication failed: not-authorized"

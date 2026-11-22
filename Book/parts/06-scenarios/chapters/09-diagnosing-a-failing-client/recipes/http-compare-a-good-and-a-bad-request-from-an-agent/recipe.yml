@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs compare-requests.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-compare-a-good-and-a-bad-request-from-an-agent
+title: Comparing a Good and a Bad Request
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, transfer, get_events, get_exchanges]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: good-client
+    claim: The client that sends its key as X-Api-Key gets the report, 200.
+    program: compare-requests.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^good client: 200\n'
+
+  - id: bad-client
+    claim: The client whose header has a space before its colon gets 400 Bad Request from the same server, with that one line as the body, and the curl tool still exits 0.
+    program: compare-requests.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbad client: 400, body 400 Bad Request, exit 0\n'
+
+  - id: solution
+    role: solution
+    claim: Side by side, the two requests get_exchanges recorded differ in one line, the X-Api-Key header with and without the space.
+    program: compare-requests.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ngood: exchange \d+, answered 200\nbad:  exchange \d+, answered 400\n- X-Api-Key: k123\n\+ X-Api-Key : k123\nsame: \d+ lines\n'
+
+  - id: same-other-lines
+    claim: Every other line of the two requests is the same, the request line, Host, User-Agent and Accept, so the header is the whole difference.
+    program: compare-requests.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsame: 4 lines\n'
+
+  - id: closes-the-connection
+    claim: The 400 the bad request got, as recorded, closes the connection, Connection close.
+    program: compare-requests.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n< HTTP/1\.1 400 Bad Request\n< Server: surl\n< Content-Type: text/plain; charset=utf-8\n< Content-Length: 16\n< Connection: close\n$'
+
+  - id: missing-host
+    claim: The same comparison finds any header; a request that drops Host differs from the good one by that line.
+    program: compare-requests.cs
+    args: [no-host]
+    expect:
+      exit: 0
+      stdout-matches: '\nbad:  exchange \d+, answered 400\n- Host: 127\.0\.0\.1:\d+\nsame: 4 lines\n'
+
+  - id: transfer-refuses
+    claim: The transfer tool checks a header name before it sends anything, so it refuses the bad header as an invalid request, a tool error, and only the curl tool can reproduce that client.
+    program: compare-requests.cs
+    args: [transfer]
+    expect:
+      exit: 1
+      stdout: "failure: InvalidRequest\nInvalid headers[0].name: 'X-Api-Key ' is not a header name.\ntool error: yes\n"

@@ -1,0 +1,108 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-find-the-request-that-failed
+title: Finding the Request That Failed
+protocols: [http]
+tier: scenarios
+surl-options: [-v, --log-file, --directory]
+curl-options: [-s, -o, -w]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  make-reports.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The reports the client run fetches: site/ has 1 to 50 but 37, mirror/ has 1 to 36.
+    mkdir -p site/reports mirror/reports
+    n=1
+    while [ "$n" -le 50 ]; do
+      if [ "$n" -ne 37 ]; then printf 'id,total\n%s,40\n' "$n" > "site/reports/report-$n.csv"; fi
+      if [ "$n" -le 36 ]; then cp "site/reports/report-$n.csv" mirror/reports/; fi
+      n=$((n + 1))
+    done
+  narrow.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Narrows surl's verbose log to each answer of 400 or more and the request that caused it.
+    # Exits 0 when it found one, 1 when every answer was below 400.
+    # Run: sh narrow.sh [surl.log]    (needs a POSIX shell: Git Bash on Windows)
+    log=${1:-surl.log}
+
+    # The log is whole once every exchange that opened has ended: wait for that, at most 10 s.
+    tries=0
+    until [ "$(grep -c ' opened: ' "$log")" -eq "$(grep -c ' ended; ' "$log")" ]; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 50 ]; then echo "the exchanges in $log did not end within 10 s"; exit 1; fi
+      sleep 0.2
+    done
+
+    # Each log line is '#N <' (received), '#N >' (sent) or '#N *' (an event), then the text.
+    # Keep the lines of the request being read; on an event that answered 400 or more, print
+    # them, the event, and the head of the answer that follows (without its Date).
+    awk '
+      { sub(/\r$/, ""); text = $0; sub(/^#[0-9]+ . /, "", text); sub(/\\r\\n$/, "", text) }
+      $2 == "<" && $3 ~ /^[A-Z]+$/ && $NF ~ /^HTTP\/1\.[01]/ { requests++; request = "" }
+      $2 == "<" && text != "" { request = request "> " text "\n" }
+      $2 == "*" && (text ~ /: [45][0-9][0-9], / || text ~ /answered [45][0-9][0-9]/) {
+        failed++
+        printf "request %d of the run, exchange %s\n%s* %s\n", requests, $1, request, text
+        showing = 1; next
+      }
+      showing && $2 == ">" {
+        if (text == "") { showing = 0; print "" } else if (text !~ /^Date: /) print "< " text
+      }
+      END { printf "%d requests, %d answered 400 or more\n", requests, failed; exit (failed ? 0 : 1) }
+    ' "$log"
+
+# site/ and mirror/ are made before the servers start.
+setup:
+  - sh make-reports.sh
+
+# -v logs every line each client sent and every line surl answered; --log-file keeps it.
+# clean serves a run with nothing missing, for the failure path.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  clean:
+    command: surl -v --log-file clean.log --directory mirror http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: client-run
+    claim: The client run makes fifty requests, and one of them, the 37th, is answered 404; curl still exits 0, and its own output is the only place the client side shows it.
+    run: curl -s -o {{null}} -w "%{http_code}\n" "http://127.0.0.1:{{port}}/reports/report-[1-50].csv"
+    expect:
+      exit: 0
+      stdout-matches: '^(200\n){36}404\n(200\n){13}$'
+
+  - id: solution
+    role: solution
+    claim: Narrowed, the server's log gives the one failing answer, 404, with the request that caused it, its place in the run and its exchange, and surl's reason, that nothing exists at that path.
+    run: sh narrow.sh surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^request 37 of the run, exchange #\d+\n> GET /reports/report-37\.csv HTTP/1\.1\n> Host: 127\.0\.0\.1:\d+\n> User-Agent: curl/8\.22\.0\n> Accept: \*/\*\n\* GET /reports/report-37\.csv: 404, nothing exists at [^\n]*report-37\.csv\n< HTTP/1\.1 404 Not Found\n< Server: surl\n< Content-Type: text/plain; charset=utf-8\n< Content-Length: 14\n\n50 requests, 1 answered 400 or more\n$'
+
+  - id: one-line-per-request
+    claim: The log has one event line for each request it answered, so the other 49 are there as lines answered 200.
+    run: 'grep -c ": 200, " surl.log'
+    expect:
+      exit: 0
+      stdout: "49\n"
+
+  - id: one-exchange
+    claim: curl made all fifty requests over one connection, so they are one exchange in the log, and an exchange number alone does not point at the request.
+    run: grep -o "^#[0-9]* [*] GET " surl.log | uniq | grep -c .
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: nothing-failed
+    claim: Over a run in which every request succeeds, the script finds no answer of 400 or more and exits 1.
+    run: curl -s -o {{null}} "http://127.0.0.1:{{port2}}/reports/report-[1-36].csv" && sh narrow.sh clean.log
+    expect:
+      exit: 1
+      stdout: "36 requests, 0 answered 400 or more\n"

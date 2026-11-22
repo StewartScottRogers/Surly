@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: mqtt5-refuse-a-publish-by-reason-code
+title: Refusing a Publish by Reason Code
+protocols: [mqtt5]
+tier: new-protocols
+surl-options: [--user, --allow-plaintext-auth, --topic-access, --topic, --mqtt5-disconnect-after-retained]
+curl-options: [-s, -S, -u, -d, --next]
+exit-codes: [0, 8, 67]
+references: [surl-readme, curl-readme, curl-protocols, mqtt5]
+triplet: mqtt5-refuse-a-publish-by-reason-code
+
+# main has four accounts and one grant line: ann may publish and subscribe under plant/, bob only
+# subscribe, dan only publish, and cy has no grant at all. Once any grant is given, every publish and
+# every subscribe needs one. strict is the same broker without --allow-plaintext-auth.
+servers:
+  main:
+    command: surl --user ann:annpw --user bob:bobpw --user cy:cypw --user dan:danpw --allow-plaintext-auth --topic-access "plant/#=ann:pubsub,bob:sub,dan:pub" --topic "plant/#;retain" --mqtt5-disconnect-after-retained mqtt5://127.0.0.1:{{port}}/
+    ready: port
+  strict:
+    command: surl --user ann:annpw --topic-access "plant/#=ann:pubsub" --topic "plant/#;retain" --mqtt5-disconnect-after-retained mqtt5://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: ann, granted pubsub on plant/#, publishes 21 to plant/line1/temp, and bob, granted sub, subscribes to it and receives 21, the payload alone, exit 0.
+    run: curl -sS -u ann:annpw -d 21 mqtt5://127.0.0.1:{{port}}/plant/line1/temp --next -sS -u bob:bobpw mqtt5://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout: "21"
+
+  - id: subscribe-outside-the-grant
+    claim: A topic no grant covers is refused in the SUBACK with reason code 0x87, not authorized, even for ann, who may do everything under plant/; curl names the code and exits 8.
+    run: curl -sS -u ann:annpw mqtt5://127.0.0.1:{{port}}/office/desk
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "MQTT 5 SUBACK reason code 0x87 NotAuthorized"
+
+  - id: publish-only-cannot-subscribe
+    claim: dan, granted pub, has a subscribe to the same topic refused with 0x87, since the grant gives him no sub.
+    run: curl -sS -u dan:danpw mqtt5://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "MQTT 5 SUBACK reason code 0x87 NotAuthorized"
+
+  - id: no-grant-cannot-subscribe
+    claim: cy has a valid login and no grant, so every subscribe is refused with 0x87.
+    run: curl -sS -u cy:cypw mqtt5://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "MQTT 5 SUBACK reason code 0x87 NotAuthorized"
+
+  - id: subscribe-only-publish-dropped
+    claim: bob, granted only sub, publishes 99 and curl exits 0 with no reason code, because the publish at quality of service 0 gets no answer; the broker dropped it, and ann reading the topic right after still receives 21.
+    run: curl -sS -u bob:bobpw -d 99 mqtt5://127.0.0.1:{{port}}/plant/line1/temp --next -sS -u ann:annpw mqtt5://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout: "21"
+
+  - id: no-grant-publish-dropped
+    claim: cy, with no grant, has a publish dropped the same way, exit 0 and the topic unchanged at 21.
+    run: curl -sS -u cy:cypw -d 77 mqtt5://127.0.0.1:{{port}}/plant/line1/temp --next -sS -u ann:annpw mqtt5://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 0
+      stdout: "21"
+
+  - id: wrong-password
+    claim: A wrong password is refused at the login, before any grant is looked at, with CONNACK reason code 0x86, bad user name or password, and curl exits 67.
+    run: curl -sS -u ann:wrong mqtt5://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "MQTT 5 CONNACK reason code 0x86 BadUserNameOrPassword"
+
+  - id: no-login
+    claim: A client that sends no login is refused with CONNACK reason code 0x87, not authorized, exit 67.
+    run: curl -sS mqtt5://127.0.0.1:{{port}}/plant/line1/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "MQTT 5 CONNACK reason code 0x87 NotAuthorized"
+
+  - id: clear-password-refused
+    claim: Without --allow-plaintext-auth, the right password over mqtt5:// is refused unchecked with 0x87, the same code as no login, exit 67.
+    run: curl -sS -u ann:annpw mqtt5://127.0.0.1:{{port2}}/plant/line1/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "MQTT 5 CONNACK reason code 0x87 NotAuthorized"

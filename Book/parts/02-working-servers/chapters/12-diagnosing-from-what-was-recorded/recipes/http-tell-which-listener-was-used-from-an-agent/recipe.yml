@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs which-listener.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: http-tell-which-listener-was-used-from-an-agent
+title: Telling Listeners Apart from an Agent
+protocols: [http, ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, transfer, curl, get_events, get_exchanges]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: clients-served
+    claim: The app, configured with the second HTTP listener, is served the report like any other client, and so is the FTP download; nothing in either answer says which listener gave it.
+    program: which-listener.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nclient http://127\.0\.0\.1:\d+/report\.csv: status 200\nclient ftp://127\.0\.0\.1:\d+/report\.csv: status 226\n'
+
+  - id: host-is-a-claim
+    claim: A client may put any host and port in its Host header; one that names the first listener while it connects to the second is served 200 all the same.
+    program: which-listener.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nclient http://127\.0\.0\.1:\d+/report\.csv with Host 127\.0\.0\.1:\d+: status 200\n'
+
+  - id: solution
+    role: solution
+    claim: Each exchange_started event names the listen URL that took the connection; exchanges 1 and 3 came through the second HTTP listener, the third whatever its Host said, and 2 through the FTP one.
+    program: which-listener.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^listener 1: http://(127\.0\.0\.1:\d+)/\nlistener 2: (http://127\.0\.0\.1:\d+/)\nlistener 3: (ftp://127\.0\.0\.1:\d+/)\n.*\nexchange 1: \2, scheme http, Host: (?!\1\n)127\.0\.0\.1:\d+\nexchange 2: \3, scheme ftp\nexchange 3: \2, scheme http, Host: \1\n'
+
+  - id: filter-by-listener
+    claim: get_exchanges with listen_url answers one listener's exchanges alone, none for the first and 1 and 3 for the second.
+    program: which-listener.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlistener 1: no exchanges\nlistener 2: exchanges 1, 3\n$'
+
+  - id: ftp-needs-anonymous
+    claim: Without --allow-anonymous and with no account, the FTP listener refuses curl's anonymous login, exit code 67, a tool error.
+    program: which-listener.cs
+    args: [no-anonymous]
+    expect:
+      exit: 1
+      stdout: "ftp without --allow-anonymous: exitCode 67, tool error: yes\n"

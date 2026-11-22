@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-subscribe-over-websocket]]
+=== Subscribing to MQTT over WebSocket
+
+==== Problem
+
+Your browser dashboard speaks MQ Telemetry Transport (MQTT) over WebSocket, because a page cannot open a raw TCP socket, while your devices publish over TCP. You want a retained message published over TCP and read over WebSocket from the same broker, with `curl` standing in for the dashboard.
+
+==== Solution
+
+Start `surl` with an MQTT 5 listen URL for the devices and an `mqtt5+ws` one for the dashboard, publish with `curl -d` over the first and, after `--next`, subscribe over the second:
+
+include::.generated/solution.adoc[]
+
+The other two `surl` commands, one with an account and one that also accepts a password in clear, are there for the checked claims below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` on an `mqtt5+ws` listen URL is an MQTT 5.0 broker that speaks over WebSocket, the protocol that lets a browser hold a two-way connection to a server (<<rfc6455>>); it answers on the path `/mqtt` and asks the client for the subprotocol `mqtt` (<<mqtt5>>). `curl`{apos}s `mqtt5+ws://` scheme is the client. Both are extended: upstream curl has no `mqtt5` scheme, so the two programs are judged by the MQTT 5.0 specification (<<surl-readme>>, <<curl-protocols>>). The path of the URL, `/dash/temp`, is the topic, as with `mqtt5://`: `curl` supplies `/mqtt` itself, and the payload arrives alone.
+
+`-d` makes `curl` publish and, without it, `curl` subscribes; `--next` starts the second transfer on the same command line, with its own options. Two listen URLs on one `surl` are one broker. They share one message bus, so a message published over TCP is delivered to a subscriber over WebSocket in the same run, and the reverse. `--topic "dash/#;retain"` keeps the last message published under `dash/`, whatever the RETAIN flag of the publish, which `curl` always sends clear: a subscriber that comes later is sent it, and one that comes later over the other transport too. A topic outside the filter keeps nothing, so a subscribe straight after a publish gets nothing and `curl` exits `0`. A filter with the multi-level wildcard, written `%23` in the URL, receives every retained message below it, one after the other with nothing between them. An empty publish clears the topic. `--mqtt5-disconnect-after-retained` ends a subscription once the retained messages have been sent, so `curl` exits by itself; without it the broker keeps the subscription open, as a broker should (<<surl-readme>>).
+
+A WebSocket client that is not an MQTT client is turned away. `curl ws://` to `/mqtt` asks for an upgrade with no `mqtt` subprotocol, and the broker refuses it with `400`; any other path is `404`. `curl` exits `22` for both, and names the status.
+
+The login rules are those of `mqtt5://`, and the WebSocket does not change them. `mqtt5+ws` is not encrypted, so a password sent over it is a password in clear. Without `--allow-anonymous`, a client that sends no login is refused in the connect acknowledgement, the `CONNACK`, with reason code `0x87`, not authorized, and `curl` exits `67`. Given the right password it is refused with `0x87` too, unchecked, because it crossed the network in clear. `--allow-plaintext-auth` loosens that for a test: the password is then checked, the right one accepted, for the publish and the subscribe alike, and a wrong one refused with `0x86`, bad user name or password. `surl` warns on start while it is on, and `--user` adds the account, `-u` makes `curl` log in as one. A browser dashboard in production would not take this way in; `mqtt5s` is the encrypted TCP form, and there is no encrypted WebSocket listen URL for MQTT in this build (<<mqtt5-publish-and-subscribe>>).
+
+In the checked claims, `-s` silences `curl`{apos}s progress meter and `-S` puts the error message back, so the reason shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-subscribe-over-websocket-in-csharp>> for the same subscription from a C# test.
+* <<mqtt5-subscribe-over-websocket-from-an-agent>> for the same subscription from an agent.
+* <<mqtt5-publish-and-subscribe>> for the MQTT 5 broker over TCP and over TLS.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<mqtt5>>, <<rfc6455>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-an-interrupted-upload-in-csharp]]
+=== Resuming an FTP Upload in C#
+
+==== Problem
+
+Your C# uploader resumes large uploads after a File Transfer Protocol (FTP) connection drops. You want a test that seeds half a file on an in-process server, runs the resume and checks the server then holds the whole file.
+
+==== Solution
+
+Start a `SurlServer` that accepts uploads, seed it with the first 65,536 bytes of the file, ask for the size of the file it holds, and send the rest as an append:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`Curl.Api` has no resume switch for an upload, so the program does what `curl -C - -T` does in two steps, each with a `CurlClient` of its own whose `SendAsync` returns a `CurlResponse`. `RemoteSize` sends a `CurlRequest` with `HttpMethod.Head` for the file, which on an FTP URL asks the server for its size with `SIZE` (<<rfc3659>>) and no more; the answer arrives as the `Content-Length` header. `Resume` then sends the part of the local file after that offset as the `Body` of a `CurlRequest` with `HttpMethod.Put`, and `CurlFtpOptions.Append`, which is `curl -T --append`, makes it an `APPE`, the command that adds to a file, where a plain put is `STOR`.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free port; `AllowUploads` is `--allow-uploads`, which permits `APPE` as it permits `STOR` and, though `surl` prints no warning for it, loosens the server; `AllowAnonymous` is `--allow-anonymous`, which lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; `RecordExchanges` keeps what each client sent. `SurlServerFiles.PutAsync` seeds the half file, standing for an upload that stopped at 65,536 bytes of 200,000, and `ReadAsync` returns what the server holds, for the comparison with the local bytes. The local file is random bytes from a fixed seed, so every run sends the same 200,000.
+
+The server received `SIZE` and then `APPE`, and no `STOR`. It also received `REST 0`: that is the size request, which sends it after `SIZE`, and an offset of zero, not a restart point; an upload resumes by appending, not by `REST`. The program reads the record of `server.Exchanges`, one exchange for each client, and looks again for up to 10 s, since the record can trail the client by a moment. <<ftp-resume-an-interrupted-download>> is the same thing in the other direction, where `REST` is the command.
+
+With nothing on the server `SIZE` is answered `550` and the request throws a `CurlException` whose `Code`, a `CurlCode`, is `RemoteFileNotFound`, `78`, the code `curl` exits with; the program takes it as an offset of 0 and sends the whole 200,000 bytes as an ordinary upload. A server that already holds the whole file leaves nothing to send, and the program sends nothing. Without the append, with an offset of 0, the whole file goes over the partial one and the server holds the local file. An offset given outright, `100000`, as `curl -C 100000` does, sends the last 100,000 bytes as an append and asks for no size, so the server received no `SIZE`.
+
+The offset comes from a size, never from comparing bytes, so a partial file of zeros the right length is resumed all the same and the result is not the local file; compare what the server holds, as the program does. A server file longer than the local one leaves nothing to send, and the server keeps its 300,000 bytes. A server with `AllowUploads` off answers `APPE` with `550 Not permitted`, and the upload throws a `CurlException` with code `UploadFailed`, `25`, with the partial file as it was. That is the server being surly on purpose, and the program must catch it, since nothing else reports it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-an-interrupted-upload>> for the same resume on the console with `curl -C -`.
+* <<ftp-resume-an-interrupted-upload-from-an-agent>> for the same resume made by an agent.
+* <<ftp-resume-an-interrupted-download-in-csharp>> for resuming a download from C#.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

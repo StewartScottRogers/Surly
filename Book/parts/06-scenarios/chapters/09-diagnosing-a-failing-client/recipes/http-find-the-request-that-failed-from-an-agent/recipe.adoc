@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-request-that-failed-from-an-agent]]
+=== Finding the Request That Failed
+
+==== Problem
+
+A client run failed somewhere in fifty Hypertext Transfer Protocol (HTTP) requests. You want an artificial intelligence (AI) agent to narrow what the server recorded to the failing answer and the request that caused it, and to say why it failed.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a server with `start_server`, runs the client with the `curl` tool, waits with `get_events` until the exchange has ended, walks the chunks `get_exchanges` recorded, and asks `read_file` about the path that failed:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server on port 0 with the reports in `files`, all but number 37, and answers its `server_id` and `bound_urls`. The client run is one call of `curl-mcp`{apos}s `curl` tool over a URL glob, `report-[1-50].csv`, which fetches fifty reports in turn: `-s` keeps `curl` quiet, `--create-dirs -o "got/#1.csv"` writes each body under `CURL_MCP_ROOT`, and `-w "%{http_code}\n"` prints a status for each into `standardOutput`. One is `404 Not Found` (<<rfc9110>>), and `exitCode` is `0` all the same: to `curl` a `404` is an answer.
+
+The fifty requests went over one connection, so `get_exchanges` answers one exchange holding them all: the exchange says where to look, not which request. Its `chunks` are what crossed the connection, in order, each with a `direction`, `received` or `sent`, and its `data` as text. The agent counts a received chunk that begins with a request line as the next request and keeps its lines; a sent chunk that begins with a status of `400` or more is a failing answer, and the agent prints the request's place in the run, the `exchange_id`, the request's lines and the answer's head without its `Date`. Here that is request 37, `GET /reports/report-37.csv`. `get_exchanges` keeps at most 64 kibibytes (KiB) of an exchange and marks a longer one with `is_cut`; fifty short requests come to far less, but the agent checks and says so, since a cut exchange does not hold every request.
+
+`surl-mcp` keeps no log for an agent to read, so the reason `surl` would log (see <<http-find-the-request-that-failed>>) is not there. The agent asks the store instead: `read_file` on the path the request named is a tool error, `No file at /reports/report-37.csv.`, so the server answered `404` because the file is not there. An exchange is recorded as it happens and ends a moment after its client has gone, so before it reads the record the agent calls `get_events` with `kinds` `exchange_started` and then `exchange_ended`, every 100 milliseconds for at most 10 seconds, until it finds as many ended as started.
+
+The program exits `0` when it found a failing answer and `1` when it found none. With `clean` the run asks only for reports 1 to 36, all there, and the agent prints `36 requests, 0 answered 400 or more` and exits `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-request-that-failed>> for the same narrowing on the console, from `surl`{apos}s log.
+* <<http-find-the-request-that-failed-in-csharp>> for the same narrowing from a .NET test.
+* <<http-read-a-file-back-from-an-agent>> for `read_file` on its own.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

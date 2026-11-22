@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[nats-log-in-with-a-token]]
+=== Logging In to NATS with a Token
+
+==== Problem
+
+Your service connects to NATS with an auth token rather than a user and password. You want the token refused over plain NATS until allowed, judged over NATSS, and a wrong token answered Authorization Violation, with the token kept out of the log.
+
+==== Solution
+
+Give `curl` the token as the user name, with nothing after the colon, and publish to a `nats` listen URL:
+
+include::.generated/solution.adoc[]
+
+The Solution uses the one `surl` that takes anonymous clients. The others, one that holds a token, one that also accepts it in clear, and one that serves `natss`, are there for the checked claims below, and so are the `openssl` line and the small `sh` script, which needs a POSIX shell (Git Bash on Windows). Stop each `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The NATS client protocol lets a client log in in two ways, with a user name and a password, or with a single token, and sends either in its `CONNECT` line, a token as the field `auth_token` (<<nats-protocol>>). `surl` on a `nats` listen URL is a core NATS server, an extended server that upstream curl has no client for; the Curl port has one (<<surl-readme>>, <<curl-protocols>>). `-u tok123:`, a user name and an empty password, makes `curl` send `tok123` as the token, and a user and a password make it send those; `-d paid` publishes the message `paid` to the subject in the path of the URL. `--allow-anonymous` is the other way in for a test: the server accepts every `CONNECT`, a token among them, without looking at it, which is why the Solution can succeed with a token no account holds. On the server side a token is an account with no name, `--user :tok123`; the token is what stands after the colon (<<surl-readme>>).
+
+The first thing that stops a token is where it travels. `nats://` has no encryption, so `surl` refuses a token it was sent in clear without looking at it, with the error `Authorization Violation`, and `curl` exits `67`, login denied. The server{apos}s log says why: the login was refused as `RefusedPlaintext`, so the token was never compared. `--allow-plaintext-auth` loosens that for a test, and `surl` warns on start while it is on, because anyone who can watch the network reads the token as it is sent. With it, the token is judged, and the log says `RefusedCredentials` for one that does not match. The log shown here is made with `-v` and `--log-file`; the script waits, at most ten seconds, for the line to be there, because `surl` writes an exchange{apos}s last lines a moment after its client has gone.
+
+The way in without that option is `natss://`, the same server over Transport Layer Security (TLS), which needs a certificate, `--cert` and its private key `--key` (<<rfc8446>>). There the token is judged with no loosening option. `curl --cacert` trusts the certificate, which is its own authority, and a wrong token, or none, is answered `Authorization Violation`, `67`. Without `--cacert`, `curl` does not trust the certificate, sends nothing, and exits `60`. A `natss` server requires TLS before `CONNECT`, whether the client starts it at once or after the plain INFO that says so, and `curl` with `nats://` is told so by that INFO and stops, exit `35`, with no token sent. `--ssl-no-revoke` is on every `natss` command because the Windows build of `curl` fails the handshake against this certificate without it; the option does nothing elsewhere.
+
+The log never holds the token. A `CONNECT` is logged with the value of `auth_token`, and of `pass`, replaced by four asterisks, and the token appears nowhere in the file, so the log can be kept and shared (<<surl-readme>>).
+
+One thing the recipe cannot show is a token accepted. In the build it was checked against, `surl` also refuses the token it holds, over `natss` and with the loosening alike, with the same error and the reason `RefusedCredentials`. The last claim records it, so the recipe will fail, and be finished, when that is fixed. A user name and a password are accepted (<<nats-publish-and-subscribe>>).
+
+In the checked claims, `-s` silences `curl`{apos}s progress meter and `-S` puts the error message back, so the reason shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<nats-log-in-with-a-token-in-csharp>> for the same logins from a C# test.
+* <<nats-log-in-with-a-token-from-an-agent>> for the same logins from an agent.
+* <<nats-publish-and-subscribe>> for NATS with a user name and a password.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<nats-protocol>>, <<rfc8446>>.

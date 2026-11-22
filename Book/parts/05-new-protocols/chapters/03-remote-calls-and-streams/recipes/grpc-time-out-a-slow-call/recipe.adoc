@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-time-out-a-slow-call]]
+=== Timing Out a Slow gRPC Call
+
+==== Problem
+
+Your client sets a deadline on every call. You want a call made slow on purpose and the client giving up at its time limit, and you want to know who gives up first, the client or the server.
+
+==== Solution
+
+Start `surl` as a gRPC (gRPC Remote Procedure Calls) server, make a call slow with `delayMilliseconds`, and give `curl` a limit with `-m`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The built-in `surl.test.Echo` service answers a call after `delayMilliseconds` milliseconds, which is how a test makes a call slow on purpose. With a hold-back of 3000 and `-m 1`, `curl` stops waiting after one second, prints no reply, and exits `28`, timed out. That is not a gRPC status: no status arrived to name, so a client sees a timeout and not a failed call (<<grpc-http2>>). `-s` keeps `curl` quiet and `-S` still shows an error, `-d` gives the request as JavaScript Object Notation, and `-o` and `-w "%{time_total}"` send the reply nowhere and print the seconds the call took. The call takes about the limit and not the hold-back; the check is a range, between one and three seconds, because the exact time depends on the machine. A call that answers inside the limit, 200 milliseconds under `-m 10`, is not touched by it and exits `0`.
+
+`curl` also sends `-m` to the server, as the `grpc-timeout` header, the deadline gRPC carries on the wire (<<grpc-http2>>). The Curl port does this for the `grpc` scheme, which upstream curl does not have (<<curl-protocols>>). `surl` enforces a `grpc-timeout` it is sent. So the same call with `-m 1` and nothing else has two timers that end at about the same moment, and either can be first: `curl` exits `28`, or the server answers `DEADLINE_EXCEEDED` and `curl` exits `22`. Both have been seen, on different systems. A test that must not depend on the race leaves the header off with `-H "grpc-timeout:"`, a header with nothing after the colon, as the Solution does. The two cases that show it use a second `surl` with `-v`, which logs every event, and `--log-file grpc.log`, which sends the log to that file: its log names `grpc-timeout` in the metadata of the two lines of the call made with `-m`, the lookup of the method by reflection and the call itself, and in none of the call made with the header left off.
+
+The header can also be sent on its own. `-H "grpc-timeout: 300m"` is a deadline of 300 milliseconds (a number and a unit letter, `m` for milliseconds, `S` for seconds), and the server ends a call that outlasts it with `grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded`. `curl` exits `22`, the exit for every status other than `0`, not `28`, though `-m 10` has not passed. A server deadline is a status the client has to handle; a client timeout is not.
+
+A deadline can pass part way through a stream. `Expand` answers `count` replies, here ten, each held back 300 milliseconds; with `grpc-timeout: 1S` the server ends the stream after about a second with `DEADLINE_EXCEEDED`, and the replies sent before it are printed, some but not all ten, before the status and exit `22` (<<grpc-read-a-server-stream>>).
+
+`--allow-anonymous` lets a call with no credentials in, and `surl` writes a `surl: warning:` line on start while it is on (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-test-a-failing-call>> for failing a call with a status of your choice.
+* <<grpc-read-a-server-stream>> for reading a stream, and what a client holds when it ends early.
+* <<grpc-time-out-a-slow-call-in-csharp>> for the same task in a C# test.
+* <<grpc-time-out-a-slow-call-from-an-agent>> for the same task from an agent.
+* <<grpc-http2>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

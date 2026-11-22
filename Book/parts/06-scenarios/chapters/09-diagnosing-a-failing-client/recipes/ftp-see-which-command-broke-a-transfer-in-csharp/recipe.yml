@@ -1,0 +1,78 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-see-which-command-broke-a-transfer-in-csharp
+title: Seeing Which FTP Command Failed in C#
+protocols: [ftp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, FaultStage, SurlEventQuery, SurlEventKind, FaultAppliedEvent, SurlExchangeRecord, SurlExchangeChunk, SurlExchangeDirection, CurlClient, CurlRequest, CurlContent, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: first-run-fails-at-upload
+    claim: "The job's first run fails at its upload: CurlException with code 25, UploadFailed."
+    program: program.cs
+    args: ["runs"]
+    expect:
+      exit: 0
+      stdout-matches: '^run 1: curl code 25 UploadFailed\n'
+
+  - id: second-run-fails-at-download
+    claim: "The second run uploads, then fails at its download: CurlException with code 56, RecvError."
+    program: program.cs
+    args: ["runs"]
+    expect:
+      exit: 0
+      stdout-matches: '\nrun 2: curl code 56 RecvError\n'
+
+  - id: third-run-passes
+    claim: "The third run passes, so the job fails now and then and not every time."
+    program: program.cs
+    args: ["runs"]
+    expect:
+      exit: 0
+      stdout-matches: '\nrun 3: passed\n$'
+
+  - id: solution
+    role: solution
+    claim: "Once every exchange has ended, the recorded exchanges give the two failed sessions with the command and the reply that ended each, STOR nightly.csv answered 451 and RETR orders.csv with no reply, and each one's FaultAppliedEvent names the rule that acted."
+    program: program.cs
+    args: ["failed"]
+    expect:
+      exit: 0
+      stdout: "exchange 1: STOR nightly.csv -> 451 Local error in processing\n  fault f1: Error at Command stage, on STOR /outbox/nightly.csv\nexchange 3: RETR orders.csv -> no reply\n  fault f2: Drop at Command stage, on RETR /inbox/orders.csv\n"
+
+  - id: passing-sessions-left-out
+    claim: "Three sessions sent STOR nightly.csv, one per run, but only the one that failed is listed."
+    program: program.cs
+    args: ["passing"]
+    expect:
+      exit: 0
+      stdout: "3 sessions sent STOR nightly.csv\n"
+
+  - id: real-refusal-has-no-rule
+    claim: "On a server with no fault rule and no AllowUploads the job fails at the upload: CurlException with code 25, UploadFailed."
+    program: program.cs
+    args: ["real"]
+    expect:
+      exit: 0
+      stdout-matches: '^run 1: curl code 25 UploadFailed\n'
+
+  - id: real-refusal-in-record
+    claim: "The record gives that session as STOR nightly.csv answered 550 Not permitted, with no fault rule, which is how a real refusal reads."
+    program: program.cs
+    args: ["real"]
+    expect:
+      exit: 0
+      stdout-matches: '\nexchange 1: STOR nightly\.csv -> 550 Not permitted\n$'
+
+  - id: login-needed
+    claim: "Without AllowAnonymous, and with no account given, the job's anonymous login is refused: CurlException with code 67, LoginDenied."
+    program: program.cs
+    args: ["locked"]
+    expect:
+      exit: 0
+      stdout: "run 1: curl code 67 LoginDenied\n"

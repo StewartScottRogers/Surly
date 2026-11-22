@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-compare-a-good-and-a-bad-request-in-csharp]]
+=== Comparing a Good and a Bad Request
+
+==== Problem
+
+In a C# test, one client works and another gets `400 Bad Request` from the same Hypertext Transfer Protocol (HTTP) server. You want the test to put their two requests side by side, as the server recorded them, and print the header that differs.
+
+==== Solution
+
+Start the in-process server with `RecordExchanges` on and a verbose `Log`, let each client make its request on a client of its own, wait until both exchanges have ended, then compare the lines of the request answered `200` with those of the request answered `400`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` holds the listen URL on port 0, the report in `Files`, `RecordExchanges`, which makes the server keep every exchange it serves, and `Log` with `LogLevel.Verbose`, which is `surl -v` written to a `StringWriter`. Each client makes its request on a `CurlClient` of its own, so each request is a connection, and so an exchange, of its own. The good `CurlRequest` carries the header `X-Api-Key` in `Headers`; the bad one names it `X-Api-Key ` with a trailing space, so it goes out as `X-Api-Key : k123`. `Curl.Api` sends a header as given and corrects nothing (<<curl-readme>>).
+
+The bad client is answered `400 Bad Request`, the one line `400 Bad Request` as the body, and `Connection: close` (<<rfc9110>>). To `CurlClient.SendAsync` a `400` is a response like any other: the `CurlResponse` carries it in `StatusCode` and nothing throws, so the client's side knows only that it was refused. The server{apos}s side knows why.
+
+An exchange is recorded as it happens, and its end comes a moment after its client has gone. The test waits, for at most 10 seconds, until `FindEvents` with a `SurlEventQuery` for `SurlEventKind.ExchangeEnded` finds as many events as one for `SurlEventKind.ExchangeStarted`, so it never reads a record half kept. `server.Exchanges` then lists every `SurlExchangeRecord`; the test picks the one whose `Sent` bytes begin with `HTTP/1.1 200` and the one whose bytes begin with `HTTP/1.1 400`, and splits each one's `Received` bytes into lines. Lines only the good request holds are printed with `-`, lines only the bad one holds with `+`: the header with and without the space. The other three, the request line, `Host` and `Accept`, are the same in both, so the header is the whole difference. Last, the test prints the log line for the refused exchange, found by its `ExchangeId`, the `#N` the log leads each line with: `No request head was read: WhitespaceBeforeColon` (<<surl-readme>>).
+
+The comparison finds any header, not only this one. With `no-host` the bad request has `Host` in `RemovedHeaders`, so it carries none; it differs from the good one by that line, and the log names that reason instead: an HTTP/1.1 request needs exactly one `Host` field.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-compare-a-good-and-a-bad-request>> for the same comparison on the console.
+* <<http-compare-a-good-and-a-bad-request-from-an-agent>> for an agent comparing the two requests.
+* <<http-print-the-failing-exchange>> for printing one failing exchange from a test.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

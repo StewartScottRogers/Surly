@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[nats-stand-in-for-a-service-from-an-agent]]
+=== Standing In for a NATS Service
+
+==== Problem
+
+As an agent, two services talk over NATS request and reply; you want to stand in for one of them and check what the other asked it.
+
+==== Solution
+
+Give the agent both MCP servers. It starts a NATS server with `surl-mcp`, keeps a `curl-mcp` subscriber on `prices.get`, lets the app{apos}s request run, finds the request{apos}s reply subject in the server{apos}s record and answers there with `publish_message`. Here is the conversation, as a C# program on the official Model Context Protocol (MCP) SDK:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts the server on a `nats` listen URL with port `0` and answers its `server_id` and `bound_urls`; `arguments` holds `surl`{apos}s own options, here `--allow-anonymous`, so both sides connect with no login, and `surl` warns on start while it is on (<<surl-readme>>). The program starts both hosts from `PATH` with `StdioClientTransport`, each confined to its folder by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` beside it is the same set-up for an agent client.
+
+In NATS request and reply, the asking side subscribes to a reply subject of its own, publishes its request with that subject attached, and waits for one message on it; the answering side subscribes to the service subject and publishes its answer to the reply subject that came with the request (<<nats-protocol>>). The app is `curl-mcp`{apos}s `curl` tool, which runs `curl` with the arguments given: `-d sku=A1` with `?request` in the URL subscribes to `_INBOX.` and 32 hexadecimal digits, publishes `sku=A1` to `prices.get` with that reply subject, and writes the first reply (<<curl-protocols>>). `-m 10` bounds the wait.
+
+An agent cannot hold a NATS session open between tool calls, so the stand-in comes in two parts. The listening part is a second `curl` call, `nats://host:port/prices.get?count=1`, a subscriber that writes the payload of the first message it receives and ends; the program starts it without waiting for it. That subscription is what the server needs to pass the request on, and its output is what the app asked. The answering part is the agent. `get_exchanges` answers what each client sent the server, `received`, and what the server sent it, `sent`, chunk by chunk, and the program reads it until it holds `SUB prices.get 1`, so the app starts only once the subscriber is in place, and then until it holds the app{apos}s `PUB prices.get <reply subject> 6`. The record is written as the server works, so each search looks every 100 ms for at most ten seconds. `publish_message` then puts `price=9.99` on the server{apos}s message bus under the reply subject. Its `topic` is written with slashes, `_INBOX/...`, because the bus is shared with MQ Telemetry Transport (MQTT), where a NATS dot is a slash (<<surl-readme>>). The app gets `price=9.99`.
+
+The checks are the subscriber{apos}s output, `sku=A1`, the reply subject the app chose, and the server{apos}s record of both sides: the app{apos}s `PUB` it received, and the `MSG` of 10 bytes on the reply subject that it sent the app.
+
+There are two ways the exchange can fail. With nothing subscribed to `prices.get`, the server says so at once, and the `curl` tool answers exit `56`, no responders; an agent that forgot its stand-in learns it fast. A stand-in that receives the request and never answers still records it: the subscriber writes `sku=A1`, and the app waits until `-m 3` and exits `28`. In the `curl` arguments, `-s` silences the progress meter and `-S` puts error messages back on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<nats-stand-in-for-a-service>> for the same task on the console.
+* <<nats-stand-in-for-a-service-in-csharp>> for the same task in a C# test.
+* <<nats-publish-and-subscribe>> for subjects, wildcards and the login rules.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<nats-protocol>>.

@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-check-an-app-uploaded-the-right-file-in-csharp]]
+=== Checking an App's Upload in C#
+
+==== Problem
+
+Your app uploads a nightly export over the File Transfer Protocol (FTP). You want a test in your own .NET code that runs it against an in-process stand-in, reads what arrived with `Files.ReadAsync`, and fails if it is not byte for byte the file you expected.
+
+==== Solution
+
+The program starts `SurlServer` in process, runs the app, which is its `Export` method using a `CurlClient`, and then runs the check. The argument picks the scenario; the first, `matches`, is an app that uploads the right export:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `ListenUrls` holds an FTP and a Hypertext Transfer Protocol (HTTP) URL, each on port `0` for a free port of its own, and `server.BoundUrls` lists the ports taken, in the same order. Both listeners read and write one store, held in memory. `AllowUploads` is `--allow-uploads`, which the server refuses by default: a server that anyone can write to is a decision, not a default. `AllowAnonymous` is `--allow-anonymous` and lets the client log in without an account (<<surl-readme>>).
+
+The app is a `CurlClient` and a `CurlRequest`: a `PUT` to the file{apos}s FTP URL with a `CurlContent` body. `CurlFtpOptions.CreateMissingDirectories` set to `FtpCreateMissingDirectories.Create` is `curl --ftp-create-dirs`, which makes the `exports` folder when it is missing (<<curl-readme>>, <<rfc959>>). A refusal is thrown as `CurlException`, whose `Code` is `curl`{apos}s exit code: without `AllowUploads` making the folder is the first write the server refuses, code 9, `RemoteAccessDenied`, and without `AllowAnonymous` the anonymous login is refused, code 67, `LoginDenied`. The broken variant leaves out the last row and finishes without an exception: nothing in the app{apos}s own result says the file is wrong.
+
+The check is what fails the test. `server.Files.ReadAsync` reads the file from the server{apos}s store with no client and no login, and returns a `SurlFileContents` whose `Bytes` are compared with the expected ones and whose `ByteCount` is the size: with the last row missing the check prints `expected 38 bytes, arrived 27` and returns `1`. When nothing arrived, `ReadAsync` throws `SurlNotFoundException`, and the check says so and returns `1` too. The same file is served over HTTP at the same path: a `GET` on the second bound URL answers 200 with the export, its body read from the `CurlResponse` (<<rfc9110>>), so a test can compare it the way another client would see it, at the cost of a request.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-check-an-app-uploaded-the-right-file>> for the same task on the console.
+* <<ftp-check-an-app-uploaded-the-right-file-from-an-agent>> for the same task from an agent.
+* <<ftp-check-an-app-cleaned-up-in-csharp>> for a check of what an app left behind.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc9110>>.

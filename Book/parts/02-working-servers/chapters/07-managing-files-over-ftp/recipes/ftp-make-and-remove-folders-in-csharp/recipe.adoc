@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-make-and-remove-folders-in-csharp]]
+=== Making and Removing FTP Folders in C#
+
+==== Problem
+
+Your C# cleanup job removes folders over File Transfer Protocol (FTP). You want to check its `MKD` and `RMD` answers from a test, including the refusal for a folder that is not empty, against a server running in the same process.
+
+==== Solution
+
+Start a `SurlServer` that accepts uploads and listings, send `MKD` or `RMD` as a quote command with `Curl.Api`, and print the server{apos}s answer and what its store holds afterwards:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+FTP (<<rfc959>>) has `MKD`, make a directory, and `RMD`, remove one. `CurlFtpOptions.Quote` is `curl -Q`: each string is sent to the server as a command before the transfer. A quote needs a transfer to ride on, so the program makes a `CurlClient`, sends a `CurlRequest` with `HttpMethod.Get` for the root folder, which is a listing, reads the `CurlResponse` body to the end and throws it away. The listing needs `ListDirectories`, `surl`{apos}s `--list-directories`, since `surl` does not list folders unless asked. `SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` holds `ftp://127.0.0.1:0`, port 0 for a free port; `AllowUploads` is `--allow-uploads`, which permits `MKD`, `RMD` and `DELE` as it permits `STOR` and, though `surl` prints no warning for it, loosens the server; `AllowAnonymous` is `--allow-anonymous`, which lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only; `RecordExchanges` keeps what the server sent. `Files` seeds the store, and `SurlServerFiles`, the store as a test sees it, lists it.
+
+The answers are in `server.Exchanges`, whose `Sent` is what the server wrote on the control connection; the program keeps the lines that answer a folder command. `MKD reports` is answered `257 "/reports" created`, and `server.Files.ListAsync`, which lists one folder of the store as a `SurlFolderPage` of entries each a `SurlFolderEntry` with a `Name` and an `IsFolder`, shows `reports` beside `hello.txt`. The record can trail the client by a moment, so the program looks again for up to 10 s. `MKD` makes the last folder of its path only: `reports/2026` is made inside `reports`, and a path whose parent is not there is answered `550 No such directory` and nothing is made.
+
+A refused quote throws at once, a `CurlException` whose `Code` is `QuoteError`, `21`, the code `curl` exits with. `MKD` for a folder that is there is answered `550 Already exists`. `RMD` removes an empty folder, `250 Directory removed`, and the store no longer holds it. A folder that still holds a file is refused, `550 Directory not empty`, and the folder and its file are as they were. The way out is to empty it first: `Quote` is a list, run in order, so `RMD reports/2026`, `DELE reports/note.txt` and `RMD reports` in one request remove the inner folder, the file and then the folder. `RMD` of a name that is a file is `550 No such directory`, and the file stays.
+
+A server with `AllowUploads` off answers `MKD` with `550 Not permitted`; `RMD` is answered the same and not `Directory not empty`, so the folder and its file stay. Without `AllowAnonymous` the login is refused before any command is sent, and the request throws a `CurlException` with code `LoginDenied`, `67` (<<curl-readme>>). That is the server being surly on purpose, and the program must catch each, since nothing else reports them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-make-and-remove-folders>> for the same commands on the console with `curl -Q`.
+* <<ftp-make-and-remove-folders-from-an-agent>> for the same commands made by an agent.
+* <<ftp-create-folders-while-uploading-in-csharp>> for making folders on the way to an upload.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

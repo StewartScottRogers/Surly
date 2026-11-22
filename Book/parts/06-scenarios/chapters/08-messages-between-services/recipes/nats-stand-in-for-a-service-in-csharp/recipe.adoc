@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[nats-stand-in-for-a-service-in-csharp]]
+=== Standing In for a NATS Service
+
+==== Problem
+
+In a C# test, two services talk over NATS request and reply; you want the test to stand in for one of them and check what the other asked it.
+
+==== Solution
+
+One program starts a NATS server with `Surl.Api`, opens a NATS session of its own that answers `prices.get`, sends the app{apos}s request through a `CurlClient`, and checks what the stand-in received and what the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for a `nats://` listener on port `0`, so the system picks a free one, and `BoundUrls[0]` says which. `AllowAnonymous` is `--allow-anonymous`: both sides connect with no login, and `surl` warns on start while it is on, so it is for a test server (<<surl-readme>>). `RecordExchanges` makes the server keep what each client sent, for the check at the end.
+
+In NATS request and reply, the asking side subscribes to a reply subject of its own, publishes its request with that subject attached, and waits for one message on it; the answering side subscribes to the service subject and publishes its answer to the reply subject that came with the request (<<nats-protocol>>). The app is `Curl.Api`: a `CurlRequest` with the method `POST` and the body `sku=A1`, sent to `nats://host:port/prices.get?request`, does all of the asking side, with a reply subject `_INBOX.` and 32 hexadecimal digits, and the `CurlResponse` body is the first reply (<<curl-protocols>>). `CurlClientOptions.Timeout` bounds the wait. The first request of a `CurlClient` sets its engine up, which takes seconds, so the program publishes once to `warm.up` before any request it times.
+
+The stand-in is the test{apos}s own NATS client, a `TcpClient` and a `StreamReader`, because no client library answers a request for you here. It sends `CONNECT`, `SUB prices.get 1` and `PING`, each line ended by a carriage return and line feed, and reads until the server{apos}s `PONG`, which comes once the server has taken the `SUB`. Only then does the program start the app{apos}s request, so the request cannot arrive before the stand-in listens. The request reaches the stand-in as `MSG prices.get 1 <reply subject> 6` and then the payload; the stand-in keeps both and publishes `price=9.99` to that reply subject with `PUB`. The app gets `price=9.99`. Every read of the stand-in has a 20-second `CancellationToken`, so a test that goes wrong fails instead of hanging.
+
+The test{apos}s first check is what the stand-in received: the payload the app asked with, `sku=A1`, and the reply subject `Curl.Api` made. The second is the server{apos}s record. `server.Exchanges` gives a `SurlExchangeRecord` for each connection, whose `Received` is every byte that client sent, in order. One holds the app{apos}s `PUB prices.get` with that reply subject and 6 bytes, and one the stand-in{apos}s `PUB` of 10 bytes. The record is written as the server works, so the program looks for both lines for at most five seconds.
+
+There are two ways the exchange can fail. With nobody subscribed to `prices.get`, the server says so at once, and `SendAsync` throws a `CurlException` with `Code` `56`, `RecvError`, no responders; a test that forgot its stand-in fails fast. A stand-in that receives the request and never answers still records it, `sku=A1`, and the app gives up at the client{apos}s three-second `Timeout`: `CurlException` `28`, `OperationTimedOut`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<nats-stand-in-for-a-service>> for the same task on the console.
+* <<nats-stand-in-for-a-service-from-an-agent>> for the same task from an agent.
+* <<nats-publish-and-subscribe>> for subjects, wildcards and the login rules.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<nats-protocol>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-test-a-session-that-expires-in-csharp]]
+=== Testing a Session That Expires in C#
+
+==== Problem
+
+In a C# test, your app keeps sessions in Redis with a time to live; you want a short-lived session and a test that the app treats it as logged out once it expires.
+
+==== Solution
+
+One program starts a server with `Surl.Api` that holds a Redis store for the sessions and serves the app{apos}s page over the Hypertext Transfer Protocol (HTTP). It seeds a session that lives six seconds, asks the app, here a method that stands in for yours, and asks again until the app says the user is logged out:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` asks for a `redis://` and an `http://` listener on port `0`, so the system picks free ports, and `BoundUrls` lists them in that order. `Files["account.txt"]` is the page a logged-in user sees. `Accounts` holds a `SurlAccount`, `app` with the password `s3cret`, which covers both listeners. Both are plain, so the password crosses an unencrypted connection, and `AllowPlaintextAuthentication`, `--allow-plaintext-auth`, lets `surl` check it there instead of refusing it unchecked; it warns on start and is for a test (<<surl-readme>>).
+
+The test seeds from the server{apos}s side: `server.Keys`, a `SurlServerKeys`, has `SetAsync(key, value, expiry)`, which writes the key as a `SET` with an expiry would, here `session:abc` holding `alice` for six seconds (<<redis-resp>>). The app is two requests, each a `CurlRequest` on one `CurlClient`, logged in with `CurlAuthenticationOptions`. The first is a `GET` of `redis://host:port/GET/session:abc`, the command in the URL path (<<curl-protocols>>); the `CurlResponse` body is the value and a line feed, or a lone line feed for a missing or expired key, which the app takes as logged out. With a user, the second fetches the account page over HTTP (<<rfc9110>>). The first request of a `CurlClient` sets its engine up, which takes seconds, so the program asks the app once before it seeds; otherwise that start could use up the session{apos}s life before the first answer.
+
+The app shows alice her page at once. Then the test waits for the expiry the way a test should wait for anything a server does on its own clock: it asks again once a second, fifteen times at most, and stops at the first answer that says logged out. A fixed delay has to guess how long is enough, and its guess is wrong on some machine; asking until the answer changes takes as long as it needs, and fifteen tries bound it. `CurlClientOptions.Timeout` bounds each call.
+
+The test checks the store as well as the app. `Keys.GetAsync` throws a `SurlNotFoundException` for the expired session: it is gone, not only hidden from the app. For a live key it answers a `SurlKeyContents`, whose `Text` is the value and whose `Info.ExpiresAt` says when it goes: within 60 seconds for a session seeded with a minute to live, and null for one seeded with no expiry. That is the failure this test is for: such a session never goes, the app keeps the user logged in, and the poll runs out with the app still saying logged in. A session ID the store never held gets the same answer from the app as an expired one. Without `AllowPlaintextAuthentication` the app{apos}s login is refused, `WRONGPASS`, and `SendAsync` throws a `CurlException` with `Code` `67`, `LoginDenied`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-test-a-session-that-expires>> for the same task on the console.
+* <<redis-test-a-session-that-expires-from-an-agent>> for the same task from an agent.
+* <<redis-expire-a-key-in-csharp>> for expiry through `Surl.Api` on its own.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<redis-resp>>, <<rfc9110>>.

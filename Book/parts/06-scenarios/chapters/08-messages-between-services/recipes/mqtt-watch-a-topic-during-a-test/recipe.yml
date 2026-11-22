@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: mqtt-watch-a-topic-during-a-test
+title: Watching a Topic During a Test
+protocols: [mqtt]
+tier: scenarios
+surl-options: [--allow-anonymous]
+curl-options: [-s, -m, -o, --data-binary]
+exit-codes: [0, 28]
+references: [surl-readme, curl-readme, mqtt311, mqtt5]
+
+# watch.sh is the test: it starts a subscriber in the background that writes every message on line1/temp to
+# watched.txt, waits until it is subscribed, publishes three readings as the app under test would, waits until
+# the watcher has written the last message, stops it and prints the readings. It needs a POSIX shell.
+fixtures:
+  watch.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh watch.sh <mqtt port> <mqtt5 port>
+    topic=mqtt://127.0.0.1:$1/line1/temp
+    rm -f watched.txt
+    # The watcher: an MQTT 5 subscriber, which stays subscribed, writing each payload to the file.
+    curl -s -m 60 "mqtt5://127.0.0.1:$2/line1/temp" -o watched.txt &
+    watcher=$!
+    # Wait until it is subscribed: publish a marker until the watcher has written it, at most ten tries.
+    for try in 1 2 3 4 5 6 7 8 9 10; do
+      printf 'watching\n' | curl -s --data-binary @- "$topic"
+      grep -q '^watching$' watched.txt 2>/dev/null && break
+      sleep 1
+    done
+    # The test: the readings the app under test publishes while it runs.
+    for reading in 21.5 22.0 35.5; do
+      printf 'temp=%s\n' "$reading" | curl -s --data-binary @- "$topic"
+    done
+    # The end marker: wait until the watcher has written it, at most ten tries, then stop the watcher.
+    printf 'done\n' | curl -s --data-binary @- "$topic"
+    for try in 1 2 3 4 5 6 7 8 9 10; do
+      grep -q '^done$' watched.txt && break
+      sleep 1
+    done
+    kill $watcher
+    grep '^temp=' watched.txt
+
+servers:
+  main:
+    command: surl --allow-anonymous mqtt://127.0.0.1:{{port}}/ mqtt5://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The watcher writes every reading the test publishes while it runs, 21.5, 22.0 and 35.5, in the order published.
+    run: sh watch.sh {{port}} {{port2}}
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "temp=21.5\ntemp=22.0\ntemp=35.5\n"
+
+  - id: whole-file
+    claim: The file holds the markers too, one or more watching from the wait for the subscription, then the three readings and done, one message a line.
+    run: cat watched.txt
+    expect:
+      exit: 0
+      stdout-matches: '\A(watching\n)+temp=21\.5\ntemp=22\.0\ntemp=35\.5\ndone\n\Z'
+
+  - id: check-at-the-end
+    claim: The test's check at the end is a search of the file; one reading is 30 or more.
+    run: grep -c "^temp=[3-9][0-9]" watched.txt
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: mqtt311-ends-at-once
+    claim: An MQTT 3.1.1 subscriber would not do as a watcher; surl sends it the topic's retained messages, here none, and ends the subscription, so curl exits 0 at once having written nothing.
+    run: curl -s -m 5 mqtt://127.0.0.1:{{port}}/line1/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: watcher-left-alone
+    claim: An MQTT 5 watcher that nobody stops waits for messages until -m ends it, exit 28.
+    run: curl -s -m 2 mqtt5://127.0.0.1:{{port2}}/line1/temp
+    expect:
+      exit: 28
+      stdout: ""

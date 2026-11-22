@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-find-which-account-uploaded-a-file-in-csharp
+title: Finding Who Uploaded a File in C#
+protocols: [ftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, StoreKind, StoreChangedEvent, SurlExchangeRecord, LogLevel, CurlClient, CurlRequest, CurlContent, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+# Every case runs the same three uploads: alice the right export.csv, bob a wrong one, alice one past 100 bytes.
+cases:
+  - id: alice-and-bob-store
+    claim: "alice's and bob's uploads of export.csv are both stored; alice's next one, past MaxFileSize, throws CurlException with code 70, RemoteDiskFull."
+    program: program.cs
+    args: ["uploads"]
+    expect:
+      exit: 0
+      stdout: "alice: stored\nbob: stored\nalice: refused, curl code 70 RemoteDiskFull\n"
+
+  - id: bob-replaces
+    claim: "bob's upload replaced alice's file without telling either client, and the refused upload left it as bob wrote it."
+    program: program.cs
+    args: ["file"]
+    expect:
+      exit: 0
+      stdout: "id,total\n1,0\n"
+
+  - id: solution
+    role: solution
+    claim: "Once every exchange has ended, FindEvents by account and path lists each store change to /export.csv with its exchange and the account that logged in there, alice then bob, and names bob as the account that stored it last."
+    program: program.cs
+    args: ["who"]
+    expect:
+      exit: 0
+      stdout: "exchange 1: alice stored /export.csv\nexchange 2: bob stored /export.csv\nlast stored by bob\n"
+
+  - id: refused-store-in-record
+    claim: "FindExchanges for alice returns two exchanges whose received bytes hold STOR export.csv, the refused one included, but only one store change belongs to her."
+    program: program.cs
+    args: ["refused"]
+    expect:
+      exit: 0
+      stdout: "alice: 2 exchanges with STOR export.csv, 1 store change\n"
+
+  - id: log-withholds-passwords
+    claim: "The verbose log has each of the three logins with its password replaced by ****."
+    program: program.cs
+    args: ["log"]
+    expect:
+      exit: 0
+      stdout: "#1 < PASS ****\\r\\n\n#2 < PASS ****\\r\\n\n#3 < PASS ****\\r\\n\n"
+
+  - id: record-keeps-passwords
+    claim: "The recorded exchanges keep the bytes as they were received, so each PASS command is there with its password in clear."
+    program: program.cs
+    args: ["record"]
+    expect:
+      exit: 0
+      stdout: "PASS north-7\nPASS south-9\nPASS north-7\n"
+
+  - id: recording-off
+    claim: "With RecordExchanges off nothing is recorded, and FindEvents throws InvalidOperationException instead of finding nothing."
+    program: program.cs
+    args: ["recording-off"]
+    expect:
+      exit: 1
+      stdout: "RecordExchanges is off: the record throws InvalidOperationException\n"
+
+  - id: plaintext-refused
+    claim: "Without AllowPlaintextAuthentication the server refuses a password sent over plain FTP: every upload throws CurlException with code 67, LoginDenied."
+    program: program.cs
+    args: ["plaintext-off"]
+    expect:
+      exit: 0
+      stdout: "alice: refused, curl code 67 LoginDenied\nbob: refused, curl code 67 LoginDenied\nalice: refused, curl code 67 LoginDenied\n"

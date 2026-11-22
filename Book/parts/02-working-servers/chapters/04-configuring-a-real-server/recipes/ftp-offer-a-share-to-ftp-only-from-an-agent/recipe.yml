@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs ftp-only-share.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-offer-a-share-to-ftp-only-from-an-agent
+title: Offering FTP-only Shares from an Agent
+protocols: [ftp, http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl]
+exit-codes: [0, 22]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Trying drop/report.txt over each scheme, the agent finds FTP and FTPS reach the share and HTTP does not, curl exit 22 with -f, and reports http as the one not reached.
+    program: ftp-only-share.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ftp: reached, totals\nhttp: exit 22\nftps: reached, totals\nnot reached: http\n"
+
+  - id: http-404
+    claim: Without -f, the same path over HTTP is answered 404, as if the share were not there.
+    program: ftp-only-share.cs
+    args: [http]
+    expect:
+      exit: 0
+      stdout: "http: 404\n"
+
+  - id: other-share-open
+    claim: A share with no protocols= is reached over HTTP, so the 404 for drop is the share's limit and not a fault in the HTTP listener.
+    program: ftp-only-share.cs
+    args: [open-http]
+    expect:
+      exit: 0
+      stdout: "open-http: open to all\n"
+
+  - id: other-share-ftp
+    claim: That other share is read over FTP as well.
+    program: ftp-only-share.cs
+    args: [open-ftp]
+    expect:
+      exit: 0
+      stdout: "open-ftp: open to all\n"
+
+  - id: ftps-too
+    claim: protocols=ftp admits the TLS twin, so the share is read over FTPS from the FTPS listener, with -k for the throwaway certificate.
+    program: ftp-only-share.cs
+    args: [ftps]
+    expect:
+      exit: 0
+      stdout: "ftps: totals\n"
+
+  - id: listed-over-ftp
+    claim: An FTP listing of the root, curl -l, names both shares.
+    program: ftp-only-share.cs
+    args: [root]
+    expect:
+      exit: 0
+      stdout: "root: drop public\n"
+
+  - id: hidden-from-http-folder
+    claim: The share's folder is not served over HTTP either, 404.
+    program: ftp-only-share.cs
+    args: [http-folder]
+    expect:
+      exit: 0
+      stdout: "http-folder: 404\n"
+
+  - id: unknown-scheme
+    claim: A protocols= value that names no scheme makes start_server a tool error whose first line names the scheme, and no server runs.
+    program: ftp-only-share.cs
+    args: [unknown-scheme]
+    expect:
+      exit: 0
+      stdout: "start refused: surl: option --share: unknown scheme nope\n"

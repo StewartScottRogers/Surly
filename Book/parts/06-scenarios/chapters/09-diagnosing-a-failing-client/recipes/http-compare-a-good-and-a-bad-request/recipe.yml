@@ -1,0 +1,96 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-compare-a-good-and-a-bad-request
+title: Comparing a Good and a Bad Request
+protocols: [http]
+tier: scenarios
+surl-options: [-v, --log-file, --directory]
+curl-options: [-H, -s, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  site/report.csv: "id,total\n1,40\n"
+  compare.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Puts the first request surl answered 200 beside the last one it answered 400, from its
+    # verbose log, prints the lines that differ, then the reason surl gave for the 400.
+    # Run: sh compare.sh [surl.log]    (needs a POSIX shell: Git Bash on Windows)
+    log=${1:-surl.log}
+
+    # The log is whole once every exchange that opened has ended: wait for that, at most 10 s.
+    tries=0
+    until [ "$(grep -c ' opened: ' "$log")" -eq "$(grep -c ' ended; ' "$log")" ]; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 50 ]; then echo "the exchanges in $log did not end within 10 s"; exit 1; fi
+      sleep 0.2
+    done
+
+    # Which exchanges, by the status lines surl sent: #N is the exchange's number.
+    good=$(grep ' > HTTP/1.1 200 ' "$log" | head -n 1 | cut -d' ' -f1)
+    bad=$(grep ' > HTTP/1.1 400 ' "$log" | tail -n 1 | cut -d' ' -f1)
+    if [ -z "$good" ] || [ -z "$bad" ]; then echo "$log has no 200 and 400 to compare"; exit 1; fi
+    echo "good: exchange $good, answered 200"
+    echo "bad:  exchange $bad, answered 400"
+
+    # Each request as surl read it: its '<' lines, without the prefix and the CR LF shown as text.
+    grep "^$good < " "$log" | sed -e 's/^#[0-9]* < //' -e 's/\\r\\n$//' > good.txt
+    grep "^$bad < " "$log" | sed -e 's/^#[0-9]* < //' -e 's/\\r\\n$//' > bad.txt
+    diff good.txt bad.txt
+
+    # Why surl refused it, in its own words.
+    grep "^$bad \* .*answered 400" "$log" | sed 's/^#[0-9]* \* /why:  /'
+    exit 0
+
+# -v logs every line each client sent; --log-file keeps that log in surl.log.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+# The two clients run first; the solution then reads the log they left.
+cases:
+  - id: good-client
+    claim: The client that sends its key as X-Api-Key gets the report, 200.
+    run: 'curl -s -o {{null}} -w "%{http_code}\n" -H "X-Api-Key: k123" http://127.0.0.1:{{port}}/report.csv'
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: bad-client
+    claim: The client whose header has a space before its colon gets 400 Bad Request from the same server, with that one line as the body, and curl still exits 0.
+    run: 'curl -s -w "%{http_code}\n" -H "X-Api-Key : k123" http://127.0.0.1:{{port}}/report.csv'
+    expect:
+      exit: 0
+      stdout: "400 Bad Request\n400\n"
+
+  - id: solution
+    role: solution
+    claim: Side by side, the two requests differ in one line, the X-Api-Key header with and without the space, and surl's log says it read no request head because of the whitespace before a colon.
+    run: sh compare.sh surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^good: exchange #\d+, answered 200\nbad:  exchange #\d+, answered 400\n5c5\n< X-Api-Key: k123\n---\n> X-Api-Key : k123\nwhy:  No request head was read: WhitespaceBeforeColon; answered 400 and closed\.\n$'
+
+  - id: same-other-lines
+    claim: Every other line of the two requests is the same, Host, User-Agent and Accept included, so the header is the whole difference.
+    run: sh compare.sh surl.log && grep -c . good.txt bad.txt
+    expect:
+      exit: 0
+      stdout-matches: '\ngood\.txt:5\nbad\.txt:5\n$'
+
+  - id: closes-the-connection
+    claim: A 400 for a malformed head also closes the connection, Connection close, so a client cannot carry on over it.
+    run: 'curl -s -o {{null}} -w "%header{connection}\n" -H "X-Api-Key : k123" http://127.0.0.1:{{port}}/report.csv'
+    expect:
+      exit: 0
+      stdout: "close\n"
+
+  - id: missing-host
+    claim: The same comparison finds any header; a request that drops Host differs from the good one by that line, and surl names that reason instead.
+    run: 'curl -s -o {{null}} -H "Host:" -H "X-Api-Key: k123" http://127.0.0.1:{{port}}/report.csv && sh compare.sh surl.log'
+    expect:
+      exit: 0
+      stdout-matches: '\n2d1\n< Host: 127\.0\.0\.1:\d+\nwhy:  GET /report\.csv: a request may carry at most one Host field, and an HTTP/1\.1 request needs one; answered 400 and closed\.\n$'

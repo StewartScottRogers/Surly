@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-compare-a-good-and-a-bad-request]]
+=== Comparing a Good and a Bad Request
+
+==== Problem
+
+One client works and another gets `400 Bad Request` from the same Hypertext Transfer Protocol (HTTP) server. Both look as if they send the same thing, and you want their two requests side by side, as the server read them, to find the header that differs.
+
+==== Solution
+
+Run `surl` with `-v --log-file surl.log`, so its log holds every line each client sent, let both clients make their request, then put the request answered `200` beside the one answered `400` and compare them. The script below does the comparison; it needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::compare.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`-v` raises `surl`{apos}s log to verbose: besides a line for each event, it logs each line a client sent, `#N < ` followed by the line with its carriage return and line feed shown as `\r\n`, and each line it sent back, `#N > `. `N` is the exchange, one connection, so every line of one client's request carries the same number. `--log-file surl.log` appends the log to that file instead of standard error, where a script can read it. `--directory site` serves the report both clients ask for.
+
+The two clients differ in one keystroke. The good one sends `-H "X-Api-Key: k123"` and gets the report, `200`. The bad one sends `-H "X-Api-Key : k123"`, with a space before the colon, and gets `400 Bad Request` with that one line as the body (<<rfc9110>>). `surl` allows no whitespace between a header name and its colon, and refuses such a request before it has read the rest of the head. `curl` sends `-H` headers as they are typed and never corrects one (<<curl-manual>>), and to `curl` a `400` is an answer, so it exits `0`: the client's side shows only the status. `-s` keeps `curl` quiet, `-o` sends a body to nowhere, and `-w` prints the status code or a response header.
+
+`compare.sh` first waits, at most 10 seconds, until every exchange that opened in the log has ended, so it never reads half a record. It finds the first exchange answered `200` and the last answered `400` by the status lines `surl` sent, keeps each exchange's `<` lines without the prefix, and runs `diff` on the two. `5c5` is `diff`{apos}s way of saying the fifth line changed: the header, with and without the space. Every other line, `Host`, `User-Agent` and `Accept` included, is the same, so that header is the whole difference. Last, the script prints the line in which `surl` said why: `No request head was read: WhitespaceBeforeColon; answered 400 and closed.` (<<surl-readme>>).
+
+The 400 also closes the connection, `Connection: close`, so a client cannot send another request over it. The comparison is not about one header. A client that drops `Host`, which `curl` does for `-H "Host:"`, differs from the good request by that line, `2d1`, and `surl` names that reason instead: an HTTP/1.1 request needs exactly one `Host` field.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-compare-a-good-and-a-bad-request-in-csharp>> for the same comparison from a .NET test.
+* <<http-compare-a-good-and-a-bad-request-from-an-agent>> for an agent comparing the two requests.
+* <<http-find-the-request-that-failed>> for finding the failing request among many.
+* <<http-check-headers-reach-the-server>> for seeing what headers a request carried.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

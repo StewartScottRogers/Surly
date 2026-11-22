@@ -1,0 +1,64 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: grpc-time-out-a-slow-call-in-csharp
+title: Timing Out gRPC Calls in C#
+protocols: [grpc]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, grpc-http2]
+triplet: grpc-time-out-a-slow-call
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A call the server holds back for 3000 milliseconds, on a client whose Timeout is one second, throws a CurlException with code 28, OperationTimedOut, and no reply; no gRPC status ever arrived.
+    program: time-out.cs
+    args: [gives-up]
+    expect:
+      exit: 0
+      stdout-matches: '^OperationTimedOut \(28\): Operation timed out after \d+ milliseconds'
+
+  - id: within-limit
+    claim: A call that answers inside the limit is not affected by it; held back 200 milliseconds under a Timeout of 10 seconds, it returns its reply.
+    program: time-out.cs
+    args: [within-limit]
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"x\"\n}\n"
+
+  - id: how-long-it-waited
+    claim: The client stops at the limit and does not wait for the reply; against a 3000 millisecond hold-back with a Timeout of one second the call takes between one and three seconds, once the first request has made its set-up.
+    program: time-out.cs
+    args: [how-long]
+    expect:
+      exit: 0
+      stdout: "waited between 1 and 3 s\n"
+
+  - id: server-deadline
+    claim: A deadline sent as a grpc-timeout header, 300m for 300 milliseconds, is enforced by the server, which ends the call with grpc-status 4 (DEADLINE_EXCEEDED), deadline exceeded; the exception is code 22, HttpReturnedError, not 28, though the client's own Timeout of 10 seconds has not passed.
+    program: time-out.cs
+    args: [server-deadline]
+    expect:
+      exit: 0
+      stdout: "HttpReturnedError (22): grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded\n"
+
+  - id: deadline-on-a-stream
+    claim: A deadline that passes part way through a stream ends it DEADLINE_EXCEEDED; Expand with ten replies each held back 300 milliseconds under grpc-timeout 1S throws the same exception, and the replies sent before the deadline are not handed to the program.
+    program: time-out.cs
+    args: [stream-deadline]
+    expect:
+      exit: 0
+      stdout: "HttpReturnedError (22): grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded\n"
+
+  - id: limit-is-sent
+    claim: The client's Timeout is sent to the server as a grpc-timeout header, which the server's verbose log names in the metadata of two lines for the first call, its reflection lookup and its method; a second call with the header listed in RemovedHeaders adds none.
+    program: time-out.cs
+    args: [header]
+    expect:
+      exit: 0
+      stdout: "after a call with the limit: 2 lines name grpc-timeout\nafter a call with the header removed: 2 lines name grpc-timeout\n"

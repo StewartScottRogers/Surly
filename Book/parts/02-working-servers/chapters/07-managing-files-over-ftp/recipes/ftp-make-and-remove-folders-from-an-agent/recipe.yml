@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs folders.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-make-and-remove-folders-from-an-agent
+title: Making and Removing Folders from an Agent
+protocols: [ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, list_files, get_exchanges]
+exit-codes: [0, 21, 67]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "curl -Q \"MKD reports\" through curl-mcp makes the folder: exit 0, the server answers 257 with the path it made, and list_files shows reports beside hello.txt."
+    program: folders.cs
+    args: [make]
+    expect:
+      exit: 0
+      stdout: "make: exit 0; 257 \"/reports\" created; store: hello.txt reports/\n"
+
+  - id: inside
+    claim: "MKD with a path makes the folder inside one that is there, so reports/2026 is made under reports."
+    program: folders.cs
+    args: [inside]
+    expect:
+      exit: 0
+      stdout: "inside: exit 0; 257 \"/reports/2026\" created; store: hello.txt reports/ reports/2026/\n"
+
+  - id: exists
+    claim: "MKD for a folder that is already there is answered 550 Already exists, and curl exits 21, quote command failed."
+    program: folders.cs
+    args: [exists]
+    expect:
+      exit: 0
+      stdout: "exists: exit 21; 550 Already exists; store: hello.txt reports/\n"
+
+  - id: missing-parent
+    claim: "MKD whose parent is not there is answered 550 No such directory, curl exits 21, and nothing is made."
+    program: folders.cs
+    args: [missing-parent]
+    expect:
+      exit: 0
+      stdout: "missing-parent: exit 21; 550 No such directory; store: hello.txt\n"
+
+  - id: remove
+    claim: "RMD removes an empty folder, answered 250 Directory removed, exit 0, and list_files no longer shows it."
+    program: folders.cs
+    args: [remove]
+    expect:
+      exit: 0
+      stdout: "remove: exit 0; 250 Directory removed; store: hello.txt\n"
+
+  - id: not-empty
+    claim: "RMD for a folder that still holds a file is answered 550 Directory not empty, curl exits 21, and the folder and its file are still listed."
+    program: folders.cs
+    args: [not-empty]
+    expect:
+      exit: 0
+      stdout: "not-empty: exit 21; 550 Directory not empty; store: hello.txt reports/ reports/note.txt\n"
+
+  - id: clear-a-folder
+    claim: "An agent that reads the refusal, lists the folder, deletes its file with DELE and sends RMD again removes the folder: the first RMD exits 21, the second exits 0 with 250 Directory removed."
+    program: folders.cs
+    args: [clear]
+    expect:
+      exit: 0
+      stdout: "first RMD: exit 21; 550 Directory not empty\ndeleted: note.txt\nsecond RMD: exit 0; 250 Directory removed\nstore: hello.txt\n"
+
+  - id: missing
+    claim: "RMD of a name that is a file, not a folder, is answered 550 No such directory, curl exits 21, and the file stays."
+    program: folders.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "missing: exit 21; 550 No such directory; store: hello.txt\n"
+
+  - id: uploads-off
+    claim: "A server started without --allow-uploads answers MKD 550 Not permitted, curl exits 21, and no folder is made."
+    program: folders.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "uploads-off: exit 21; 550 Not permitted; store: hello.txt\n"
+
+  - id: uploads-off-rmd
+    claim: "RMD is refused there too, 550 Not permitted and not Directory not empty, so the folder and its file stay."
+    program: folders.cs
+    args: [uploads-off-rmd]
+    expect:
+      exit: 0
+      stdout: "uploads-off-rmd: exit 21; 550 Not permitted; store: hello.txt reports/ reports/note.txt\n"
+
+  - id: no-login
+    claim: "A server started without --allow-anonymous refuses curl's anonymous login before the command is sent, and curl exits 67, login denied."
+    program: folders.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "no-login: exit 67; 530 Login needs TLS first: send AUTH TLS; store: hello.txt\n"
+

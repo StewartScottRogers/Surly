@@ -1,0 +1,51 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-see-which-command-broke-a-transfer]]
+=== Seeing Which FTP Command Failed
+
+==== Problem
+
+A File Transfer Protocol (FTP) job fails now and then, and `curl`{apos}s message alone does not say where. You want the server{apos}s record of each failing session to show the command the job sent last and the reply that ended it.
+
+==== Solution
+
+Run `surl` with a verbose log written to a file, run the job until it has failed, then read the log with a script that prints, for each session that ended on a failure, its last command and the reply to it. Here two fault rules make the job fail the way a flaky server would, once at its upload and once at its download:
+
+include::.generated/solution.adoc[]
+
+The job:
+
+include::job.sh[]
+
+The wait for the log to settle:
+
+include::settled.sh[]
+
+The script that reads it:
+
+include::failed-sessions.sh[]
+
+They need a POSIX shell (Git Bash on Windows). Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` serves `site` (`--directory`), lets the job log in without an account with `--allow-anonymous`, and takes its upload with `--allow-uploads`, which it refuses by default; without `--allow-anonymous`, and with no account given, the job{apos}s login is refused and it exits `67`. Each `--fault` rule makes the server misbehave on purpose, for tests only. The first, `error` scoped to `STOR` under `/outbox`, answers the upload `451 Local error in processing` instead of taking it; the second, `drop` at `stage=command` scoped to `RETR` under `/inbox`, closes the connection when the download is asked for, with no reply. `times=1` spends each rule once, which is what makes the job fail now and then (<<surl-readme>>).
+
+The job is two `curl` commands: `-T` uploads, `-o` saves the download, `-s` hides the progress meter and `-S` keeps the error text (<<curl-readme>>). Run three times, it fails at the upload with exit `25`, then at the download with exit `56`, then passes. From the client{apos}s side that is two exit codes and two short messages.
+
+The server{apos}s log says more. `-v` logs every line each connection carries and `--log-file job.log` appends it to a file. Each line starts with `#` and the exchange number, one per connection, then `<` for a line the client sent, `>` for one the server sent, or `*` for a line `surl` logs about what happened, so one session can be read on its own (<<rfc959>>). The script keeps, per exchange, the last command before `QUIT` and the reply to it, skipping any lines logged for the data connection, which carry the file and not commands. When the exchange ends on a 4xx or 5xx reply, or on no reply at all, it prints the pair, and then the first `*` line logged after that command, if there is one. Here that line names the fault rule, `f1` or `f2`, so a test can tell an injected failure from a real one. The exchange numbers vary from run to run: a readiness check that opens and closes a connection, for one, takes a number too. Sessions that ended well are left out: the log holds three `STOR nightly.csv` commands, one per run, and only the failed one is listed.
+
+`surl` writes an exchange{apos}s lines as it goes, so a script that reads the log straight after the client returns can miss the end of it. `settled.sh` waits until every exchange the log says was opened has ended, polling five times a second, and gives up after five seconds rather than wait forever. Every read of the log here goes through it.
+
+A real failure reads the same way without the rule. On a second server with no fault rule and no `--allow-uploads`, the job fails at its upload with exit `25`, and the script lists `STOR nightly.csv -> 550 Not permitted` with no line after it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-see-which-command-broke-a-transfer-in-csharp>> for the same task from C#.
+* <<ftp-see-which-command-broke-a-transfer-from-an-agent>> for the same task from an agent.
+* <<ftp-find-which-account-uploaded-a-file>> for finding who stored a file in the same log.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

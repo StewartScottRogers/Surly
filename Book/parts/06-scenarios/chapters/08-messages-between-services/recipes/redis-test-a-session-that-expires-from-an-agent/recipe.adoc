@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-test-a-session-that-expires-from-an-agent]]
+=== Testing a Session That Expires
+
+==== Problem
+
+As an agent, your app keeps sessions in Redis with a time to live; you want a short-lived session and a check that the app treats it as logged out once it expires.
+
+==== Solution
+
+Give the agent both MCP servers. `surl-mcp` starts one server with a Redis store for the sessions and the app{apos}s page over the Hypertext Transfer Protocol (HTTP), and `set_key` seeds a session that lives six seconds. The app, here calls of `curl-mcp`{apos}s `curl` tool that stand in for yours, is asked at once and again until it says the user is logged out. Here is the conversation, as a C# program on the official Model Context Protocol (MCP) SDK:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes a `redis://` and an `http://` listen URL on port `0` and answers `server_id` and `bound_urls` in that order. `files` puts `account.txt`, the page a logged-in user sees, in the server{apos}s content store, and `arguments` holds `surl`{apos}s own options: `--user app:s3cret` is the app{apos}s account on both listeners, and `--allow-plaintext-auth` lets `surl` check its password over these plain listeners instead of refusing it unchecked; it warns on start and is for a test (<<surl-readme>>). The program starts both hosts from `PATH` with `StdioClientTransport`, each confined to its folder by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` is the same set-up for an agent client.
+
+`set_key` writes a key as a `SET` would, with no login: `key` `session:abc`, `value` `alice`, and `expire_ms` `6000`, six seconds to live (<<redis-resp>>). The app is the `curl` tool, which runs `curl` with the arguments given: `-u app:s3cret` and `redis://host:port/GET/session:abc`, the command in the URL path, write the value and a line feed, or a lone line feed for a missing or expired key, which the app takes as logged out (<<curl-protocols>>). With a user, the app fetches the account page over HTTP (<<rfc9110>>). `-s` silences the progress meter and `-S` puts error messages back. The first call can be slow to start, so the agent asks the app once before it seeds.
+
+The app shows alice her page at once. Then the agent waits for the expiry the way a test should wait for anything a server does on its own clock: it asks again once a second, fifteen times at most, and stops at the first answer that says logged out. A fixed delay has to guess how long is enough, and its guess is wrong on some machine; asking until the answer changes takes as long as it needs, and fifteen tries bound it.
+
+The agent checks the store as well as the app. `read_key` answers a tool error, `No such key.`, for the expired session: it is gone, not only hidden from the app. For a live key it answers `text`, the value, and `expires_at`: at most 60 seconds away for a session seeded with `expire_ms` `60000`. A session seeded with no `expire_ms` has no `expires_at` at all. That is the failure this check is for: such a session never goes, the app keeps the user logged in, and the poll runs out with the app still saying logged in. A session ID the store never held gets the same answer from the app as an expired one. On a server started without `--allow-plaintext-auth`, the app{apos}s login is refused, `WRONGPASS`, and the `curl` tool answers exit `67`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-test-a-session-that-expires>> for the same task on the console.
+* <<redis-test-a-session-that-expires-in-csharp>> for the same task in a C# test.
+* <<redis-expire-a-key-from-an-agent>> for expiry through `set_key` on its own.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<redis-resp>>, <<rfc9110>>.

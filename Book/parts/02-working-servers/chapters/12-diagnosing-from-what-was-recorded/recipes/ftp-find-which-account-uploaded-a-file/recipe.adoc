@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-find-which-account-uploaded-a-file]]
+=== Finding Who Uploaded a File
+
+==== Problem
+
+Two accounts upload to one File Transfer Protocol (FTP) server, and a file on it is wrong. You want the server{apos}s own log to say which account stored it.
+
+==== Solution
+
+Run `surl` with a verbose log written to a file, let the uploads happen, then read the log with a script that pairs each completed upload with the account logged in on the same connection:
+
+include::.generated/solution.adoc[]
+
+The wait for the log to settle:
+
+include::settled.sh[]
+
+The script that reads it:
+
+include::who-stored.sh[]
+
+They need a POSIX shell (Git Bash on Windows). Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+The server has two accounts, `alice` and `bob`, each a `--user name:password`. FTP sends the password in clear, and `surl` refuses one over plain `ftp://` unless `--allow-plaintext-auth` is given, which is a stand-in{apos}s choice and not a production server{apos}s: without it `curl` exits `67`. `--allow-uploads` lets both write into `site` (`--directory`), and `--max-filesize 100` refuses an upload past 100 bytes (<<surl-readme>>). `curl` logs in with `-u` and uploads with `-T`; `-s` hides the progress meter and `-S` keeps the error text (<<curl-readme>>).
+
+The story is short. `alice` uploads the right `export.csv`, `bob` uploads a wrong one to the same name, and the server replaces `alice`{apos}s file with `bob`{apos}s without telling either client. Then `alice` tries a file past the limit; the server refuses it, `curl` exits `70`, and `bob`{apos}s file stays. Looking at `export.csv` alone, nothing says who wrote it.
+
+The log does. `-v` logs every line each connection carries, and `--log-file surl.log` appends it to a file. Each line starts with `#` and the exchange number, one per connection, so the login and the upload made on one connection carry the same number: `#2 * Login accepted: ftp bob` and, a few lines on, `#2 < STOR export.csv\r\n`, the `\r\n` written out as text. The log holds three `STOR export.csv` commands, the refused one included, so the script counts an upload only when the server answered it with a 2xx reply, here `226 Transfer complete`, and drops it on a 4xx or 5xx (<<rfc959>>). It prints one line per completed upload and then the account that stored the file last, `bob`. The exchange numbers vary from run to run: a readiness check that opens and closes a connection, for one, takes a number too.
+
+`surl` writes an exchange{apos}s lines as it goes, so a script that reads the log straight after the client returns can miss the end of it. `settled.sh` waits until every exchange the log says was opened has ended, polling five times a second, and gives up after five seconds rather than wait forever. Every read of the log here goes through it.
+
+The log is safe to keep beside a failed test{apos}s other output: each of the three logins is there with its password replaced by `pass:[****]`, and `bob`{apos}s password appears nowhere. It has to be the verbose log, though. At the default level the log holds one line per connection opened and no login or command, so the same upload leaves the script nothing to find and it exits `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-find-which-account-uploaded-a-file-in-csharp>> for the same task from C#.
+* <<ftp-find-which-account-uploaded-a-file-from-an-agent>> for the same task from an agent.
+* <<ftp-see-which-command-broke-a-transfer>> for finding the command that failed in the same log.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

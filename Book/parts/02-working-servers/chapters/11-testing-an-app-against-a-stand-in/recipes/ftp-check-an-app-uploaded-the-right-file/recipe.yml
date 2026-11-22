@@ -1,0 +1,101 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-check-an-app-uploaded-the-right-file
+title: Checking an App's Upload
+protocols: [ftp, http]
+tier: working-servers
+surl-options: [--allow-anonymous, --allow-uploads]
+curl-options: [-T, --ftp-create-dirs, -f, -o, -s, -S]
+exit-codes: [0, 1, 9, 22, 67]
+references: [surl-readme, curl-readme, rfc959, rfc9110]
+
+# app.sh stands for the app under test: it writes tonight's export and uploads it over FTP, or, given broken, writes
+# it without its last row. check.sh is the test's check: it fetches what arrived over HTTP and compares it with
+# expected.csv, byte for byte.
+fixtures:
+  expected.csv: "id,region,total\n1,north,42\n2,south,17\n"
+  app.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # app.sh FTP-URL [broken]: the app under test. It writes tonight's export, nightly.csv, and uploads it to
+    # exports/nightly.csv under the FTP URL (ending in /), making the folder if need be. Given broken, it leaves out
+    # the last row, as a bug would. A failed upload is curl's exit code.
+    rows='1,north,42
+    2,south,17'
+    if [ "$2" = broken ]; then rows='1,north,42'; fi
+    printf 'id,region,total\n%s\n' "$rows" > nightly.csv
+    curl -sS --ftp-create-dirs -T nightly.csv "${1}exports/nightly.csv"
+  check.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # check.sh FILE-URL EXPECTED: fetches the uploaded file over HTTP into arrived.csv and compares it, byte for
+    # byte, with EXPECTED. Exit 1 when they differ; a failed fetch (a 404 included, through -f) is curl's exit code.
+    curl -sS -f -o arrived.csv "$1" || exit
+    if cmp -s "$2" arrived.csv; then echo "matches $2"; exit 0; fi
+    echo "differs from $2: expected $(wc -c < "$2" | tr -d ' ') bytes, arrived $(wc -c < arrived.csv | tr -d ' ')"
+    exit 1
+
+# main takes uploads over FTP and serves the same store over HTTP; the files live in memory. closed takes no
+# upload; locked takes uploads but has no anonymous login.
+servers:
+  main:
+    command: surl --allow-anonymous --allow-uploads ftp://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+  closed:
+    command: surl --allow-anonymous ftp://127.0.0.1:{{port3}}/
+    ready: port
+  locked:
+    command: surl --allow-uploads ftp://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app uploads tonight's export over FTP; the check fetches exports/nightly.csv over HTTP, finds it the same as expected.csv byte for byte, prints so and exits 0.
+    run: sh app.sh ftp://127.0.0.1:{{port}}/ && sh check.sh http://127.0.0.1:{{port2}}/exports/nightly.csv expected.csv
+    expect:
+      exit: 0
+      stdout: "matches expected.csv\n"
+
+  - id: same-store-over-http
+    claim: The file the app stored over FTP is served over HTTP at the same path, from the same store, with no copy made.
+    run: curl -s http://127.0.0.1:{{port2}}/exports/nightly.csv
+    expect:
+      exit: 0
+      stdout: "id,region,total\n1,north,42\n2,south,17\n"
+
+  - id: broken-app-exits-0
+    claim: An app that uploads its export without the last row finishes with exit 0, so nothing in the app itself says the file is wrong.
+    run: sh app.sh ftp://127.0.0.1:{{port}}/ broken
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: mismatch-fails
+    claim: The check finds the file differs from expected.csv, says it holds 27 bytes where 38 were expected, and exits 1, which is the failing test.
+    run: sh check.sh http://127.0.0.1:{{port2}}/exports/nightly.csv expected.csv
+    expect:
+      exit: 1
+      stdout: "differs from expected.csv: expected 38 bytes, arrived 27\n"
+
+  - id: missing-file-is-22
+    claim: When the file never arrived, the HTTP fetch is answered 404 and, with -f, curl exits 22, so the check exits 22 instead of comparing a 404 page.
+    run: sh check.sh http://127.0.0.1:{{port2}}/exports/nightly-2.csv expected.csv
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "curl: (22)"
+
+  - id: uploads-off-refused
+    claim: Without --allow-uploads the server refuses to make the exports folder, the first write the app asks for, and the app exits 9.
+    run: sh app.sh ftp://127.0.0.1:{{port3}}/
+    expect:
+      exit: 9
+      stderr-contains: "curl: (9)"
+
+  - id: login-needed
+    claim: Without --allow-anonymous and with no account given, the app's anonymous login is refused and it exits 67.
+    run: sh app.sh ftp://127.0.0.1:{{port4}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"

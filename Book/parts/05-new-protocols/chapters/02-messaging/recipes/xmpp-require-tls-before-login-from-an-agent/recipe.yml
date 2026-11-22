@@ -1,0 +1,154 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: xmpp-require-tls-before-login-from-an-agent
+title: Requiring XMPP STARTTLS from an Agent
+protocols: [xmpp, xmpps]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, get_exchanges, wait_for_event]
+curl-options: [--cacert, -u, -s, -S, -m, -T]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-protocols, rfc6120, rfc4616, rfc8446, mcp-spec]
+triplet: xmpp-require-tls-before-login
+
+# The two files are what a chat client sends: its stream header, and the header followed by a SASL PLAIN login
+# of alice with the password s3cret (the base64 of NUL alice NUL s3cret). The curl tool sends them as they are.
+fixtures:
+  open.xml: |-
+    <?xml version='1.0'?><stream:stream to='127.0.0.1' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>
+  login.xml: |-
+    <?xml version='1.0'?><stream:stream to='127.0.0.1' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'><auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>AGFsaWNlAHMzY3JldA==</auth>
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the certificate trusted, the curl tool upgrades the xmpp:// connection with STARTTLS, logs in as alice and reads the disco info answer, exit code 0.
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: starttls-is-all-that-is-offered
+    claim: A raw client that sends only its stream header, through the curl tool over telnet://, is offered STARTTLS, marked required, and no login mechanism.
+    program: program.cs
+    args: [offered]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<stream:features><starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'><required/></starttls></stream:features>\n"
+
+  - id: login-before-tls-refused
+    claim: A SASL PLAIN login with the right password, sent before STARTTLS, is answered with the failure encryption-required.
+    program: program.cs
+    args: [early]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><encryption-required/></failure>\n"
+
+  - id: implicit-tls
+    claim: Over xmpps://, with the certificate trusted, the login is accepted at once and the answer is the same.
+    program: program.cs
+    args: [xmpps]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, ends the upgrade before it sends a password, and the tool answers exit code 60.
+    program: program.cs
+    args: [untrusted]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 60\n"
+
+  - id: wrong-password
+    claim: A wrong password, once TLS is up, is refused with the SASL error not-authorized, exit code 67, and it is not a tool error.
+    program: program.cs
+    args: [wrong]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) XMPP authentication failed: not-authorized\n"
+
+  - id: no-login
+    claim: With no -u, curl has nothing to log in with, and exits 67 because the server offers no anonymous login.
+    program: program.cs
+    args: [no-login]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) XMPP server does not offer SASL ANONYMOUS\n"
+
+  - id: no-certificate-no-server
+    claim: Without --cert, --self-signed or --allow-plaintext-auth, start_server is a tool error with exit_code 58, so a login never has to be refused in clear.
+    program: program.cs
+    args: [no-cert]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "tool error: yes, exit_code 58 (CertificateProblem)\nsurl: (58) xmpp://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"
+
+  - id: plaintext-offers-mechanisms
+    claim: With --allow-plaintext-auth and no certificate, the server offers its login mechanisms at once, PLAIN among them, and no STARTTLS.
+    program: program.cs
+    args: [plain-offered]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<stream:features><mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>SCRAM-SHA-256</mechanism><mechanism>SCRAM-SHA-1</mechanism><mechanism>PLAIN</mechanism></mechanisms></stream:features>\n"
+
+  - id: plaintext-login-accepted
+    claim: With --allow-plaintext-auth, the PLAIN login that was refused before TLS is accepted in clear with a success.
+    program: program.cs
+    args: [plain-login]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>\n"
+
+  - id: plaintext-curl-login
+    claim: The curl tool logs in over xmpp:// with no TLS at all and reads the disco answer.
+    program: program.cs
+    args: [plain-curl]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: plaintext-wrong-password
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused with not-authorized, exit code 67.
+    program: program.cs
+    args: [plain-wrong]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) XMPP authentication failed: not-authorized\n"
+
+  - id: recorded-starttls-login
+    claim: "The server record of the first exchange, from get_exchanges, runs in order, STARTTLS offered and required, asked for, proceed, the mechanisms, the login, its acceptance."
+    program: program.cs
+    args: [recorded]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "server offers STARTTLS, required\nclient asks for STARTTLS\nserver proceeds\nserver offers mechanisms\nclient sends its login\nserver accepts it\n"
+
+  - id: recorded-early-login
+    claim: The server's record of a login sent before STARTTLS shows the login arriving together with the stream header, STARTTLS offered, and the login refused with encryption-required, and no proceed.
+    program: program.cs
+    args: [recorded-early]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "client sends its login\nserver offers STARTTLS, required\nserver refuses it: encryption-required\n"

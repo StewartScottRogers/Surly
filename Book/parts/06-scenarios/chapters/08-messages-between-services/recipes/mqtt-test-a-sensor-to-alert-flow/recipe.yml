@@ -1,0 +1,115 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: mqtt-test-a-sensor-to-alert-flow
+title: Testing a Sensor-to-Alert Flow
+protocols: [mqtt, smtp]
+tier: scenarios
+surl-options: [--allow-anonymous, --topic]
+curl-options: [-s, -S, -d, -m, -T, --mail-from, --mail-rcpt, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, mqtt311, rfc5321, rfc1939, rfc5322]
+triplet: mqtt-test-a-sensor-to-alert-flow
+
+# alert.sh is the service under test, here a POSIX shell script: it reads a sensor's latest reading over
+# MQTT, trying for at most five seconds, and past the limit it mails an alert over SMTP. The test is curl:
+# it publishes a reading as the sensor would, runs the service, and reads the mailbox over POP3.
+fixtures:
+  alert.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The service: mails ops@example.com when a sensor's temperature is past the limit.
+    # Usage: sh alert.sh <mqtt port> <smtp port> <sensor> <limit>
+    topic=sensors/$3/temp
+    reading=""
+    for try in 1 2 3 4 5; do
+      # A subscriber is sent the topic's length in two bytes, the topic, then the payload.
+      reading=$(curl -s -m 5 "mqtt://127.0.0.1:$1/$topic" | tail -c +$(( ${#topic} + 3 )))
+      [ -n "$reading" ] && break
+      sleep 1
+    done
+    if [ -z "$reading" ]; then
+      echo "no reading from $3"
+      exit 1
+    fi
+    if awk -v r="$reading" -v l="$4" 'BEGIN { exit !(r + 0 > l + 0) }'; then
+      printf 'From: sensors@example.com\r\nTo: ops@example.com\r\nSubject: %s at %s C\r\n\r\n%s reads %s C, past the limit of %s C.\r\n' \
+        "$3" "$reading" "$3" "$reading" "$4" > alert.eml
+      curl -sS --mail-from sensors@example.com --mail-rcpt ops@example.com -T alert.eml "smtp://127.0.0.1:$2/" || exit 1
+      echo "alert sent for $3 at $reading"
+    else
+      echo "no alert for $3 at $reading"
+    fi
+
+# main is the recipe: one surl is the broker the sensor publishes to, keeping each sensor's latest reading,
+# and the mail server the service sends to, with POP3 for the test to read. quiet is the same, for the
+# readings that must not raise an alert.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "sensors/#;retain" mqtt://127.0.0.1:{{port}}/ smtp://127.0.0.1:{{port2}}/ pop3://127.0.0.1:{{port3}}/
+    ready: port
+  quiet:
+    command: surl --allow-anonymous --topic "sensors/#;retain" mqtt://127.0.0.1:{{port4}}/ smtp://127.0.0.1:{{port5}}/ pop3://127.0.0.1:{{port6}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test publishes 81.5 as the boiler's reading and runs the service with a limit of 75; the service reads 81.5 and sends an alert, exit 0.
+    run: curl -s -d 81.5 mqtt://127.0.0.1:{{port}}/sensors/boiler/temp && sh alert.sh {{port}} {{port2}} boiler 75
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "alert sent for boiler at 81.5\n"
+
+  - id: alert-mail
+    claim: The test finds the alert in the mailbox over POP3, from sensors@example.com to ops@example.com with the subject boiler at 81.5 C and the Return-Path and Received lines surl adds, waiting for it for at most ten tries a second apart.
+    run: curl -s --retry 10 --retry-all-errors --retry-delay 1 pop3://127.0.0.1:{{port3}}/1
+    expect:
+      exit: 0
+      stdout-matches: '\AReturn-Path: <sensors@example\.com>\r?\nReceived: [^\n]*\nFrom: sensors@example.com\r?\nTo: ops@example.com\r?\nSubject: boiler at 81\.5 C\r?\n\r?\nboiler reads 81\.5 C, past the limit of 75 C\.\r?\n\Z'
+
+  - id: one-mail
+    claim: The mailbox holds that one message and no other.
+    run: curl -s pop3://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A1 \d+\r?\n\Z'
+
+  - id: reading-kept
+    claim: The broker kept the reading the service read, under --topic "sensors/#;retain"; a subscriber is sent the topic's length in two bytes, the topic and 81.5.
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/boiler/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x13sensors/boiler/temp81\.5\Z'
+
+  - id: under-the-limit
+    claim: On the second server a reading of 64.0, under the limit, makes the service send nothing.
+    run: curl -s -d 64.0 mqtt://127.0.0.1:{{port4}}/sensors/boiler/temp && sh alert.sh {{port4}} {{port5}} boiler 75
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "no alert for boiler at 64.0\n"
+
+  - id: at-the-limit
+    claim: A reading of exactly 75 is not past the limit, and the service sends nothing either.
+    run: curl -s -d 75 mqtt://127.0.0.1:{{port4}}/sensors/kiln/temp && sh alert.sh {{port4}} {{port5}} kiln 75
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "no alert for kiln at 75\n"
+
+  - id: mailbox-empty
+    claim: The test checks the second server's mailbox; it is empty, and POP3 lists nothing but a line end.
+    run: curl -s pop3://127.0.0.1:{{port6}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A\r?\n\Z'
+
+  - id: no-reading
+    claim: A sensor that never published leaves the service nothing to read; after five tries a second apart it says so and exits 1.
+    run: sh alert.sh {{port4}} {{port5}} pump 75
+    timeout: 60
+    expect:
+      exit: 1
+      stdout: "no reading from pump\n"

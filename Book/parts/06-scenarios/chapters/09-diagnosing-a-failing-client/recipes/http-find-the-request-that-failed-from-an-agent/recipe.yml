@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs find-failed-request.cs, a C# program on the official MCP SDK that starts both
+# hosts from PATH; its argument picks the scenario.
+schema: 2
+key: http-find-the-request-that-failed-from-an-agent
+title: Finding the Request That Failed
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges, read_file]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: client-run
+    claim: The client run makes fifty requests and one of them is not answered 200, yet the curl tool exits 0.
+    program: find-failed-request.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^run: 50 requests, 49 answered 200, exit 0\n'
+
+  - id: solution
+    role: solution
+    claim: Narrowed, the recorded exchange gives the one failing answer, 404, with the request that caused it and its place in the run and its exchange.
+    program: find-failed-request.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nrequest 37 of the run, exchange \d+\n> GET /reports/report-37\.csv HTTP/1\.1\n> Host: 127\.0\.0\.1:\d+\n> User-Agent: curl/8\.22\.0\n> Accept: \*/\*\n< HTTP/1\.1 404 Not Found\n< Server: surl\n< Content-Type: text/plain; charset=utf-8\n< Content-Length: 14\nread_file: [^\n]*\n\n50 requests, 1 answered 400 or more\n$'
+
+  - id: store-says-why
+    claim: Asked for the path that request named, the server's store has no such file, which is why it was answered 404.
+    program: find-failed-request.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nread_file: No file at /reports/report-37\.csv\.\n'
+
+  - id: one-exchange
+    claim: One curl tool call made all fifty requests over one connection, so they are one recorded exchange, and the exchange alone does not point at the request.
+    program: find-failed-request.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nexchanges: 1\n'
+
+  - id: nothing-failed
+    claim: Over a run in which every request succeeds, the agent finds no answer of 400 or more and the program exits 1.
+    program: find-failed-request.cs
+    args: [clean]
+    expect:
+      exit: 1
+      stdout-matches: '\n36 requests, 0 answered 400 or more\n$'

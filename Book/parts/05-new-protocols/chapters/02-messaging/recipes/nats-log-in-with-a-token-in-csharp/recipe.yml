@@ -1,0 +1,128 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: nats-log-in-with-a-token-in-csharp
+title: NATS Token Logins in C#
+protocols: [nats, natss]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, LogLevel, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, SslOptions, CurlAuthenticationOptions, CurlRequest, CurlContent, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, nats-protocol, rfc8446]
+triplet: nats-log-in-with-a-token
+
+fixtures: {}
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A server that takes anonymous clients accepts a token no account holds, unchecked, and the publish through Curl.Api succeeds.
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "published\n"
+
+  - id: refused-in-clear
+    claim: Over nats://, which has no encryption, a token is refused unchecked, even the one the server holds, as a CurlException of code 67 with the error Authorization Violation.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\n"
+
+  - id: refused-before-it-is-judged
+    claim: The server's log names the reason for that refusal as RefusedPlaintext, the token never having been compared.
+    program: program.cs
+    args: [clear-log]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\nRefusedPlaintext\n"
+
+  - id: loosening-judges-the-token
+    claim: With AllowPlaintextAuthentication, the token is judged, and a wrong one is refused with the same error, code 67.
+    program: program.cs
+    args: [loose]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\n"
+
+  - id: judged-reason
+    claim: The log of that server names the reason as RefusedCredentials, not RefusedPlaintext.
+    program: program.cs
+    args: [loose-log]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\nRefusedCredentials\n"
+
+  - id: natss-wrong-token
+    claim: Over natss://, with the certificate trusted, the token is judged with no loosening option, and a wrong one is answered Authorization Violation, code 67.
+    program: program.cs
+    args: [tls-wrong]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\n"
+
+  - id: natss-no-token
+    claim: A client that sends no token at all is refused the same way.
+    program: program.cs
+    args: [tls-none]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\n"
+
+  - id: untrusted-certificate
+    claim: A client that does not trust the certificate sends no token, and SendAsync throws a CurlException of code 60.
+    program: program.cs
+    args: [untrusted]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 60\n"
+
+  - id: natss-needs-natss
+    claim: A client that connects to the natss server with nats:// is told by its INFO that TLS is required, as a CurlException of code 35, and sends no token.
+    program: program.cs
+    args: [wrong-scheme]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 35: NATS server requires TLS; use natss://\n"
+
+  - id: token-is-masked
+    claim: The natss server's log shows the CONNECT with the token masked, auth_token followed by four asterisks.
+    program: program.cs
+    args: [masked]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\n\"auth_token\":\"****\"\n"
+
+  - id: token-is-not-in-the-log
+    claim: No line of the log holds the token the server holds, so the log can be kept and shared.
+    program: program.cs
+    args: [not-in-log]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\nlines with the token: 0\n"
+
+  - id: right-token-refused
+    claim: 'Known defect of the build checked: over natss://, with a trusted certificate and no loosening, the token the server holds is refused as well, as a CurlException of code 67, so no case here shows a token accepted.'
+    program: program.cs
+    args: [right]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: NATS server refused the login: Authorization Violation\n"

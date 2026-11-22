@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-subscribe-over-websocket-from-an-agent]]
+=== MQTT over WebSocket from an Agent
+
+==== Problem
+
+Your browser dashboard speaks MQ Telemetry Transport (MQTT) over WebSocket, while your devices publish over TCP. You want your agent to start a broker, publish a retained message over TCP and read it over WebSocket, from the tools alone.
+
+==== Solution
+
+The agent starts `surl-mcp`{apos}s `start_server` with a TCP listen URL and a WebSocket one, publishes through the first with `curl-mcp`{apos}s `curl` tool, and reads through the second:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes `listen_urls`, here `mqtt5://127.0.0.1:0` and `mqtt5+ws://127.0.0.1:0`, each on a free port, and `arguments`, the options of `surl`. Its answer carries `server_id`, which every later call names, and `bound_urls`, in the order asked. The two are one broker, with one message bus, so what is published through one is read through the other. `mqtt5+ws` is MQTT 5.0 over WebSocket (<<rfc6455>>, <<mqtt5>>), the form a browser can use; the path of a URL is the topic, and `curl` supplies the WebSocket path `/mqtt` itself. `--topic "dash/#;retain"` keeps the last message published under `dash/`, whatever the RETAIN flag of the publish, which `curl` always sends clear, and `--mqtt5-disconnect-after-retained` ends a subscription once the retained messages are sent, so the tool returns instead of waiting (<<surl-readme>>).
+
+The `curl` tool runs `curl` with the arguments the agent gives it, `-s` and `-S` to keep the progress meter out and the error message in, `-u` for a login and `-d` to publish, and answers `exitCode`, `standardOutput` and `standardError`, each a `content` (<<curl-readme>>, <<curl-protocols>>). Both directions work: a publish over `mqtt5+ws://` is read over `mqtt5://`, and the other way round. The message stays on the topic, so a second client that reads later is given it too; a filter ending in the multi-level wildcard, written `%23` in the URL, reads every topic below it, one payload after the other, in no promised order, which the program sorts; a topic outside the filter keeps nothing, and the tool still answers exit code `0`; and an empty publish clears a topic.
+
+A client that is not an MQTT client is turned away, and the refusal is an `exitCode` and a message, not a tool error. `curl ws://` to the path `/mqtt` asks for an upgrade with no `mqtt` subprotocol, and the broker refuses it with `400`; any other path is `404`; the tool answers exit code `22` for both.
+
+The login rules are those of `mqtt5://`. `--user` adds an account and `--allow-anonymous` is left off. A client that sends no login is refused in the connect acknowledgement with reason code `0x87`, not authorized, exit code `67`, login denied. The right password over the WebSocket is refused with `0x87` too, unchecked, because `mqtt5+ws` is not encrypted and the password crossed the network in clear. `--allow-plaintext-auth` is a loosening for a test: the password is then checked, the right one accepted, for the publish and the subscribe alike, and a wrong one refused with `0x86`, bad user name or password.
+
+A publish is not acknowledged, so the `curl` tool can return before the broker has applied it, and a read straight after can be stale. The agent does not sleep. After each publish it calls `wait_for_event` with `kinds` of `exchange_ended`, the `after_sequence` of the last one it saw and a `timeout_ms` of ten seconds, which the broker answers once what the client sent has been dealt with, and keeps the `sequence` of the event for the next call.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-subscribe-over-websocket>> for the same subscription on the console.
+* <<mqtt5-subscribe-over-websocket-in-csharp>> for the same subscription from a C# test.
+* <<mqtt5-refuse-a-publish-by-reason-code-from-an-agent>> for the reason codes of MQTT 5.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<mqtt5>>, <<rfc6455>>, <<mcp-spec>>.

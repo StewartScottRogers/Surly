@@ -28,7 +28,7 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-20
 - A bash heredoc through the tool collapses `\` and turns `\r`/`\n` inside C# or Python text into raw control characters; write C# files with the Write tool.
 
 ## Recipes
-ws-receive-a-file-as-a-message, ws-list-a-folder-over-websocket (+ -in-csharp, -from-an-agent)
+ws-receive-a-file-as-a-message, ws-list-a-folder-over-websocket (+ -in-csharp, -from-an-agent), ws-test-a-chat-round-trip
 
 ## Files from an agent (ws-receive-a-file-from-an-agent, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20)
 - curl-mcp `curl(["-s", "ws://.../hello.txt"])`: `standardOutput.content` is the message, `isBase64` true for non-UTF-8 (`files_base64` `AAEC/f7/` comes back as `AAEC/f7/`); `read_file` answers `text` or `base64` the same way. Missing: exitCode 22, tool error, `standardOutput` empty. `transfer` of a binary file: `statusCode` 101, `body.isBase64` true, `info.sizeDownload` counts frame bytes (10 for 6).
@@ -45,3 +45,8 @@ ws-receive-a-file-as-a-message, ws-list-a-folder-over-websocket (+ -in-csharp, -
 - A 100,000-byte file: `ReceiveAsync` gives one `Binary` message of 100000 bytes (same SHA-256); the next is `Close` with `CloseStatus` null (surl's close frame has no payload). `ReadMessagesAsync` (`await foreach`) gives the message then the Close (`Data` 0 bytes) and ends by itself; it does not send the client's close.
 - `socket.CloseAsync(1000, "done", ct)` after the server's close: no exception; the server's last `Received` chunk (`RecordExchanges`) then starts `0x88` with the mask bit set. Disposing without `CloseAsync`: no close frame reaches the server. Wait for `SurlEventKind.ExchangeEnded` before reading the record.
 - Missing path: `ConnectWebSocketAsync` throws `CurlException` `HttpReturnedError` (22).
+
+## Echo server and a chat round trip (ws-test-a-chat-round-trip, Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `--ws-echo` (no SurlServerOptions property: `AdditionalArguments.Add("--ws-echo")`): every whole client message comes back as sent; three `SendTextAsync` then three `ReceiveAsync` give the three `Text` messages in order. `CloseAsync(1000, "done")` is answered with a `Close`, `CloseStatus` 1000. Without `--ws-echo` a path that is no file is refused: `ConnectWebSocketAsync` throws `CurlException` 22.
+- `--max-message 1k` and a 2000-byte message: the server answers `Close` 1009, no echo.
+- `RecordExchanges`: after `ExchangeEnded`, `server.Exchanges.Single().Sent` is the `HTTP/1.1 101 Switching Protocols` head then unmasked frames (`0x81 len text`... `0x88 0x02 0x03 0xE8`).

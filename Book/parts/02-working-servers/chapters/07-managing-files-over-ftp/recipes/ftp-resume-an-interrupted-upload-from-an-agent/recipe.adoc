@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-resume-an-interrupted-upload-from-an-agent]]
+=== Resuming an FTP Upload from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to finish a half-uploaded file on a File Transfer Protocol (FTP) server, reading the size of what is there first, and then to compare the result with the local file.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP listener holding the first part of the file, asks for its size with `curl -I`, calls `curl` with `-C -` and `-T`, and calls `read_file` to compare:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl-mcp` and `curl-mcp` are the two programs{apos} MCP servers; the program is the agent{apos}s MCP client, and `StdioClientTransport` starts each by name from `PATH`. `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine each to the folder the program runs in, as environment variables rather than arguments because on Windows the SDK starts a host through `cmd.exe`, which mangles a path with a space in it. The argument after `--` picks the scenario; with none, the program runs the solution. Before it starts either host the program writes the local file, `update.iso`, 200,000 letters from a fixed seed, into that folder, where `curl-mcp` can read it.
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `ftp://127.0.0.1:0`, port 0 for a free port, and `files` seeds the in-memory store with the first 65,536 letters of the file, standing for an upload that stopped there. `arguments` is `surl`{apos}s other options in its own words: `--allow-anonymous` lets `curl`{apos}s anonymous login in and checks nothing, so it is for a test on your own machine only, and `--allow-uploads` permits `APPE` as it permits `STOR`; it loosens the server, though `surl` prints no warning for it. The answer is structured content with `server_id` and `bound_urls`, the real address.
+
+`curl` runs `curl` with `args` as its command line, and the answer is JSON text with `exitCode` and `standardOutput`. `-I` asks the server for the file{apos}s size and prints it as a `Content-Length` header, `65536`, which is how an agent learns how much of the upload is left before it sends anything. `-C -` makes `curl` do the same on its own: it asks with `SIZE` (<<rfc3659>>), skips that many bytes of the local file and sends the rest with `APPE`, the command that adds to a file. `-w "%{size_upload}"` prints the bytes sent, 134,464, the 200,000 less the 65,536 already there. `read_file` returns what the server now holds as text, and the program compares it with the local letters.
+
+`get_exchanges` answers what each client sent the server, byte for byte, as `chunks` with a `direction` and its `data`; the program keeps the `received` ones that begin `SIZE`, `APPE`, `STOR` or `REST`. The resume sent `SIZE` and then `APPE`, with no `STOR` and no `REST`: an upload resumes by appending, where a download resumes with `REST` (<<ftp-resume-an-interrupted-download-from-an-agent>>). `-C 100000` names the offset itself, so the server received `APPE` and no `SIZE`. Without `-C`, `curl` sends all 200,000 bytes from byte 0 with `STOR` and replaces the partial file.
+
+With nothing on the server there is nothing to resume, `SIZE` is answered `550`, and `curl` sends the whole file as an ordinary upload, so one command serves the first upload and every retry. On a server that already holds the whole file it sends `0` bytes, which makes it safe to repeat; the same is true when the server{apos}s file is longer than the local one, which keeps its 300,000 bytes. `curl` compares sizes and never bytes, so a partial file of other bytes the right length is resumed all the same, exit `0`, and what the server holds is not the local file. An agent that needs the result to be right should do what the program does and read it back.
+
+An agent should read each refusal in `exitCode`. A server started without `--allow-uploads` answers `APPE` with `550 Not permitted`, `curl` exits `25`, upload failed, and the partial file is as it was (<<curl-readme>>). That is the server being surly on purpose.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-resume-an-interrupted-upload>> for the same resume on the console.
+* <<ftp-resume-an-interrupted-upload-in-csharp>> for the same resume from C#.
+* <<ftp-resume-an-interrupted-download-from-an-agent>> for resuming a download.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc3659>>.

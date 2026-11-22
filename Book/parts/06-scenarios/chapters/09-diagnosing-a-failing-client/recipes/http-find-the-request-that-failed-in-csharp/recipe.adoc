@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-request-that-failed-in-csharp]]
+=== Finding the Request That Failed in C#
+
+==== Problem
+
+In a C# test, a client run failed somewhere in fifty Hypertext Transfer Protocol (HTTP) requests. You want the test to narrow what the server recorded to the failing answer and the request that caused it, and print only that.
+
+==== Solution
+
+Start the in-process server with `RecordExchanges` on and a verbose `Log`, let the client run, wait until its exchange has ended, then walk the recorded chunks in order and print each answer of `400` or more with the request before it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` holds the listen URL on port 0, the reports in `Files`, all but number 37, `RecordExchanges`, which makes the server keep every exchange it serves, and `Log` with `LogLevel.Verbose`, which is `surl -v` written to a `StringWriter`. The client run is one `CurlClient` sending fifty `CurlRequest` values in turn. `SendAsync` returns a `CurlResponse` for the `404 Not Found` like any other (<<rfc9110>>), so nothing throws, and the run knows only that one of fifty was not answered `200`.
+
+One client means one connection, so the fifty requests are one exchange, and `server.Exchanges` holds a single `SurlExchangeRecord`: the exchange says where to look, not which request. The record's `Chunks` are what crossed the connection, in order, each `SurlExchangeChunk` with a `Direction`, `SurlExchangeDirection.Received` or `Sent`, and its `Bytes`. The test counts a received chunk that begins with a request line as the next request and keeps its lines; a sent chunk that begins with a status of `400` or more is a failing answer, and the test prints the request's place in the run, the exchange's `ExchangeId`, the request's lines and the answer's head without its `Date`. Here that is request 37, `GET /reports/report-37.csv`.
+
+The bytes say what happened; the log says why. The test finds the log line for that exchange and request, `#N * GET /reports/report-37.csv: 404, nothing exists at` the path the server looked in, and prints it between the request and the answer. An exchange is recorded as it happens and ends a moment after its client is disposed, so before it reads anything the test waits, for at most 10 seconds, until `FindEvents` with a `SurlEventQuery` for `SurlEventKind.ExchangeEnded` finds as many events as one for `SurlEventKind.ExchangeStarted`.
+
+The test exits `0` when it found a failing answer and `1` when it found none. With `clean` the run asks only for reports 1 to 36, all there, and the test prints `36 requests, 0 answered 400 or more` and exits `1`. Those exit codes are the program's choice, not the library's (<<surl-readme>>, <<curl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-request-that-failed>> for the same narrowing on the console, from `surl`{apos}s log.
+* <<http-find-the-request-that-failed-from-an-agent>> for an agent narrowing the recorded exchanges.
+* <<http-print-the-failing-exchange>> for printing one failing exchange whole.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

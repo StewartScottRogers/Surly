@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[nats-log-in-with-a-token-from-an-agent]]
+=== NATS Token Logins from an Agent
+
+==== Problem
+
+Your service connects to NATS with an auth token rather than a user and password. You want your agent to show the token refused over plain NATS until allowed, judged over NATSS, and a wrong token answered Authorization Violation, from the tools alone.
+
+==== Solution
+
+The agent starts `surl-mcp`{apos}s `start_server` on a `nats` listen URL that takes anonymous clients, and publishes through `curl-mcp`{apos}s `curl` tool, giving the token as the user name:
+
+include::.generated/solution.adoc[]
+
+The Solution uses a server that takes anonymous clients. The others, started by the same program, hold a token, accept it in clear, or serve `natss`, and are there for the checked claims below.
+
+==== Discussion
+
+The NATS client protocol lets a client log in with a user name and a password, or with a single token, sent in its `CONNECT` line as the field `auth_token` (<<nats-protocol>>). `start_server` takes `listen_urls`, here `nats://127.0.0.1:0`, a core NATS server on a free port, and `arguments`, the options of `surl`. Its answer carries `server_id`, which every later call names, and `bound_urls`. On the server side a token is an account with no name, `--user :tok123`; `--allow-anonymous` is a loosening for a test that makes the server accept every `CONNECT`, a token among them, without looking at it, which is why the Solution succeeds with a token no account holds (<<surl-readme>>).
+
+The `curl` tool runs `curl` with the arguments the agent gives it: `-s` and `-S` keep the progress meter out and the error message in, `-d` publishes, and `-u tok123:`, a user name and an empty password, sends the user name as the token (<<curl-readme>>, <<curl-protocols>>). The tool answers `exitCode`, `standardOutput` and `standardError`, each a `content`. A refusal is an `exitCode` and a message, not a tool error: `67`, login denied, and `Authorization Violation`.
+
+The first thing that stops a token is where it travels. `nats://` has no encryption, so the server refuses a token it was sent in clear without looking at it, the one it holds included. The server{apos}s own record agrees. `get_events` takes the `server_id` and `kinds` and answers the events the server kept, and a login it judged is a `login_judged` event; the refusal in clear is not one, because the token was never compared. `--allow-plaintext-auth` loosens that for a test, and `surl` warns on start while it is on. With it the token is judged, and the wrong one is a `login_judged` event. The exchange ends a moment after the client has gone, so the agent first calls `wait_for_event` with `kinds` of `exchange_ended` and a `timeout_ms` of ten seconds, a bound and not a sleep.
+
+The way in without that option is `natss://`, the same server over Transport Layer Security (TLS), which needs a certificate: `--cert` and `--key` name the files `openssl` made in the recipe{apos}s `setup`, under the folder the host is confined to (<<rfc8446>>). `--cacert` trusts the certificate, which is its own authority, and `--ssl-no-revoke` is on every `natss` call because the Windows build of `curl` fails the handshake against this certificate without it. There the token is judged with no loosening option: a wrong token, or none, is `Authorization Violation`, `67`. Without `--cacert`, `curl` does not trust the certificate, sends nothing and exits `60`; the wording is the TLS library{apos}s, so the agent reads the code alone. A `natss` server requires TLS before `CONNECT`, so `curl` with `nats://` is told so by the server{apos}s INFO and stops, exit `35`, with no token sent.
+
+`get_exchanges` takes the `server_id` and answers each exchange as a list of `chunks`, each with a `direction` and its `data`, decrypted. The `CONNECT` it shows carries the token in the field `auth_token`, with no `user` and no `pass`. It also carries the token as it was sent, in clear: unlike the server{apos}s log, which masks `auth_token` and `pass` and which `surl-mcp` writes to its own standard error and does not let an agent redirect, the record an agent reads is the test{apos}s own view of the exchange, so it is kept out of what is shared.
+
+One thing the recipe cannot show is a token accepted. In the build it was checked against, the server also refuses the token it holds, over `natss` and with the loosening alike, with the same error; the last claim records it, so the recipe will fail, and be finished, when that is fixed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<nats-log-in-with-a-token>> for the same logins on the console.
+* <<nats-log-in-with-a-token-in-csharp>> for the same logins from a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<nats-protocol>>, <<rfc8446>>, <<mcp-spec>>.

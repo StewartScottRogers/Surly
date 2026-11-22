@@ -1,0 +1,138 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-tell-which-listener-was-used
+title: Telling Which Listener Was Used
+protocols: [http, ftp]
+tier: working-servers
+surl-options: [--allow-anonymous, --directory, --log-file, --trace-ascii, --control, --control-token-file]
+curl-options: [-H, -s, -o, -w, --retry, --retry-connrefused, --retry-delay]
+exit-codes: [0, 67]
+references: [surl-readme, curl-manual, rfc9110, rfc959]
+
+fixtures:
+  site/report.csv: "id,total\n1,40\n"
+  token.txt: "listener-recipe-control-token-0123456789\n"
+  control.hdr: "Authorization: Bearer listener-recipe-control-token-0123456789\n"
+  which-listener.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # For each exchange: the listen URL that took it, from surl's control endpoint, beside what
+    # the trace says (the scheme, and for HTTP the Host header the client sent).
+    # Run: sh which-listener.sh <control URL>   (control.hdr holds the token header)
+    control=$1
+    count() { curl -s -H @control.hdr "${control}v1/events?kind=$1" | grep -o '"exchange_id"' | grep -c .; }
+
+    # The record is whole once every exchange that started has ended: wait, at most 10 s.
+    tries=0
+    until [ "$(count exchange_ended)" -eq "$(count exchange_started)" ]; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 50 ]; then echo "the exchanges did not end within 10 s"; exit 1; fi
+      sleep 0.2
+    done
+
+    curl -s -H @control.hdr "${control}v1/events?kind=exchange_started" |
+      grep -o '"exchange_id":[0-9]*,"listen_url":"[^"]*"' | tr -d '"' | sed 's/exchange_id://; s/,listen_url:/ /' |
+      while read -r id url; do
+        scheme=$(grep "^#$id \* Exchange $id opened: " trace.txt | sed 's/.* opened: \([a-z]*\) from .*/\1/')
+        host=$(awk -v mark="#$id " '
+          index($0, "#") == 1 { inside = (index($0, mark "<= Recv") == 1); next }
+          inside && / Host: / { sub(/.* Host: /, ""); sub(/\r$/, ""); print; exit }' trace.txt)
+        echo "exchange $id: $url  trace: $scheme${host:+, Host $host}"
+      done
+
+# One surl, two HTTP listeners and an FTP one, all serving site/. --trace-ascii records every byte;
+# --control serves the record on loopback to whoever holds the token. ready: none and the seed
+# line keep verify's readiness check from opening exchanges of its own: the control endpoint
+# listens last, so once it answers, the three listeners are bound.
+# nologin is the same FTP listener without --allow-anonymous.
+servers:
+  main:
+    command: surl --allow-anonymous --directory site --log-file surl.log --trace-ascii trace.txt --control http://127.0.0.1:{{port4}}/ --control-token-file token.txt http://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/ ftp://127.0.0.1:{{port3}}/
+    ready: none
+  nologin:
+    command: surl ftp://127.0.0.1:{{port5}}/
+    ready: port
+
+seed:
+  - curl -s --retry 30 --retry-connrefused --retry-delay 1 -o {{null}} -H @control.hdr http://127.0.0.1:{{port4}}/v1/events
+
+# The clients run first: the app (meant for the first listener, sent to the second), an FTP
+# download, and a client whose Host names the first listener while it connects to the second.
+cases:
+  - id: app-fetch
+    claim: The app fetches the report from the second HTTP listener; nothing in the answer says which listener it was.
+    run: curl -s http://127.0.0.1:{{port2}}/report.csv
+    expect:
+      exit: 0
+      stdout: "id,total\n1,40\n"
+
+  - id: ftp-fetch
+    claim: The same report comes over the FTP listener, which --allow-anonymous opens to curl's anonymous login.
+    run: curl -s ftp://127.0.0.1:{{port3}}/report.csv
+    expect:
+      exit: 0
+      stdout: "id,total\n1,40\n"
+
+  - id: host-is-a-claim
+    claim: A client may put any host and port in its Host header; one that names the first listener while it connects to the second is served 200 all the same.
+    run: 'curl -s -o {{null}} -w "%{http_code}\n" -H "Host: 127.0.0.1:{{port}}" http://127.0.0.1:{{port2}}/report.csv'
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: solution
+    role: solution
+    claim: The control endpoint names the listen URL of every exchange; exchanges 1 and 3 came through the second HTTP listener and 2 through the FTP one, while the trace gives only the scheme, and for the third a Host naming the first listener.
+    run: sh which-listener.sh http://127.0.0.1:{{port4}}/
+    expect:
+      exit: 0
+      stdout-matches: '^exchange 1: http://127\.0\.0\.1:(\d+)/  trace: http, Host 127\.0\.0\.1:\1\nexchange 2: ftp://127\.0\.0\.1:\d+/  trace: ftp\nexchange 3: http://127\.0\.0\.1:\1/  trace: http, Host 127\.0\.0\.1:(?!\1)\d+\n$'
+
+  - id: trace-names-the-scheme
+    claim: The trace's line for each exchange names its scheme and the client's address, not the listen URL, so the two HTTP exchanges read alike.
+    run: grep "Exchange [0-9]* opened:" trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '^#1 \* Exchange 1 opened: http from 127\.0\.0\.1:\d+\.\r?\n#2 \* Exchange 2 opened: ftp from 127\.0\.0\.1:\d+\.\r?\n#3 \* Exchange 3 opened: http from 127\.0\.0\.1:\d+\.\r?\n$'
+
+  - id: host-names-the-first
+    claim: The trace holds a request whose Host names the first listener, though no client connected to it.
+    run: 'grep -c "Host: 127.0.0.1:{{port}}" trace.txt'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: nothing-on-the-first
+    claim: Asked for the exchanges of the first listener alone, the control endpoint answers none.
+    run: curl -s -H @control.hdr "http://127.0.0.1:{{port4}}/v1/exchanges?listen_url=http://127.0.0.1:{{port}}/"
+    expect:
+      exit: 0
+      stdout: '{"exchanges":[],"dropped_exchange_count":0,"has_more":false}'
+
+  - id: filter-by-listener
+    claim: Asked for those of the second, it answers exchanges 1 and 3, whatever their Host said.
+    run: curl -s -H @control.hdr "http://127.0.0.1:{{port4}}/v1/exchanges?listen_url=http://127.0.0.1:{{port2}}/" | grep -o "exchange_id.:[0-9]*"
+    expect:
+      exit: 0
+      stdout: "exchange_id\":1\nexchange_id\":3\n"
+
+  - id: log-file-with-a-trace
+    claim: With --trace-ascii given, the exchange lines go to the trace, and the log file keeps none of them.
+    run: grep -c "opened:" surl.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: control-needs-the-token
+    claim: The control endpoint answers only a request that carries its token; without it, 401.
+    run: curl -s -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port4}}/v1/exchanges
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: ftp-needs-anonymous
+    claim: Without --allow-anonymous and with no account, the FTP listener refuses curl's anonymous login, exit 67.
+    run: curl -s ftp://127.0.0.1:{{port5}}/report.csv
+    expect:
+      exit: 67

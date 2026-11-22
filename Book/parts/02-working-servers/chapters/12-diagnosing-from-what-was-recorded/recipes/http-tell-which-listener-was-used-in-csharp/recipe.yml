@@ -1,0 +1,64 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-tell-which-listener-was-used-in-csharp
+title: Telling Which Listener Was Used in C#
+protocols: [http, ftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, SurlEventQuery, SurlEventKind, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc9110, rfc959]
+
+fixtures: {}
+
+cases:
+  - id: app-listener
+    claim: When the client uses the app listener, its recorded exchange's ListenUrl is that listener's bound URL and the assertion holds.
+    program: assert-listener.cs
+    args: [app]
+    expect:
+      exit: 0
+      stdout-matches: '^app listener: (http://127\.0\.0\.1:\d+/)\nexchange \d+: \1, scheme http, Host [^\n]*\n.*\nPASS: the fetch came through the app listener\n$'
+
+  - id: solution
+    role: solution
+    claim: When the client is configured with the other HTTP listener, it is still served, but its exchange's ListenUrl names the other listener, no exchange came through the app's, and the test fails saying so.
+    program: assert-listener.cs
+    args: [other]
+    expect:
+      exit: 1
+      stdout-matches: '^app listener: (http://127\.0\.0\.1:\d+/)\nexchange \d+: (?!\1)(http://127\.0\.0\.1:\d+/), scheme http, Host [^\n]*\n.*\nexchanges through the app listener: 0\nFAIL: the fetch came through \2, not the app listener\n$'
+
+  - id: log-names-the-scheme
+    claim: The log's line for the exchange names its scheme and the client's address, not the listener, so it reads the same whichever HTTP listener took it.
+    program: assert-listener.cs
+    args: [other]
+    expect:
+      exit: 1
+      stdout-matches: '\nlog: #\d+ \* Exchange \d+ opened: http from 127\.0\.0\.1:\d+\.\n'
+
+  - id: host-is-a-claim
+    claim: A Host header naming the app listener does not change which listener took the connection; the record keeps the Host as sent and still names the other listener.
+    program: assert-listener.cs
+    args: [host]
+    expect:
+      exit: 1
+      stdout-matches: '^app listener: http://(127\.0\.0\.1:\d+)/\nexchange \d+: http://(?!\1/)127\.0\.0\.1:\d+/, scheme http, Host \1\n.*\nFAIL: '
+
+  - id: ftp-listener
+    claim: An FTP download's exchange names the FTP listener and scheme ftp.
+    program: assert-listener.cs
+    args: [ftp]
+    expect:
+      exit: 1
+      stdout-matches: '\nexchange \d+: ftp://127\.0\.0\.1:\d+/, scheme ftp, Host \(none\)\nlog: #\d+ \* Exchange \d+ opened: ftp from '
+
+  - id: ftp-needs-anonymous
+    claim: Without AllowAnonymous and with no account, the FTP listener refuses the anonymous login, CurlException LoginDenied.
+    program: assert-listener.cs
+    args: [no-anonymous]
+    expect:
+      exit: 1
+      stdout-matches: '\nclient: CurlException LoginDenied\n$'

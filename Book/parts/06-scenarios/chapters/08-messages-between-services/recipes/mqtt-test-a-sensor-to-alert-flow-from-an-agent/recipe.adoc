@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-test-a-sensor-to-alert-flow-from-an-agent]]
+=== Testing a Sensor-to-Alert Flow from an Agent
+
+==== Problem
+
+As an agent, a sensor publishes readings over MQTT and a service mails an alert past a threshold; you want to publish a reading and find the alert mail.
+
+==== Solution
+
+Give the agent both MCP servers. `surl-mcp` starts one server that is the MQ Telemetry Transport (MQTT) broker and the mail server; the `curl` tool of `curl-mcp` publishes the reading as the sensor would and makes the service{apos}s calls; `wait_for_event` says when the alert has arrived. Here is the conversation, as a C# program on the official Model Context Protocol (MCP) SDK:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes three listen URLs on port `0`: `mqtt://` is the broker, `smtp://` takes mail over the Simple Mail Transfer Protocol (SMTP), and `pop3://` serves the mailbox over the Post Office Protocol version 3 (POP3). It answers `server_id` and `bound_urls` in that order. `arguments` holds `surl`{apos}s own options. `--allow-anonymous` lets every client in with no login and puts every recipient in one mailbox, and `surl` warns on start while it is on (<<surl-readme>>). `--topic "sensors/#;retain"` keeps the latest message on every topic under `sensors/` as the topic{apos}s retained message, because a broker otherwise passes a message only to the subscribers it has at that moment, and the service reads later. The program starts both hosts from `PATH` with `StdioClientTransport`, each confined to its folder by `SURL_MCP_ROOT` or `CURL_MCP_ROOT`; `mcp.json` is the same set-up for an agent client.
+
+The sensor is the `curl` tool with `-d 81.5` and `mqtt://host:port/sensors/boiler/temp`, which publishes the reading (<<mqtt311>>). The publish is not acknowledged, so the tool can answer before the broker has kept it. `wait_for_event` with `kinds` `exchange_ended` and `after_sequence`, the last sequence the agent saw, returns once the publish{apos}s exchange has ended, waiting at most `timeout_ms`, ten seconds: by then the broker has applied it. The agent waits the same way after every MQTT call.
+
+The service stands in for yours, as tool calls. It subscribes with the `curl` tool and no `-d`: the subscriber is sent the retained message, as the topic{apos}s length in two bytes, the topic and the payload, and ends by itself. It tries five times, a second apart. Past the limit it writes `alert.eml` into the folder and sends it with `-T alert.eml`, `--mail-from sensors@example.com` and `--mail-rcpt ops@example.com` to the `smtp://` URL: `-T` uploads the file as the message, `--mail-from` gives the sender and `--mail-rcpt` the recipient (<<rfc5321>>, <<rfc5322>>).
+
+The agent{apos}s check starts with the server{apos}s record. `wait_for_event` with `kinds` `store_changed` and `store` `mail` returns the delivery: `change` `delivered`, and a `name` of the owner, the mailbox and the message{apos}s number, `/INBOX/;UID=1`. The owner is empty, because `--allow-anonymous` keeps the one mailbox for no account. `list_messages` and `read_message` take that owner, and the schema of each refuses an empty one before the tool runs, an MCP invalid-params error, so the agent reads the mail over POP3 instead, with the `curl` tool (<<rfc1939>>): `pop3://host:port/1` is the alert, behind the `Return-Path` and `Received` lines `surl` adds, and `pop3://host:port/` lists the one message. `read_retained_message` answers the reading the service read, `81.5`.
+
+The failure paths run on a second server, so its record holds only what they do. A reading of `64.0` is under the limit and the service sends nothing; `75` is not past it either. `get_events` then finds no `store_changed` on the mail store, and the mailbox lists nothing. A sensor that never published leaves nothing to read, and after five tries the service says so, the sign of a broken sensor rather than a quiet one. `stop_server` ends each server. In the `curl` arguments, `-s` silences the progress meter, `-S` puts error messages back, and `-m 10` bounds each call.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-test-a-sensor-to-alert-flow>> for the same task on the console.
+* <<mqtt-test-a-sensor-to-alert-flow-in-csharp>> for the same task in a C# test.
+* <<mqtt-check-retained-state-after-a-run>> for reading what a broker kept from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<rfc5321>>, <<rfc5322>>, <<rfc1939>>.

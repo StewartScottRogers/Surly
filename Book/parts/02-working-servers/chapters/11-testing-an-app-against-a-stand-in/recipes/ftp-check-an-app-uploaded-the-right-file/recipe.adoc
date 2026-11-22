@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-check-an-app-uploaded-the-right-file]]
+=== Checking an App's Upload
+
+==== Problem
+
+Your app uploads a nightly export over the File Transfer Protocol (FTP). You want a test that runs it against a stand-in, fetches what arrived over the Hypertext Transfer Protocol (HTTP), and fails if it is not byte for byte the file you expected.
+
+==== Solution
+
+Run one `surl` that takes uploads over FTP and serves the same files over HTTP, run the app, then run a check that fetches the file and compares it with the expected one. Here the app is a script that writes the export and uploads it, and the check is a second script that exits 1 when the two differ:
+
+include::.generated/solution.adoc[]
+
+The app:
+
+include::app.sh[]
+
+The check:
+
+include::check.sh[]
+
+They need a POSIX shell (Git Bash on Windows). Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` listens on two URLs, one per protocol, and both read and write one store, here held in memory. FTP and HTTP each need a Transmission Control Protocol (TCP) port of their own, so the two URLs name two ports. `--allow-uploads` lets a client write, which `surl` refuses by default: a server that anyone can write to is a decision, not a default. `--allow-anonymous` lets `curl` log in over FTP, and fetch over HTTP, without an account (<<surl-readme>>). The file the app stores over FTP is served over HTTP at the same path, with no copy made, so the check reads what the server holds and not a file the test wrote itself.
+
+The app uploads with `-T`, and `--ftp-create-dirs` makes the `exports` folder when it is missing (<<curl-readme>>, <<rfc959>>). Without `--allow-uploads` making that folder is the first write the server refuses, so the app exits `9`, not the `25` of a refused upload. Without `--allow-anonymous`, and with no account given, the app{apos}s anonymous login is refused and it exits `67`. The broken variant, given `broken`, leaves out the last row and still exits `0`: nothing in the app{apos}s own result says the file is wrong.
+
+The check is what fails the test. It fetches the file into `arrived.csv` with `-o`, and with `-f`, so a 404 is `curl` exit `22` and not a "404 Not Found" page compared as if it were the export (<<rfc9110>>): when the file never arrived, the check exits `22`. `-s` hides the progress meter and `-S` keeps the error text. `cmp -s` compares the two files byte for byte and says nothing, so the script writes its own line, with the two sizes counted by `wc -c` (piped through `tr -d ' '`, since some `wc` pad the count): with the last row missing it prints `expected 38 bytes, arrived 27` and exits `1`, which is the failing test.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-check-an-app-uploaded-the-right-file-in-csharp>> for the same task from C#.
+* <<ftp-check-an-app-uploaded-the-right-file-from-an-agent>> for the same task from an agent.
+* <<ftp-check-an-app-cleaned-up>> for a check of what an app left behind.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<rfc9110>>.

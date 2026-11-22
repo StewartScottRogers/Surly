@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-refuse-a-publish-by-reason-code-from-an-agent]]
+=== MQTT 5 Reason Codes from an Agent
+
+==== Problem
+
+Your MQTT 5 client must report why the broker refused it, by reason code. You want your agent to start a broker that refuses a publish and a subscribe by topic grant, and to read the reason code from what the tools answer.
+
+==== Solution
+
+The agent starts `surl-mcp`{apos}s `start_server` with an MQTT 5 listen URL, four accounts and one grant line, publishes as one account through `curl-mcp`{apos}s `curl` tool and reads as another:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+MQ Telemetry Transport (MQTT) version 5.0 answers a refusal with a reason code, a one-byte number: `0x87` is not authorized and `0x86` is bad user name or password (<<mqtt5>>). `start_server` takes `listen_urls`, here `mqtt5://127.0.0.1:0`, a broker on a free port, and `arguments`, the options of `surl`: `--user` adds an account, `--topic-access "plant/#=ann:pubsub,bob:sub,dan:pub"` grants the filter `plant/#`, every topic under `plant/`, with a right for each account, and once any grant is given every publish and subscribe needs one, so `cy`, whom the line does not name, can log in and do nothing. `--topic "plant/#;retain"` keeps the last message on each topic under `plant/`, which is what a later subscriber is sent, and `--mqtt5-disconnect-after-retained` ends a subscription once the retained messages are sent, so the tool returns instead of waiting (<<surl-readme>>). `--allow-plaintext-auth` is a loosening for a test, since the passwords travel in clear. The answer carries `server_id`, which every later call names, and `bound_urls`.
+
+The `curl` tool runs `curl` with the arguments the agent gives it, `-s` and `-S` to keep the progress meter out and the error message in, `-u` for the login, `-d` to publish, and answers `exitCode`, `standardOutput` and `standardError`, each a `content` (<<curl-readme>>, <<curl-protocols>>). A refusal is an `exitCode` and a message, not a tool error, so the agent reads the answer: a subscribe refused in the `SUBACK` is exit `8` and `MQTT 5 SUBACK reason code 0x87 NotAuthorized`, and three accounts show it, `ann` asking for `office/desk`, which no grant covers though she may do everything under `plant/`, `dan`, who was given `pub` and may not subscribe, and `cy`, who has no grant. The login comes before any grant: a wrong password is refused in the `CONNACK` with `0x86`, no login at all with `0x87`, both exit `67`, login denied; and with `--allow-plaintext-auth` left off, the right password over `mqtt5://` is refused unchecked with `0x87`, as though no login had been sent.
+
+A publish with no right to it, `bob`, who was given only `sub`, and `cy`, is dropped with nothing said: `curl` exits `0`, because a publish at quality of service 0 gets no answer, and an MQTT 5 broker can refuse a publish with a code only in the answer to one at quality of service 1 or 2 (<<mqtt5>>). The proof is in the store. `read_retained_message` takes the `server_id` and a `topic`, reads the broker{apos}s store without a client and so without a grant, and answers the message{apos}s `text`, still `21`; a subscriber that reads afterwards sees the same.
+
+A publish is not acknowledged, so the `curl` tool can return before the broker has applied it or dropped it, and a read straight after can be stale. The agent does not sleep. After each publish it calls `wait_for_event` with `kinds` of `exchange_ended`, the `after_sequence` of the last one it saw and a `timeout_ms` of ten seconds, which the broker answers once what the client sent has been dealt with, and keeps the `sequence` of the event for the next call.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-refuse-a-publish-by-reason-code>> for the same refusals on the console.
+* <<mqtt5-refuse-a-publish-by-reason-code-in-csharp>> for the same refusals from a C# test.
+* <<mqtt-grant-topics-to-a-group-from-an-agent>> for grants by group, on MQTT 3.1.1.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt5>>, <<mcp-spec>>.

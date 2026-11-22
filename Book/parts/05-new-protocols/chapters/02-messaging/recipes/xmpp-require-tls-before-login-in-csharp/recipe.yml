@@ -1,0 +1,137 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: xmpp-require-tls-before-login-in-csharp
+title: Requiring XMPP STARTTLS in C#
+protocols: [xmpp, xmpps]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc6120, rfc4616, rfc8446]
+triplet: xmpp-require-tls-before-login
+
+fixtures: {}
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the certificate trusted, Curl.Api upgrades the xmpp:// connection with STARTTLS, logs in as alice and reads the disco info answer.
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: starttls-is-all-that-is-offered
+    claim: A raw client that sends only its stream header is offered STARTTLS, marked required, and no login mechanism.
+    program: program.cs
+    args: [offered]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<stream:features><starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'><required/></starttls></stream:features>\n"
+
+  - id: login-before-tls-refused
+    claim: A SASL PLAIN login with the right password, sent before STARTTLS, is answered with the failure encryption-required.
+    program: program.cs
+    args: [early]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><encryption-required/></failure>\n"
+
+  - id: starttls-by-hand
+    claim: A raw client that asks for STARTTLS, runs the handshake on the same connection and starts the stream again is offered the login mechanisms, and the same PLAIN login is accepted with a success.
+    program: program.cs
+    args: [manual]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<proceed xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\nmechanisms offered, PLAIN among them\n<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>\n"
+
+  - id: implicit-tls
+    claim: Over xmpps://, with the certificate trusted, the login is accepted at once and the answer is the same.
+    program: program.cs
+    args: [xmpps]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: untrusted-certificate
+    claim: A client that does not trust the certificate ends the upgrade before any password is sent, and SendAsync throws a CurlException of code 60.
+    program: program.cs
+    args: [untrusted]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 60\n"
+
+  - id: wrong-password
+    claim: A wrong password, once TLS is up, is refused with the SASL error not-authorized, as a CurlException of code 67.
+    program: program.cs
+    args: [wrong]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: XMPP authentication failed: not-authorized\n"
+
+  - id: no-login
+    claim: With no login, Curl.Api has nothing to log in with, and the CurlException of code 67 says the server offers no anonymous login.
+    program: program.cs
+    args: [no-login]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: XMPP server does not offer SASL ANONYMOUS\n"
+
+  - id: no-certificate-no-server
+    claim: With no certificate and no AllowPlaintextAuthentication, SurlServer.StartAsync throws a SurlServerStartException with exit code 58, so a login never has to be refused in clear.
+    program: program.cs
+    args: [no-cert]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "SurlServerStartException: exit 58, (58) xmpp://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"
+
+  - id: plaintext-offers-mechanisms
+    claim: With AllowPlaintextAuthentication and no certificate, the server offers its login mechanisms at once, PLAIN among them, and no STARTTLS.
+    program: program.cs
+    args: [plain-offered]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<stream:features><mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><mechanism>SCRAM-SHA-256</mechanism><mechanism>SCRAM-SHA-1</mechanism><mechanism>PLAIN</mechanism></mechanisms></stream:features>\n"
+
+  - id: plaintext-login-accepted
+    claim: With AllowPlaintextAuthentication, the PLAIN login that was refused before TLS is accepted in clear with a success.
+    program: program.cs
+    args: [plain-login]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>\n"
+
+  - id: plaintext-curl-login
+    claim: Curl.Api logs in over xmpp:// with no TLS options at all and reads the disco answer.
+    program: program.cs
+    args: [plain-curl]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "<query xmlns=\"http://jabber.org/protocol/disco#info\"><identity category=\"server\" type=\"im\" /><feature var=\"http://jabber.org/protocol/disco#info\" /><feature var=\"http://jabber.org/protocol/disco#items\" /><feature var=\"urn:xmpp:ping\" /></query>\n"
+
+  - id: plaintext-wrong-password
+    claim: With AllowPlaintextAuthentication, a wrong password is checked and refused, as a CurlException of code 67.
+    program: program.cs
+    args: [plain-wrong]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67: XMPP authentication failed: not-authorized\n"
