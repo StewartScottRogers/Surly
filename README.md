@@ -1,5 +1,9 @@
 # Surly
 
+<a href="https://stewartscottrogers.github.io/Surly/"><img src="https://stewartscottrogers.github.io/Surly/cover.png" alt="The cover of Surly: The Surl and Curl Cookbook" width="240"></a>
+
+**Read the book online: [stewartscottrogers.github.io/Surly](https://stewartscottrogers.github.io/Surly/)**, every recipe with its checked claims, searchable, free.
+
 Surly is the monorepo for two matched programs and the book that describes them:
 
 - **Curl** - a drop-in replacement for the curl command-line tool, in C# on .NET 10. Today at [StewartScottRogers/Curl](https://github.com/StewartScottRogers/Curl).
