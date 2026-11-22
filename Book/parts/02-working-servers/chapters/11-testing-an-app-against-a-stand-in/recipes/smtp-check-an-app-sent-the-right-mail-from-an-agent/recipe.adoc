@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-check-an-app-sent-the-right-mail-from-an-agent]]
+=== Checking an App's Mail from an Agent
+
+==== Problem
+
+You want an agent to run an app{apos}s password reset step against a stand-in mail server and judge the mail it sent: whose mailbox it reached, its subject and its link, read from what the server stored rather than from what the app says it did.
+
+==== Solution
+
+The program starts `surl-mcp` with a mail domain, sends the app{apos}s three mails through `curl-mcp`{apos}s `curl` tool, waits for each delivery with `wait_for_event`, and reads the stored copy with `read_message`:
+
+include::.generated/solution.adoc[]
+
+The three sends stand in for the app; an agent testing a real app runs the app pointed at the first of `bound_urls` instead.
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, an `smtp://` and an `imap://` URL on port 0 over one mail store, and `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com`, a `--mailbox` per person, named by the whole address, and `--mail-delivered-to`, which begins each stored copy with a `Delivered-To` line naming the envelope recipient. That address, the one after `RCPT TO`, decides where mail goes (<<rfc5321>>); the `To` field is only text the app wrote, so the agent judges the recipient by the line the server wrote.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON), with `exitCode`, `standardOutput` and `standardError`. The app{apos}s send is `-u` its login, `--mail-from` and `--mail-rcpt` the envelope, and `-T` a message file from the folder, written with carriage return and line feed line ends as mail needs; `-s` and `-S` leave only `curl`{apos}s error line (<<curl-manual>>).
+
+The agent never guesses how long delivery takes. `wait_for_event` with `kinds` `store_changed`, `store` `mail`, `name` the owner{apos}s address and `timeout_ms` returns the first delivery into that owner{apos}s mailboxes, at once if it has already happened, or `{"timed_out":true}` when the time is up; a time-out is an answer, not a tool error. `read_message` with `server_id`, `owner`, `mailbox` `INBOX` and `uid` 1 then answers the stored message in `text`, and sets no flag. Ann{apos}s copy starts `Delivered-To: ann@example.com`, its `Subject` is the one the app should write, and a regular expression picks the link out of the body.
+
+The three checks also fit in one Internet Message Access Protocol (IMAP) `SEARCH`, through the `curl` tool as Ann: a query on an IMAP URL, `INBOX?TO ... SUBJECT ... BODY ...`, whose keys each match a field or body that contains the string (<<rfc9051>>). `standardOutput` holds `* SEARCH 1` when the one message has all three and `* SEARCH` when none does, and `exitCode` is `0` either way, so the agent reads the answer.
+
+Each way of getting it wrong shows up differently. Carol{apos}s mail has a link to `http://localhost:5000`: it is delivered, the search names nothing, and the link in the stored copy is the one the app wrote. The third mail says `To: dave@example.com` but went to `bob@example.com`. Nothing reaches Dave, so `wait_for_event` with `timeout_ms` 2000 answers `timed_out`; Bob{apos}s copy says `Delivered-To: bob@example.com` above the `To` field that names Dave. An agent that trusted the `To` field would have passed the app.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-an-app-sent-the-right-mail>> for the same test on the console.
+* <<smtp-check-an-app-sent-the-right-mail-in-csharp>> for the same test in C#.
+* <<smtp-check-the-mail-an-app-sent-from-an-agent>> for checking the header fields alone.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

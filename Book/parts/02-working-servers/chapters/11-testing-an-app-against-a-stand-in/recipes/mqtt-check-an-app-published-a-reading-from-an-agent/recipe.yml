@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: mqtt-check-an-app-published-a-reading-from-an-agent
+title: Checking an App's Reading from an Agent
+protocols: [mqtt]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, wait_for_event, read_retained_message, curl]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 1, 8]
+references: [surl-readme, curl-readme, curl-protocols, mqtt311, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "The app publishes 21.5 through the curl tool, the agent waits for the end of that connection with wait_for_event, and read_retained_message holds 21.5 at QoS 0, so the check passes."
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 21.5 at QoS 0\n"
+
+  - id: wrong-reading
+    claim: "A check that expects 22.0 fails, exit 1, and its message says what the broker holds, 21.5."
+    program: program.cs
+    args: [wrong]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: sensors/kitchen/temp is 21.5 at QoS 0, expected 22.0\n"
+
+  - id: reading-not-used-up
+    claim: "Reading the retained message does not use it up, so a second check finds it again."
+    program: program.cs
+    args: [twice]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 21.5 at QoS 0\nok: sensors/kitchen/temp is 21.5 at QoS 0\n"
+
+  - id: last-reading-wins
+    claim: "When the app publishes 21.5 and then 22.0, the check finds 22.0."
+    program: program.cs
+    args: [replaced]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/kitchen/temp is 22.0 at QoS 0\n"
+
+  - id: earlier-reading-replaced
+    claim: "The first reading is gone, so after the same two publishes a check that expects 21.5 fails and reports 22.0."
+    program: program.cs
+    args: [earlier]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: sensors/kitchen/temp is 22.0 at QoS 0, expected 21.5\n"
+
+  - id: nothing-published
+    claim: "A topic the app never published to holds nothing, read_retained_message answers retained false and not a tool error, and the check fails saying so."
+    program: program.cs
+    args: [nothing]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/hall/temp\n"
+
+  - id: misspelt-topic
+    claim: "An app that publishes to the misspelt topic sensors/hall/temprature leaves the reading under that name, so the check on sensors/hall/temp finds nothing."
+    program: program.cs
+    args: [misspelt]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/hall/temp\n"
+
+  - id: misspelt-topic-is-kept
+    claim: "The misspelt topic does hold the reading, which shows where the app sent it."
+    program: program.cs
+    args: [misspelt-kept]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ok: sensors/hall/temprature is 19.0 at QoS 0\n"
+
+  - id: outside-the-filter
+    claim: "A publish outside the filter, to lab/kitchen/temp, is accepted and nothing is kept, so the check fails."
+    program: program.cs
+    args: [outside]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on lab/kitchen/temp\n"
+
+  - id: no-filter-keeps-nothing
+    claim: "A broker started with no --topic keeps nothing a client publishes, because curl publishes with the retain flag clear, so the same check fails."
+    program: program.cs
+    args: [no-filter]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "FAIL: nothing kept on sensors/kitchen/temp\n"
+
+  - id: closed-without-anonymous
+    claim: "The filter does not open the broker: without --allow-anonymous the app's publish through the curl tool exits 8, with Expected 0000 but got 0005 on standard error."
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "app refused: exit 8, curl: (8) Expected 0000 but got 0005\n"

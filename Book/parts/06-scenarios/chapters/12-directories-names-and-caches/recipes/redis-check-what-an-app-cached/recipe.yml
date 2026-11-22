@@ -1,0 +1,69 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: redis-check-what-an-app-cached
+title: Checking What an App Cached
+protocols: [redis, http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlExchangeRecord, SurlServerKeys, SurlKeyPage, SurlKeyInfo, SurlKeyContents, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1, 67]
+references: [surl-readme, curl-readme, redis-resp, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the app asks twice for one product, the server's record holds one request for it at the origin, the keyspace holds one key with the origin's text and a life of about a minute, and the test finds the second call served from the cache.
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "call 1: tea\norigin requests: 1\ncache keys: cache:product:1 = tea (expires in about a minute: True)\ncall 2: tea\norigin requests: 1\ncache keys: cache:product:1 = tea (expires in about a minute: True)\nsecond call served from the cache: True\n"
+
+  - id: second-product
+    claim: A second product is a miss of its own, so the origin has two requests and the keyspace two keys, which shows the first count of one was the cache and not a stuck counter.
+    program: program.cs
+    args: [two-products]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "call 1: tea\norigin requests: 1\ncache keys: cache:product:1 = tea (expires in about a minute: True)\ncall 2: coffee\norigin requests: 2\ncache keys: cache:product:1 = tea (expires in about a minute: True); cache:product:2 = coffee (expires in about a minute: True)\n"
+
+  - id: key-deleted
+    claim: When the key is deleted between the calls the second call goes to the origin again and writes the key back, so the origin has two requests and the keyspace one key.
+    program: program.cs
+    args: [key-gone]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "call 1: tea\norigin requests: 1\ncache keys: cache:product:1 = tea (expires in about a minute: True)\nkey deleted: none\ncall 2: tea\norigin requests: 2\ncache keys: cache:product:1 = tea (expires in about a minute: True)\n"
+
+  - id: origin-404
+    claim: A product the origin answers with 404 is not cached, so the second call adds an origin request and no key.
+    program: program.cs
+    args: [not-found]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "call 1: tea\norigin requests: 1\ncache keys: cache:product:1 = tea (expires in about a minute: True)\ncall 2: not found\norigin requests: 2\ncache keys: cache:product:1 = tea (expires in about a minute: True)\n"
+
+  - id: cache-never-written
+    claim: An app that never writes its cache leaves the keyspace empty and sends two requests to the origin, so the test's check fails and the program returns 1.
+    program: program.cs
+    args: [broken]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "call 1: tea\norigin requests: 1\ncache keys: none\ncall 2: tea\norigin requests: 2\ncache keys: none\nsecond call served from the cache: False\n"
+
+  - id: plaintext-refused
+    claim: Without AllowPlaintextAuthentication the app's password is refused over redis://, and Curl.Api throws a CurlException with code 67 and WRONGPASS in its message.
+    program: program.cs
+    args: [no-plaintext]
+    timeout: 90
+    expect:
+      exit: 67
+      stdout: "curl error 67, WRONGPASS in the message: True\n"

@@ -55,3 +55,6 @@ kafka-produce-and-consume, kafka-replay-a-topic-from-an-offset (and twins)
   is a tool error with the same text. A Kafka produce (curl `-d` or `publish_message`) is acknowledged before it returns, so the log
   holds the record at once and no wait is needed.
 
+
+## Reading the log from an agent (kafka-read-a-topic-log-from-an-agent; Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `--allow-anonymous` broker; `curl -s -S --max-time 20 -d order-1001:placed kafka://h:p/orders` x4 then `read_log`: offsets 0 to 3, `next_offset` 4, `has_more` false; `from_offset 2` gives 2 and 3; `limit 2` gives `next_offset 2`, `has_more` true. `curl ...orders?offset=2` afterwards still prints `order-1001:packed` and `order-1001:shipped`. Past the end: tool error `Offset 9 is outside the log, which holds 0 to 4.`; a topic nobody wrote to (or a broker with no `--allow-anonymous`, where the producer's curl exit is 56 `Connection disconnected`): `No log for topic refunds.` / `... orders.`

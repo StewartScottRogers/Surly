@@ -1,0 +1,143 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-expire-a-token-mid-session
+title: Expiring a Token Mid-Session
+protocols: [https, oci]
+tier: scenarios
+surl-options: [--cert, --key, --user, --control, --control-token-file, --fault]
+curl-options: [-s, -S, -f, --cacert, -u, --oauth2-bearer, -o, -w, -X, -H, -D, --json]
+exit-codes: [0, 1, 22]
+references: [surl-readme, curl-readme, rfc6750, rfc7617, rfc8446, oci-distribution]
+
+fixtures:
+  control-token.txt: "control-token-0123456789abcdefghij\n"
+  stale-token.txt: "tok-from-yesterday"
+  bearer.json: "{\"user\":\"\",\"password\":\"tok-2\"}"
+  client.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The client: calls the API with the token it keeps in a file. With no token, it logs in for
+    # one; when the call is answered 401, it logs in again for a new token and retries once.
+    # Usage: sh client.sh <base URL> <user:password> <token file>
+    base=$1
+    user=$2
+    cache=$3
+
+    login() {
+      answer=$(curl -sSf --cacert server.pem -u "$user" "${base}token?service=surl") || exit $?
+      old=$(cat "$cache" 2>/dev/null)
+      printf '%s' "$answer" | sed 's/^{"token":"\([^"]*\)".*/\1/' > "$cache"
+      if [ -z "$old" ]; then echo "login: token issued"
+      elif [ "$old" = "$(cat "$cache")" ]; then echo "login: same token"
+      else echo "login: new token"; fi
+    }
+
+    call() {
+      curl -s --cacert server.pem --oauth2-bearer "$(cat "$cache")" -o api.out -w "%{http_code}" "${base}v2/"
+    }
+
+    test -s "$cache" || login
+    status=$(call)
+    echo "call: $status"
+    if [ "$status" = 401 ]; then
+      login
+      status=$(call)
+      echo "retry: $status"
+    fi
+    test "$status" = 200
+  logins.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Polls the control endpoint, at most 25 times 0.2 s apart, until it holds at least <count>
+    # judged logins, then prints one line per login: account, mechanism, accepted or refused.
+    # Usage: sh logins.sh <control URL> <count>
+    auth="Authorization: Bearer $(head -n 1 control-token.txt)"
+    tries=0
+    while :; do
+      events=$(curl -s -H "$auth" "$1/v1/events?kind=login_judged")
+      count=$(printf '%s' "$events" | grep -o '"kind":"login_judged"' | wc -l | tr -d ' ')
+      [ "$count" -ge "$2" ] && break
+      tries=$((tries + 1))
+      [ "$tries" -ge 25 ] && break
+      sleep 0.2
+    done
+    printf '%s' "$events" | grep -o '"account":"[^"]*","mechanism":"[^"]*","is_accepted":[a-z]*' \
+      | sed -e 's/"account":"\([^"]*\)","mechanism":"\([^"]*\)","is_accepted":/\1 \2 /' -e 's/ true$/ accepted/' -e 's/ false$/ refused/'
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main is the recipe: surl's registry, whose token endpoint issues a new token per login, with a
+# control endpoint the test revokes tokens through. steady has no revocation. broken answers every
+# API call 401 by a fault rule, even with a new token.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user app:s3cret --control http://127.0.0.1:{{port2}} --control-token-file control-token.txt oci://127.0.0.1:{{port}}/
+    ready: port
+  steady:
+    command: surl --cert server.pem --key server.key --user app:s3cret --control http://127.0.0.1:{{port4}} --control-token-file control-token.txt oci://127.0.0.1:{{port3}}/
+    ready: port
+  broken:
+    command: surl --cert server.pem --key server.key --user app:s3cret --fault "error;scheme=oci;path=/v2/;reply=401 UNAUTHORIZED" oci://127.0.0.1:{{port5}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The client logs in and calls the API (200); the test revokes every token with a reset (204); the next call with the kept token is answered 401, the client logs in again, gets a new token and retries once, 200.
+    run: 'sh client.sh https://127.0.0.1:{{port}}/ app:s3cret token.txt && curl -s -o {{null}} -w "reset: %{response_code}\n" -X POST -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port2}}/v1/reset && sh client.sh https://127.0.0.1:{{port}}/ app:s3cret token.txt'
+    expect:
+      exit: 0
+      stdout: "login: token issued\ncall: 200\nreset: 204\ncall: 401\nlogin: new token\nretry: 200\n"
+
+  - id: server-recorded-two-logins
+    claim: The server judged two logins for the session, both app's password at the token endpoint, both accepted; the calls with a token are not logins.
+    run: sh logins.sh http://127.0.0.1:{{port2}} 2
+    expect:
+      exit: 0
+      stdout: "app password accepted\napp password accepted\n"
+
+  - id: token-endpoint-answer
+    claim: The token endpoint answers a Basic login with JSON holding the token and expires_in 300.
+    run: curl -s --cacert server.pem -u app:s3cret "https://127.0.0.1:{{port3}}/token?service=surl"
+    expect:
+      exit: 0
+      stdout-matches: '\A\{"token":"([A-Za-z0-9_-]+)","access_token":"\1","expires_in":300,"issued_at":"[0-9TZ:-]+"\}\Z'
+
+  - id: token-kept-without-revocation
+    claim: Without a revocation the second call reuses the kept token, 200, and the client does not log in again.
+    run: sh client.sh https://127.0.0.1:{{port3}}/ app:s3cret steady.txt && sh client.sh https://127.0.0.1:{{port3}}/ app:s3cret steady.txt
+    expect:
+      exit: 0
+      stdout: "login: token issued\ncall: 200\ncall: 200\n"
+
+  - id: no-token-challenge
+    claim: A call with no token is answered 401 Unauthorized with a Bearer challenge naming the token endpoint as its realm.
+    run: curl -s --cacert server.pem -D - -o {{null}} https://127.0.0.1:{{port3}}/v2/
+    expect:
+      exit: 0
+      stdout-matches: '\AHTTP/1\.1 401 Unauthorized\r?\n(.*\r?\n)*WWW-Authenticate: Bearer realm="https://127\.0\.0\.1:\d+/token",service="surl"\r?\n'
+
+  - id: retries-once-only
+    claim: When the call is still answered 401 after the new login, the client stops after its one retry and exits 1.
+    run: sh client.sh https://127.0.0.1:{{port5}}/ app:s3cret broken.txt
+    expect:
+      exit: 1
+      stdout: "login: token issued\ncall: 401\nlogin: new token\nretry: 401\n"
+
+  - id: login-refused
+    claim: With a stale token and a wrong password the call is answered 401, the login again is refused 401, and the client stops there with curl's exit 22, without a retry.
+    run: sh client.sh https://127.0.0.1:{{port3}}/ app:guess stale-token.txt
+    expect:
+      exit: 22
+      stdout: "call: 401\n"
+      stderr-contains: "401"
+
+  - id: fixed-bearer-account-not-changeable
+    claim: The control endpoint will not add or change an account with an empty user name, a fixed Bearer token; it answers 400 bad_request.
+    run: 'curl -s -w " %{response_code}\n" --json @bearer.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port4}}/v1/accounts'
+    expect:
+      exit: 0
+      stdout: "{\"error\":\"bad_request\",\"message\":\"give user and password, neither empty\"} 400\n"

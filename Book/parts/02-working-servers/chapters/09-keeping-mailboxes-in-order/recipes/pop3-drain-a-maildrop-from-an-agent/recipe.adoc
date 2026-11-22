@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-drain-a-maildrop-from-an-agent]]
+=== Draining a POP3 Maildrop from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to retrieve and delete every message in a Post Office Protocol version 3 (POP3) maildrop, and then confirm with `list_messages` that `INBOX` is empty, against a stand-in server it started itself.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a POP3 server and seeds three messages, uses the `curl` tool as the POP3 client to retrieve all three into files and delete each in one run, and reads the store with `list_messages`. The program takes the case to run as its argument; the first case is the whole task:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). `start_server` takes the listen URL, `pop3://127.0.0.1:0` for a free port, and `arguments`, which are `surl`{apos}s own words: `--mail-domain example.com` and `--mailbox ann@example.com:annpass`, whose address is also the login, so no loosening option is needed (<<surl-readme>>). `seed_mail` puts a message into Ann{apos}s mailbox as Simple Mail Transfer Protocol (SMTP) would, and answers once it is stored.
+
+There is no tool that deletes a message: the stand-in is emptied the way a client empties it, over POP3. The `curl` tool runs `curl`{apos}s own arguments (<<curl-manual>>). `pop3://.../[1-3]` is a `curl` range, three URLs, and a message number in a POP3 URL is a retrieval, `RETR` (<<rfc1939>>); `-o msg#1.eml` writes each to a file of its own, `#1` standing for the first range in the URL. After `--next`, `-X DELE` replaces the command and `curl` appends the number in the path, so the second transfer sends `DELE 1`, `DELE 2` and `DELE 3`. The two transfers share one POP3 session, and every retrieval is sent before the first deletion, so a message is only marked for deletion after it was fetched. `-u` is Ann{apos}s login, `-s` keeps the progress meter out and `-S` puts an error message back. The files hold the three orders, in the order they arrived, the text that was seeded. A POP3 URL with no message number lists the maildrop, a line a message with its number and its size in octets, which is how an agent counts before it picks the range; the octets are the sizes `list_messages` gives.
+
+`DELE` only marks a message. The server removes the marked messages when the session ends with `QUIT`, which `curl` sends when its run ends, and `RSET` before then unmarks them (<<rfc1939>>). So the agent does not read the store the moment the call returns. After each `curl` call the program calls `wait_for_event` with `kinds` `exchange_ended` and `after_sequence` set to the last sequence it saw, which answers when the server records the end of that connection, with a `timeout_ms` of ten seconds that a failure alone ever reaches. Each run is one connection, so each wait takes the next event. Then `list_messages` for `INBOX`, which reads the store with no client, finds no message, and a new `curl` run, a new session, lists nothing. A run that sends `DELE` for each message and then `RSET` after another `--next` deletes nothing: `curl` exits `0` and the next session lists all three.
+
+Retrieving a message of the drained maildrop is answered `-ERR No such message`, and `curl` exits `8`, which `-v` shows on standard error; the `curl` tool answers `exitCode` `8` in its JavaScript Object Notation (JSON), so a drain that finds nothing does not look like one that worked. The failure to plan for is a delete that follows a save that did not happen. When the folder for the files does not exist, the `curl` tool cannot run the command at all: its answer is a tool error, `An error occurred invoking 'curl'.`, not a JSON answer, so a program has to test the text before it parses it. No `DELE` is sent, and after the failure `list_messages` still shows all three messages.
+
+When the case is over the program calls `stop_server` with the `server_id`, so the server is stopped before the program removes the folder it wrote to.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-drain-a-maildrop>> for the same task on the console.
+* <<pop3-drain-a-maildrop-in-csharp>> for the same task from a C# poller.
+* <<pop3-retrieve-and-delete-from-an-agent>> for one message, and for the events a deletion makes.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>, <<mcp-spec>>.

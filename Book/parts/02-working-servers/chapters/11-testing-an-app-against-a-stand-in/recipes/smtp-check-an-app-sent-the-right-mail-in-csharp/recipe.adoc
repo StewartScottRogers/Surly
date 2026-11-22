@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-check-an-app-sent-the-right-mail-in-csharp]]
+=== Checking an App's Mail in C#
+
+==== Problem
+
+Your C# integration test runs the app{apos}s password reset step against a stand-in mail server. You want it to wait for the delivery rather than sleep, then assert on the stored message itself: whose mailbox it reached, its subject, and the link in it.
+
+==== Solution
+
+Host the server in the test with Surl.Api, let the app send, wait for each delivery event, and read the stored copy with `Mail.ReadMessageAsync`:
+
+include::.generated/solution.adoc[]
+
+The three `Send` calls stand in for the app; in a real test the app sends to `server.BoundUrls[0]`.
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds an `smtp://` and an `imap://` URL on port 0, one mail store behind both; `MailDomains` is `--mail-domain`, and each `Mailboxes` entry is a `--mailbox`, a mailbox and the login named by its whole address. `MailDeliveredTo` is `--mail-delivered-to`: each stored copy begins with a `Delivered-To` line naming the envelope recipient, the address after `RCPT TO` (<<rfc5321>>), which is the one that decides where mail goes, whatever the `To` field says. `RecordExchanges` keeps the server{apos}s events so the test can wait on them.
+
+The app{apos}s send is a `CurlRequest` with `HttpMethod.Put` to the Simple Mail Transfer Protocol (SMTP) URL, on a fresh `CurlClient`. `CurlMailOptions` gives the envelope, `MailFrom` and `MailRecipients`, and `CurlAuthenticationOptions` the app{apos}s login, which `surl` takes with `CRAM-MD5` and no loosening option.
+
+The test never sleeps. `server.WaitForEventAsync` with a `SurlEventQuery` for `Kind` `StoreChanged`, `Store` `Mail` and `Name` the owner{apos}s address returns the first delivery into that owner{apos}s mailboxes, at once if it has already happened, and throws `TimeoutException` when the bound passes first. Then `server.Mail`, a `SurlServerMail`, reads the copy: `ReadMessageAsync(owner, "INBOX", 1)` returns a `SurlMailMessage` whose `Bytes` are the message exactly as stored, and the read sets no flag, so the check leaves the mailbox as the app left it. Ann{apos}s copy starts `Delivered-To: ann@example.com`, its `Subject` is the one the app should write, and a regular expression picks the link out of the body.
+
+The same three checks fit in one Internet Message Access Protocol (IMAP) `SEARCH`, sent the way the app{apos}s users would read the mail: a `CurlRequest` with `HttpMethod.Get` to `INBOX?TO ... SUBJECT ... BODY ...`, whose keys each match a field or body that contains the string (<<rfc9051>>). The `CurlResponse` body is `* SEARCH 1` when the one message has all three, and `* SEARCH` when none does.
+
+Each way of getting it wrong shows up differently. Carol{apos}s mail has the right subject but a link to `http://localhost:5000`: it is delivered, the search names nothing, and the link the expression finds is the one the app wrote. The third mail says `To: dave@example.com`, but the app gave `bob@example.com` as the envelope recipient. Nothing reaches Dave, so the wait bounded to two seconds throws `TimeoutException`; Bob{apos}s copy says `Delivered-To: bob@example.com` above the `To` field that names Dave. A test that read only the `To` field would have passed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-an-app-sent-the-right-mail>> for the same test on the console.
+* <<smtp-check-an-app-sent-the-right-mail-from-an-agent>> for the same test run by an agent.
+* <<smtp-check-the-mail-an-app-sent-in-csharp>> for an app on .NET{apos}s `SmtpClient`.
+* <<surl-readme>>, <<rfc5321>>, <<rfc9051>>.

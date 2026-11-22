@@ -1,0 +1,76 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: sftp-keep-a-pinned-host-key-across-restarts-in-csharp
+title: Keeping a Pinned Host Key Across Restarts in C#
+protocols: [sftp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlSshOptions, CurlException]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-readme, rfc4251]
+
+fixtures: {}
+
+# The server's host key, kept in a file; other_key stands for the key a server makes up when nobody kept one.
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f other_key
+
+
+cases:
+  - id: solution
+    role: solution
+    claim: A SurlServer started three times with HostKeyFiles host_key, stopped in between, serves a CurlClient pinned to host_key.pub's fingerprint each time.
+    program: program.cs
+    args: ["kept"]
+    expect:
+      exit: 0
+      stdout-matches: '\Astart 1: hello from surl\nstart 2: hello from surl\nstart 3: hello from surl\n'
+
+  - id: same-key-logged
+    claim: The server's verbose log, at LogLevel.Verbose, names the host key it serves, and all three starts name the same fingerprint.
+    program: program.cs
+    args: ["kept"]
+    expect:
+      exit: 0
+      stdout-matches: '\none key served\n\Z'
+
+  - id: changed-key-refused
+    claim: A server with any other host key is refused before any login; SendAsync throws CurlException with code PeerFailedVerification (curl's 60).
+    program: program.cs
+    args: ["rekeyed"]
+    expect:
+      exit: 1
+      stdout-matches: '\Arefused: PeerFailedVerification\n'
+
+  - id: no-login-recorded
+    claim: That server's verbose log records the key exchange and no login request, so the password was never sent.
+    program: program.cs
+    args: ["rekeyed"]
+    expect:
+      exit: 1
+      stdout-matches: '\nkey exchange logged: True, login request logged: False\n\Z'
+
+  - id: throwaway-changes
+    claim: A server started twice with ThrowawayHostKey serves a different key the second time, so no pin survives a restart.
+    program: program.cs
+    args: ["throwaway"]
+    expect:
+      exit: 0
+      stdout-matches: '\na different key after the restart\n\Z'
+
+  - id: throwaway-warns
+    claim: ThrowawayHostKey writes surl's warning to the log at start, with the fingerprint to pin.
+    program: program.cs
+    args: ["throwaway"]
+    expect:
+      exit: 0
+      stdout-matches: '\Asurl: warning: --throwaway-hostkey: serving a throwaway SSH host key \(--hostpubsha256 \S+\); clients must pin it or skip the check \(curl -k\)\n'
+
+  - id: no-host-key
+    claim: An sftp listen URL with neither HostKeyFiles nor ThrowawayHostKey makes StartAsync throw SurlServerStartException with exit code 2, FailedInit.
+    program: program.cs
+    args: ["nokey"]
+    expect:
+      exit: 2
+      stdout: "server refused to start: 2 FailedInit\n(2) sftp://127.0.0.1:0/ needs a host key: give --hostkey <file>, or --throwaway-hostkey for a throwaway one\n"

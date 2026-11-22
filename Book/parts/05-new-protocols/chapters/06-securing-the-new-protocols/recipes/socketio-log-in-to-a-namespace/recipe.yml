@@ -1,0 +1,101 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: socketio-log-in-to-a-namespace
+title: Logging In to Socket.IO
+protocols: [socketio, socketios]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--cacert, -u, -d, -m, -s, -S]
+exit-codes: [22, 28, 60]
+references: [surl-readme, curl-readme, socketio-protocol, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main: socketios with one account and no loosening option. plain: the same account over socketio://.
+# plaintext: the same again with --allow-plaintext-auth. token: socketios with a token account.
+# Every run that joins ends by -m, so no case waits on the server to close.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret socketios://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --user alice:s3cret socketio://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth socketio://127.0.0.1:{{port3}}/
+    ready: port
+  token:
+    command: surl --cert server.pem --key server.key --user :tok123 socketios://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over socketios curl logs in as alice with -u, trusting the certificate with --cacert, joins the main namespace, emits an event and gets it back from surl, which curl writes as one JSON array; curl then waits for more until -m 3 ends the run, exit 28, with no loosening option on surl.
+    run: curl -s -m 3 --cacert server.pem -u alice:s3cret -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "[\"chat\",\"hi\"]\n"
+
+  - id: wrong-password
+    claim: A wrong password gets the join refused with Not authorized, curl exits 22 and nothing is written.
+    run: curl -sS -m 3 --cacert server.pem -u alice:wrong -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Socket.IO server refused namespace /: {\"message\":\"Not authorized\"}"
+
+  - id: unknown-user
+    claim: A user name surl has no account for gets the same refusal as a wrong password.
+    run: curl -sS -m 3 --cacert server.pem -u bob:s3cret -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Not authorized"
+
+  - id: no-login
+    claim: A client that sends no login is refused with the same Not authorized, so the message does not tell a missing login from a wrong one.
+    run: curl -sS -m 3 --cacert server.pem -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Not authorized"
+
+  - id: plain-refuses-the-password
+    claim: Over plain socketio:// the right password is refused with the same Not authorized, because surl will not take a password in the clear.
+    run: curl -sS -m 3 -u alice:s3cret -d "[\"chat\",\"hi\"]" socketio://127.0.0.1:{{port2}}/
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Not authorized"
+
+  - id: plaintext-option-loosens
+    claim: With --allow-plaintext-auth the same login over socketio:// joins and the event comes back.
+    run: curl -s -m 3 -u alice:s3cret -d "[\"chat\",\"hi\"]" socketio://127.0.0.1:{{port3}}/
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: "[\"chat\",\"hi\"]\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert curl does not trust the certificate, never sends the login, and exits 60.
+    run: curl -s -m 3 -u alice:s3cret -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port}}/
+    timeout: 30
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: token-login-refused-in-this-build
+    claim: In this build a token account (--user :tok123) refuses even the right token over socketios, with the same Not authorized; this is a known fault, BL-1589, fixed in Surl master.
+    run: 'curl -sS -m 3 --cacert server.pem -u tok123: -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port4}}/'
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Not authorized"

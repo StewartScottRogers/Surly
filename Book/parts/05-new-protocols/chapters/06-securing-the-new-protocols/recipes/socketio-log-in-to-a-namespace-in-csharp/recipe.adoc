@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socketio-log-in-to-a-namespace-in-csharp]]
+=== Socket.IO Logins in C#
+
+==== Problem
+
+Your Socket.IO client sends a login when it joins. You want the join refused without it, refused over plain Socket.IO, and accepted over Transport Layer Security (TLS), from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+The program hosts the server in-process, joins as a client and reports what happened. The arguments after `--` pick the scenario: the scheme, the user name and the password, then optional words. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` takes the same choices as the `surl` command line: `Accounts` holds one `SurlAccount` for `--user alice:s3cret`, `CertificateFile` and `KeyFile` are `--cert` and `--key`, and `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, which loosens security and is set in only one case (<<surl-readme>>). `RecordExchanges` lets the program ask the server afterwards what it judged. Port 0 takes a free port, and `BoundUrl` is the real address.
+
+The client is a `CurlClient` made from `CurlClientOptions`, whose `Tls` is a `CurlTlsOptions`; a `CurlRequest` with a `CurlContent` body goes in. `CurlAuthenticationOptions` carries the login, as `-u` does, `CertificateAuthorityFile` in `CurlTlsPeerOptions` is `--cacert`, and a `POST` body is the event to emit (<<curl-readme>>). A Socket.IO session has no end of its own, and `SendAsync` does not return a response while it is open, so `CurlClientOptions.Timeout`, which is `-m`, ends it after three seconds. That is how a join that was accepted looks from the client: `CurlException` with code `28`, `OperationTimedOut`. The program does not take the timeout as proof, but asks the server: `WaitForEventAsync` with a `SurlEventQuery` for a `LoginJudged` event answers whether the login was accepted. The event the console recipe shows coming back is not read here: `Curl.Api` returns no body when the time limit ends the call.
+
+A refusal is a different exception: `CurlException` with code `22` and `Not authorized` in the message (<<socketio-protocol>>). A wrong password, a user name with no account and no login at all are the same refusal, so the message gives a client nothing to learn from. Plain `socketio` refuses the right password in the same words, because the server does not check a password that crosses the network readable; setting `AllowPlaintextAuthentication` makes the same login join. Without a certificate authority file, the client does not trust the self-signed certificate and the exception is code `60`, `PeerFailedVerification`, before any login is sent (<<rfc8446>>).
+
+A token account, `new SurlAccount("", "tok123")`, is meant to take a login that is only a token. In this build it does not: the join is refused with `Not authorized` even with the right token, a fault that is fixed in the Surl source and not yet in this build (backlog item BL-1589). The last case records the refusal as it is today.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socketio-log-in-to-a-namespace>> for the same task on the console.
+* <<socketio-log-in-to-a-namespace-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<socketio-protocol>>, <<rfc8446>>.

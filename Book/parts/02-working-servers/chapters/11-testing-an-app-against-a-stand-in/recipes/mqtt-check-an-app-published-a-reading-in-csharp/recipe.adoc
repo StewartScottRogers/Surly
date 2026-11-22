@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-check-an-app-published-a-reading-in-csharp]]
+=== Checking an App's Reading in C#
+
+==== Problem
+
+Your C# test runs code that publishes a temperature over Message Queuing Telemetry Transport (MQTT), and has to check afterwards what it sent. You want the broker in the same process, a wait for the app{apos}s publish that is not a sleep, and a read of the value the broker kept with `Messages.ReadRetainedAsync`.
+
+==== Solution
+
+Start a `SurlServer` as an MQTT broker that keeps what is published under `sensors/`, let a `CurlClient` publish as the app, wait for the end of its exchange, and read the topic from the broker{apos}s store. The program takes the case to run as its argument; the first case is the whole task:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds `mqtt://127.0.0.1:0`, a broker on a free port. `Topics` is `--topic`, and `"sensors/#;retain"` declares the topics under `sensors/` and keeps every message published on them, whatever its retain flag; `AllowAnonymous` is `--allow-anonymous`, which lets a client connect with no user name and makes the broker a loosening, for a test on one machine (<<surl-readme>>, <<mqtt311>>). `RecordExchanges` makes the server record each client{apos}s exchange as an event, which the wait below uses.
+
+The app here is a `CurlClient`: a `CurlRequest` for `HttpMethod.Post` of `mqtt://host:port/sensors/kitchen/temp`, with a `Body` of `CurlContent` bytes, publishes the reading with the retain flag clear, as `curl -d` does (<<curl-readme>>); `SendAsync` answers a `CurlResponse`, whose `Body` the program disposes unread. A broker keeps a message as a topic{apos}s last one only when the flag is set (<<mqtt311>>), so what keeps the reading is the filter. In a real test the app has its own MQTT client and this stand-in is replaced by it; the rest of the program stays.
+
+A publish at quality of service 0 gets no answer, so `SendAsync` can return before the broker has applied the message, and a read straight after it can find the topic empty. The program does not sleep. After each publish it calls `WaitForEventAsync` with a `SurlEventQuery` for the next `SurlEventKind.ExchangeEnded` after the last `SurlEvent` it saw, which the broker records once what the client sent has been applied, with a ten second bound that a failure alone ever reaches. It keeps the event{apos}s `Sequence` for the next wait.
+
+The check is a read of the store, with no client and no login. `server.Messages`, a `SurlServerMessages`, is the broker{apos}s message bus, and `ReadRetainedAsync` takes the topic and answers a `SurlRetainedMessage`, with its `Payload` and its `QualityOfService`, which is `0`, or `null` for a topic with nothing kept. The program compares the text with the expected reading and prints `ok:` and exits `0`, or prints what the broker holds, `FAIL: sensors/kitchen/temp is 21.5 at QoS 0, expected 22.0`, and exits `1`. Reading does not use the reading up, so a second check finds it again. The last reading wins: after `21.5` and then `22.0` the check for `22.0` passes and one for `21.5` fails.
+
+A check that finds `null` is the test{apos}s way to find three mistakes. An app that publishes to a misspelt topic, `sensors/hall/temprature`, leaves its reading under that name, and the check on the right name finds nothing while a check on the misspelling finds the reading. An app that publishes outside the filter, `lab/kitchen/temp`, is accepted and nothing is kept. And a broker with no `Topics`, which is `--topic` left out, keeps nothing a client publishes. If a reading is missing, look at the filter and the topic first.
+
+The filter does not open the broker. On one without `AllowAnonymous` the app{apos}s `SendAsync` throws a `CurlException` whose `Code` is `8`, the code `curl` exits with, and the program prints it and exits with it. The wait for the event is the only wait there is.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-check-an-app-published-a-reading>> for the same task on the console, with `curl` as the app and a check script.
+* <<mqtt-check-an-app-published-a-reading-from-an-agent>> for the same task from an agent.
+* <<mqtt-keep-a-retained-message-in-csharp>> for how the filter keeps a message, and for seeding one.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>.

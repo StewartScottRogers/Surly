@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs provision-users.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ldap-provision-users-for-a-test
+title: Provisioning Users for a Test
+protocols: [ldap]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_ldap_entries, wait_for_event, read_directory, curl, reset_server]
+curl-options: [-s, -S, -u]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc4511, rfc4516]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: One add_ldap_entries call adds the tree's top and three users, entry_count 5, and an anonymous search through curl-mcp for each user's uid finds that user.
+    program: provision-users.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\Aadded: entry_count 5\n(.*\n)*search ann: 1 \[uid=ann,ou=people,dc=example,dc=com, cn: Ann Archer\]\nsearch ben: 1 \[uid=ben,ou=people,dc=example,dc=com, cn: Ben Baker\]\nsearch cat: 1 \[uid=cat,ou=people,dc=example,dc=com, cn: Cat Carter\]\n'
+
+  - id: waits-for-the-record
+    claim: wait_for_event for a store_changed event on the directory store, named for the last user, answers the change seeded.
+    program: provision-users.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nrecorded: seeded\n'
+
+  - id: read-back
+    claim: read_directory answers the directory as LDIF holding the five entries in the order they were added, with every userPassword left out.
+    program: provision-users.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nread back: 5 \[dc=example,dc=com \| ou=people,dc=example,dc=com \| uid=ann,ou=people,dc=example,dc=com \| uid=ben,ou=people,dc=example,dc=com \| uid=cat,ou=people,dc=example,dc=com\]\nread back: userPassword absent\n'
+
+  - id: reset-between-tests
+    claim: After reset_server the directory is empty again, as the server started, so a search for ann fails with curl exit 39.
+    program: provision-users.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter reset, search ann: curl exit 39\n\Z'
+
+  - id: all-or-none
+    claim: When one user in the set names a branch that does not exist, add_ldap_entries is refused as a tool error and none of the set is added; the directory reads back empty and every search fails with curl exit 39.
+    program: provision-users.cs
+    args: [bad-batch]
+    expect:
+      exit: 0
+      stdout: "added: refused\nread back: 0 []\nread back: userPassword absent\nsearch ann: curl exit 39\nsearch ben: curl exit 39\nsearch cat: curl exit 39\n"
+
+  - id: anonymous-needs-allowing
+    claim: Without --allow-anonymous the same users are added, but a search with an empty name and password is refused, curl exit 38 on every platform.
+    program: provision-users.cs
+    args: [strict]
+    expect:
+      exit: 0
+      stdout-matches: '\Aadded: entry_count 5\n(.*\n)*search ann: curl exit 38\nsearch ben: curl exit 38\nsearch cat: curl exit 38\n\Z'

@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[rediss-log-in-over-tls-in-csharp]]
+=== Redis Logins over TLS in C#
+
+==== Problem
+
+Your cache client authenticates, and the password must not cross the network in clear. You want the login refused over plain Redis, accepted over Transport Layer Security (TLS), and a wrong password told apart from no password at all, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+The program hosts the server in-process and reads a key as a client. The arguments after `--` pick the scenario: the scheme, the user name and the password, then optional words. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` takes the same choices as the `surl` command line: `Accounts` holds one `SurlAccount` for `--user alice:s3cret`, `CertificateFile` and `KeyFile` are `--cert` and `--key`, and `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, which loosens security and is set in only one case (<<surl-readme>>). `Keys.SetAsync` seeds the key `greeting` and needs no login, because it writes into the server's memory rather than speaking Redis. Port 0 takes a free port, and `BoundUrl` is the real address.
+
+The client is a `CurlClient`, made with `CurlClientOptions` whose `Tls` is a `CurlTlsOptions`; a `CurlRequest` goes in and a `CurlResponse` comes back. A Redis URL path is a command, so `GET/greeting` reads the key. `CurlAuthenticationOptions` carries the login, as `-u` does, and `CertificateAuthorityFile` in `CurlTlsPeerOptions` is `--cacert`, the certificate to trust (<<curl-readme>>). The right password over `rediss` reads `hello`. A refused login is not a response but an exception: `SendAsync` throws `CurlException`, whose `Code` is `67` for every login refusal, and whose message carries the server's error after `Redis server answered HELLO with error:` (<<redis-resp>>).
+
+The refusals are told apart by that error. A wrong password and a user name with no account are both `WRONGPASS`, the same answer for both. A request with no login is `NOAUTH`, the answer for a client that did not try to log in, which is why the code alone does not tell them apart and the message does. Over plain `redis` the right password is answered `WRONGPASS` too, because the server does not check a password that crosses the network readable; setting `AllowPlaintextAuthentication` makes the same login read the key. Without a certificate authority file, the client does not trust the self-signed certificate, and the exception is code `60`, `PeerFailedVerification`, before any login is sent (<<rfc8446>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<rediss-log-in-over-tls>> for the same task on the console.
+* <<rediss-log-in-over-tls-from-an-agent>> for the same task from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<redis-resp>>, <<rfc8446>>.

@@ -1,0 +1,70 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: https-log-in-with-tls-srp-in-csharp
+title: Logging In with TLS-SRP in C#
+protocols: [https]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, SurlServerTlsSrpAccounts, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlException]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-readme, rfc8446]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A SurlServer started with --tlsuser and --tlspassword in AdditionalArguments serves HTTPS with no certificate, and a CurlClient with TlsAuthType SRP, TlsAuthUserName and TlsAuthPassword set cannot log in; Curl.Api, as curl 8.22.0, has no TLS-SRP, and SendAsync throws CurlException SslConnectError (35).
+    program: program.cs
+    args: ["fetch"]
+    expect:
+      exit: 1
+      stdout-matches: '\Aserving https://127\.0\.0\.1:\d+/\nclient failed: SslConnectError\n'
+
+  - id: server-says-why
+    claim: The server's log, written to SurlServerOptions.Log, names the reason, a ClientHello that offers no SRP suite.
+    program: program.cs
+    args: ["fetch"]
+    expect:
+      exit: 1
+      stdout-matches: '\nserver: TLS handshake failed: The ClientHello offers no SRP suite the server can serve\.\n\Z'
+
+  - id: add-an-account
+    claim: TlsSrpAccounts.Add adds an account while the server runs; adding the same user again throws ArgumentException.
+    program: program.cs
+    args: ["accounts"]
+    expect:
+      exit: 0
+      stdout-matches: '\nadd device-2: done\nadd device-2 again: ArgumentException\n'
+
+  - id: change-a-password
+    claim: TlsSrpAccounts.SetPassword changes an account's password, the one given at start included; a user with no account throws ArgumentException.
+    program: program.cs
+    args: ["accounts"]
+    expect:
+      exit: 0
+      stdout-matches: "\\nset device's password: done\\nset nobody's password: ArgumentException\\n"
+
+  - id: remove-an-account
+    claim: TlsSrpAccounts.Remove removes an account, the one given at start included, and answers true; removing it again answers false.
+    program: program.cs
+    args: ["accounts"]
+    expect:
+      exit: 0
+      stdout-matches: '\nremove device: True\nremove device again: False\n\Z'
+
+  - id: not-an-srp-server
+    claim: On a server started without TLS-SRP, every TlsSrpAccounts call throws InvalidOperationException.
+    program: program.cs
+    args: ["not-srp"]
+    expect:
+      exit: 0
+      stdout-matches: "\\nadd device-2: InvalidOperationException\\nadd device-2 again: InvalidOperationException\\nset device's password: InvalidOperationException\\nset nobody's password: InvalidOperationException\\nremove device: InvalidOperationException\\nremove device again: InvalidOperationException\\n\\Z"
+
+  - id: srp-needs-tls-1-2
+    claim: TLS-SRP beside --tlsv1.3 makes StartAsync throw SurlServerStartException with exit code 2, FailedInit.
+    program: program.cs
+    args: ["tls13"]
+    expect:
+      exit: 2
+      stdout: "server refused to start: 2 FailedInit\noption --tlsuser: cannot be used with --tlsv1.3\n"

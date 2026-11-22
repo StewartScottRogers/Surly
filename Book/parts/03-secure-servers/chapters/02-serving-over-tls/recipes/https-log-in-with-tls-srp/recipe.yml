@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: https-log-in-with-tls-srp
+title: Logging In with TLS-SRP
+protocols: [https]
+tier: secure-servers
+surl-options: [--directory, --log-file, --tlsuser, --tlspassword, --tlsauthtype, --tlsv1.3, --srp-verifiers, --srp-groups]
+curl-options: [-s, -S, -k, --tlsauthtype, --tlsuser, --tlspassword]
+exit-codes: [2, 35, 37]
+references: [surl-readme, curl-manual, rfc8446]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  # GnuTLS tpasswd files as gnutls-serv reads them; this group line is not a GnuTLS SRP number.
+  tpasswd: "device:not-a-verifier:not-a-salt:1\n"
+  tpasswd.conf: "1:zz:2\n"
+
+servers:
+  # One TLS-SRP account, device with password s3cret, and no certificate.
+  main:
+    command: surl --directory site --log-file srp.log --tlsuser device --tlspassword s3cret https://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The server starts with no certificate, and curl cannot log in to it; this curl, as curl 8.22.0, takes --tlsauthtype, --tlsuser and --tlspassword with a warning that they have no function, offers no SRP suite, and the handshake fails, exit 35.
+    run: curl -k --tlsauthtype SRP --tlsuser device --tlspassword s3cret https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 35
+      stderr-contains: "Warning: --tlsuser is deprecated and has no function anymore"
+
+  - id: no-srp-client
+    claim: curl with no SRP options and no -k is refused in the handshake the same way, exit 35, not the 60 of a certificate it cannot verify.
+    run: curl -sS https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 35
+
+  - id: server-says-why
+    claim: The server's log names the reason for each refusal, a ClientHello that offers no SRP suite.
+    run: 'grep -m1 -o "TLS handshake failed: The ClientHello offers no SRP suite the server can serve." srp.log'
+    expect:
+      exit: 0
+      stdout: "TLS handshake failed: The ClientHello offers no SRP suite the server can serve.\n"
+
+  - id: user-needs-password
+    claim: --tlsuser without --tlspassword is refused at start, exit 2.
+    run: surl --tlsuser device https://127.0.0.1:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --tlsuser: needs --tlspassword"
+
+  - id: srp-needs-an-account
+    claim: --tlsauthtype SRP with no account is refused at start, exit 2.
+    run: surl --tlsauthtype SRP https://127.0.0.1:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --tlsauthtype: needs --tlsuser and --tlspassword, or --srp-verifiers and --srp-groups"
+
+  - id: srp-needs-tls-1-2
+    claim: TLS-SRP is defined for TLS 1.2, so --tlsv1.3 beside it is refused at start, exit 2.
+    run: surl --tlsuser device --tlspassword s3cret --tlsv1.3 https://127.0.0.1:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --tlsuser: cannot be used with --tlsv1.3"
+
+  - id: srp-needs-a-tls-url
+    claim: An account with no listen URL that uses TLS is refused at start, exit 2.
+    run: surl --tlsuser device --tlspassword s3cret http://127.0.0.1:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --tlsuser: needs a listen URL that uses TLS"
+
+  - id: bad-groups-file
+    claim: A --srp-groups file with a malformed line is refused at start, exit 37, naming the file and the line.
+    run: surl --srp-verifiers tpasswd --srp-groups tpasswd.conf https://127.0.0.1:{{port2}}/
+    expect:
+      exit: 37
+      stderr-contains: "surl: (37) Could not read the --srp-groups file 'tpasswd.conf': line 1: the prime is not a GnuTLS SRP base64 number"

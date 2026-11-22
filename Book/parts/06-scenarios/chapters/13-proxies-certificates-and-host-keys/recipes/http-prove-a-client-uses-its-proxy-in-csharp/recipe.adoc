@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-prove-a-client-uses-its-proxy-in-csharp]]
+=== Proving a Client Uses Its Proxy in C#
+
+==== Problem
+
+Your client must go through a proxy, and your .NET test has to prove it did. You want a proxy and an origin from one server inside the test, and a check that every request the origin received came through the proxy.
+
+==== Solution
+
+Start one `SurlServer` that is both the origin and its proxy, with its exchanges recorded, run the client through the proxy, then check every request head the origin received for the proxy's `Via` header:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds the origin, an ordinary Hypertext Transfer Protocol (HTTP) server of the two files in `Files`. There is no property for a proxy, so `--proxy http://127.0.0.1:0` goes into `AdditionalArguments`, a word at a time, and the server's `BoundUrls` lists the origin first and the proxy second. `RecordExchanges` keeps what every connection carried; `SurlServer.Exchanges` returns them as `SurlExchangeRecord` values, each with the `ListenUrl` it arrived on and its `Received` bytes.
+
+The client under test is a `CurlClient` made with `CurlClientOptions.Proxy`, a `CurlProxyOptions` whose `Proxy` is the proxy's address: `curl -x`. It sends each `CurlRequest` there, and gets each file back as a `CurlResponse` with `200`; in your test the client is your own code, with whatever proxy setting it reads.
+
+A proxy that forwards a request adds a `Via` header naming itself, `Via: 1.1 surl` (<<rfc9110>>); a request sent straight to the origin has none. The check reads the origin's exchanges and splits their received bytes into request heads at the blank line that ends each. One connection can carry several requests, so it counts heads, not connections. After the client's two fetches there are two, both with `Via`, and the program exits 0. The proxy's own exchanges hold the other side: two requests in absolute form, `GET http://127.0.0.1:.../hello.txt`, one for each it passed on.
+
+The client can see the header too: each answer through the proxy carries `Via: 1.1 surl` in `CurlResponse.Headers`. That is a check of one answer, though, not of every request.
+
+The failure path is a request that skips the proxy, made here by a second `CurlClient` with no proxy. The origin answers it `200` like any other, with no `Via`, so the client sees nothing wrong, and that is why the test has to look at the server. The check counts one request via the proxy and one direct, and the program exits 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-prove-a-client-uses-its-proxy>> for the same test on the console.
+* <<http-prove-a-client-uses-its-proxy-from-an-agent>> for the same test driven by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-fail-a-test-on-mail-to-another-domain-in-csharp]]
+=== Failing on Foreign Mail in C#
+
+==== Problem
+
+Your C# test runs an app that must mail only your own domains. You want a misaddressed mail to fail the test loudly, with the server{apos}s own answer to hand: a stand-in that serves only your domains, and the `550` it sent found in the recorded exchange.
+
+==== Solution
+
+Host the server with Surl.Api for each domain you own and record its exchanges; the app{apos}s send to an outside address throws, and the record shows why:
+
+include::.generated/solution.adoc[]
+
+Each `Send` call stands in for the app; in a real test the app sends to `server.BoundUrls[0]`.
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `MailDomains` is `--mail-domain`, and holds both `example.com` and `example.org`; each `Mailboxes` entry is a `--mailbox`, a mailbox and the login named by its whole address. `RecordExchanges` keeps every exchange{apos}s lines, and `Log` with `LogLevel.Verbose` is `surl -v` written into a `TextWriter`.
+
+The app{apos}s send is a `CurlRequest` with `HttpMethod.Put` to the Simple Mail Transfer Protocol (SMTP) URL, each on a fresh `CurlClient`. `CurlMailOptions` gives the envelope, `MailFrom` and `MailRecipients`, and `CurlAuthenticationOptions` the app{apos}s login. An accepted send returns a `CurlResponse` whose `StatusCode` is the last reply, `250`. A recipient outside every served domain is refused at `RCPT TO`, and Curl.Api throws `CurlException` with `Code` `SendError`, 55, and the message `RCPT failed: 550`. The app has logged in, but `surl` delivers only to its own domains, so the mail cannot leave the test.
+
+The exception gives the code; the record gives the server{apos}s words. After each send the program waits, at most ten seconds, for the exchange to end: `server.WaitForEventAsync` with a `SurlEventQuery` for `Kind` `ExchangeEnded`, `Scheme` `smtp` and `AfterSequence` the last `SurlEvent`{apos}s `Sequence`. Only then is the exchange complete in `server.Exchanges`, whose `SurlExchangeRecord` values hold `Chunks`, one line each in the order they crossed. The line after the app{apos}s `RCPT TO:<carol@elsewhere.org>` is `550 5.7.1 Relaying denied` (<<rfc5321>>), the text a failing test can print.
+
+The match is on the whole domain. A subdomain, `ann@mail.example.com`, is another domain and is refused, as `--mail-domain` matches no subdomains (<<surl-readme>>), and so is a look-alike that merely begins with a served name, `ann@example.com.evil.org`. Letter case is no difference: `ANN@EXAMPLE.COM` is accepted, and the `StoreChangedEvent` the program waits for, with `Kind` `StoreChanged`, `Store` `Mail` and `Name` `ann@example.com`, names the copy in Ann{apos}s `INBOX`.
+
+Only the envelope{apos}s recipients are judged. A foreign `MailFrom`, `noreply@elsewhere.org`, mailing Ann is accepted, and so is a message whose `Cc` field names `carol@elsewhere.org` but whose `MailRecipients` names Ann alone: header fields are text, and the server delivers to the envelope. An app that builds its own recipient list can leave a stray address in the header that no server ever sees, so a test should check the delivered header as well (<<smtp-check-an-app-sent-the-right-mail-in-csharp>>).
+
+`StopAsync` ends every exchange before it returns, so the log is complete after it. Each refusal is one line, `* RCPT <address> refused: outside every --mail-domain`, the reason in a form a person reads at once.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-fail-a-test-on-mail-to-another-domain>> for the same test on the console.
+* <<smtp-fail-a-test-on-mail-to-another-domain-from-an-agent>> for an agent that spots the refusal with `get_exchanges`.
+* <<smtp-fail-a-test-on-a-wrong-recipient-in-csharp>> for the same refusal seen through .NET{apos}s `SmtpClient`.
+* <<surl-readme>>, <<rfc5321>>.

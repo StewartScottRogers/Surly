@@ -1,0 +1,147 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: mqtt-keep-readings-across-restarts
+title: Keeping Readings Across Restarts
+protocols: [mqtt]
+tier: working-servers
+surl-options: [--allow-anonymous, --topic, --directory]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 8, 37, 124]
+references: [surl-readme, curl-readme, mqtt311]
+
+# wait.sh waits, at most 20 tries half a second apart, until a topic's kept reading is the one expected. A publish
+# at QoS 0 gets no answer, so a test that restarts the server straight after one must wait for the broker to keep it.
+# It needs a POSIX shell, Git Bash on Windows. state/readme.txt only makes the folder state exist, as surl needs;
+# the retained messages go under state/.surl/bus.
+fixtures:
+  state/readme.txt: "the server's data directory\n"
+  wait.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh wait.sh <mqtt port> <topic> <expected reading>
+    port=$1
+    topic=$2
+    expected=$3
+    try=0
+    while [ "$try" -lt 20 ]; do
+      # The broker sends the topic's length in two bytes, the topic, then the reading: keep what follows.
+      kept=$(curl -s "mqtt://127.0.0.1:$port/$topic" | tail -c +$(( ${#topic} + 3 )))
+      if [ "$kept" = "$expected" ]; then
+        echo "kept: $topic is $kept"
+        exit 0
+      fi
+      try=$(( try + 1 ))
+      sleep 0.5
+    done
+    echo "not kept: $topic"
+    exit 1
+
+# kept: --directory state, so retained messages are written to disk. memory: the same options without it.
+# closed: the filter and no --allow-anonymous.
+servers:
+  kept:
+    command: surl --allow-anonymous --directory state --topic "sensors/#;retain" mqtt://127.0.0.1:{{port}}/
+    ready: port
+  memory:
+    command: surl --allow-anonymous --topic "sensors/#;retain" mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  closed:
+    command: surl --topic "sensors/#;retain" mqtt://127.0.0.1:{{port3}}/
+    ready: port
+
+# Before the first case: two readings under the filter and one outside it on the kept server, one reading on the
+# memory server; each is waited for, with a bound, before the server is stopped.
+seed:
+  - curl -sS -d 21.5 mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp --next -sS -d 19.0 mqtt://127.0.0.1:{{port}}/sensors/hall/temp --next -sS -d 22.0 mqtt://127.0.0.1:{{port}}/lab/kitchen/temp --next -sS -d 21.5 mqtt://127.0.0.1:{{port2}}/sensors/kitchen/temp
+  - sh wait.sh {{port}} sensors/kitchen/temp 21.5
+  - sh wait.sh {{port}} sensors/hall/temp 19.0
+  - sh wait.sh {{port2}} sensors/kitchen/temp 21.5
+
+# curl writes each message it receives as two bytes of topic length (big-endian), the topic, then the payload;
+# "sensors/kitchen/temp" is 20 bytes, 0x00 0x14, and "sensors/hall/temp" is 17, 0x00 0x11.
+cases:
+  - id: solution
+    role: solution
+    claim: "After the server with --directory state is stopped outright and started again with the same command, a subscriber to sensors/kitchen/temp is sent the reading published before, 21.5."
+    restart: [kept]
+    run: curl -s mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x14sensors/kitchen/temp21\.5\Z'
+
+  - id: every-topic
+    claim: "Every topic that was kept comes back: a subscription to sensors/# is sent both readings, the hall's and the kitchen's, 49 bytes in all."
+    run: curl -s "mqtt://127.0.0.1:{{port}}/sensors/%23"
+    expect:
+      exit: 0
+      stdout-matches: '(?s)\A(?=.*\x00\x11sensors/hall/temp19\.0)(?=.*\x00\x14sensors/kitchen/temp21\.5).{49}\Z'
+
+  - id: on-disk
+    claim: "The retained messages are in one file, state/.surl/bus/retained, beside the lock file that says the folder is in use."
+    run: curl -s -o {{null}} mqtt://127.0.0.1:{{port}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      files:
+        state/.surl/bus/retained: null
+        state/.surl/lock: null
+
+  - id: outside-the-filter
+    claim: "A publish outside the filter was never kept, so the restarted server holds nothing for lab/kitchen/temp."
+    run: curl -s mqtt://127.0.0.1:{{port}}/lab/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: new-reading-after-restart
+    claim: "The restarted server keeps what is published to it: after a new hall reading, 20.0, the kept reading is 20.0."
+    run: curl -s -d 20.0 mqtt://127.0.0.1:{{port}}/sensors/hall/temp && sh wait.sh {{port}} sensors/hall/temp 20.0
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: "kept: sensors/hall/temp is 20.0\n"
+
+  - id: second-restart
+    claim: "A second restart keeps the newer hall reading, not the first, and the kitchen's reading as well: both are sent, 49 bytes, with 20.0 for the hall."
+    restart: [kept]
+    run: curl -s "mqtt://127.0.0.1:{{port}}/sensors/%23"
+    expect:
+      exit: 0
+      stdout-matches: '(?s)\A(?=.*\x00\x11sensors/hall/temp20\.0)(?=.*\x00\x14sensors/kitchen/temp21\.5).{49}\Z'
+
+  - id: memory-holds-while-running
+    claim: "The server without --directory is sent the same reading while it runs."
+    run: curl -s mqtt://127.0.0.1:{{port2}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x14sensors/kitchen/temp21\.5\Z'
+
+  - id: memory-forgets
+    claim: "Without --directory a restart starts the retained messages over: a subscriber to the same topic is sent nothing, and curl exits 0."
+    restart: [memory]
+    run: curl -s mqtt://127.0.0.1:{{port2}}/sensors/kitchen/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: directory-must-exist
+    claim: "A --directory that does not exist is refused at the start, exit 37, Could not open directory."
+    run: surl --directory nosuch mqtt://127.0.0.1:0/ 2>&1
+    expect:
+      exit: 37
+      stdout: "surl: (37) Could not open directory nosuch\n"
+
+  - id: directory-in-use
+    claim: "A second surl cannot use the folder while the first runs; it stops with exit 124 and says so."
+    run: surl --directory state mqtt://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 124
+      stdout-matches: '^surl: \(124\) Directory state is in use by another surl process\n'
+
+  - id: closed-without-anonymous
+    claim: "The filter does not open the server: with no --allow-anonymous a publish is refused with CONNACK return code 5, and curl exits 8."
+    run: curl -s -S -d 21.5 mqtt://127.0.0.1:{{port3}}/sensors/kitchen/temp 2>&1
+    expect:
+      exit: 8
+      stdout: "curl: (8) Expected 0000 but got 0005\n"

@@ -74,3 +74,10 @@ http-run-a-test-proxy, http-run-a-test-proxy-in-csharp, http-run-a-test-proxy-fr
 
 ## Recipes (batch-08)
 http-require-a-proxy-login, https-tunnel-through-a-proxy, socks5-relay-through-a-socks-proxy (each with -in-csharp and -from-an-agent).
+
+## Proving every request went through the proxy (http-prove-a-client-uses-its-proxy, + twins; Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `--trace-ascii traffic.txt` traces BOTH listeners into one file; `--log-file` beside `--trace-ascii` wrote nothing. Origin heads are origin form (`0000: GET /hello.txt HTTP/1.1`) with `0056: Via: 1.1 surl` when proxied; the proxy's are absolute form (`0000: GET http://...`); the head ends with a `xxxx: ` line. The proxy writes `#N * Forwarded GET to 127.0.0.1:P; the origin answered 200.` per request (`grep -c`). A short awk fixture counts proxied/direct heads portably (no `{n}` intervals, strip `\r`).
+- A direct request to the origin is served 200 with no Via: the origin cannot refuse it, so the proof has to be read from the server's record.
+- Surl.Api: `RecordExchanges = true`, `server.Exchanges` filtered by `ListenUrl == BoundUrls[i]`; one exchange can hold several heads (connection reuse), so split `Received` text at `\r\n\r\n`. `CurlProxyOptions` is in namespace `Curl.Api` (file under Options/Transport). curl-mcp `transfer` answer headers include `Via` when proxied.
+- surl-mcp `get_exchanges` with `listen_url`: received chunks for HTTP heads are `encoding: text`.
+- Recipes (batch 12): http-prove-a-client-uses-its-proxy (and twins).

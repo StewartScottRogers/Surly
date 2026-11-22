@@ -1,0 +1,104 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: https-require-a-client-certificate-from-an-agent
+title: Requiring a Client Certificate from an Agent
+protocols: [https]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event]
+exit-codes: [0, 1, 2, 77]
+references: [surl-readme, curl-manual, rfc8446, rfc5280]
+
+fixtures:
+  notes.txt: "not a certificate\n"
+
+# The test authority (ca.pem) signs the device's certificate; another authority signs a stranger's.
+# server.pem is the server's own self-signed certificate, which the client trusts.
+# Each client certificate is also packed with its key into a PFX (P12) file under the passphrase s3cret.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 30 -subj "/CN=Test Device CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign"
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout other-ca.key -out other-ca.pem -days 30 -subj "/CN=Other Device CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign"
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+  - openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj "/CN=device-1"
+  - openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 30
+  - openssl req -newkey rsa:2048 -nodes -keyout stranger.key -out stranger.csr -subj "/CN=device-1"
+  - openssl x509 -req -in stranger.csr -CA other-ca.pem -CAkey other-ca.key -CAcreateserial -out stranger.pem -days 30
+  - openssl pkcs12 -export -in client.pem -inkey client.key -out client.p12 -passout pass:s3cret
+  - openssl pkcs12 -export -in stranger.pem -inkey stranger.key -out stranger.p12 -passout pass:s3cret
+
+cases:
+  - id: solution
+    role: solution
+    claim: An agent gives start_server --cert, --key and --cacert ca.pem in arguments, and curl-mcp's curl tool, presenting client.p12 with --cert and --cert-type P12, fetches the file with exit code 0.
+    program: program.cs
+    args: ["ca.pem", "p12"]
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: no-certificate
+    claim: Without a client certificate the curl tool answers a tool error with a nonzero exitCode that depends on the TLS version and platform.
+    program: program.cs
+    args: ["ca.pem", "none"]
+    expect:
+      exit: 1
+      stdout-matches: '\Acurl failed: tool error, exitCode [1-9]\d*\n'
+
+  - id: other-authority
+    claim: A client certificate signed by another authority, with the same subject name, is refused the same way.
+    program: program.cs
+    args: ["ca.pem", "stranger"]
+    expect:
+      exit: 1
+      stdout-matches: '\Acurl failed: tool error, exitCode [1-9]\d*\n'
+
+
+  - id: nothing-read
+    claim: The server's exchange_ended event for the refused connection, from wait_for_event, counts 0 bytes received, so no request was read.
+    program: program.cs
+    args: ["ca.pem", "stranger"]
+    expect:
+      exit: 1
+      stdout-matches: '\nserver: exchange \d+ ended, 0 bytes received\n\Z'
+
+  - id: without-cacert
+    claim: Without --cacert the server asks for no certificate, and the curl tool with none fetches the file.
+    program: program.cs
+    args: ["none", "none"]
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: pem-on-windows
+    platforms: [windows]
+    claim: On Windows the curl tool reads a client certificate from a P12 file only, as curl does there; a PEM certificate and key give exitCode 58, Failed to import cert file.
+    program: program.cs
+    args: ["ca.pem", "pem"]
+    expect:
+      exit: 1
+      stdout-matches: '\Acurl failed: tool error, exitCode 58\ncurl: \(58\) schannel: Failed to import cert file client\.pem'
+
+  - id: pem-elsewhere
+    platforms: [linux, macos]
+    claim: On Linux and macOS the curl tool also reads the PEM certificate and its key, and fetches the file.
+    program: program.cs
+    args: ["ca.pem", "pem"]
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: cacert-missing
+    claim: A --cacert file that does not exist makes start_server a tool error with exit_code 2, FailedInit, naming the file.
+    program: program.cs
+    args: ["missing.pem", "p12"]
+    expect:
+      exit: 2
+      stdout: "exit_code: 2 (FailedInit)\nThe file 'missing.pem' provided to --cacert does not exist\n"
+
+  - id: cacert-unreadable
+    claim: A --cacert file that holds no certificate makes start_server a tool error with exit_code 77, CaCertificateBadFile.
+    program: program.cs
+    args: ["notes.txt", "p12"]
+    expect:
+      exit: 77
+      stdout-matches: "\\Aexit_code: 77 \\(CaCertificateBadFile\\)\\n.*The --cacert file 'notes\\.txt' holds no certificate Surl can read\\."

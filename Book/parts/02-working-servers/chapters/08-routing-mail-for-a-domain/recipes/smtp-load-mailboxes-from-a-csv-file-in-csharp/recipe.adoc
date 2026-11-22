@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-load-mailboxes-from-a-csv-file-in-csharp]]
+=== Loading Mailboxes from CSV in C#
+
+==== Problem
+
+Your C# test fixture makes a fresh set of forty mailboxes for each run. You want it to write them to a comma-separated values (CSV) file, have Surl.Api load the file, and, when the fixture writes a bad record, catch the start refusal that names its line.
+
+==== Solution
+
+Write the file into a folder of the run{apos}s own, add it to `MailboxFiles`, and start the server; a bad record makes `StartAsync` throw:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`Directory.CreateTempSubdirectory` gives each run a folder of its own, so runs side by side never share a file, and the `finally` block deletes it. The file{apos}s first record names the columns, `address`, `password` and `protocols`; each later record is one mailbox, read as `--mailbox` reads its value (<<surl-readme>>). The last ten testers have `imap` in the `protocols` column, the rest an empty field. `ops` has a comma in its password, so the field is in double quotes, as CSV quotes it; there is no percent-encoding in the file.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `MailboxFiles` is `--mailbox-file`, once per entry; `MailDomains` is `--mail-domain`, which the file{apos}s addresses still need. `ListenUrls` puts Simple Mail Transfer Protocol (SMTP), Internet Message Access Protocol (IMAP) and Post Office Protocol version 3 (POP3) over one mail store. `RecordExchanges` keeps the events the test waits on, and `Log` with `LogLevel.Verbose` is `surl -v` into a `TextWriter`.
+
+The mailboxes work like any others. `tester01` sends with a `CurlRequest` of `HttpMethod.Put` to the SMTP URL on a fresh `CurlClient`, `CurlMailOptions` the envelope and `CurlAuthenticationOptions` its login. The test waits, at most ten seconds, for the delivery: `server.WaitForEventAsync` with a `SurlEventQuery` for `Kind` `StoreChanged`, `Store` `Mail` and `Name` `tester02@example.com`. Then `tester02` reads the subject over IMAP with a `CurlRequest` of `HttpMethod.Get`, and the `CurlResponse` body is the field. The file is read before any listener binds, so by the time `StartAsync` returns, the log has named each mailbox, one line each: forty for the testers, and `tester31`{apos}s says `logins on imap`.
+
+The `protocols` column limits a login, not the mailbox. Over POP3, `tester31`{apos}s right password throws `CurlException` with `Code` `LoginDenied`, 67, while IMAP reads the mailbox; `CustomRequest` sends the `STATUS` command, as `curl -X` would. `tester02`, with an empty field, lists the same message over POP3 that it read over IMAP, and `ops` logs in with `s3cret,too`.
+
+A bad record stops the start. `StartAsync` throws `SurlServerStartException`; its `ExitCode` is `FailedInit`, the 2 `surl` would exit with, and `Lines[0]` names the file and the line the record starts on: `Mailbox file mailboxes.csv, line 4: mailbox carol@elsewhere.org is not in any --mail-domain`. Line 4, though Carol is only the second mailbox: every line counts, the blank one included, so the fixture{apos}s author finds it in the file as written. The line names the file as `MailboxFiles` gave it, by its full path, so the program prints it with the run{apos}s folder taken off. `MailboxFiles` may hold more than one file, and an address a second file repeats is refused at its line, `is given twice`; a column `surl` does not know is refused at line 1; and a file that is not there is `ExitCode` `CouldNotReadFile`, 37.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-load-mailboxes-from-a-csv-file>> for the file on the console.
+* <<smtp-load-mailboxes-from-a-csv-file-from-an-agent>> for an agent that writes the file and fixes the record a refusal names.
+* <<surl-run-tests-in-parallel-without-clashes-in-csharp>> for one server per parallel test.
+* <<surl-readme>>.

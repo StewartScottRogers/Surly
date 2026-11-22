@@ -26,3 +26,9 @@ Checked against: surl 1.0.0 (Surl 5da5b3eaf), curl (Curl c84035f797), 2026-11-22
 stomp-send-to-a-queue, stomp-send-and-read-over-mqtt (and C# and agent twins).
 
 - Decided by Surl (2026-11-22): retained messages are MQTT's alone to read (ADR-0100 d.3.3, ADR-0118): STOMP, AMQP, NATS and Redis subscribers never get one. A STOMP subscribe with no time limit waits for ever on an empty queue, or on a message held by another live ack:client subscription; bound every subscribe.
+
+## Logging in over TLS (stomps-log-in-over-tls and twins, Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `stomps://` with `--cert --key --user alice:s3cret`; `curl --cacert server.pem -u alice:s3cret -d hello stomps://h:p/queue/jobs --next -s -m 3 --cacert server.pem -u alice:s3cret stomps://h:p/queue/jobs` writes `hello`, exit 28. Wrong password, unknown user, no login, right password over plain `stomp://`: exit 67 `STOMP server sent ERROR: Authentication failed` (same for all). With `--allow-plaintext-auth` plain sends (exit 0). No `--cacert`: 60. No `--ssl-no-revoke` needed. Client-first protocol: the BL-5750 TLS-before-greeting fault is not expected on Linux; not run there.
+- Surl.Api: `Queues.Add("jobs")`, `RecordExchanges = true`; Curl.Api POST `queue/jobs`; wait `ExchangeEnded` then `server.Messages.BrowseQueueAsync("jobs", -1, 100, ct)` (`ReadyCount`, `Messages[].Payload`). Refusal `CurlException` 67, message ends `Authentication failed`. surl-mcp: `--queue jobs` in `arguments`, `wait_for_event(kinds:["exchange_ended"], timeout_ms)`, `browse_queue(server_id, queue)` -> `ready_count`, `messages[].text`.
+
+- Decided by Surl (2026-11-22): a STOMP SEND or SUBSCRIBE to an undeclared queue creates it (ADR-0118, as ADR-0107 for AMQP 1.0), so a producer can meet a later consumer. Seeding with EnqueueAsync still refuses an undeclared queue (BL-1605 open): declare it with --queue first.

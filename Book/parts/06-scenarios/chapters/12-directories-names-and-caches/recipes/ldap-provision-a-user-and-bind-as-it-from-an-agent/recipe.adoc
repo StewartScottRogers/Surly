@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-provision-a-user-and-bind-as-it-from-an-agent]]
+=== Provisioning a User and Binding as It
+
+==== Problem
+
+Your provisioning job adds users to a Lightweight Directory Access Protocol (LDAP) directory. You want your artificial intelligence (AI) agent to find the new entry by search, bind as it with its password, and check what the server recorded.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts the directory with `surl-mcp`, writes bob's entry and account as the job would, searches and binds with `curl-mcp`{apos}s `curl` tool, and waits for the server's record:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` listens on `ldap://127.0.0.1:0`, a free port, with `--user tester:t3st-pass` in its `arguments`, the account the agent searches as. `add_ldap_entries` seeds the tree the job finds: the domain, `ou=people` and alice. `surl` refuses an add over LDAP itself, so the agent stands in for the job with two tools, `add_ldap_entries` with bob's entry and `add_account` with his name and password; your agent runs the job there instead.
+
+The job writes two things because `surl` keeps them apart. The entry is what a search finds; the account is what a bind is checked against. A simple bind (<<rfc4511>>) names a distinguished name (DN), and `surl` takes the value of its leading `uid` or `cn`, here `bob`, as the account name. The entry's `userPassword` is not read: with the argument `entry-only` the job adds only the entry, the search finds it, and the bind with the same password is refused.
+
+`curl` runs `curl` with the argument list given; `-u` names the bind, `-s` keeps it quiet and `-S` still writes an error. `ou=people,dc=example,dc=com?cn,mail?sub?(uid=bob)` (<<rfc4516>>) as `tester` finds bob's entry, and before the job finds nothing. `uid=bob,ou=people,dc=example,dc=com?uid?base` as bob reads his own entry only if his password was accepted. The answer's `exitCode` is `curl`{apos}s, and `standardOutput` holds the entries, which the program prints as one sorted line so the layout of the LDAP library under `curl` does not matter.
+
+A refused bind's exit code depends on that library. On Windows, WinLDAP gives 38 for a wrong password and for a name with no account alike; on Linux and macOS the OpenLDAP build gives 67 for both. `--allow-plaintext-auth` loosens a default for the test: with the argument `strict` it is left out, and a password sent over `ldap://` is refused unchecked, the right one included, with 38 on every platform. A test that keeps the default serves `ldaps://`, as <<ldaps-search-over-tls-from-an-agent>> shows.
+
+`wait_for_event` answers the first recorded event that matches, or waits up to `timeout_ms` for one, so the agent never reads too early. `kinds` `login_judged` with `account` `bob` is bob's bind, with `scheme`, `mechanism`, `password` for a simple bind, and `is_accepted`, false after a wrong password. `kinds` `store_changed` with `store` `directory` and bob's DN as `name` is the job's write, `seeded`. `read_directory` answers the tree as LDIF with bob in it and every `userPassword` left out.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-provision-a-user-and-bind-as-it>> for the same test on the console.
+* <<ldap-provision-a-user-and-bind-as-it-in-csharp>> for the same test in C#.
+* <<ldap-provision-users-for-a-test>> for several users at once.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>.

@@ -1,0 +1,50 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-expire-a-token-mid-session]]
+=== Expiring a Token Mid-Session
+
+==== Problem
+
+Your client keeps a Bearer token between calls. You want the token revoked between two calls, so the test proves the client sees `401`, logs in again for a new token and retries the call once.
+
+==== Solution
+
+Serve `surl`{apos}s container registry, whose token endpoint issues a new token at every login, with a control endpoint beside it. Run the client, revoke every token through the control endpoint, and run the client again. The client is a short script and needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::client.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+An account given with `--user` holds a password, and an account with an empty user name holds one fixed Bearer token (<<rfc6750>>), which the control endpoint cannot change: `POST /v1/accounts`, sent with `--json`, refuses an account with an empty name, `400`. The server that issues tokens is the registry: an `oci://` listen URL serves the Open Container Initiative (OCI) distribution interface (<<oci-distribution>>) over Hypertext Transfer Protocol Secure (HTTPS). `GET /token?service=surl` checks a Basic login (<<rfc7617>>) and answers JSON with a new random `token` that is good for `expires_in` 300 seconds, and every request under `/v2/` needs one as `Authorization: Bearer`. `GET /v2/` is the registry's smallest call; it stands in for your API. `--cert server.pem` and `--key server.key` serve Transport Layer Security (<<rfc8446>>) with the certificate and key `setup` made, and `--cacert server.pem` makes `curl` trust exactly that certificate.
+
+The script is the client. It keeps its token in the file named last; with none it logs in with `-u`, and `sed` takes the token out of the JSON. `--oauth2-bearer` sends the token, `-o` keeps the body out of the way and `-w "%{http_code}"` gives the script the status. On `401` it logs in once more, says whether the token it got is new, and retries once; any status but `200` after that makes it exit 1. `-s` keeps `curl` quiet, and at the login `-f` turns an error status into exit 22 and `-S` prints why, so a refused login stops the client with that code.
+
+Three hundred seconds is a long time for a test to wait, so the test revokes the token instead. `--control` opens a test control endpoint on a loopback port, guarded by the token in `--control-token-file`, every request sending it with `-H` as `Authorization: Bearer`. `-X POST` to `/v1/reset` returns every store to how the server started. Tokens are not part of that start, so every token issued so far stops at once; `app`, given at start, stays. A call without a token, or with a revoked one, is answered `401 Unauthorized` with `WWW-Authenticate: Bearer`, its `realm` the token endpoint, which `-D -` prints.
+
+The three servers show the three paths. On `main` the kept token works, is revoked, is refused, and the client gets a new one and retries. On `steady`, with no revocation, the second run reuses the token and does not log in. On `broken`, `--fault` answers every call under `/v2/` with `401` even after a new login, and the client gives up after its one retry instead of looping; the same server with a stale token and a wrong password stops at the login with exit 22.
+
+What the server recorded is on the control endpoint. `logins.sh` polls `GET /v1/events?kind=login_judged` until it holds the logins the test expects, at most 25 times 0.2 s apart, then prints each:
+
+[source,sh]
+----
+include::logins.sh[]
+----
+
+The session is two logins, both `app`{apos}s password at the token endpoint and both accepted; a call with a token is checked but is not a login, so it is not among them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-expire-a-token-mid-session-in-csharp>> for the same test in C#.
+* <<http-expire-a-token-mid-session-from-an-agent>> for the same test from an agent.
+* <<http-exchange-a-password-for-a-token>> for a fixed token served as a file.
+* <<oci-push-and-pull-an-image>> for the registry itself.
+* <<surl-readme>>, <<curl-readme>>, <<oci-distribution>>, <<rfc6750>>, <<rfc7617>>, <<rfc8446>>.

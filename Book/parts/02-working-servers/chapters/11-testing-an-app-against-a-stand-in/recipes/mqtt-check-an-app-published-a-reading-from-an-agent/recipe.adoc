@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-check-an-app-published-a-reading-from-an-agent]]
+=== Checking an App's Reading from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to wait for a device{apos}s Message Queuing Telemetry Transport (MQTT) publish and read the value the device sent, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a broker that keeps what is published under `sensors/`, lets the `curl` tool publish as the device, waits for the broker with `wait_for_event`, and reads the reading with `read_retained_message`. The program takes the case to run as its argument; the first case is the whole task:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). `start_server` starts an MQTT broker, <<mqtt311>>, on a free port and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options: `--topic "sensors/#;retain"` declares the topics under `sensors/` and keeps every message published on them, whatever its retain flag, and `--allow-anonymous` lets a client connect with no user name, a loosening for a test on one machine (<<surl-readme>>).
+
+The device is the `curl` tool, which runs `curl`{apos}s own arguments: `-d 21.5` with the topic{apos}s URL publishes the reading with the retain flag clear, and `-s` and `-S` keep the progress meter out and the error message in (<<curl-readme>>, <<curl-protocols>>). A broker keeps a message as a topic{apos}s last one only when the flag is set (<<mqtt311>>), so what keeps the reading is the filter. In a real test the device is the code under test, and the agent only waits and reads.
+
+A publish at quality of service 0 gets no answer, so the `curl` tool can return before the broker has applied the message, and a read straight after it can find the topic empty. The program does not sleep. After each publish it calls `wait_for_event` with `kinds` `exchange_ended` and `after_sequence` set to the last sequence it saw, which answers when the broker records the end of `curl`{apos}s connection, after what `curl` sent has been applied, with a `timeout_ms` of ten seconds that a failure alone ever reaches. The answer carries the event{apos}s `sequence`, which the program keeps for the next wait.
+
+The check is `read_retained_message` with the `server_id` and a `topic`. It reads the broker{apos}s store with no client and no login and answers the `topic`, the `qos`, which is `0`, and the `text`. A topic with nothing kept answers `{"retained": false}` and is not a tool error, so the program has to test for it. It compares the text with the expected reading and prints `ok:` and exits `0`, or prints what the broker holds, `FAIL: sensors/kitchen/temp is 21.5 at QoS 0, expected 22.0`, and exits `1`. Reading does not use the reading up, so a second check finds it again. The last reading wins: after `21.5` and then `22.0` the check for `22.0` passes and one for `21.5` fails.
+
+A check that finds nothing is the way to find three mistakes. A device that publishes to a misspelt topic, `sensors/hall/temprature`, leaves its reading under that name, and the check on the right name finds nothing while a check on the misspelling finds the reading. A device that publishes outside the filter, `lab/kitchen/temp`, is accepted and nothing is kept. And a broker started with no `--topic` keeps nothing a client publishes. If a reading is missing, look at the filter and the topic first.
+
+The filter does not open the broker. On one without `--allow-anonymous` the `curl` tool answers exit code `8` and `Expected 0000 but got 0005` on standard error, which the program prints; the refused connection ends no exchange the agent needs to wait for, and there is nothing to read. `curl-mcp` answers in JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-check-an-app-published-a-reading>> for the same task on the console, with `curl` as the app and a check script.
+* <<mqtt-check-an-app-published-a-reading-in-csharp>> for the same task from a C# test.
+* <<mqtt-keep-a-retained-message-from-an-agent>> for how the filter keeps a message, and for seeding one.
+* <<mqtt311>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

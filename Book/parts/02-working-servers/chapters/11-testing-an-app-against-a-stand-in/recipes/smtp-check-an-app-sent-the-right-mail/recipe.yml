@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-check-an-app-sent-the-right-mail
+title: Checking an App Sent the Right Mail
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--mail-delivered-to, --mail-domain, --mailbox]
+curl-options: [-s, -S, -u, -o, -X, --crlf, --mail-from, --mail-rcpt, -T, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 78]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+# reset.eml is the mail the app should send ann. The other two are the app getting it wrong:
+# a link to the developer's own machine, and a To field that does not match the envelope.
+fixtures:
+  reset.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Reset your password\n\nSomeone asked to reset the password for ann@example.com.\nOpen this link to choose a new one:\nhttps://app.example.com/reset/4f9c2a7e\n"
+  local-link.eml: "From: app@example.com\nTo: carol@example.com\nSubject: Reset your password\n\nSomeone asked to reset the password for carol@example.com.\nOpen this link to choose a new one:\nhttp://localhost:5000/reset/9b03d6e1\n"
+  wrong-to.eml: "From: app@example.com\nTo: dave@example.com\nSubject: Reset your password\n\nSomeone asked to reset the password for dave@example.com.\nOpen this link to choose a new one:\nhttps://app.example.com/reset/c71e0a52\n"
+
+# One surl: SMTP for the app, IMAP for the test, one mail store. --mail-delivered-to writes the
+# envelope recipient into each stored copy.
+servers:
+  main:
+    command: surl --mail-delivered-to --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox carol@example.com:carolpass --mailbox dave@example.com:davepass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# The app's three runs: the right mail to ann, a mail with a local link to carol, and a mail whose
+# To field says dave but whose envelope names bob. The last line waits, at most ten tries a second
+# apart, until carol's and bob's mail is in; the solution's own command waits for ann's.
+seed:
+  - curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T reset.eml smtp://127.0.0.1:{{port}}/app.example.com --next -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt carol@example.com -T local-link.eml smtp://127.0.0.1:{{port}}/app.example.com --next -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt bob@example.com -T wrong-to.eml smtp://127.0.0.1:{{port}}/app.example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u carol@example.com:carolpass -X "FETCH 1 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u bob@example.com:bobpass -X "FETCH 1 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test waits for ann's first message, at most ten tries a second apart, and its Delivered-To and Subject fields show it reached ann's mailbox with the subject the app should write.
+    run: curl -sS --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(DELIVERED-TO%20SUBJECT)"
+    expect:
+      exit: 0
+      stdout: "Delivered-To: ann@example.com\nSubject: Reset your password\n\n"
+
+  - id: link
+    claim: The body, fetched with SECTION=TEXT, holds the link, and grep -o picks it out exactly.
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT" | grep -o "https://app.example.com/reset/[0-9a-f]*"
+    expect:
+      exit: 0
+      stdout: "https://app.example.com/reset/4f9c2a7e\n"
+
+  - id: one-search
+    claim: One IMAP SEARCH asks for recipient, subject and link together, and names the message that has all three.
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?TO%20ann@example.com%20SUBJECT%20%22Reset%20your%20password%22%20BODY%20https://app.example.com/reset/"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n"
+
+  - id: local-link-not-found
+    claim: Carol's mail has the right subject but a link to localhost, so the same search in her INBOX names no message.
+    run: curl -sS -u carol@example.com:carolpass "imap://127.0.0.1:{{port2}}/INBOX?TO%20carol@example.com%20SUBJECT%20%22Reset%20your%20password%22%20BODY%20https://app.example.com/reset/"
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: local-link-shows
+    claim: Picking any reset link out of her mail shows what the app wrote instead.
+    run: curl -sS -u carol@example.com:carolpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=TEXT" | grep -o "http[s]*://[^ ]*/reset/[0-9a-f]*"
+    expect:
+      exit: 0
+      stdout: "http://localhost:5000/reset/9b03d6e1\n"
+
+  - id: wrong-recipient-times-out
+    claim: Mail the app addressed To dave but sent to bob never reaches dave's mailbox, and a wait bounded to two retries ends in exit 78, remote file not found.
+    run: curl -sS --retry 2 --retry-all-errors --retry-delay 1 -u dave@example.com:davepass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)"
+    expect:
+      exit: 78
+      stderr-contains: "curl: (78) Remote file not found"
+
+  - id: delivered-to-is-the-envelope
+    claim: In bob's mailbox the stored copy says Delivered-To bob, the envelope recipient, while its To field still says dave.
+    run: curl -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(DELIVERED-TO%20TO)"
+    expect:
+      exit: 0
+      stdout: "Delivered-To: bob@example.com\nTo: dave@example.com\n\n"

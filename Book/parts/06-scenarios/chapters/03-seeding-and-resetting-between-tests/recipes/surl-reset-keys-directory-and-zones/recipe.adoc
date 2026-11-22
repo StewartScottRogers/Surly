@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-reset-keys-directory-and-zones]]
+=== Resetting Keys, Directory and Zones
+
+==== Problem
+
+Your tests change Redis keys, directory entries and Domain Name System (DNS) zones on one shared server, and a test that runs after another must not see what the first changed. You want one call that puts all three back, and a check that it did.
+
+==== Solution
+
+Seed the baseline once, take a `SurlSnapshot` of it, and restore the snapshot after each test. The program reads the three stores back through their own clients, `Curl.Api` over Redis, the Lightweight Directory Access Protocol (LDAP) and DNS, which is what the app under test would see:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+One `SurlServer` listens on `redis://`, `ldap://` and `dns://`, each on a free port, and `BoundUrls` lists the addresses in the same order. `SurlServerOptions.AllowAnonymous`, the spelling of `--allow-anonymous`, lets the directory answer a search that gives no name, a loosening for a test on one machine (<<surl-readme>>). The seed uses three calls that need no client and no login: `SurlServerKeys.SetAsync` for the key, `SurlServerDirectory.AddEntriesAsync` for entries written as LDAP Data Interchange Format (LDIF) text, a root first and then a person, and `SurlServerZones.AddZoneAsync` for a zone written as master-file text under its apex (<<redis-resp>>, <<rfc4511>>, <<rfc2849>>). The test{apos}s own changes use the same three calls: the key is replaced, a second person is added, and a second zone is added. A second zone for an apex that already has one is refused, so the test adds a new apex.
+
+The program does not trust the calls it made. `Show` asks each store as a client would, through a `CurlClient` and one `CurlRequest` per question, and reads the answer from the `CurlResponse` (<<curl-readme>>). A Redis command is the URL path, here `GET/greeting` and `DBSIZE`; the body is the value and a line feed, and null is a lone line feed. The directory is one search for every entry under `dc=example,dc=com`, with `CurlAuthenticationOptions.UserPassword` set to `:` for the anonymous bind, and the program counts the `DN:` lines. DNS is one `A` lookup, whose status is read from the header line and whose address from the answer line. At the baseline the key is `hello`, the directory has two entries, `www.example.test` answers `NOERROR` with `192.0.2.1`, and `www.other.test` is `REFUSED`, because no zone holds it. After the test{apos}s changes the key is `changed`, the directory has three entries and `www.other.test` answers `192.0.2.2`.
+
+`SurlServer.SnapshotAsync` records the state of the server as a `SurlSnapshot`, a value the test keeps, and `RestoreAsync` puts it back. The one restore returns the key, the directory and the zones together, and the same questions give the baseline answers: the new person and the new zone are gone, and the key is `hello` again. The snapshot is not used up by a restore, so a test class takes it once and restores it before every test, which the `snapshot-reused` case shows by changing and restoring twice.
+
+`ResetAsync` does something else. It puts the server back to how it was at start, which for these three stores is empty, because their contents come from calls and not from options: the key is null, the count is `0`, the search for the root fails with curl error `39`, which `Curl.Api` throws as a `CurlException`, and both names are `REFUSED`. A test that wants its baseline calls the same seed again, and the program shows that the answers are then the baseline{apos}s. Use `ResetAsync` when each test seeds what it needs, and `RestoreAsync` when the tests share a baseline.
+
+Without either call nothing is undone. The next test finds `changed`, three entries and the second zone, its check against the baseline fails, and the program returns `1`. That failure is the reason for the reset, and it points at the test that ran before, not at the app.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-seed-a-cache-for-a-test-in-csharp>> for seeding keys, with expiry.
+* <<ldap-seed-a-directory-in-process>> for seeding the directory in steps.
+* <<dns-read-answers-as-json-in-csharp>> for reading zone answers.
+* <<surl-share-one-server-across-a-test-class>> for a class fixture that resets before each test.
+* <<surl-readme>>, <<curl-readme>>, <<redis-resp>>, <<rfc4511>>, <<rfc2849>>.

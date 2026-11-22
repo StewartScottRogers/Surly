@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: rediss-log-in-over-tls
+title: Logging In to Redis over TLS
+protocols: [rediss, redis]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--cacert, -u, -s, -S]
+exit-codes: [0, 60, 67]
+references: [surl-readme, curl-readme, redis-resp, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main: rediss with one account and no loosening option. plain: the same account over redis://.
+# plaintext: the same again with --allow-plaintext-auth.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret rediss://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --user alice:s3cret redis://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth redis://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over rediss curl logs in as alice with -u, trusting the certificate with --cacert, sets a key and reads it back in one run, with no loosening option on surl.
+    run: curl -s --cacert server.pem -u alice:s3cret rediss://127.0.0.1:{{port}}/SET/greeting/hello rediss://127.0.0.1:{{port}}/GET/greeting
+    expect:
+      exit: 0
+      stdout: "OK\nhello\n"
+
+  - id: wrong-password
+    claim: A wrong password is answered with WRONGPASS and curl exits 67.
+    run: curl -sS --cacert server.pem -u alice:wrong rediss://127.0.0.1:{{port}}/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"
+
+  - id: unknown-user
+    claim: A user name surl has no account for gets the same WRONGPASS as a wrong password.
+    run: curl -sS --cacert server.pem -u bob:s3cret rediss://127.0.0.1:{{port}}/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"
+
+  - id: no-login
+    claim: A connection that sends no login is answered with NOAUTH, a different error from a wrong password, and curl exits 67 as well.
+    run: curl -sS --cacert server.pem rediss://127.0.0.1:{{port}}/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "NOAUTH"
+
+  - id: plain-refuses-the-password
+    claim: Over plain redis:// the right password is answered with WRONGPASS, because surl will not take a password in the clear.
+    run: curl -sS -u alice:s3cret redis://127.0.0.1:{{port2}}/GET/greeting
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "WRONGPASS"
+
+  - id: plaintext-option-loosens
+    claim: With --allow-plaintext-auth the same login over redis:// is accepted, exit 0.
+    run: curl -s -u alice:s3cret redis://127.0.0.1:{{port3}}/SET/greeting/hello
+    expect:
+      exit: 0
+      stdout: "OK\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert curl does not trust the certificate, never sends the login, and exits 60.
+    run: curl -s -u alice:s3cret rediss://127.0.0.1:{{port}}/GET/greeting
+    expect:
+      exit: 60
+      stdout: ""

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-expire-a-token-mid-session-from-an-agent]]
+=== Expiring a Token Mid-Session from an Agent
+
+==== Problem
+
+Your client keeps a Bearer token between calls. You want your artificial intelligence (AI) agent to revoke the token between two calls and prove the client sees `401`, logs in again for a new token and retries the call once.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK). It starts `surl`{apos}s container registry with `surl-mcp`, whose token endpoint issues a new token at every login, plays the client through `curl-mcp`{apos}s `curl` tool, revokes every token with `reset_server` between two calls, and waits for the logins the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+An account given with `--user` holds a password, and an account with an empty user name holds one fixed Bearer token (<<rfc6750>>), which `add_account` will not add: its schema requires a user name, so the call fails with `McpProtocolException`. The server that issues tokens is the registry: an `oci://` listen URL serves the Open Container Initiative (OCI) distribution interface (<<oci-distribution>>) over Hypertext Transfer Protocol Secure (HTTPS). `GET /token?service=surl` checks a Basic login (<<rfc7617>>) and answers JSON with a new random `token` good for `expires_in` 300 seconds; every request under `/v2/` needs one. `GET /v2/` is the registry's smallest call and stands in for your API. `start_server`{apos}s `arguments` carry `--cert server.pem --key server.key` for Transport Layer Security (<<rfc8446>>), files `setup` made in `SURL_MCP_ROOT`, and `--user app:s3cret`.
+
+`curl` runs `curl` in `CURL_MCP_ROOT` with the argument list given, so `--cacert server.pem` trusts exactly that certificate; the agent asks for `https://` on the bound port. The client keeps its token; with none it logs in with `-u`, `-f` turning a refusal into exit 22, and reads the token from the JSON in `standardOutput`. Each call sends `--oauth2-bearer` with the token, `-o api.out` keeps the body out of the way, and `-w "%{http_code}"` puts the status in `standardOutput`, with `-s` keeping it quiet. On `401` the client logs in once more, says whether the token is new, and retries once.
+
+Three hundred seconds is a long time for a test to wait, so the agent revokes the token instead. `reset_server` returns every store to how the server started; tokens are not part of that start, so every token issued so far stops at once, while `app` stays. A call with no token is answered `401 Unauthorized` with a `Bearer` challenge whose `realm` is the token endpoint, which `-D -` puts in `standardOutput`.
+
+The arguments pick the other paths. `steady` calls twice with no revocation, and the kept token works both times without a second login. `broken` adds a rule with `add_fault`, `error;scheme=oci;path=/v2/;reply=401 UNAUTHORIZED`, that answers every call `401` even after a new login, and the client gives up after its one retry instead of looping. `guess` starts with a stale token and a wrong password: the call is `401`, the login fails with exit 22, and the client stops there.
+
+`wait_for_event` with `kinds` `login_judged` answers the first login after `after_sequence`, waiting up to `timeout_ms` for it, so the agent waits for each login the client made in turn, then lists them with `get_events`. The session is two logins, both `app`{apos}s password at the token endpoint and both accepted; a call with a token is checked but is not a login, so it is not among them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-expire-a-token-mid-session>> for the same test on the console.
+* <<http-expire-a-token-mid-session-in-csharp>> for the same test in C#.
+* <<http-exchange-a-password-for-a-token-from-an-agent>> for a fixed token served as a file.
+* <<surl-readme>>, <<curl-readme>>, <<oci-distribution>>, <<rfc6750>>, <<rfc7617>>, <<rfc8446>>.

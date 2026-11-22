@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs imap-only.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: pop3-limit-a-mailbox-to-imap-from-an-agent
+title: Limiting Mailboxes to IMAP from an Agent
+protocols: [pop3, imap, smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_events]
+curl-options: [-s, -S, -v, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc1939, rfc9051]
+
+# order.eml is the mail waiting for ann.
+fixtures:
+  order.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 1042 shipped\r\n\r\nYour order is on its way.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "The agent tries POP3 with ann's right password, is refused with exitCode 67, switches to IMAP with the same login, and finds her message."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^ann over POP3: exitCode 67, curl: \\(67\\) Login denied, .*\\nswitched to IMAP: \\* SEARCH 1\\n"
+
+  - id: pop3-reply
+    claim: "With -v, standardError holds the POP3 server's answer to her login, -ERR [AUTH] Authentication failed."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^ann over POP3: exitCode 67, curl: \\(67\\) Login denied, < -ERR \\[AUTH\\] Authentication failed\n"
+
+  - id: like-no-account
+    claim: "An address with no mailbox at all, nobody@example.com, gets the same exit code and the same answer, so the refusal does not tell the agent that ann exists."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nnobody over POP3: exitCode 67, curl: \\(67\\) Login denied, < -ERR \\[AUTH\\] Authentication failed\n"
+
+  - id: like-a-wrong-password
+    claim: "A wrong password for bob, who may use POP3, gets the same too."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nbob, wrong password, over POP3: exitCode 67, curl: \\(67\\) Login denied, < -ERR \\[AUTH\\] Authentication failed\n"
+
+  - id: imap-reads-it
+    claim: "Over IMAP the same login reads the mail SMTP delivered to her, after the store_changed event, waited for at most ten seconds."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nann over IMAP: Subject: Order 1042 shipped\\n"
+
+  - id: events-give-no-reason
+    claim: "get_events with kinds login_judged and scheme pop3 records each refused login alike, CRAM-MD5, the account and is_accepted false, whether the mailbox is limited, missing or given a wrong password."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\njudged: CRAM-MD5 ann@example\\.com is_accepted false\\njudged: CRAM-MD5 nobody@example\\.com is_accepted false\\njudged: CRAM-MD5 bob@example\\.com is_accepted false\\n"
+
+  - id: log-names-the-protocols
+    claim: "With -v, start_server's log_lines name the protocols ann logs in on, IMAP alone."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nlog: \\* Mailbox ann@example\\.com: logins on imap\\n$"

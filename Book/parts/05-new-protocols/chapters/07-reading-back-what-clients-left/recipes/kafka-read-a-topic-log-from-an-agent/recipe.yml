@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: kafka-read-a-topic-log-from-an-agent
+title: Reading a Kafka Log from an Agent
+protocols: [kafka]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, read_log]
+curl-options: [-s, -S, -d, --max-time]
+exit-codes: [0, 56]
+references: [surl-readme, curl-readme, kafka-protocol, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a producer writes four records with curl-mcp, read_log answers all four with offsets 0 to 3, the text of each, next_offset 4 and has_more false.
+    program: program.cs
+    args: [log]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "read_log: 4 records, next_offset 4, has_more False\n  0 order-1001:placed\n  1 order-1001:paid\n  2 order-1001:packed\n  3 order-1001:shipped\n"
+
+  - id: from-an-offset
+    claim: A read with from_offset 2 answers the records at offsets 2 and 3 only, with next_offset 4.
+    program: program.cs
+    args: [from]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "read_log: 2 records, next_offset 4, has_more False\n  2 order-1001:packed\n  3 order-1001:shipped\n"
+
+  - id: paging
+    claim: With a limit of 2 the first read answers offsets 0 and 1 with next_offset 2 and has_more true, and a read from next_offset answers offsets 2 and 3 with has_more false.
+    program: program.cs
+    args: [paging]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "page from 0: 2 records, next_offset 2, has_more True\n  0 order-1001:placed\n  1 order-1001:paid\npage from 2: 2 records, next_offset 4, has_more False\n  2 order-1001:packed\n  3 order-1001:shipped\n"
+
+  - id: read-takes-nothing
+    claim: After the agent has read the log, a consumer using curl with an offset of 2 still gets the records at offsets 2 and 3, and a second read_log answers the same four records.
+    program: program.cs
+    args: [replay]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "read_log: 4 records, next_offset 4, has_more False\n  0 order-1001:placed\n  1 order-1001:paid\n  2 order-1001:packed\n  3 order-1001:shipped\nconsumer from offset 2: order-1001:packed, order-1001:shipped\nread_log again: 4 records, next_offset 4, has_more False\n  0 order-1001:placed\n  1 order-1001:paid\n  2 order-1001:packed\n  3 order-1001:shipped\n"
+
+  - id: past-the-end
+    claim: A read from offset 9 of a log that holds four records is a tool error that reads Offset 9 is outside the log, which holds 0 to 4, and not an empty answer.
+    program: program.cs
+    args: [past-end]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "read_log of orders from 9: tool error True, Offset 9 is outside the log, which holds 0 to 4.\n"
+
+  - id: no-such-topic
+    claim: A topic nobody wrote to is a tool error that reads No log for topic refunds.
+    program: program.cs
+    args: [no-topic]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "read_log of refunds from 0: tool error True, No log for topic refunds.\n"
+
+  - id: anonymous-refused
+    claim: Without --allow-anonymous the broker closes the producer's connection, curl exits 56 with Connection disconnected, and read_log finds no log for the topic.
+    program: program.cs
+    args: [closed]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "producer could not write: exit 56 (curl: (56) Connection disconnected)\nread_log of orders from 0: tool error True, No log for topic orders.\n"

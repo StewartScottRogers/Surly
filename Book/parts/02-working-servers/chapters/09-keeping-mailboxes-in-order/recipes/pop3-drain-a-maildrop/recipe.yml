@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: pop3-drain-a-maildrop
+title: Draining a POP3 Maildrop
+protocols: [pop3, smtp, imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -o, -s, -S, --next, --crlf, --mail-from, --mail-rcpt, -T, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 2, 8]
+references: [surl-readme, curl-manual, rfc1939, rfc5321, rfc9051]
+
+fixtures:
+  order1.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 1 shipped\n\nYour first order is on its way.\n"
+  order2.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 2 shipped\n\nYour second order is on its way.\n"
+  order3.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 3 shipped\n\nYour third order is on its way.\n"
+
+# One surl: SMTP to put mail in, POP3 to drain it, IMAP to show the store. Ann's maildrop is drained by the
+# Solution; Bob's holds the same three messages for the failures.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox shop@example.com:shoppass smtp://127.0.0.1:{{port}}/ pop3://127.0.0.1:{{port2}}/ imap://127.0.0.1:{{port3}}/
+    ready: port
+
+# The shop mails each of them three orders. Delivery is asynchronous, so each maildrop is waited for, a try a
+# second for at most ten, until message 3 exists (LIST 3 fails while it does not).
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T "order[1-3].eml" smtp://127.0.0.1:{{port}}/example.com --next -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt bob@example.com -T "order[1-3].eml" smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "LIST 3" pop3://127.0.0.1:{{port2}}/
+  - curl -sS --retry 10 --retry-all-errors --retry-delay 1 -u bob@example.com:bobpass -X "LIST 3" pop3://127.0.0.1:{{port2}}/
+
+cases:
+  - id: solution
+    role: solution
+    claim: "One curl retrieves messages 1 to 3 of Ann's maildrop into msg1.eml, msg2.eml and msg3.eml, and the transfers after --next delete each with DELE, exit 0."
+    run: curl -sS -u ann@example.com:annpass -o "msg#1.eml" "pop3://127.0.0.1:{{port2}}/[1-3]" --next -sS -u ann@example.com:annpass -X DELE "pop3://127.0.0.1:{{port2}}/[1-3]"
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        msg1.eml: null
+        msg2.eml: null
+        msg3.eml: null
+
+  - id: retrieved-whole
+    claim: "The three files hold the three orders, one each, in the order they arrived."
+    run: grep -h "^Subject:" msg1.eml msg2.eml msg3.eml
+    expect:
+      exit: 0
+      stdout-matches: '\ASubject: Order 1 shipped\r?\nSubject: Order 2 shipped\r?\nSubject: Order 3 shipped\r?\n\Z'
+
+  - id: next-session-empty
+    claim: "A new session finds the maildrop empty: the listing is a lone blank line, exit 0."
+    run: curl -sS -u ann@example.com:annpass pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A\r?\n\Z'
+
+  - id: imap-sees-it-empty
+    claim: "The three listeners share one store, so an IMAP STATUS of Ann's INBOX says MESSAGES 0."
+    run: curl -sS -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port3}}/
+    expect:
+      exit: 0
+      stdout-matches: '\* STATUS INBOX \(MESSAGES 0\)'
+
+  - id: drain-of-an-empty-maildrop
+    claim: "Run again on the empty maildrop, the same retrieval fails at message 1, -ERR, and curl exits 8, so a drain that finds nothing does not look like one that worked."
+    run: curl -sS -u ann@example.com:annpass -o "again#1.eml" "pop3://127.0.0.1:{{port2}}/[1-3]"
+    expect:
+      exit: 8
+      stdout: ""
+
+  - id: count-first
+    claim: "A POP3 URL with no message number lists Bob's maildrop, one line a message, so a poller can learn how many there are before it retrieves."
+    run: curl -sS -u bob@example.com:bobpass pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A1 \d+\r?\n2 \d+\r?\n3 \d+\r?\n\Z'
+
+  - id: unsaved-mail-is-not-deleted
+    claim: "When curl cannot write a file, here because the folder nosuch does not exist, it stops with exit 2 before any DELE is sent."
+    run: curl -sS -u bob@example.com:bobpass -o "nosuch/msg#1.eml" "pop3://127.0.0.1:{{port2}}/[1-3]" --next -sS -u bob@example.com:bobpass -X DELE "pop3://127.0.0.1:{{port2}}/[1-3]"
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "Could not create the output file"
+
+  - id: failed-save-kept-everything
+    claim: "After that failure Bob's maildrop still holds all three messages."
+    run: curl -sS -u bob@example.com:bobpass pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A1 \d+\r?\n2 \d+\r?\n3 \d+\r?\n\Z'
+
+  - id: dele-needs-quit
+    claim: "DELE only marks: a session that sends DELE for each message and then RSET deletes nothing, curl exits 0."
+    run: curl -sS -u bob@example.com:bobpass -X DELE "pop3://127.0.0.1:{{port2}}/[1-3]" --next -sS -u bob@example.com:bobpass -X RSET pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: marks-undone
+    claim: "The next session still finds all three of Bob's messages."
+    run: curl -sS -u bob@example.com:bobpass pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A1 \d+\r?\n2 \d+\r?\n3 \d+\r?\n\Z'

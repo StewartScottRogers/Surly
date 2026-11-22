@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: s3-check-what-an-upload-stored-from-an-agent
+title: Checking an S3 Upload
+protocols: [s3]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, read_file]
+curl-options: [-s, -S, --aws-sigv4, -u, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, aws-s3-api, mcp-spec]
+
+fixtures:
+  report.csv: "report,total\n1,40\n2,25\n"
+  report-v2.csv: "report,total\n1,40\n2,25\n3,31\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the app uploads report.csv with a signed put, read_file of the key answers 23 bytes of type text/csv whose text is the file's text.
+    program: program.cs
+    args: [stored]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "upload report.csv: exit 0\nwait_for_event: written\nread_file: 23 bytes, text/csv\nreport,total\n1,40\n2,25\nsame as report.csv: True\n"
+
+  - id: replaced
+    claim: A second upload to the same key replaces the object, so read_file answers 28 bytes holding the second file's text and not the first.
+    program: program.cs
+    args: [replace]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "upload report.csv: exit 0\nwait_for_event: written\nupload report-v2.csv: exit 0\nwait_for_event: written\nread_file: 28 bytes, text/csv\nreport,total\n1,40\n2,25\n3,31\nsame as report-v2.csv: True\n"
+
+  - id: wrong-secret
+    claim: An upload signed with a wrong secret is answered SignatureDoesNotMatch with curl exit 0, nothing is written within two seconds, and read_file of the key is a tool error.
+    program: program.cs
+    args: [wrong-secret]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "upload report.csv: exit 0, SignatureDoesNotMatch\nwait_for_event: nothing written within 2 s\nread_file: tool error, nothing is stored\n"
+
+  - id: uploads-off
+    claim: Without --allow-uploads a signed upload is answered AccessDenied with curl exit 0, nothing is written within two seconds, and read_file of the key is a tool error.
+    program: program.cs
+    args: [uploads-off]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "upload report.csv: exit 0, AccessDenied\nwait_for_event: nothing written within 2 s\nread_file: tool error, nothing is stored\n"

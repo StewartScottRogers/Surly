@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-limit-a-mailbox-to-imap]]
+=== Limiting a Mailbox to IMAP
+
+==== Problem
+
+A mailbox should be read over Internet Message Access Protocol (IMAP) and nothing else: a client that falls back to Post Office Protocol version 3 (POP3) must be refused, and the refusal must not tell it that the account exists. You want a test server with such a mailbox, to see what the refused client sees and what the server records.
+
+==== Solution
+
+Give the mailbox `;protocols=imap` and try POP3 with its right password:
+
+include::.generated/solution.adoc[]
+
+The seed lines put a message in Ann{apos}s mailbox over Simple Mail Transfer Protocol (SMTP) and wait until it is there.
+
+==== Discussion
+
+`--mail-domain example.com` serves mail for the domain, and each `--mailbox` adds a mailbox and the account that logs in to it, named by its whole address (<<surl-readme>>). A mailbox account logs in on SMTP, IMAP and POP3 by default; `;protocols=imap` replaces that list with IMAP alone, and its encrypted twin `imaps`. The quotes keep the shell from reading the semicolon. `bob` has no `protocols=`, so he logs in everywhere, and `shop` sends Ann her mail. One `surl` with three listen URLs serves all three over one mail store, and `-v` with `--log-file surl.log` writes a verbose log to a file.
+
+On the `curl` side, `-u` is the login, and `curl` logs in with `CRAM-MD5`, the method `surl` offers without Transport Layer Security (TLS), which never sends the password. Ann{apos}s right password is refused over POP3: `curl` exits `67`, `Login denied`. `-v` shows the server{apos}s reply, `-ERR [AUTH] Authentication failed`, POP3{apos}s negative answer (<<rfc1939>>) with a code that marks a failed login. `-s` keeps `curl` quiet and `-S` keeps its error line.
+
+The refusal says nothing about why. An address with no mailbox at all, `nobody@example.com`, gets the same reply, and so does a wrong password for `bob`, who may use POP3: the server answers every failed login alike, so a client probing names learns nothing from the difference. That is surly on purpose. The cost is that a person reading only the client{apos}s side cannot tell a limited account from a mistyped password, which is why the log matters.
+
+Over IMAP nothing has changed: the same login reads the message SMTP delivered (<<rfc9051>>), since the limit is on how Ann logs in, not on what her mailbox receives. A client that falls back the other way, trying POP3 and then IMAP, gets the mail; in the shell, `||` runs the IMAP `curl` only when the POP3 one fails, and the command exits `0` with the POP3 refusal still on standard error. Limiting Ann to IMAP keeps her off SMTP too, so she cannot send as herself (<<imap-keep-a-mailbox-off-smtp>>).
+
+The log shows the limit and each refusal. At start it names the protocols each mailbox logs in on, and Ann{apos}s line says `logins on imap`: the quickest check that the quotes and the key were read as meant. Each refused login is one line, `* Login refused: CRAM-MD5` and the account named, the same for Ann, for `nobody` and for Bob{apos}s wrong password. The log is written as the server works, so the test reads it with `wait-for-log.sh`, which waits at most ten seconds for the lines it expects and prints them without their exchange numbers; it needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::wait-for-log.sh[]
+----
+
+The waits in the seed lines send `-X "FETCH 1 FLAGS"`, with `-o` dropping the answer, while the message is missing; `--retry 10` with `--retry-all-errors` tries again up to ten times, `--retry-delay 1` a second apart (<<curl-manual>>). The sending line is `--mail-from` and `--mail-rcpt` the envelope, `-T` the message, and `--crlf` the line ends mail needs.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-limit-a-mailbox-to-imap-in-csharp>> for a C# test that a client never uses POP3.
+* <<pop3-limit-a-mailbox-to-imap-from-an-agent>> for an agent that finds out by trying.
+* <<pop3-move-a-mail-client-to-imap>> for moving a client from POP3 to IMAP.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>, <<rfc9051>>.

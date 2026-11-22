@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-keep-readings-across-restarts-from-an-agent]]
+=== Keeping Readings Across Restarts from an Agent
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to publish a retained reading to a Message Queuing Telemetry Transport (MQTT) broker, restart the broker on the same directory and read the reading back, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official MCP software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a broker with `--directory` and the filter that keeps `sensors/`, publishes two readings with the `curl` tool, waits for the broker, stops it and starts a second on the same folder, and reads the reading as a subscriber and with `read_retained_message`. The program takes the case to run as its argument; the first case is the whole task:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). `start_server` starts an MQTT broker, <<mqtt311>>, on a free port and answers the `server_id` and, in `bound_urls`, the URL it bound. `arguments` passes `surl`{apos}s own options (<<surl-readme>>). `--directory` names the folder, which must exist and lie under the root, that the broker keeps its state in: it writes `.surl/lock` there, which says the folder is in use, and the retained messages in one file, `.surl/bus/retained`. `--topic "sensors/#;retain"` declares the topics under `sensors/` and keeps every message published on them, whatever its retain flag, and `--allow-anonymous` lets a client connect with no user name, a loosening for a test on one machine.
+
+The publisher is the `curl` tool, which runs `curl`{apos}s own arguments: `-d 21.5` with the topic{apos}s URL publishes the reading with the retain flag clear, so what keeps it is the filter, and `-s` and `-S` keep the progress meter out and the error message in (<<curl-readme>>, <<curl-protocols>>, <<mqtt311>>). A publish at quality of service 0 gets no answer, so the tool can return before the broker has applied the message, and a broker stopped straight after it could lose the reading. The program does not sleep. After each publish it calls `wait_for_event` with `kinds` `exchange_ended` and `after_sequence` set to the last sequence it saw, which answers when the broker records the end of `curl`{apos}s connection, after what `curl` sent has been applied, with a `timeout_ms` of ten seconds that a failure alone ever reaches.
+
+The restart is `stop_server` with the `server_id` and a second `start_server` with the same `arguments`. The stop releases the folder, and the lock file is left behind, no obstacle to the next broker. The new one is a new server, with its own `server_id`, its own port in `bound_urls` and its own record of events, so the program takes them from the second answer and starts counting sequences again. A subscriber is `curl mqtt://host:port/sensors/kitchen/temp`: the answer{apos}s `standardOutput.content` is what the broker sends, the topic{apos}s length in two bytes, the topic and the message, so the program reads past the first `2 + topic.Length` characters and prints the text; the call returns by itself once the retained messages are sent. `read_retained_message` takes the `server_id` and a `topic`, reads the store with no client, and answers the `topic`, the `qos`, which is `0`, and the `text`; a topic with nothing kept answers `{"retained": false}` and is not a tool error, so the program has to test for it.
+
+Every topic that was kept comes back. A subscription to `sensors/#`, written `sensors/%23` in a URL, is sent the hall{apos}s and the kitchen{apos}s readings, 49 bytes in all. What is kept is what the filter keeps: a publish to `lab/kitchen/temp` is accepted, never kept and not there after the restart. A reading seeded with `publish_message` and `retain` `true` sets the flag itself, so it is kept with or without a filter, and is written to the folder as well. A reading published after the restart is kept too: the hall{apos}s `20.0` replaces `19.0`, and after a second restart the subscription is sent `20.0` and the kitchen{apos}s `21.5`.
+
+A folder belongs to one `surl` at a time. A second `start_server` on a folder in use is a tool error, structured `exit_code` `124`, `Directory ... is in use by another surl process`, and a folder that does not exist is one with `37`, `Could not open directory`. A broker started with no `--directory` keeps its retained messages in memory: it is read the same reading while it runs, but after a restart it starts over, the subscriber reads nothing and `read_retained_message` answers `retained` false.
+
+Last, the filter does not open the broker: on one without `--allow-anonymous` the `curl` tool answers exit code `8` and `Expected 0000 but got 0005` on standard error. `curl-mcp` answers in JavaScript Object Notation (JSON), with `exitCode`, `standardOutput.content` and `standardError.content`, which the program parses.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-keep-readings-across-restarts>> for the same task on the console, with a server stopped outright.
+* <<mqtt-keep-readings-across-restarts-in-csharp>> for the same task from a C# test.
+* <<mqtt-keep-a-retained-message-from-an-agent>> for how the filter keeps a message.
+* <<smtp-keep-mail-across-restarts-from-an-agent>> for the same on a mail store.
+* <<mqtt311>>, <<curl-protocols>>, <<mcp-spec>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,110 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-fail-a-test-on-mail-to-another-domain
+title: Failing a Test on Foreign Mail
+protocols: [smtp]
+tier: working-servers
+surl-options: [-v, --log-file, --mail-domain, --mailbox]
+curl-options: [-s, -S, -u, -w, -X, --crlf, --mail-from, --mail-rcpt, -T, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 55]
+references: [surl-readme, curl-manual, rfc5321]
+
+# invoice.eml is the app's mail. cc-outside.eml names an outside address in its header only.
+# wait-for-log.sh is the test's bounded read of the server's log.
+fixtures:
+  invoice.eml: "From: billing@example.com\nTo: ann@example.com\nSubject: Your invoice\n\nInvoice 1042 is attached.\n"
+  cc-outside.eml: "From: billing@example.com\nTo: ann@example.com\nCc: carol@elsewhere.org\nSubject: Your invoice\n\nInvoice 1043 is attached.\n"
+  wait-for-log.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Waits, at most ten seconds, until the log holds <count> lines with <text>, then prints them
+    # without their exchange numbers. Exit 1 if they never come.
+    # Usage: sh wait-for-log.sh <text> <count> <log file>
+    tries=0
+    until [ "$(grep -c -F -- "$1" "$3")" -ge "$2" ]; do
+      tries=$((tries + 1))
+      [ "$tries" -ge 10 ] && exit 1
+      sleep 1
+    done
+    grep -F -- "$1" "$3" | sed 's/^#[0-9]* //'
+
+# One surl serving two domains, with a verbose log. The pop3:// listener lets the test see what ann got.
+servers:
+  main:
+    command: surl -v --log-file surl.log --mail-domain example.com --mail-domain example.org --mailbox billing@example.com:billpass --mailbox ann@example.com:annpass --mailbox sales@example.org:salespass smtp://127.0.0.1:{{port}}/ pop3://127.0.0.1:{{port2}}/
+    ready: port
+
+# The cases run in order against the same server.
+cases:
+  - id: solution
+    role: solution
+    claim: The app, logged in, mails carol@elsewhere.org, outside both served domains; the server refuses the recipient, and curl exits 55 with RCPT failed 550, which fails the test.
+    run: curl -s -S --crlf -u billing@example.com:billpass --mail-from billing@example.com --mail-rcpt carol@elsewhere.org -T invoice.eml smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: second-domain
+    claim: --mail-domain may be given again, and a recipient in the second domain, sales@example.org, is accepted 250.
+    run: curl -s -S --crlf -u billing@example.com:billpass --mail-from billing@example.com --mail-rcpt sales@example.org -T invoice.eml -w "%{response_code}" smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 0
+      stdout: "250"
+
+  - id: subdomain-is-foreign
+    claim: A subdomain is another domain; ann@mail.example.com is refused 550.
+    run: curl -s -S --crlf -u billing@example.com:billpass --mail-from billing@example.com --mail-rcpt ann@mail.example.com -T invoice.eml smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: look-alike-is-foreign
+    claim: A domain that only starts with a served one, ann@example.com.evil.org, is refused 550 too.
+    run: curl -s -S --crlf -u billing@example.com:billpass --mail-from billing@example.com --mail-rcpt ann@example.com.evil.org -T invoice.eml smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: case-is-ignored
+    claim: Letter case is not a difference; ANN@EXAMPLE.COM is accepted 250 and reaches ann, whose POP3 maildrop then has a message 1, waited for at most ten tries a second apart.
+    run: curl -s -S --crlf -u billing@example.com:billpass --mail-from billing@example.com --mail-rcpt ANN@EXAMPLE.COM -T invoice.eml -w "%{response_code}" smtp://127.0.0.1:{{port}}/app.example.com --next -s -S --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "LIST 1" pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "250"
+
+  - id: sender-not-checked
+    claim: Only recipients are judged; a foreign envelope sender, noreply@elsewhere.org, mailing ann is accepted 250.
+    run: curl -s -S --crlf -u billing@example.com:billpass --mail-from noreply@elsewhere.org --mail-rcpt ann@example.com -T invoice.eml -w "%{response_code}" smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 0
+      stdout: "250"
+
+  - id: header-not-checked
+    claim: Only the envelope is judged; a message whose Cc field names carol@elsewhere.org, sent to ann alone, is accepted 250.
+    run: curl -s -S --crlf -u billing@example.com:billpass --mail-from billing@example.com --mail-rcpt ann@example.com -T cc-outside.eml -w "%{response_code}" smtp://127.0.0.1:{{port}}/app.example.com
+    expect:
+      exit: 0
+      stdout: "250"
+
+  - id: log-names-the-reason
+    claim: The server's log names each refused recipient and why, outside every --mail-domain; the test waits at most ten seconds for the three lines.
+    run: 'sh wait-for-log.sh "refused: outside every --mail-domain" 3 surl.log'
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: |
+        * RCPT carol@elsewhere.org refused: outside every --mail-domain
+        * RCPT ann@mail.example.com refused: outside every --mail-domain
+        * RCPT ann@example.com.evil.org refused: outside every --mail-domain
+
+  - id: log-has-the-reply
+    claim: The log also records the reply each refused recipient got, 550 5.7.1 Relaying denied.
+    run: 'sh wait-for-log.sh "> 550 " 3 surl.log'
+    timeout: 30
+    expect:
+      exit: 0
+      stdout: |
+        > 550 5.7.1 Relaying denied\r\n
+        > 550 5.7.1 Relaying denied\r\n
+        > 550 5.7.1 Relaying denied\r\n

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-check-what-an-app-cached]]
+=== Checking What an App Cached
+
+==== Problem
+
+Your app caches the Hypertext Transfer Protocol (HTTP) responses of an origin in Redis. You want a test in C# that calls the app twice and reads the server{apos}s own record to prove the second call was served from the cache, not only that it returned the right text.
+
+==== Solution
+
+Run the origin and Redis in one `SurlServer`, let the app use both, and after each call read the server{apos}s record of the origin{apos}s requests and of the keyspace:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The `SurlServer` listens on `http://` and `redis://` on free ports, with `BoundUrls` in that order. The origin is two files in `SurlServerOptions.Files`, `products/1.txt` and `products/2.txt`, held in memory. The one `SurlAccount`, `app`, covers both listeners, because Redis here refuses a client that has not logged in, and `AllowPlaintextAuthentication`, the spelling of `--allow-plaintext-auth`, lets its password cross plain connections. That is a loosening, for a test on one machine, and the last case leaves it out: the app{apos}s first Redis command is refused, and `Curl.Api` throws a `CurlException` whose `Code` is `67`, the code `curl` exits with, and whose message carries Redis{apos}s `WRONGPASS` (<<surl-readme>>, <<redis-resp>>). `RecordExchanges` turns on the record the test reads.
+
+The app is a small class in the program. It asks Redis for `cache:product:<id>` with the command `GET/cache:product:1`, a Redis command being the URL path of a `CurlRequest`, with the account{apos}s login in its `CurlAuthenticationOptions`, the same for the origin and for Redis (<<curl-readme>>). An empty answer is a miss, so it asks the origin with a plain `GET`, and on a `200` it keeps the text with `SET/<key>/<value>/EX/60`, a life of sixty seconds. `CurlClient.SendAsync` answers a `CurlResponse`, and the app reads its `StatusCode` and its body. Any status other than `200` is not kept (<<rfc9110>>). The first request a process makes through `Curl.Api` can take seconds to start, so the test makes a harmless `GET` of a key that does not exist before it begins to count.
+
+The test does not look at the app, only at the server. For the origin, `SurlServer.FindExchanges` with a `SurlEventQuery` for the `http` scheme answers a `SurlExchangeRecord` for each connection, and the record holds the bytes the server received and the bytes it sent. The client keeps one connection open, so the program counts the `GET /products/` lines in the received bytes, one for each request, and reads until the sent bytes hold as many responses as there were requests, for at most ten seconds, so a record that is a moment behind cannot make the count wrong. For the keyspace, `server.Keys`, a `SurlServerKeys`, lists the keys that match `cache:*` as a `SurlKeyPage` of `SurlKeyInfo`, and `GetAsync` reads one as a `SurlKeyContents`, with no client and no login: its `Text` is what the origin sent and its `Info.ExpiresAt` is the time it will expire, which the program turns into a life of between thirty and sixty seconds.
+
+After the first call the origin has one request and the keyspace holds `cache:product:1` with `tea`. After the second the origin has still one request and the key is unchanged, so the second answer came from the cache, and the test says so; a pass needs both, the count and the key. The other cases show that the count is a count. A second product is a miss of its own: two requests, two keys. A key deleted between the calls sends the next call to the origin again, two requests, and the key is written back. A product the origin answers with `404` is not kept, so the second call adds a request and no key. And an app that never writes its cache, the `broken` case, leaves the keyspace empty and sends the second call to the origin too; the test{apos}s check fails and the program returns `1`, which is what a failing test needs to see.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-inspect-keys-an-app-left>> for listing the keys an app left, on the console.
+* <<redis-seed-a-cache-for-a-test-in-csharp>> for seeding a cache and its expiry from a test.
+* <<redis-test-a-session-that-expires-in-csharp>> for an app that reads a key that expires.
+* <<redis-resp>>, <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

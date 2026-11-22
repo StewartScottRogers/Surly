@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socketio-log-in-to-a-namespace-from-an-agent]]
+=== Socket.IO Logins from an Agent
+
+==== Problem
+
+Your Socket.IO client sends a login when it joins. You want an artificial intelligence (AI) agent to see the join refused without it, refused over plain Socket.IO, and accepted over Transport Layer Security (TLS), with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for a Socket.IO server with one account, and logs in and emits an event with `curl-mcp`{apos}s `curl` tool. The certificate and key come from the `openssl` line, run first:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, which is where `server.pem` and `server.key` are. The arguments after `--` pick the scenario: the scheme and the login, then optional words.
+
+`start_server` takes `listen_urls`, here `socketios://127.0.0.1:0`, port 0 for a free one, and answers a `server_id` with `bound_urls`. The rest goes in `arguments`, `surl`{apos}s own options one list item each: `--user alice:s3cret` is the account, `--cert` and `--key` the certificate and its private key. `--allow-plaintext-auth` is added in one case only; it loosens security (<<surl-readme>>).
+
+`curl-mcp`{apos}s `transfer` tool has no field for a login, a certificate to trust or an event to emit, so the agent uses the `curl` tool, which takes `curl`{apos}s arguments as a list with no shell and no quoting: `-u` is the login, `--cacert server.pem` the certificate to trust, `-d` the event, a JSON array whose first item is its name, `-m 3` the time limit and `-sS` hides the progress meter but keeps the error text (<<curl-readme>>). The answer is text holding JSON; the program reads `exitCode`, `standardOutput` and `standardError`, either of which is null when empty.
+
+A Socket.IO client logs in in the packet that joins a namespace (<<socketio-protocol>>). The right password over `socketios` is accepted and the server sends the event back to its sender. A session has no end of its own, so the `curl` tool runs to its time limit and exits `28` with the event already in `standardOutput`. A wrong password, a user name with no account and no login at all are each refused: exit `22`, nothing written, and `Socket.IO server refused namespace /: {"message":"Not authorized"}`, the same words for all three. Plain `socketio` refuses the right password in the same words, because the server does not check a password that crosses the network readable; it is accepted once `--allow-plaintext-auth` is given. Without `--cacert`, the `curl` tool exits `60`: it does not trust a certificate that signed itself and never sends the login (<<rfc8446>>).
+
+A token account, started as `--user :tok123`, is meant to take a login that is only a token. In this build it does not: the join is refused with the same `Not authorized` even with the right token, a fault that is fixed in the Surl source and not yet in this build (backlog item BL-1589). The last case records the refusal as it is today.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socketio-log-in-to-a-namespace>> for the same task on the console.
+* <<socketio-log-in-to-a-namespace-in-csharp>> for the same task from C#.
+* <<surl-readme>>, <<curl-readme>>, <<socketio-protocol>>, <<rfc8446>>.

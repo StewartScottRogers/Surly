@@ -1,0 +1,112 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: https-require-a-client-certificate-in-csharp
+title: Requiring a Client Certificate in C#
+protocols: [https]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0, 1, 2, 77]
+references: [surl-readme, curl-readme, rfc8446, rfc5280]
+
+fixtures:
+  notes.txt: "not a certificate\n"
+
+# The test authority (ca.pem) signs the device's certificate; another authority signs a stranger's.
+# server.pem is the server's own self-signed certificate, which the client trusts.
+# Each client certificate is also packed with its key into a PFX (P12) file under the passphrase s3cret.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 30 -subj "/CN=Test Device CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign"
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout other-ca.key -out other-ca.pem -days 30 -subj "/CN=Other Device CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign"
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+  - openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj "/CN=device-1"
+  - openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 30
+  - openssl req -newkey rsa:2048 -nodes -keyout stranger.key -out stranger.csr -subj "/CN=device-1"
+  - openssl x509 -req -in stranger.csr -CA other-ca.pem -CAkey other-ca.key -CAcreateserial -out stranger.pem -days 30
+  - openssl pkcs12 -export -in client.pem -inkey client.key -out client.p12 -passout pass:s3cret
+  - openssl pkcs12 -export -in stranger.pem -inkey stranger.key -out stranger.p12 -passout pass:s3cret
+
+cases:
+  - id: solution
+    role: solution
+    claim: A SurlServer with CaCertificateFile ca.pem serves a CurlClient that presents the certificate the test authority signed, from client.p12 with its passphrase; the answer is 200 and the file.
+    program: program.cs
+    args: ["ca.pem", "p12"]
+    expect:
+      exit: 0
+      stdout: "200\nhello from surl\n"
+
+  - id: no-certificate
+    claim: A client that presents no certificate is refused in the handshake; SendAsync throws CurlException, with a code that depends on the TLS version and platform.
+    program: program.cs
+    args: ["ca.pem", "none"]
+    expect:
+      exit: 1
+      stdout-matches: '\Aclient failed: \w+\n'
+
+  - id: other-authority
+    claim: A client certificate signed by another authority, with the same subject name, is refused the same way.
+    program: program.cs
+    args: ["ca.pem", "stranger"]
+    expect:
+      exit: 1
+      stdout-matches: '\Aclient failed: \w+\n'
+
+  - id: server-log
+    claim: The server's log, written to SurlServerOptions.Log, records the refusal of the stranger's certificate as a failed TLS handshake.
+    program: program.cs
+    args: ["ca.pem", "stranger"]
+    expect:
+      exit: 1
+      stdout-matches: '\nserver: TLS handshake failed: '
+
+  - id: server-log-names-the-certificate
+    claim: On Windows and macOS that log line names a rejected remote certificate; on Linux .NET gives only "Authentication failed, see inner exception."
+    platforms: [windows, macos]
+    program: program.cs
+    args: ["ca.pem", "stranger"]
+    expect:
+      exit: 1
+      stdout-matches: '\nserver: TLS handshake failed: The remote certificate was rejected'
+
+  - id: without-cacert
+    claim: Without CaCertificateFile the server asks for no certificate, and a client with none gets 200.
+    program: program.cs
+    args: ["none", "none"]
+    expect:
+      exit: 0
+      stdout: "200\nhello from surl\n"
+
+  - id: pem-on-windows
+    platforms: [windows]
+    claim: On Windows Curl.Api reads a client certificate from a P12 file only, as curl does there; a PEM certificate and key fail with CurlException SslCertProblem.
+    program: program.cs
+    args: ["ca.pem", "pem"]
+    expect:
+      exit: 1
+      stdout-matches: '\Aclient failed: SslCertProblem\n'
+
+  - id: pem-elsewhere
+    platforms: [linux, macos]
+    claim: On Linux and macOS Curl.Api also reads the PEM certificate and its key, and the answer is 200.
+    program: program.cs
+    args: ["ca.pem", "pem"]
+    expect:
+      exit: 0
+      stdout: "200\nhello from surl\n"
+
+  - id: cacert-missing
+    claim: A CaCertificateFile that does not exist makes StartAsync throw SurlServerStartException with exit code 2, FailedInit.
+    program: program.cs
+    args: ["missing.pem", "p12"]
+    expect:
+      exit: 2
+      stdout-matches: "\\Aserver refused to start: 2 FailedInit\\n.*The file 'missing\\.pem' provided to --cacert does not exist"
+
+  - id: cacert-unreadable
+    claim: A CaCertificateFile that holds no certificate makes StartAsync throw with exit code 77, CaCertificateBadFile.
+    program: program.cs
+    args: ["notes.txt", "p12"]
+    expect:
+      exit: 77
+      stdout-matches: "\\Aserver refused to start: 77 CaCertificateBadFile\\n.*The --cacert file 'notes\\.txt' holds no certificate Surl can read\\."

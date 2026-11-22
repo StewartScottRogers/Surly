@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-prove-a-client-uses-its-proxy]]
+=== Proving a Client Uses Its Proxy
+
+==== Problem
+
+Your client must go through a proxy. You want a proxy and an origin from one server, and a test that proves every request the origin received came through the proxy.
+
+==== Solution
+
+Start one `surl` that is both the origin and its proxy, with a trace of everything it receives, run the client, then count the origin's requests that carry the proxy's `Via` header and those that do not:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site http://127.0.0.1:8080/` is the origin, an ordinary Hypertext Transfer Protocol (HTTP) server of the folder `site`, and `--proxy http://127.0.0.1:8081/` makes the second listener a forward proxy in the same process. A proxy that forwards a request adds a `Via` header naming itself, `Via: 1.1 surl` (<<rfc9110>>); a request sent straight to the origin has none. That header is the evidence: the origin cannot tell how a client was configured, but it can see whether each request passed the proxy.
+
+The client under test here is `curl` with `-x`, its proxy setting, fetching two files and writing each with `-o` (<<curl-manual>>); in your test it is your program, with whatever proxy setting it reads. It gets both files.
+
+`--trace-ascii traffic.txt` makes `surl` write every byte both listeners receive and send into one file, as text. The origin's requests are in origin form, `GET /hello.txt HTTP/1.1`; what the proxy received is in absolute form, `GET http://127.0.0.1:8080/hello.txt`, so the two are told apart by the line itself. `via-proxy.awk` is the test. It reads the trace, finds each request head in origin form, looks for `Via: 1.1 surl` before the blank line that ends the head, and prints the two counts; it exits 1 if any request came directly. After the client's run it prints `2 via the proxy, 0 direct`. The proxy's own side is in the same file: one `Forwarded GET to 127.0.0.1:8080; the origin answered 200.` line for each request it passed on.
+
+[source,awk]
+----
+include::via-proxy.awk[]
+----
+
+The client can see the header as well: the answer that came through the proxy carries `Via: 1.1 surl`, which `curl -w "%header{via}"` prints. (`-s` hides the progress meter, `-S` keeps the error line, and `-o` sends the body to the null device.) That is a check of one answer, though, not of every request.
+
+The failure path is a request that skips the proxy. The origin answers it like any other, so the client sees nothing wrong, and that is why the test has to look at the server. The check then finds a request with no `Via` header, prints `3 via the proxy, 1 direct` (the third proxied request was the `-w` check), and exits 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-prove-a-client-uses-its-proxy-in-csharp>> for the same test from C#.
+* <<http-prove-a-client-uses-its-proxy-from-an-agent>> for the same test driven by an agent.
+* <<http-run-a-test-proxy>> for what else the proxy refuses and allows.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

@@ -1,0 +1,51 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: surl-reset-keys-directory-and-zones
+title: Resetting Keys, Directory and Zones
+protocols: [redis, ldap, dns]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlSnapshot, SurlServerKeys, SurlServerDirectory, SurlServerZones, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, redis-resp, rfc4511, rfc2849]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a test replaces a key, adds a directory entry and adds a zone, one RestoreAsync of a snapshot taken after the seed puts the key, the directory and the zones back, and each store answers its own client as it did at the baseline.
+    program: program.cs
+    args: []
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "baseline: greeting hello, keys 1, directory 2 entries, www.example.test NOERROR 192.0.2.1, www.other.test REFUSED\nafter the test: greeting changed, keys 1, directory 3 entries, www.example.test NOERROR 192.0.2.1, www.other.test NOERROR 192.0.2.2\nafter RestoreAsync: greeting hello, keys 1, directory 2 entries, www.example.test NOERROR 192.0.2.1, www.other.test REFUSED\nback at the baseline: True\n"
+
+  - id: reset-empties
+    claim: ResetAsync empties all three stores, so the key is null with no keys, the directory has no root (curl error 39) and both names are REFUSED, and the test seeds them again with the same calls.
+    program: program.cs
+    args: [reset]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "baseline: greeting hello, keys 1, directory 2 entries, www.example.test NOERROR 192.0.2.1, www.other.test REFUSED\nafter the test: greeting changed, keys 1, directory 3 entries, www.example.test NOERROR 192.0.2.1, www.other.test NOERROR 192.0.2.2\nafter ResetAsync: greeting null, keys 0, directory none (curl error 39), www.example.test REFUSED, www.other.test REFUSED\nseeded again: True\n"
+
+  - id: snapshot-reused
+    claim: A snapshot is not used up by a restore, so after a second round of changes the same snapshot puts all three stores back again.
+    program: program.cs
+    args: [twice]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "baseline: greeting hello, keys 1, directory 2 entries, www.example.test NOERROR 192.0.2.1, www.other.test REFUSED\nafter the test: greeting changed, keys 1, directory 3 entries, www.example.test NOERROR 192.0.2.1, www.other.test NOERROR 192.0.2.2\nfirst restore is the baseline: True\nsecond restore is the baseline: True\n"
+
+  - id: without-a-restore
+    claim: With no reset or restore between tests, the next test finds the last test's key, entry and zone, and its check against the baseline fails.
+    program: program.cs
+    args: [no-restore]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "baseline: greeting hello, keys 1, directory 2 entries, www.example.test NOERROR 192.0.2.1, www.other.test REFUSED\nafter the test: greeting changed, keys 1, directory 3 entries, www.example.test NOERROR 192.0.2.1, www.other.test NOERROR 192.0.2.2\nnext test finds the baseline: False\n"

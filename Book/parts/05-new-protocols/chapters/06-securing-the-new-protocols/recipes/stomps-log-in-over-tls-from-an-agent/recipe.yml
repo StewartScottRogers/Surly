@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: stomps-log-in-over-tls-from-an-agent
+title: STOMP Logins over TLS from an Agent
+protocols: [stomps, stomp]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, browse_queue]
+exit-codes: [0]
+references: [surl-readme, curl-readme, stomp12, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over stomps the right password lets curl-mcp's curl tool send a message, exit 0, and browse_queue then shows the broker holding it, with no loosening option.
+    program: program.cs
+    args: ["stomps", "alice:s3cret"]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nerr: \nqueue jobs holds 1: hello\n"
+
+  - id: wrong-password
+    claim: A wrong password is refused with a STOMP ERROR, Authentication failed, the curl tool exits 67, and the queue stays empty.
+    program: program.cs
+    args: ["stomps", "alice:wrong"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 67\nerr: .*Authentication failed\nqueue jobs holds 0: \n\Z'
+
+  - id: unknown-user
+    claim: A user name the server has no account for gets the same refusal as a wrong password.
+    program: program.cs
+    args: ["stomps", "bob:s3cret"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 67\nerr: .*Authentication failed\nqueue jobs holds 0: \n\Z'
+
+  - id: no-login
+    claim: A request with no login gets the same refusal, so the message does not tell a missing login from a wrong one.
+    program: program.cs
+    args: ["stomps", "none"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 67\nerr: .*Authentication failed\nqueue jobs holds 0: \n\Z'
+
+  - id: plain-refuses-the-password
+    claim: Over plain stomp the right password gets the same refusal, because the server will not take a password in the clear, and the queue stays empty.
+    program: program.cs
+    args: ["stomp", "alice:s3cret"]
+    expect:
+      exit: 0
+      stdout-matches: '\Acurl exit 67\nerr: .*Authentication failed\nqueue jobs holds 0: \n\Z'
+
+  - id: plaintext-option-loosens
+    claim: Started with --allow-plaintext-auth, the same server accepts the login over plain stomp and the queue holds the message.
+    program: program.cs
+    args: ["stomp", "alice:s3cret", "plaintext"]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nerr: \nqueue jobs holds 1: hello\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert the curl tool does not trust the certificate and exits 60, before any login is sent, and the queue stays empty.
+    program: program.cs
+    args: ["stomps", "alice:s3cret", "untrusted"]
+    expect:
+      exit: 0
+      stdout-matches: '(?s)\Acurl exit 60\nerr: .*\nqueue jobs holds 0: \n\Z'

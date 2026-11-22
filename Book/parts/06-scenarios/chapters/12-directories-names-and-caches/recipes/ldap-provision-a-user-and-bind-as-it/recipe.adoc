@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-provision-a-user-and-bind-as-it]]
+=== Provisioning a User and Binding as It
+
+==== Problem
+
+Your provisioning job adds users to a Lightweight Directory Access Protocol (LDAP) directory. You want the test to find the new entry by search and bind as it with its password, and to see what the server recorded.
+
+==== Solution
+
+Serve the directory with a control endpoint, let the job's two writes, the entry and the account, go through it, then search for the new user as the test's own account and bind as the user's distinguished name (DN) with the user's password:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--directory site` serves `site/.surl/ldap/directory.ldif`, the tree before the job runs: the domain, `ou=people` and alice. `surl` refuses an add over LDAP itself (`unwillingToPerform`), so a test plays the job's part through the control endpoint, which `--control` opens on a loopback port and `--control-token-file` guards with the token every request sends as `Authorization: Bearer`. `POST /v1/directory` with a `text/plain` body, sent with `--data-binary @bob.ldif` and a second `-H` for the type, adds LDIF entries, and `POST /v1/accounts` with `--json` adds an account; each answers `204`. Point your job at the same two requests, or let it write the LDIF and the account and post them for it.
+
+The job writes two things because `surl` keeps them apart. The entry is what a search finds; the account is what a bind is checked against. A simple bind (<<rfc4511>>) names a DN, and `surl` takes the value of its leading `uid` or `cn`, here `bob`, as the account name and checks the password against `--user`, `--user-file` and the accounts added since. The entry's `userPassword` is not read: on the `partial` server the job adds only the entry, the search finds it, and the bind with the same password is refused.
+
+The checks are two LDAP Uniform Resource Locators (URLs, <<rfc4516>>). `ou=people,dc=example,dc=com?cn,mail?sub?(uid=bob)` searches the subtree for bob as `tester`, the account the test logs in as, and prints his `cn` and `mail`; before the job the same search exits 0 and prints nothing. The second names bob's own DN with scope `base` and binds as him with `-u "uid=bob,ou=people,dc=example,dc=com:b0b-pass"`, so it reads his entry only if his password was accepted. `--next` runs the job's requests and both checks in one `curl`, in order. `-s` keeps `curl` quiet, `-S` still prints an error, `-o` sends the control endpoint's empty bodies nowhere and `-w "%{response_code}\n"` prints their status.
+
+A bind refused for a wrong password is reported by the LDAP library under `curl`, so it differs by platform. On Windows, WinLDAP names the server's answer, `Invalid Credentials`, exit 38. On Linux and macOS the OpenLDAP build says `Login denied`, exit 67. Match the exit code your platform gives, or both.
+
+`--allow-plaintext-auth` loosens a default for the test: without it `surl` refuses a password sent over `ldap://` unchecked, the right one included, and `curl` exits 38 on every platform. A test that keeps the default serves `ldaps://` instead, as <<ldaps-search-over-tls>> shows.
+
+What the server recorded is on the control endpoint. `GET /v1/events/wait` answers the first event that matches its query, or waits up to `timeout_ms` for one, so the test never reads too early. With `kind=login_judged&account=bob` it is bob's bind, `"is_accepted":true`; with `kind=store_changed` it is the job's write, `"store":"directory","change":"seeded"` naming bob's DN. `GET /v1/directory` reads the whole tree back as LDIF, with every `userPassword` left out.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-provision-a-user-and-bind-as-it-in-csharp>> for the same test in C#.
+* <<ldap-provision-a-user-and-bind-as-it-from-an-agent>> for the same test from an agent.
+* <<ldap-search-with-a-filter-and-scope>> for search URLs in depth.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>.

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-check-an-app-sent-the-right-mail]]
+=== Checking an App Sent the Right Mail
+
+==== Problem
+
+Your app sends a password reset mail over Simple Mail Transfer Protocol (SMTP). You want a test that points the app at `surl`, waits for the mail without guessing how long it takes, and then checks three things from the server{apos}s side: whose mailbox it reached, its subject, and the link in it.
+
+==== Solution
+
+Run one `surl` that writes the envelope recipient into each stored message, let the app send, and read the mail back over Internet Message Access Protocol (IMAP), retrying until it is there:
+
+include::.generated/solution.adoc[]
+
+The first seed line stands in for three runs of the app: the right mail to Ann, then two wrong ones the other claims catch. In a real test the app sends, pointed at port `8080`, and the test runs the last command.
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL serves both over one mail store (<<surl-readme>>). `--mail-domain example.com` serves mail for that domain, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address: the app sends as `app@example.com`, and each person reads their own. No loosening option is needed; without Transport Layer Security (TLS) `surl` offers `CRAM-MD5`, a login that never sends the password, and `curl` uses it. In the app{apos}s stand-in, `-u` is the login, `--mail-from` and `--mail-rcpt` the envelope sender and recipient, `-T` the message to upload, and `--crlf` turns the file{apos}s line feeds into the carriage return and line feed mail is made of; `--next` starts another transfer with options of its own.
+
+`--mail-delivered-to` is what makes the recipient checkable. The address a message is delivered to is the envelope{apos}s, the one after `RCPT TO` (<<rfc5321>>), and it need not appear anywhere in the message: the `To` field is text the app wrote. With the option, `surl` begins each owner{apos}s stored copy with a `Delivered-To` line naming the envelope address that reached it, so the test reads the recipient from the server{apos}s record rather than from the app{apos}s claim (<<surl-readme>>).
+
+The app{apos}s mail arrives when it arrives, so the test waits with a bound. `INBOX;UID=1` names the first message by its unique identifier (UID); while it is missing `curl` exits `78`, and `--retry 10` with `--retry-all-errors` tries again up to ten times, `--retry-delay 1` a second apart (<<curl-manual>>). `SECTION=HEADER.FIELDS%20(DELIVERED-TO%20SUBJECT)` fetches only those two fields, ending with the blank line that ends a header (<<rfc9051>>), so the output is short enough to compare exactly. `-s` keeps `curl` quiet and `-S` keeps its error line.
+
+The link is in the body. `SECTION=TEXT` fetches the body without the header, and `grep -o` prints only what matches, here the reset link with its token. For a yes or no in one request, a query on an IMAP URL is a `SEARCH`, and its keys combine: `TO`, `SUBJECT` and `BODY` each match a field or body that contains the string, and `* SEARCH 1` names the one message that has all three. A search answers `* SEARCH` with no number when nothing matches, and `curl` still exits `0`, so the test compares the answer, not the exit code.
+
+Each way of getting it wrong shows up differently. Carol{apos}s mail has the right subject but a link to the developer{apos}s own machine, `http://localhost:5000/...`: it is delivered like any other, the search names nothing, and the same `grep -o`, widened to any scheme, shows the link the app wrote. The third mail says `To: dave@example.com` but the app gave `bob@example.com` as the envelope recipient, so it went to Bob. A test that waits in Dave{apos}s mailbox with `--retry 2` gives up after about two seconds with exit `78`, remote file not found; in Bob{apos}s mailbox the copy says `Delivered-To: bob@example.com` above the `To` field that names Dave. A mistyped address inside the domain that has no mailbox is accepted and discarded, which looks the same from the test{apos}s side as the wait that never ends (<<surl-readme>>); an address outside the domain is refused, which is <<smtp-fail-a-test-on-mail-to-another-domain>>.
+
+The waits in the seed lines send `-X "FETCH 1 FLAGS"`, with `-o` dropping the answer, rather than fetch the message, because a fetch of the message sets the `\Seen` flag and a test may want to check flags later (<<imap-check-the-flags-an-app-left>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-check-an-app-sent-the-right-mail-in-csharp>> for the same test in C#, with the store read through Surl.Api.
+* <<smtp-check-an-app-sent-the-right-mail-from-an-agent>> for the same test run by an agent.
+* <<smtp-test-a-password-reset-mail>> for following the link to the page it names.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc9051>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[amqp-check-what-a-queue-holds-in-process]]
+=== Checking a Queue in Process
+
+==== Problem
+
+Your app queues jobs on an Advanced Message Queuing Protocol (AMQP) queue, and your test must check what it queued without consuming any of it. You want to browse the queue from the test, in your own .NET code, and see the jobs in delivery order.
+
+==== Solution
+
+Start a `SurlServer` that holds the queue, let the app queue its jobs through it, and read them with `BrowseQueueAsync` on `server.Messages`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.ListenUrls` holds a `stomp://` and an `amqp://` listener, each on a free port, and `BoundUrls` lists them in that order. They share one message bus, so a queue the app fills over the Simple Text Oriented Messaging Protocol (STOMP) is the queue a worker reads over AMQP (<<stomp12>>, <<amqp091>>). `Queues.Add("jobs")` is `--queue jobs`: the queue exists from the start. The app is a stand-in that sends with `CurlClient.SendAsync`, which answers a `CurlResponse` whose body the app does not need: a `POST` of a `CurlRequest` to `stomp://.../queue/jobs`, with the job as its `CurlContent` body, is one STOMP `SEND` (<<curl-readme>>). `Curl.Api` cannot publish over `amqp://`, so a program that wants the app to queue over AMQP itself uses a client library; STOMP is the way in that this book{apos}s own client has. `AllowAnonymous`, the spelling of `--allow-anonymous`, lets the app connect with no login, a loosening for a test on one machine (<<surl-readme>>).
+
+`server.Messages` is a `SurlServerMessages`, the server{apos}s view of its message bus; `BrowseQueueAsync` takes the queue name, the position to start after, with `-1` for the start, and a limit, and answers a `SurlQueuePage`. Its `Messages` are `SurlQueueMessage` values, each with a `Position` and a `Payload` in bytes, in delivery order, and the page also carries `ReadyCount`, the messages waiting, and `InFlightCount`, the messages delivered to a consumer and not yet acknowledged, which are counted and not listed. The program queues `resize cat.png`, `resize dog.png` and `mail ann` and finds them at positions `0`, `1` and `2`, ready `3`, in flight `0`. Browsing takes nothing: a second browse finds the same three, so the test can check, run the app on and check again. Compare with the order the test expects and not only with the count, since a queue that holds the right jobs in the wrong order is a bug the count does not see.
+
+A page is a window. With a limit of two, the first page holds positions `0` and `1` and `HasMore` is true, and a browse after the last position seen holds position `2` and `HasMore` is false. A worker changes what is there: when one takes a job over AMQP, with a `GET` of `amqp://.../%2F/jobs`, the next browse lists the other two and `ReadyCount` is `2`. The positions count the messages that are still in the queue, so a test that names a job by its place should browse again after a worker has run.
+
+The two failures are the ones a test is for. An app that queues to a name the server was not started with, `job` for `jobs`, is not refused over STOMP: the server makes a queue of that name, the three jobs go into it, the queue `jobs` stays empty and the check fails, and a browse of `job` finds them. A server that keeps its default refuses an app with no login: the first send throws a `CurlException` whose `Code` is `67`, the code `curl` exits with, and the queue holds nothing. In both the test learns what the app did from the server and not from the app{apos}s own report.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-browse-a-queue-from-an-agent>> for the same browse from an agent.
+* <<amqp-seed-a-queue-and-browse-what-is-left>> for seeding a queue and browsing what a worker left.
+* <<amqp-check-what-a-queue-still-holds>> for an agent that also counts the jobs a worker holds unfinished.
+* <<amqp091>>, <<stomp12>>, <<surl-readme>>, <<curl-readme>>.

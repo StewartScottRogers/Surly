@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: pop3-drain-a-maildrop-from-an-agent
+title: Draining a POP3 Maildrop from an Agent
+protocols: [pop3]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, stop_server, seed_mail, list_messages, wait_for_event, curl]
+curl-options: [-s, -S, -v, -u, -o, -X, --next]
+exit-codes: [0, 8]
+references: [surl-readme, curl-manual, rfc1939, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "One curl run retrieves messages 1 to 3 of the maildrop into files and, after --next, deletes each with DELE, exit 0, and the three files are there."
+    program: program.cs
+    args: [drain]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "drain: curl exit 0, files 3\n"
+
+  - id: retrieved-whole
+    claim: "The three files hold the three orders, in the order they arrived, each the same text as the message seeded."
+    program: program.cs
+    args: [whole]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "msg1.eml: Subject: Order 1 shipped, same as seeded: True\nmsg2.eml: Subject: Order 2 shipped, same as seeded: True\nmsg3.eml: Subject: Order 3 shipped, same as seeded: True\n"
+
+  - id: next-session-empty
+    claim: "Once the run that drained it has ended, a new curl run finds the maildrop empty: its listing has no lines."
+    program: program.cs
+    args: [next-session]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "next session lists 0 messages\n"
+
+  - id: store-is-empty
+    claim: "list_messages, which reads the store with no client, shows no message in INBOX after the drain."
+    program: program.cs
+    args: [count]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "in the store after the drain: 0\n"
+
+  - id: drain-of-an-empty-maildrop
+    claim: "Retrieving message 1 of the drained maildrop is answered -ERR No such message, and curl exits 8, so a drain that finds nothing does not look like one that worked."
+    program: program.cs
+    args: [empty]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "RETR 1 of the drained maildrop: curl exit 8, < -ERR No such message\n"
+
+  - id: count-first
+    claim: "A POP3 URL with no message number lists the maildrop, three lines, and the octets in them are the sizes list_messages gives."
+    program: program.cs
+    args: [listing]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "listing: 3 messages, octets match list_messages: True\n"
+
+  - id: unsaved-mail-is-not-deleted
+    claim: "When the folder for the files does not exist, the curl tool cannot run the drain: the call is a tool error, An error occurred invoking curl, and no DELE is sent."
+    program: program.cs
+    args: [unwritable]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "drain: tool error, no DELE sent: An error occurred invoking 'curl'.\n"
+
+  - id: failed-save-kept-everything
+    claim: "After that failure the store still holds all three messages."
+    program: program.cs
+    args: [unwritable-kept]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\nin the store: 3\n$'
+
+  - id: dele-needs-quit
+    claim: "DELE only marks: a session that sends DELE for each message and then RSET, put together with --next in one curl run, deletes nothing, curl exits 0."
+    program: program.cs
+    args: [rset]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "DELE for each, then RSET in one session: curl exit 0\n"
+
+  - id: marks-undone
+    claim: "After that run has ended, a new session still lists all three messages."
+    program: program.cs
+    args: [rset-kept]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "DELE for each, then RSET in one session: curl exit 0\nnext session lists 3 messages\n"

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-require-a-client-certificate-in-csharp]]
+=== Requiring a Client Certificate in C#
+
+==== Problem
+
+Your service uses mutual Transport Layer Security (TLS), and your .NET tests must prove the client presents a certificate from your own test authority. You want a server in the test process that refuses the handshake without a certificate, refuses one from another authority, and serves the right one.
+
+==== Solution
+
+Start a `SurlServer` whose `CaCertificateFile` names the test authority, and fetch from it with a `CurlClient` that presents the client certificate:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`openssl` makes the files in the setup: a test authority, `ca.pem`, that signs the device's certificate, `CN=device-1`; a second authority that signs a stranger's certificate with the same subject name; and the server's own self-signed certificate, `server.pem` (<<rfc5280>>). Each client certificate is packed with its key into a PFX (PKCS #12, or P12) file under the passphrase `s3cret`. The program's first argument is the authority file to give the server, `none` for no authority at all; the second picks the client's certificate.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `CertificateFile` and `KeyFile` are `--cert` and `--key`, the server's own certificate. `CaCertificateFile` is `--cacert`: the authority a client certificate must come from. Setting it is what makes the server ask for a certificate in the handshake (<<rfc8446>>); left `null`, as with `none`, the server asks for nothing and a client with no certificate gets `200`. `Log` takes a `TextWriter` for the server's log, the lines `surl` writes, so the program can show what the server saw. `SurlServer.StartAsync` starts it; `SurlServer` is the running server and `BoundUrl` its address.
+
+On the client, `CurlTlsPeerOptions` holds the TLS options for the origin, inside `CurlTlsOptions.Origin`, inside `CurlClientOptions`. `CertificateAuthorityFile` is `curl --cacert server.pem`. `Certificate`, `CertificateType` and `KeyPassword` are `curl --cert client.p12:s3cret --cert-type P12`: the file, its format and its passphrase (<<curl-readme>>). `CurlClient.SendAsync` sends the `CurlRequest` and returns a `CurlResponse`.
+
+A client with no certificate, and one whose certificate another authority signed, are refused in the handshake: there is no response, and `SendAsync` throws `CurlException`. Its `Code` is the TLS library's account of a closed connection and varies with the TLS version and the platform, so the program reports it and the claims only ask that it threw. The server's log is plainer: it says `TLS handshake failed: The remote certificate was rejected`. The program waits up to five seconds for that line, since the server writes it on its own thread.
+
+The P12 form works everywhere. With `Certificate = "client.pem"` and `Key = "client.key"`, a certificate and key in PEM (Privacy-Enhanced Mail) files, Windows throws `CurlException` with `Code` `SslCertProblem`, because `Curl.Api` reads a client certificate there as `curl`{apos}s Schannel build does, from a P12 file only; Linux and macOS take the PEM files as well.
+
+A `CaCertificateFile` that does not exist, or holds no certificate, stops the server from starting: `StartAsync` throws `SurlServerStartException`, whose `ExitCode` is `FailedInit` (2) or `CaCertificateBadFile` (77) and whose `Lines` hold `surl`{apos}s message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-require-a-client-certificate>> for the same task on the console.
+* <<https-require-a-client-certificate-from-an-agent>> for the same task driven by an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc8446>>, <<rfc5280>>.

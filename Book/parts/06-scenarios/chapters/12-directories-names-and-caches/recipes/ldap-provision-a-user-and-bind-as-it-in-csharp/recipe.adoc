@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-provision-a-user-and-bind-as-it-in-csharp]]
+=== Provisioning a User and Binding as It
+
+==== Problem
+
+In a C# test, your provisioning job adds users to a Lightweight Directory Access Protocol (LDAP) directory. You want the test to find the new entry by search, bind as it with its password, and check what the server recorded.
+
+==== Solution
+
+Host the directory with `Surl.Api`, let the job write bob's entry and account, then search for him with `Curl.Api` as the test's own account and bind as his distinguished name (DN), and wait for the server's record of both:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. The server listens on `ldap://127.0.0.1:0`, a free port, holds `tester`, a `SurlAccount` the test searches as, and keeps its events because `RecordExchanges` is on. `Directory`, a `SurlServerDirectory`, seeds with `AddEntriesAsync` the tree the job finds: the domain, `ou=people` and alice. `surl` refuses an add over LDAP itself, so the program stands in for the job in two lines, `Directory.AddEntriesAsync` with bob's entry and `Accounts.Add("bob", "b0b-pass")` on the server's `SurlServerAccounts`; your test runs the job there instead.
+
+The job writes two things because `surl` keeps them apart. The entry is what a search finds; the account is what a bind is checked against. A simple bind (<<rfc4511>>) names a DN, and `surl` takes the value of its leading `uid` or `cn`, here `bob`, as the account name. The entry's `userPassword` is not read: with the argument `entry-only` the job adds only the entry, the search finds it, and the bind with the same password is refused.
+
+Each check is a `CurlRequest`, a GET of an LDAP Uniform Resource Locator (URL, <<rfc4516>>) after `BoundUrl`, sent by one `CurlClient` with `CurlAuthenticationOptions` carrying the name and password of the bind. `ou=people,dc=example,dc=com?cn,mail?sub?(uid=bob)` as `tester` finds bob's entry, and before the job finds nothing. `uid=bob,ou=people,dc=example,dc=com?uid?base` as bob reads his own entry only if his password was accepted. The `CurlResponse` body is `curl`{apos}s text; the program prints it as one line of sorted entries, so the layout of the LDAP library under `Curl.Api` does not matter.
+
+A refused bind throws `CurlException`, and its code depends on that library. On Windows, WinLDAP gives 38, `LdapCannotBind`, for a wrong password and for a name with no account alike. On Linux and macOS the OpenLDAP build gives 67, `LoginDenied`, for both. `AllowPlaintextAuthentication` loosens a default for the test: with the argument `strict` it is off, and a password sent over `ldap://` is refused unchecked, the right one included, with 38 on every platform. A test that keeps the default serves `ldaps://`, as <<ldaps-search-over-tls-in-csharp>> shows.
+
+`WaitForEventAsync` returns the first recorded event its `SurlEventQuery` matches, waiting up to the timeout for one, so the test never reads too early. `Kind = SurlEventKind.LoginJudged` with `Account = "bob"` is a `LoginJudgedEvent`: the scheme, the mechanism, `password` for a simple bind, and `IsAccepted`, false after a wrong password. `Kind = SurlEventKind.StoreChanged` with `Store = StoreKind.Directory` and bob's DN as `Name` is a `StoreChangedEvent`, the job's write, `Seeded`; `SurlEventKind` and `StoreKind` name what to wait for. `Directory.ExportLdifAsync` reads the tree back as LDIF with bob in it and every `userPassword` left out.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-provision-a-user-and-bind-as-it>> for the same test on the console.
+* <<ldap-provision-a-user-and-bind-as-it-from-an-agent>> for the same test from an agent.
+* <<ldap-seed-a-directory-in-process>> for seeding in steps.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>.

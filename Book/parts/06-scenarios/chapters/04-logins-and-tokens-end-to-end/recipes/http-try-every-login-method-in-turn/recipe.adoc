@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-try-every-login-method-in-turn]]
+=== Trying Every Login Method in Turn
+
+==== Problem
+
+A server accepts only some login methods, and what it offers is not always what it accepts. You want your artificial intelligence (AI) agent to try Basic, Digest and Bearer against it in turn and report which ones a client may use.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts the server with `surl-mcp`, reads what a request with no login is offered, tries each method with `curl-mcp`{apos}s `curl` tool, and reads back the logins the server judged:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` holds two accounts in its `arguments`: `--user app:s3cret`, a password, and `--user :tok-7f3a9c`, whose empty user name makes the password a Bearer token (<<rfc6750>>). `files` serves `report.txt` from memory. The program's first argument adds the options under test, and its second, if given, is the password the agent tries.
+
+The agent first asks with no login. `-D -` puts the response headers in `standardOutput`, `-o body.out` keeps the body apart, and the program takes the scheme of each `WWW-Authenticate` header (<<rfc9110>>). Then it makes one `curl` call per method: `-u app:s3cret` names the account, with `--basic` for Basic (<<rfc7617>>), `--digest` for Digest (<<rfc7616>>), which answers the server's challenge, and `--oauth2-bearer` for the token. `-w "%{http_code}"` puts the status in `standardOutput`, `-s` keeps it quiet, and `--max-time 10` makes a call that hangs fail fast. A method is usable when it gets `200`.
+
+What the server offers and what it accepts follow its options. By default over `http://` it offers Digest alone and refuses Basic and Bearer unchecked with `403 Forbidden`, the right password included, because they would cross the network in clear. With `--allow-plaintext-auth` and `--auth digest,bearer` it offers and accepts Digest and Bearer, and Basic, no longer a refusal of a password in clear but a method it does not take, gets `401`. Over `https://`, with `--cert server.pem --key server.key` from `setup` and `--cacert server.pem` on the client, `--auth basic` offers and accepts Basic alone. `--allow-plaintext-auth` and `--auth` loosen defaults, for tests only.
+
+A `401` alone does not say why. With a wrong password on the `plaintext` server, Digest and Basic both get `401`, and only the record tells them apart. Each `curl` call is its own connection, so after it the program waits with `wait_for_event` for an `exchange_ended` after the last one it saw, up to `timeout_ms`, and reads nothing before the exchange is over. `get_events` with `kinds` `login_judged` then lists every login the server checked, with `mechanism`, `account` and `is_accepted`: the Digest login as app is there, refused, and Basic, a method the server does not take, left no login at all. A Bearer login's account is `bearer token`, never the token.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-require-a-login>> for accounts and the default challenge.
+* <<http-accept-basic-only-over-https>> for Basic alone.
+* <<http-move-logins-from-basic-to-digest>> for moving clients between methods.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7617>>, <<rfc7616>>, <<rfc6750>>, <<rfc9110>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-beside-a-web-application-factory]]
+=== Running Beside a WebApplicationFactory
+
+==== Problem
+
+Your ASP.NET Core test starts the app in its own process with `WebApplicationFactory`, and the app depends on a server for Hypertext Transfer Protocol (HTTP) and Simple Mail Transfer Protocol (SMTP). You want Surl started beside the app, on free ports, and the addresses it bound put into the app{apos}s configuration before the app starts.
+
+==== Solution
+
+Start the `SurlServer` first, then build the app with its addresses as configuration. `WebApplicationFactory` comes from the package `Microsoft.AspNetCore.Mvc.Testing`, which this book does not pin and which wants the app in a project of its own, so the program does by hand what the factory does and keeps the part that matters here, the order: server, configuration, app.
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The first line of the program is `#:sdk Microsoft.NET.Sdk.Web`, which gives a file-based program the ASP.NET Core framework with no package. `SurlServerOptions.ListenUrls` holds `http://127.0.0.1:0` and `smtp://127.0.0.1:0`, so each listener takes a free port, and `SurlServer.BoundUrls` lists the addresses it took, in the same order. The server serves `rates.json` from memory and one domain, `example.com`, with a mailbox for the app and one for Ann. `AllowPlaintextAuthentication`, the spelling of `--allow-plaintext-auth`, lets the app{apos}s mail password cross a plain connection, a loosening for a test on one machine (<<surl-readme>>, <<rfc5321>>). `RecordExchanges` turns on the record the test waits on.
+
+The addresses become configuration. The program puts `Rates:Url`, `Smtp:Host` and `Smtp:Port` in a dictionary, and the app{apos}s `App.StartAsync` adds it after the app{apos}s own defaults with `AddInMemoryCollection`, so the injected values win. With the factory itself the same step belongs in `WithWebHostBuilder`, before the first `CreateClient`. Either way the server must already be running, because its ports are not known until `StartAsync` has returned. The app itself listens on `http://127.0.0.1:0` and reads its own address from the server it started, so the test never guesses a port, and the first line shows the app and the server on different ports.
+
+The app has two routes. `GET /rates` asks the upstream for `rates.json` and passes the answer on, `200` with `{"eur":1.08}`, or `502` when the upstream cannot be reached (<<rfc9110>>). `POST /signup?email=` mails a welcome with `SmtpClient`, `202` when the server took it and `502` when it did not. The test calls the app with an ordinary `HttpClient`, and then asks the server what it recorded and not the app what it did: `SurlServer.WaitForEventAsync` takes a `SurlEventQuery` for a `SurlEventKind.StoreChanged` event in the mail store named `ann@example.com`, with a timeout of ten seconds, and returns when the delivery is recorded. `SurlServer.Mail`, a `SurlServerMail`, then lists Ann{apos}s inbox and reads the message, and the test finds one message with the subject `Welcome`.
+
+Two apps from the same code take two ports and both read the rates from the one server, so a test class can start a server once and an app for each test. Leave the addresses out and the app keeps its default, `http://127.0.0.1:1/`, which answers no one: `/rates` is `502`, and the test fails at the first line that depends on the server and not at some later line that looks like a bug in the app. The last case keeps the server{apos}s default, and the app{apos}s password is refused: `/rates` still works, `/signup` is `502`, and the wait for Ann{apos}s mail times out after two seconds with a `TimeoutException`, which the program reports as no mail. A wait that cannot succeed has to be short, and it has to be bounded.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-hand-bound-ports-to-the-app>> for giving the app the bound ports in other ways.
+* <<surl-share-one-server-across-a-test-class>> for one server shared by a class of tests.
+* <<surl-host-a-whole-environment-in-process>> for a whole environment started in process.
+* <<surl-readme>>, <<rfc9110>>, <<rfc5321>>.

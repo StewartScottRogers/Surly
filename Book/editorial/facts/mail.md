@@ -410,3 +410,37 @@ imap-file-mail-into-a-folder, imap-rename-and-delete-a-folder, imap-search-by-se
 imap-check-the-flags-an-app-left, imap-enforce-a-mailbox-quota, imap-fetch-only-new-messages, smtp-see-why-mail-was-refused (all with twins).
 
 - IMAP search by UID: curl sends a URL query (`?UID 3:*`) as `SEARCH <query>`, so the answer is message numbers; for UIDs use `-X "UID SEARCH UID 3:*"` (Curl session, 2026-11-22; BL-5757 confirms against upstream 8.22.0). An SMTP 452 after DATA exits 8, likely upstream's own answer (BL-5756 measures it).
+
+## Draining a maildrop (pop3-drain-a-maildrop and twins; Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- Console drain in one command: `curl -sS -u a:pw -o "msg#1.eml" "pop3://h:p/[1-3]" --next -sS -u a:pw -X DELE "pop3://h:p/[1-3]"` (curl range: three RETRs into msg1..3.eml, then `DELE 1`, `DELE 2`, `DELE 3`, one session, commit at QUIT when curl exits, exit 0). A new session's LIST prints a lone CRLF; IMAP STATUS says MESSAGES 0. The same range on an empty maildrop: `RETR 1` -ERR, exit 8. `-X DELE .../[1-3] --next -X RSET` deletes nothing (exit 0, still 3). `-o "nosuch/msg#1.eml"`: curl exit 2 `Could not create the output file nosuch/msg1.eml` before any DELE (with or without `--fail-early`).
+- Curl.Api: one `CurlClient` = one session; GET root = LIST; `new HttpMethod("RETR")`/`("DELE")` + path `n`; `new HttpMethod("RSET")` + empty path works. Dispose the client (QUIT), then `server.WaitForEventAsync(ExchangeEnded, AfterSequence = last, 10 s)` (needs `RecordExchanges = true`): after it the store reads empty at once, no polling.
+- curl-mcp: `-o dir/msg#1.eml` with a missing `dir` is NOT curl exit 2: the call is a tool error with the plain text `An error occurred invoking 'curl'.` (not JSON; test `text.StartsWith('{')` before parsing), and no connection is made. An existing folder under `CURL_MCP_ROOT` works (`#1` expands). Every curl-mcp run is one POP3 connection: `wait_for_event(kinds:["exchange_ended"], after_sequence: last)` after each call takes the next one in order; `list_messages` afterwards shows the deletions. `curl -v ... pop3://h:p/1` on an empty maildrop: exitCode 8, stderr has `< -ERR No such message`.
+
+## Waiting on a fake clock (smtp-wait-for-mail-on-a-fake-clock; Surl 5da5b3eaf, 2026-11-22, windows)
+- `SurlServerOptions.TimeProvider` takes a `System.TimeProvider`: `WaitForEventAsync(query, timeout, ct)` (needs `RecordExchanges = true`, else `InvalidOperationException`) counts its timeout on it. A hand-written `FakeClock : TimeProvider` (`GetUtcNow`, `GetTimestamp`, `TimestampFrequency`, `CreateTimer` returning an `ITimer` that fires when `Advance(by)` passes its due time) works: still waiting after 29 s of fake time, `TimeoutException` after 30 (`No event matching SurlEventQuery {...} within 00:00:30`), about 0.3 s of real time. A real `CancellationToken` guard still applies. `SmtpClient` with credentials needs `AllowPlaintextAuthentication` (else `SmtpException` `MustIssueStartTlsFirst`); delivered mail is a `StoreChanged` event, `Change` `Delivered`, `Store` `Mail`, `Name` `ann@example.com`.
+
+## Delivered-To, foreign domains, mailbox files, IMAP-only POP3 (batch-12, Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `--mail-delivered-to` (Surl.Api `MailDeliveredTo`, MCP in `arguments`): each owner's copy starts `Delivered-To: <envelope rcpt>` ahead of Return-Path,
+  so a test reads the RCPT address from the store; a message whose `To:` says dave but whose RCPT is bob is in bob's mailbox with `Delivered-To: bob@...`.
+  `HEADER.FIELDS (DELIVERED-TO TO)` fetches it. IMAP SEARCH `TO x SUBJECT "..." BODY https://host/path/` (unencoded `:` and `/` in the URL query work).
+- Bounded "never arrives" wait: console `--retry 2 --retry-all-errors --retry-delay 1` on `INBOX;UID=1;...` -> exit 78 after ~2.5 s; Surl.Api
+  `WaitForEventAsync(StoreChanged, Name = owner, 2 s)` throws `TimeoutException` (needs `RecordExchanges = true`); MCP `wait_for_event` -> `timed_out`.
+- `--mail-domain` match (two domains served): `ann@mail.example.com` (subdomain) and `ann@example.com.evil.org` refused 550; `ANN@EXAMPLE.COM`
+  and `ann@example.com.` (trailing dot) accepted and delivered to ann; `ann@example.co` refused. Envelope sender outside every domain accepted; a
+  `Cc:` header naming an outsider with an in-domain RCPT accepted (only RCPT is judged). `-v` log per refusal `#N * RCPT x refused: outside every
+  --mail-domain` then `#N > 550 5.7.1 Relaying denied\r\n` (the reply logged escaped); `-X "LIST 1" pop3://...` prints nothing (exit 0) once message 1 exists.
+- `--mailbox-file f.csv` (Surl.Api `MailboxFiles`): `-v` start lines `* Mailbox x: logins on ...` per record (MCP `log_lines` too). Columns in any order
+  and case, values follow the header order. Refusals, exit 2 `surl: (2) Mailbox file f.csv, line N: <reason>`, N the PHYSICAL line (blank lines and
+  quoted multi-line fields count): `not a mail address`, `mailbox x is not in any --mail-domain`, `mailbox x is given twice` (also across two files
+  and against a `--mailbox`), `unknown column pw` (line 1), `expected 2 fields` (too few or too many), `a quoted field has no closing quote`,
+  `an empty field` (empty password), `unknown scheme nosuch`, `mailbox x needs --mail-domain`. BUT a scheme with no login (`gopher`) is refused
+  without file or line: `surl: (2) scheme gopher has no login`. Missing file exit 37 `surl: (37) Could not read mailbox file f.csv` (Surl.Api
+  `CouldNotReadFile`). `"s3cret,too"` quoted is the password `s3cret,too`. A UTF-8 BOM and CRLF are fine. Surl.Api `Lines[0]` names the file
+  as given (full path if given so). surl-mcp reads the path relative to SURL_MCP_ROOT; `../x.csv` -> tool error `{"refused":"--mailbox-file names
+  ../x.csv, which is not inside the root"}`; a refusal from surl -> `exit_code` 2 / 37 with `lines`.
+- `;protocols=imap` mailbox over POP3: CAPA still offers `SASL CRAM-MD5`; right password -> `-ERR [AUTH] Authentication failed`, curl 67, the
+  same reply as an unknown address or a wrong password; log `* Login refused: CRAM-MD5 <account>` alike for all three (no reason). Surl.Api
+  `LoginJudgedEvent` (Scheme pop3, Mechanism CRAM-MD5, IsAccepted false); MCP `get_events login_judged` also has `is_refused_by_fault`.
+  curl `-v` shows `< -ERR [AUTH] Authentication failed` (with `-s`; without it the progress meter shares the line). Curl.Api: `using Curl.Api.Codes;`
+  for `CurlCode.LoginDenied` in a `when` filter. JsonElement in an interpolated string prints `False`; use `GetRawText()` for JSON `false`.
+smtp-check-an-app-sent-the-right-mail, smtp-fail-a-test-on-mail-to-another-domain, smtp-load-mailboxes-from-a-csv-file, pop3-limit-a-mailbox-to-imap (all with twins).

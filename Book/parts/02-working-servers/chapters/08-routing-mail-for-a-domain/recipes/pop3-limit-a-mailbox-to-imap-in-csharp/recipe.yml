@@ -1,0 +1,91 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: pop3-limit-a-mailbox-to-imap-in-csharp
+title: Limiting a Mailbox to IMAP in C#
+protocols: [pop3, imap, smtp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlEvent, SurlExchangeRecord, LoginJudgedEvent, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc1939, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api and runs every claim's step;
+# each case checks one line of what it prints.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A POP3 listing with ann's right password is refused; Curl.Api throws CurlException LoginDenied, 67."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^ann over POP3: CurlException LoginDenied \\(67\\): Login denied \\|"
+
+  - id: pop3-reply
+    claim: "The recorded exchange, read once it has ended, shows the POP3 server's answer to her login, -ERR [AUTH] Authentication failed."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^ann over POP3: CurlException LoginDenied \\(67\\): Login denied \\| server: -ERR \\[AUTH\\] Authentication failed\n"
+
+  - id: like-no-account
+    claim: "An address with no mailbox at all, nobody@example.com, gets the same exception and the same answer, so the refusal does not tell a client that ann exists."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nnobody over POP3: CurlException LoginDenied \\(67\\): Login denied \\| server: -ERR \\[AUTH\\] Authentication failed\n"
+
+  - id: like-a-wrong-password
+    claim: "A wrong password for bob, who may use POP3, gets the same too."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\nbob, wrong password, over POP3: CurlException LoginDenied \\(67\\): Login denied \\| server: -ERR \\[AUTH\\] Authentication failed\n"
+
+  - id: imap-reads-it
+    claim: "Over IMAP the same login reads the mail SMTP delivered to her, after the delivery event, waited for at most ten seconds."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nann over IMAP: Subject: Order 1042 shipped\\n"
+
+  - id: fall-back-to-imap
+    claim: "A client that catches LoginDenied on POP3 and falls back to IMAP gets the mail."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nfall back to IMAP: \\* SEARCH 1\\n"
+
+  - id: events-give-no-reason
+    claim: "The LoginJudgedEvent records each refused POP3 login alike, scheme, mechanism CRAM-MD5 and the account, whether the mailbox is limited, missing or given a wrong password."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\njudged: pop3 CRAM-MD5 ann@example\\.com IsAccepted=False\\njudged: pop3 CRAM-MD5 nobody@example\\.com IsAccepted=False\\njudged: pop3 CRAM-MD5 bob@example\\.com IsAccepted=False\\njudged: pop3 CRAM-MD5 ann@example\\.com IsAccepted=False\\n"
+
+  - id: no-pop3-login-accepted
+    claim: "The test's assertion that the client never used POP3 is a count of accepted POP3 logins, 0."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nPOP3 logins accepted: 0\\n"
+
+  - id: log-names-the-protocols
+    claim: "The verbose log names at start the protocols ann logs in on, IMAP alone."
+    program: imap-only.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "\\nlog: \\* Mailbox ann@example\\.com: logins on imap\\n$"
