@@ -11,3 +11,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 6. Re-pinned to Surl a423807a5d / Curl 0680b97577: surl now withholds the LDAP simple bind password (cn=app..****); the still-traced case became a withheld case, and drop-received.sh is kept for an artifact with no client bytes at all.
 7. Bounded wait before reading the server's record (CI race sweep).
 8. CI (macOS, run 45018591547): the line before `Login accepted: Basic app` was a 9-byte frame (`0000: .........`), not the withheld header block, which came earlier; the case now checks that a withheld block precedes each Basic and Bearer login, with the absent-secret case beside it.
+- CI (Linux, macOS): the awk check's $5 sat inside sh -c "...", which the outer POSIX shell expanded to nothing (cmd.exe on Windows does not), so awk failed; the program now names Basic and Bearer through -v variables and holds no $.
