@@ -10,7 +10,7 @@
 //   rset       DELE then RSET in one session: nothing is deleted
 //   missing    DELE of a message number that is not there
 //   events     the event the deletion makes, and the mailbox counts
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

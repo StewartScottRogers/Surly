@@ -7,8 +7,8 @@
 //   no-listener  a port where nothing was ever listening
 //   unresolved   a host name that does not resolve
 // The exit code is the one curl would have used: 0, 22 for an error status with -f, or the libcurl code.
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Net.Sockets;

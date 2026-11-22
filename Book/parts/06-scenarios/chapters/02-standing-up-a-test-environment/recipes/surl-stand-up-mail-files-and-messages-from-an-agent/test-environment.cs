@@ -6,7 +6,7 @@
 //   right        the app mails, uploads and publishes as it should (the default)
 //   wrong-topic  the app publishes on invoices/7 instead of orders/7
 //   strict       the server is started without --allow-plaintext-auth
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -53,6 +53,14 @@ string topic = which == "wrong-topic" ? "invoices/7" : "orders/7";
 Console.WriteLine($"app mailed ann: curl exit {await Curl("--crlf", "-u", "app@example.com:apppass", "--mail-from", "app@example.com", "--mail-rcpt", "ann@example.com", "-T", "shipped.eml", bound[0] + "example.com")}");
 Console.WriteLine($"app uploaded the invoice: curl exit {await Curl("--digest", "-u", "app@example.com:apppass", "-T", "invoice-7.txt", bound[2] + "invoice-7.txt")}");
 Console.WriteLine($"app published on {topic}: curl exit {await Curl("-u", "app@example.com:apppass", "-d", "shipped", bound[3] + topic)}");
+
+// A QoS 0 publish is not acknowledged, so curl can return before the broker keeps it. The broker's
+// record of the MQTT connection ending comes after what it sent is applied, refused or not: wait for it.
+JsonElement ended = await Tool("wait_for_event", new() { ["kinds"] = new[] { "exchange_ended" }, ["scheme"] = "mqtt", ["timeout_ms"] = 10000 });
+if (!(ended.TryGetProperty("event", out JsonElement inner) ? inner : ended).TryGetProperty("sequence", out _))
+{
+    throw new TimeoutException("the broker did not end curl's connection in 10 s");
+}
 
 // The test: each store read back through surl-mcp, with no client.
 JsonElement messages = (await Tool("list_messages", new() { ["owner"] = "ann@example.com", ["mailbox"] = "INBOX" })).GetProperty("messages");

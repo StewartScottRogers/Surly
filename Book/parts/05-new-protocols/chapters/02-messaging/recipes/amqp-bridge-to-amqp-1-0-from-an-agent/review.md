@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Same ten claims as the console recipe; sends go over both versions with the curl tool, and each send waits for the bus event enqueued (no fixed sleep).
 2. An AMQP 1.0 receive from an empty address is a tool error, exit 28 after -m 2.
+3. Bounded wait before reading the server's record (CI race sweep).

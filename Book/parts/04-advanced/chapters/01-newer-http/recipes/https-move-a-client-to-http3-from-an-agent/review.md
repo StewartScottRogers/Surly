@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. `transfer` has neither an alt-svc nor a version field, so both calls use the `curl` tool; the program reads the alt-svc file from the shared root.
 3. QUIC is shown by `get_exchanges` chunks carrying `stream_id`.
 4. Revised after the Curl session (ADR-1313 stands; with --http3 a stored h3 entry is used on Windows too): the solution passes --http3 (Http3) and runs on all three platforms; the no-version-option switch is a [linux, macos] case and the stay on HTTP/2 a [windows] case.
+5. Bounded wait before reading the server's record (CI race sweep).

@@ -1,12 +1,12 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent runs a sync job: curl-mcp's curl tool fetches each file from a surl-mcp server only when
-// the server's copy is newer than the local one, and surl-mcp changes the server between runs.
+// the server's entity tag differs from the one saved beside the local copy, and surl-mcp changes the server between runs.
 // Run: dotnet run sync.cs -- <case>
 //   changed  run, run again, rewrite a.txt with put_file, run again (the default)
 //   deleted  run, delete a.txt with delete_file, run again
 //   no-fail  the deleted case, the job's curl lines without -f
-//   dates    run once, then compare the server's Last-Modified with the saved file's date
-#:package ModelContextProtocol.Core@2.2.0
+//   tags     run once, then compare the server's ETag with the saved tag and show the request
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -39,25 +39,26 @@ string folder = $"local-{which}";
 bool fail = which != "no-fail";
 
 await Sync(1);
-if (which == "dates")
+if (which == "tags")
 {
     // transfer: a HEAD request, answered as JSON text with the headers as name and value pairs.
     CallToolResult head = await curl.CallToolAsync("transfer", new Dictionary<string, object?> { ["url"] = url + "a.txt", ["method"] = "HEAD" });
     using JsonDocument headAnswer = JsonDocument.Parse(head.Content.OfType<TextContentBlock>().Single().Text);
-    string lastModified = headAnswer.RootElement.GetProperty("headers").EnumerateArray()
-        .First(h => h.GetProperty("name").GetString() == "Last-Modified").GetProperty("value").GetString()!;
-    DateTime saved = File.GetLastWriteTimeUtc(Path.Combine(here, folder, "a.txt"));
+    string etag = headAnswer.RootElement.GetProperty("headers").EnumerateArray()
+        .First(h => h.GetProperty("name").GetString() == "ETag").GetProperty("value").GetString()!;
+    string saved = File.ReadAllText(Path.Combine(here, folder, "a.txt.etag")).Trim();
     Console.WriteLine($"HEAD a.txt: {headAnswer.RootElement.GetProperty("statusCode")}");
-    Console.WriteLine($"saved a.txt dated as Last-Modified: {(saved == DateTime.Parse(lastModified).ToUniversalTime() ? "yes" : "no")}");
+    Console.WriteLine($"saved tag is the server's ETag: {(saved == etag ? "yes" : "no")}");
 
-    // The condition curl sends: -v writes the request head to standard error.
+    // The condition curl sends, and the answer: -v writes both heads to standard error.
     CallToolResult verbose = await curl.CallToolAsync("curl", new Dictionary<string, object?>
     {
-        ["args"] = new[] { "-s", "-v", "-z", $"{folder}/a.txt", "-o", $"{folder}/a.txt", url + "a.txt" },
+        ["args"] = new[] { "-s", "-v", "--etag-compare", $"{folder}/a.txt.etag", "-o", $"{folder}/a.txt", url + "a.txt" },
     });
     using JsonDocument verboseAnswer = JsonDocument.Parse(verbose.Content.OfType<TextContentBlock>().Single().Text);
-    string sent = verboseAnswer.RootElement.GetProperty("standardError").GetProperty("content").GetString()!;
-    Console.WriteLine($"curl sent If-Modified-Since with that date: {(sent.Contains($"> If-Modified-Since: {lastModified}") ? "yes" : "no")}");
+    string heads = verboseAnswer.RootElement.GetProperty("standardError").GetProperty("content").GetString()!;
+    Console.WriteLine($"curl sent If-None-Match with that tag: {(heads.Contains($"> If-None-Match: {etag}") ? "yes" : "no")}");
+    Console.WriteLine($"surl answered 304 itself: {(heads.Contains("< HTTP/1.1 304 Not Modified") ? "yes" : "no")}");
     return 0;
 }
 
@@ -69,8 +70,6 @@ if (which is "deleted" or "no-fail")
 }
 else
 {
-    // Last-Modified counts whole seconds: wait past the second the files were served in.
-    await Task.Delay(TimeSpan.FromSeconds(1.1));
     await surl.CallToolAsync("put_file", new Dictionary<string, object?> { ["server_id"] = server, ["path"] = "/a.txt", ["text"] = "alpha, revised\n" });
     Console.WriteLine("a.txt rewritten");
 }
@@ -79,13 +78,13 @@ await Sync(3);
 Console.WriteLine($"local a.txt: {File.ReadAllText(Path.Combine(here, folder, "a.txt")).TrimEnd()}");
 return 0;
 
-// One run of the job: one curl tool call per file, -z comparing with the local copy's date.
+// One run of the job: one curl tool call per file, sending the saved tag and saving the new one.
 async Task Sync(int run)
 {
     var report = new List<string>();
     foreach (string name in new[] { "a.txt", "b.txt" })
     {
-        string[] line = [fail ? "-f" : "-s", "-s", "-R", "-z", $"{folder}/{name}", "--create-dirs", "-o", $"{folder}/{name}", "-w", "%{http_code}", url + name];
+        string[] line = [fail ? "-f" : "-s", "-s", "--create-dirs", "--etag-compare", $"{folder}/{name}.etag", "--etag-save", $"{folder}/{name}.etag", "-o", $"{folder}/{name}", "-w", "%{http_code}", url + name];
         CallToolResult ran = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = line });
         using JsonDocument answer = JsonDocument.Parse(ran.Content.OfType<TextContentBlock>().Single().Text);
         string code = answer.RootElement.GetProperty("standardOutput").GetProperty("content").GetString()!.Trim();

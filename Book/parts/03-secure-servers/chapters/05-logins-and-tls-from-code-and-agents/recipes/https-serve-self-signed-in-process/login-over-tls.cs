@@ -2,8 +2,8 @@
 // Serves a file over HTTPS behind a login with Surl.Api and fetches it with Curl.Api, in one process:
 // first with a throwaway certificate the client cannot verify, then with one the program makes and trusts.
 // Run: dotnet run login-over-tls.cs
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Security.Cryptography;

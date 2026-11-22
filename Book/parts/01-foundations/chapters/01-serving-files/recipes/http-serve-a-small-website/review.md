@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Fixtures named .png, .jpg, .ico, .woff2 hold text; the Discussion says surl types by name only, which the cases show.
 2. No index page: / is 404; pointed to http-list-a-directory.
+3. Re-pinned to Surl a423807a5d / Curl 0680b97577: the root's 404 is now text/plain with surl's short body (BL-1444).

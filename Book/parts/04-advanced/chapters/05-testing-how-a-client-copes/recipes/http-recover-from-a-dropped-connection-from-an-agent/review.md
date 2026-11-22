@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. transfer makes no retry, so the retry uses curl-mcp's curl tool with --retry 1 --retry-all-errors; transfer twice is a separate case.
 2. The rule is added with add_fault after start_server, so nothing spends it early.
+3. Bounded wait before reading the server's record (CI race sweep).

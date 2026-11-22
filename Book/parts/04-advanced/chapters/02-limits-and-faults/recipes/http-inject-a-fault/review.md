@@ -13,3 +13,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 4. `drop` exits 56 (connection reset): `surl` aborts the connection. Upstream curl reports a reset the same way on Linux and macOS, but only Windows was run.
 5. Fixed in drafting: removed "surl warns on start" (the Surl README does not say it for `--fault`, and verify cannot see the log) and "loosens nothing" (`surl --aihelp testing` marks `--fault` as loosening, for tests only). Out-of-space is described by its answer, 413, not as "what a full store would say", which only Surl's ADR-0129 states.
 6. Program note: `out-of-space` on HTTP is `413 Content Too Large` by design (ADR-0129), not `507 Insufficient Storage` (RFC 4918, not in the bibliography).
+Re-pinned to Surl a423807a5d / Curl 0680b97577: the HTTP error fault now answers with a short body (BL-1444), which curl --retry writes before the file in retry-recovers; --fault gained the body key, added to keys-and-limit.

@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Lists a blob container with Curl.Api against three Surl.Api servers, in one process: one that allows
 // listings, one that does not, and one that also allows anonymous callers. Run: dotnet run program.cs
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

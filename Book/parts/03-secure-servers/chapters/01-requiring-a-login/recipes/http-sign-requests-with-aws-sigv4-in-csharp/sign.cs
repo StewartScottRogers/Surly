@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // A C# file-based app: `dotnet run sign.cs -- SCENARIO`.
 //   fetch (the default), wrong, unknown, unsigned, password, scope, missing, events, default, default-wrong
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

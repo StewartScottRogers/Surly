@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Nearest honest recipe: curl-mcp's transfer has no HTTP version field, so versions are chosen with the curl tool; a case shows transfer speaks HTTP/1.1.
 2. HTTP/2 request chunks come back from get_exchanges base64-encoded; the program decodes them.
+3. Bounded wait before reading the server's record (CI race sweep).

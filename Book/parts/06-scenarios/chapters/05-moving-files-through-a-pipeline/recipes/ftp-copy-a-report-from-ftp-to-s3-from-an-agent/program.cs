@@ -6,7 +6,7 @@
 //   copy           the hop for out/report.csv (the default)
 //   missing        the hop for a report the FTP server does not have, with --fail-early
 //   stale          the same, without --fail-early, after a good run
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

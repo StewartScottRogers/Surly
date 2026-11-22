@@ -12,8 +12,8 @@
 //   also-mailbox   an alias that is also a mailbox
 //   no-mailbox     an alias whose target is no mailbox
 //   outside        an alias whose target is outside the domain
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Collections.Concurrent;
 using System.Text;

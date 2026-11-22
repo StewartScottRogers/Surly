@@ -8,7 +8,7 @@
 //   commands      two uploads into another new folder, and the commands the server received
 //   uploads-off   a server started without --allow-uploads, with --ftp-create-dirs
 //   no-login      a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -61,7 +61,7 @@ switch (which)
     case "commands":
         await Upload("2026/11/13/report.txt", create: true);
         await Upload("2026/11/13/report.txt", create: true);
-        Console.WriteLine($"commands: {string.Join(", ", await Commands())}");
+        Console.WriteLine($"commands: {string.Join(", ", await Commands(2))}");
         break;
     default:
         Console.WriteLine($"{which}: upload exit {await Upload("2026/11/12/report.txt", create: which != "without")}");
@@ -94,7 +94,21 @@ async Task List(string folder)
 }
 
 // surl-mcp get_exchanges: the commands that make folders or store files, in order, with the names they carried.
-async Task<List<string>> Commands()
+// The record can trail curl by a moment, so ask again until it holds a STOR per upload, for up to 10 s.
+async Task<List<string>> Commands(int uploads)
+{
+    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+    List<string> commands = await Recorded();
+    while (commands.Count(c => c.StartsWith("STOR ")) < uploads && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100);
+        commands = await Recorded();
+    }
+
+    return commands;
+}
+
+async Task<List<string>> Recorded()
 {
     CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
     return result.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()

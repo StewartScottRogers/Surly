@@ -11,3 +11,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. `SurlServerFiles.PutAsync` and `ReadAsync` need a leading slash on the path.
 
 Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: Curl.Api now PUTs to s3:// (BL-5594); the refused-PUT case and the SurlServerFiles.PutAsync workaround became a real PUT read back from the folder.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: the https 404 now has the body 404 Not Found (BL-1444).

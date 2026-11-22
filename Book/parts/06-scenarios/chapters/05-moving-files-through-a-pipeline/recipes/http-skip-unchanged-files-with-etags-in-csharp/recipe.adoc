@@ -3,32 +3,34 @@
 include::.generated/attributes.adoc[]
 
 [[http-skip-unchanged-files-with-etags-in-csharp]]
-=== Skipping Unchanged Files by Date in C#
+=== Skipping Unchanged Files with ETags in C#
 
 ==== Problem
 
-A sync job in your .NET code should fetch only what changed: the first run takes every file, the next skips the ones the server has not changed, and a file changed between runs is fetched again, and a test should prove it.
+A sync job in your .NET code should fetch only what changed: the first run takes every file and keeps its entity tag, the next run gets `304 Not Modified` for the files the server has not changed, and a file changed between runs is fetched again, and a test should prove it.
 
 ==== Solution
 
-Host the files in a `SurlServer` that runs on a clock the test moves, and have the job send a `HEAD` for each file and a `GET` only when the `Last-Modified` it gets differs from the one saved with the local copy:
+Host the files in a `SurlServer` that runs on a clock the test moves, and have the job send each `GET` with the tag saved from the last fetch in an `If-None-Match` header, keeping the body only when the answer is `200`:
 
 include::.generated/solution.adoc[]
 
 ==== Discussion
 
-`SurlServerOptions.Files` holds `a.txt` and `b.txt` in memory. `TimeProvider` is the one clock the server runs on, and the file times and the `Last-Modified` header come from it. `TestClock` is a `TimeProvider` that stands still at 2 January 2024 until the test calls `Advance`, so the dates do not depend on when the test runs and a change can be put exactly five seconds, or zero seconds, after the last one. `RecordExchanges` keeps the bytes each client sent, which the program reads at the end to count the requests the server answered.
+`SurlServerOptions.Files` holds `a.txt` and `b.txt` in memory. `TimeProvider` is the one clock the server runs on, and the file times come from it. `TestClock` is a `TimeProvider` that stands still at 2 January 2024 until the test calls `Advance`, so the tags and dates do not depend on when the test runs and a change can be put exactly five seconds, or zero seconds, after the last one. `RecordExchanges` keeps the bytes each client sent and the server sent back, which the program reads at the end to count the requests and the answers.
 
-The job is `Sync`. For each file it sends a `CurlRequest` with `HttpMethod.Head`, which returns the headers and no body, and reads `Last-Modified` from `CurlResponse.Headers`. If it saved that same value with its local copy, the file is unchanged and no `GET` is sent; otherwise it sends the `GET`, reads the body, writes it to `local-<case>/` on disk and keeps it with the new date. An unchanged file{apos}s `HEAD` is answered `200` with the very `Last-Modified` saved with the copy, `Tue, 02 Jan 2024 15:04:05 GMT` from the test{apos}s clock; the `dates` case prints both. One `CurlClient` serves every request.
+`surl` sends every file with an entity tag (ETag), a validator that changes whenever the file does (<<rfc9110>>). Its tag is strong, made from the file{apos}s write time and its length in hexadecimal (<<surl-readme>>): `alpha` and a newline is 6 bytes, and its tag ends in `-6`.
 
-The first run fetches both files. The second finds both dates unchanged and sends only the two `HEAD` requests. `server.Files.PutAsync` then rewrites `a.txt` with the clock five seconds on, and the third run fetches `a.txt` alone: its `Last-Modified` is now 15:04:10, six `HEAD` and three `GET` requests in all, and on disk `local-changed/a.txt` holds the revised text.
+The job is `Sync`. For each file it sends a `CurlRequest` with `HttpMethod.Get`, and, once it has a copy, a header `If-None-Match` holding the saved tag. A `304` means the copy is current: the answer has no body and the job keeps what it has. A `200` carries the body and a new `ETag`, read from `CurlResponse.Headers`; the job writes the body to `local-<case>/` on disk and keeps it with the tag. The `tags` case prints each answer: a `304` carries the very tag the job saved. One `CurlClient` serves every request.
 
-The failure paths are where a date falls short. `Last-Modified` counts whole seconds (<<rfc9110>>), so a rewrite in the same second carries the same date: the third run calls `a.txt` unchanged and the local copy stays stale. An entity tag (ETag), a validator the server changes with the content, would catch it; Surl is adding entity tags and conditional requests, and until a recipe shows them, this one relies on dates alone. The comparison is for equality, not for newer, and that differs from `curl -z` on the console. A file rewritten with an earlier date, as a restore from a backup can do, is fetched again here, where `-z` would skip it. With the clock moved five seconds back, `b.txt` is fetched again too, unchanged: its stored date now lies ahead of the server{apos}s clock, and `surl` sends a `Last-Modified` no later than its `Date`, 15:04:00 for both. A spurious fetch is the cheap mistake; a missed change is the costly one. A file deleted on the server answers the `HEAD` with `404 Not Found`. `SendAsync` does not throw for it; the job sees the status and keeps its local copy, rather than overwrite it with nothing.
+The first run fetches both files. The second sends both tags and gets two `304` answers. `server.Files.PutAsync` then rewrites `a.txt` with the clock five seconds on, and the third run fetches `a.txt` alone: six `GET` requests in all, three answered `200` and three `304`, and on disk `local-changed/a.txt` holds the revised text.
+
+The other cases are where a date would fall short. `Last-Modified` counts whole seconds (<<rfc9110>>), so a rewrite in the same second carries the same date; its tag changes, here by its new length, and the third run fetches it. A file rewritten with an earlier date, as a restore from a backup can do, gets a new tag too and is fetched. With the clock moved five seconds back, `b.txt`{apos}s `Last-Modified` also moves back to 15:04:00, because `surl` sends none later than its `Date`; a job comparing dates would fetch it again for nothing, but its tag has not changed and the server still answers `304`. A file deleted on the server answers `404 Not Found`. `SendAsync` does not throw for it; the job sees the status and keeps its local copy, rather than overwrite it.
 
 include::.generated/claims.adoc[]
 
 ==== See Also
 
-* <<http-skip-unchanged-files-with-etags>> for the same job on the console, with `curl -z`.
+* <<http-skip-unchanged-files-with-etags>> for the same job on the console, with `curl --etag-compare`.
 * <<http-skip-unchanged-files-with-etags-from-an-agent>> for the same job from an agent.
 * <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

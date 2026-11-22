@@ -8,8 +8,8 @@
 //   uploads-off   a server that accepts no uploads
 //   too-big       a server whose size limit the appended file would pass
 //   no-login      a server that accepts no anonymous login
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -43,12 +43,12 @@ try
             Console.WriteLine($"log.txt: {await Read("log.txt")}");
             await Send("log.txt", "third line\n", append: true);
             Console.WriteLine($"log.txt: {await Read("log.txt")}");
-            Console.WriteLine($"commands: {string.Join(", ", Commands())}");
+            Console.WriteLine($"commands: {string.Join(", ", await Commands(2))}");
             break;
         case "replace":
             await Send("replace.txt", "third line\n", append: false);
             Console.WriteLine($"replace.txt: {await Read("replace.txt")}");
-            Console.WriteLine($"commands: {string.Join(", ", Commands())}");
+            Console.WriteLine($"commands: {string.Join(", ", await Commands(1))}");
             break;
         case "edges":
             await Send("fresh.txt", "second line\n", append: true);
@@ -89,7 +89,19 @@ async Task<string> Read(string name)
     return Encoding.UTF8.GetString(file.Bytes.Span).Replace("\n", "\\n");
 }
 
-// The upload commands the server received, with the names they carried.
-IEnumerable<string> Commands() =>
+// The upload commands the server received, with the names they carried. The record can trail the client
+// by a moment, so look again until it holds one per upload, for up to 10 s.
+async Task<string[]> Commands(int uploads)
+{
+    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+    while (Recorded().Length < uploads && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100);
+    }
+
+    return Recorded();
+}
+
+string[] Recorded() =>
     Encoding.ASCII.GetString(server.Exchanges[0].Received).Split("\r\n")
-        .Where(line => line.StartsWith("APPE ") || line.StartsWith("STOR "));
+        .Where(line => line.StartsWith("APPE ") || line.StartsWith("STOR ")).ToArray();

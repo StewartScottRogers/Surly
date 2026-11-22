@@ -5,8 +5,8 @@
 //   no-budget  the same server; up to 3 retries and no budget
 //   hang       every request held 5 s; each try limited to 1 s, up to 10 retries, 3 s budget
 // A second argument, such as "retries", prints only the lines that start with it.
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using System.Diagnostics;

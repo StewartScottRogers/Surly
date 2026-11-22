@@ -6,7 +6,7 @@
 //   no-brackets  ask for a listen URL with the IPv6 address bare
 //   any-address  ask for a listen URL on [::], every address
 //   bare-client  fetch from an IPv6 URL written without brackets
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

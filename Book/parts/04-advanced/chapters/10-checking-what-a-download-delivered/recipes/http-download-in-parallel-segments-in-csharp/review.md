@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Connections without the hold are claimed as 1 to 4; with SurlFault.Delay 1 s, exactly 4.
 2. The HEAD request doubles as the warm-up and is not counted (only exchanges that carried a Range).
+3. Bounded wait before reading the server's record (CI race sweep).

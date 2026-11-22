@@ -35,8 +35,9 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), Surl.Api 1
 
 ## .NET
 - `SurlServerOptions.ConfigFiles` = `-K`; `AdditionalArguments` are read after the files (override).
-  ListenUrls must be non-empty even if the file has url lines: else `ArgumentException`
-  `ListenUrls names no listen URL. (Parameter 'options')`. File url lines are ADDED after ListenUrls.
+  Since Surl a423807a5d (BL-1439) ListenUrls may be empty when a ConfigFile has url lines: the
+  server listens on those (before, `ArgumentException` `ListenUrls names no listen URL. (Parameter
+  'options')`). File url lines are ADDED after ListenUrls. `BoundUrls` are `Uri`s.
 - Refusal: `SurlServerStartException` `ExitCode` FailedInit (2) / CouldNotReadFile (37), `Lines[0]`
   is surl's line without `surl: `.
 - Bind clash: `SurlServerStartException` BindFailed (45), `(45) Could not bind <url>: Address already in use`.

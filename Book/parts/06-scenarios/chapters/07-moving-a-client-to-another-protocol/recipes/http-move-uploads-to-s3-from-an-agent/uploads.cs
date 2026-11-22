@@ -9,7 +9,7 @@
 //   refused       an HTTP PUT with no login, an unsigned S3 put, and one signed with the wrong secret
 //   cutover       a server that takes signed requests only
 // server.pem and server.key come from setup: in recipe.yml; report.csv and summary.csv are fixtures.
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;

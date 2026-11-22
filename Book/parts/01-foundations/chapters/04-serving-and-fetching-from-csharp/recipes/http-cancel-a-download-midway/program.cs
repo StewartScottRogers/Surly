@@ -3,8 +3,8 @@
 // transfer stopped. Run: dotnet run program.cs [-- <case>]
 //   cancel    cancel the body's token once 1 MiB has arrived (the default)
 //   dispose   dispose the body stream instead, with no token
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using Curl.Api;

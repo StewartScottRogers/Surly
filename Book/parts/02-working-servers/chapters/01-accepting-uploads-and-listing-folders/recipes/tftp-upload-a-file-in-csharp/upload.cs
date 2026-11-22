@@ -2,8 +2,8 @@
 // A C# file-based app: `dotnet run upload.cs -- SCENARIO`.
 //   stored (the default), read-back, overwrite, several-blocks, several-blocks-read-back, no-subfolders,
 //   no-dot-files, uploads-off, uploads-off-error-two, uploads-off-nothing-kept, over-the-limit, over-the-limit-kept-nothing
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -59,6 +59,10 @@ async Task<string> Stored(string name)
     catch { return "(nothing)"; }
 }
 
+// The datagrams the server has sent so far in its one exchange.
+byte[][] SentDatagrams() => server.Exchanges.SelectMany(exchange => exchange.Chunks)
+    .Where(chunk => chunk.Direction == SurlExchangeDirection.Sent).Select(chunk => chunk.Bytes.ToArray()).ToArray();
+
 byte[] config = "hostname r1\n"u8.ToArray();
 byte[] big = Enumerable.Repeat((byte)'a', 1300).ToArray();
 
@@ -96,10 +100,15 @@ switch (scenario)
         break;
     case "uploads-off-error-two":
         await Put("router.cfg", config);
-        // The datagrams the server sent: an error packet is opcode 5, then a two-byte error code.
-        byte[] error = server.Exchanges.Single().Chunks
-            .Where(chunk => chunk.Direction == SurlExchangeDirection.Sent).Select(chunk => chunk.Bytes.ToArray())
-            .Single(datagram => datagram[1] == 5);
+        // The datagrams the server sent: an error packet is opcode 5, then a two-byte error code. The record can
+        // trail the client by a moment, so look again until the error packet is there, for up to 10 s.
+        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!SentDatagrams().Any(datagram => datagram[1] == 5) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(100);
+        }
+
+        byte[] error = SentDatagrams().Single(datagram => datagram[1] == 5);
         Console.WriteLine($"server sent: opcode {error[1]}, error {error[2] * 256 + error[3]}");
         break;
     case "uploads-off-nothing-kept":

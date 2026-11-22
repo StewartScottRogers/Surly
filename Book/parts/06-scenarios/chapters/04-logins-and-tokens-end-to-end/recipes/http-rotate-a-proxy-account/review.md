@@ -10,3 +10,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. remove_proxy_account of the last proxy account makes the proxy anonymous (forwards with no login, 200) and answers with no warning, unlike remove_account's `no account left` warning. Reported as an inconsistency.
 2. Not a recipe claim but found while probing: on a plain http proxy listener, a Basic proxy login (refused 403 unchecked) is written to the -v log as `Proxy-Authorization: Basic <base64 of user:password>`, not withheld (ADR-0182 lists HTTP proxy as withheld). Reported.
 3. Login events for proxy logins carry scheme `http`, the same as origin logins; the recipe's origin has no accounts so the events are the proxy's.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: remove_proxy_account of the last proxy account now answers a warning that the proxy needs no login (BL-1479); last-account-opens-the-proxy and the Discussion restated.

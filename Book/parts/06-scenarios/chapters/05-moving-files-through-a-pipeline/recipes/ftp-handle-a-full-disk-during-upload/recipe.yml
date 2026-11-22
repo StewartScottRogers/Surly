@@ -68,11 +68,12 @@ cases:
       stdout: "id,total\n1,1200\n2,950\n"
 
   - id: fills-partway
-    claim: A 300,000-byte export to /incoming runs out of room partway; surl stops it at 100,000 bytes, answers 552 and resets the data connection, and the upload fails. curl exits 70 (Exceeded storage allocation) when it reads the 552 first and 55 (Send failure) when it meets the reset first, a race, so the case checks only that it failed.
-    run: curl -sS -T big.csv ftp://127.0.0.1:{{port}}/incoming/big.csv || echo upload failed
+    claim: A 300,000-byte export to /incoming runs out of room partway; surl stops it at 100,000 bytes, answers 552 and resets the data connection, and curl, which waits for that reply when its write fails, exits 70 (Exceeded storage allocation).
+    run: curl -sS -T big.csv ftp://127.0.0.1:{{port}}/incoming/big.csv
     expect:
-      exit: 0
-      stdout: "upload failed\n"
+      exit: 70
+      stdout: ""
+      stderr-contains: "curl: (70) Exceeded storage allocation"
 
   - id: partial-deleted
     claim: Nothing half-written is left; the next step finds no big.csv, 404.
@@ -82,11 +83,18 @@ cases:
       stdout: "404\n"
 
   - id: server-says-deleted
-    claim: surl's log records both FTP refusals in the same words, the upload grew past the limit of 100000 bytes and the partial upload was deleted; the line for the fault rule's refusal does not name the rule.
-    run: grep -c "The upload grew past the limit of 100000 bytes; the partial upload was deleted" surl.log
+    claim: surl's log records that the partial upload was deleted for both FTP refusals.
+    run: grep -c "the partial upload was deleted" surl.log
     expect:
       exit: 0
       stdout: "2\n"
+
+  - id: server-names-the-rule
+    claim: The log line for the fault's refusal names the rule, f1 (out-of-space); the one for the upload that filled partway names the limit of 100000 bytes.
+    run: 'grep -c "The upload was refused by the fault rule f1 (out-of-space)" surl.log && grep -c "The upload grew past the limit of 100000 bytes" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n1\n"
 
   - id: http-put-refused-too
     claim: The rule covers the path on every listener; an HTTP PUT into /archive is refused, 413, exit 22 with -f.

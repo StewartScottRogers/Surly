@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Nearest honest recipe: curl's AMQP get is basic.get with no-ack, so no curl AMQP worker can hold a job in flight. The in-flight scenario's worker uses the same surl's STOMP listener (same bus queue) through the curl tool's telnet:// with a frames fixture and -m 3; protocols lists stomp beside amqp. Said in the Discussion.
 2. Timing: the agent waits for two acknowledged events with wait_for_event rather than sleeping; the requeue after the worker's connection closes was in place before the next browse in every run.
 3. browse_queue lists ready messages only; in-flight ones are a count, so the report names ready jobs and counts unfinished ones.
+4. Bounded wait before reading the server's record (CI race sweep).

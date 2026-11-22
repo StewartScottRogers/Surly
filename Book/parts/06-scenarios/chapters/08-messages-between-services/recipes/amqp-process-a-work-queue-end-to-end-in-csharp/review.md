@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Thirteen cases against ten on the console: three more show the event record (FindEvents with RecordExchanges). Curl.Api cannot publish over AMQP, so the jobs come from EnqueueAsync; the STOMP worker runs through Curl.Api as the body of a telnet:// request.
 2. A restarted server has a new event record: no enqueued, two delivered, two acknowledged.
+3. Bounded wait before reading the server's record (CI race sweep).

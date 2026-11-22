@@ -10,8 +10,8 @@
 //   allowfails     the same send with MailRecipientAllowFails (the second answer): bob alone gets it
 //   spent          then a plain send to ann, the rule spent
 //   bad-reply      a rule whose reply is a code with no text
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Collections.Concurrent;
 using System.Text;
@@ -134,6 +134,12 @@ async Task<int> Run(SurlServer server)
 
     if (mode == "log")
     {
+        // The log line can trail the delivery by a moment: look again until there is one per delivery, for up to 10 s.
+        for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+        {
+            if (System.Text.RegularExpressions.Regex.Matches(log.ToString(), "Message stored: ").Count >= deliveries.Count) break;
+        }
+
         string text = log.ToString();
         Console.WriteLine($"refusals logged: {System.Text.RegularExpressions.Regex.Matches(text, "RCPT answered with the chosen error of fault rule f1; nothing was stored.").Count}");
         Console.WriteLine($"stored logged: {System.Text.RegularExpressions.Regex.Matches(text, "Message stored: ").Count}");

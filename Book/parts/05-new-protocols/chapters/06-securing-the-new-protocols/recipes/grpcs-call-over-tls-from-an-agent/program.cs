@@ -7,7 +7,7 @@
 //   wrong-password   --cacert server.pem and a wrong password
 //   in-clear         the same login to a plain grpc server
 //   no-certificate   start a grpcs server with no --cert
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

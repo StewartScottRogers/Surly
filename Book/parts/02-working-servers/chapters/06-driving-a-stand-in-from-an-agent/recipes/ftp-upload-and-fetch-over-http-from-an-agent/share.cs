@@ -8,7 +8,7 @@
 //   exchanges     what the server received on each of its two listeners
 //   uploads-off   a server started without --allow-uploads
 //   no-login      a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -76,9 +76,19 @@ switch (which)
         Console.Write($"read_file /notes.txt: {read.StructuredContent!.Value.GetProperty("text").GetString()}");
         if (which == "exchanges")
         {
-            foreach (string scheme in new[] { "ftp", "http" })
+            // The record can trail curl by a moment: ask again until each listener holds every line sent to it
+            // (one STOR; a GET before the upload and one after), for up to 10 s.
+            foreach ((string scheme, int sent) in new[] { ("ftp", 1), ("http", 2) })
             {
-                Console.WriteLine($"{scheme} received: {string.Join(", ", await Received(scheme))}");
+                DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+                List<string> lines = await Received(scheme);
+                while (lines.Count < sent && DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(100);
+                    lines = await Received(scheme);
+                }
+
+                Console.WriteLine($"{scheme} received: {string.Join(", ", lines)}");
             }
         }
 

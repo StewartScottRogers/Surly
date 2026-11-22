@@ -6,7 +6,7 @@
 //   put-on      PUT with a login to that server, as the explanation says
 //   put-off     PUT with a login to the server that takes no uploads
 //   no-login    POST with no login to the server that takes no uploads
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -49,8 +49,9 @@ CallToolResult sent = await curl.CallToolAsync("curl", new Dictionary<string, ob
 JsonElement answer = JsonDocument.Parse(sent.Content.OfType<TextContentBlock>().Single().Text).RootElement;
 string output = answer.GetProperty("standardOutput").GetProperty("content").GetString()!.Replace("\r\n", "\n");
 
-// The last head is the final answer (a 401 challenge may come before it).
-string head = output.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Last();
+// The last head is the final answer (a 401 challenge may come before it). Each refusal's short
+// text body follows its head on standard output, so only the parts that start HTTP/ are heads.
+string head = output.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Last(part => part.StartsWith("HTTP/"));
 string[] lines = head.Split('\n');
 int status = int.Parse(lines[0].Split(' ')[1]);
 string? allow = lines.Skip(1).FirstOrDefault(l => l.StartsWith("Allow:", StringComparison.OrdinalIgnoreCase))?[6..].Trim();

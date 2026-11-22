@@ -9,7 +9,7 @@
 //   file-problems   a file that is missing and one that is not a proto file
 //   wrong-service   a file that names a service the server does not serve
 //   bytes           what the server sent for the call with the file and for the call by reflection
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.RegularExpressions;
 using System.Text.Json;

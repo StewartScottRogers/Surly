@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 4. The Discussion says why the hosts' roots are environment variables (the SDK starts a host through cmd.exe on Windows, which breaks on a path with a space). That is from build/README.md and the template, not a case here.
 5. The solution's output contains the bound port, so its expectation is a pattern, as in chapter 4's in-process recipe.
 6. Earlier findings stand: files never on disk, the first ID being s1 and header order are not claimed; exit code 45 agrees with `surl --aihelp exit-codes`.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 404 now carries the body `404 Not Found` (BL-1444); missing-is-not-an-error and the Discussion restated.

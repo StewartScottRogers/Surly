@@ -13,7 +13,7 @@
 //   count        list_faults after two fetches
 //   late-rule    no rule at start; add_fault during the test, then remove_fault
 //   bad-shape    a rule whose reply is not in IMAP's shape
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;
@@ -103,7 +103,16 @@ switch (which)
         break;
     case "reply":
         await Fetch("ann", Text);
-        CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
+        // The server records an exchange a moment after curl has its answer: ask until every exchange
+        // that started has ended, for at most 10 s, before reading the record.
+        for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+        {
+            JsonElement seen = (await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = id, ["kinds"] = new[] { "exchange_started", "exchange_ended" } })).StructuredContent!.Value;
+            var kinds = seen.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+            if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) break;
+        }
+
+        CallToolResult exchanges =await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
         var sent = new StringBuilder();
         foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())
         {

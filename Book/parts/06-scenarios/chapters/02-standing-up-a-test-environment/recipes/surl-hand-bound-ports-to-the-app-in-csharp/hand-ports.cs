@@ -5,8 +5,8 @@
 //   app         one server, handed to the app (the default)
 //   twice       two servers at once, as two parallel test runs would start them
 //   fixed-port  a second server asking for the port the first one bound
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;

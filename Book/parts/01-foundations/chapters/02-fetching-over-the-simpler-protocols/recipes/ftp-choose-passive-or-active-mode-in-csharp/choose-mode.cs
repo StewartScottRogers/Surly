@@ -6,8 +6,8 @@
 //   other         active mode naming an address that is not the client's
 //   refused       the same fetch from a server that accepts no anonymous login
 //   log           the server's own log of a passive and an active fetch
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -62,19 +62,23 @@ async Task Fetch(string label, CurlFtpOptions? ftp)
     try
     {
         int before = server.Exchanges.Count;
+        string text;
         await using (CurlClient client = CurlClient.Create())
         {
             CurlResponse response = await client.SendAsync(
                 new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}hello.txt") { Ftp = ftp }, CancellationToken.None);
             await using Stream body = response.Body;
-            string text = await new StreamReader(body).ReadToEndAsync();
-            string commands = DataCommands(server.Exchanges[before]);
-            Console.WriteLine($"{label}: {commands} -> {text.TrimEnd()}");
+            text = await new StreamReader(body).ReadToEndAsync();
         }
+
+        await WaitForEndsAsync();
+        string commands = DataCommands(server.Exchanges[before]);
+        Console.WriteLine($"{label}: {commands} -> {text.TrimEnd()}");
     }
     catch (CurlException failure)
     {
         // The failed attempt's exchange is the last one recorded.
+        await WaitForEndsAsync();
         Console.WriteLine($"{label}: {DataCommands(server.Exchanges[^1])} -> {(int)failure.Code} {failure.Code}");
     }
 }
@@ -84,3 +88,15 @@ static string DataCommands(SurlExchangeRecord exchange) =>
     string.Join(" ", Encoding.ASCII.GetString(exchange.Received).Split("\r\n")
         .Select(line => line.Split(' ')[0])
         .Where(name => name is "EPSV" or "PASV" or "EPRT" or "PORT"));
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

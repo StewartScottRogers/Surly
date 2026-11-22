@@ -8,7 +8,7 @@
 //   address   a different address holds nothing; the message is still on orders
 //   wrong     a wrong password on each listener
 //   locked    a server started without --allow-plaintext-auth
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -122,11 +122,23 @@ async Task Receive(string label, string version, string queue, int wait = 5, str
 }
 
 // browse_queue lists what is ready on the queue without taking it, and counts what is in flight.
+// The receivers have gone, but the server settles what they took only once it has noticed: browse
+// again until nothing is in flight, for at most 10 s.
 async Task Browse()
 {
-    CallToolResult browsed = await surl.CallToolAsync("browse_queue", new Dictionary<string, object?> { ["server_id"] = serverId, ["queue"] = "orders" });
-    JsonElement page = browsed.StructuredContent!.Value;
+    JsonElement page = await Page();
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); page.GetProperty("in_flight_count").GetInt32() > 0 && DateTime.UtcNow < deadline; page = await Page())
+    {
+        await Task.Delay(100);
+    }
+
     Console.WriteLine($"queue orders: ready {page.GetProperty("ready_count").GetInt32()}, in flight {page.GetProperty("in_flight_count").GetInt32()}");
+}
+
+async Task<JsonElement> Page()
+{
+    CallToolResult browsed = await surl.CallToolAsync("browse_queue", new Dictionary<string, object?> { ["server_id"] = serverId, ["queue"] = "orders" });
+    return browsed.StructuredContent!.Value.Clone();
 }
 
 async Task<(int, bool, string, string)> Curl(string[] curlArguments)

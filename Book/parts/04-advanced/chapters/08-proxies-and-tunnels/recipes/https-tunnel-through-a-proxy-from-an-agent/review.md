@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 
 1. Seven of the console's nine claims: the CONNECT and tunnel are read from get_exchanges (start_server refuses --log-file), so the two log-line claims become one exchange claim; curl -v has no MCP twin.
 2. transfer's caFile is the origin's only: through the https proxy it fails 60; the curl tool with --proxy-cacert succeeds.
+3. Bounded wait before reading the server's record (CI race sweep).

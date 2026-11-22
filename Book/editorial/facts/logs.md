@@ -26,9 +26,9 @@ surl-mcp 1.0.0, curl-mcp 0.1.0.0, 2026-11-20, windows.
   this build (by the Surl commits, not all probed): SMTP AUTH, IMAP LOGIN/AUTHENTICATE, POP3 PASS/AUTH, SASL lines
   after 334/+, SOCKS5 password, RTSP and WebSocket-upgrade Authorization, HTTP proxy. A trace's
   `Recv data, <n> bytes` counts the bytes DUMPED. No option turns it off.
-- STILL LOGGED IN CLEAR in this build: LDAP simple bind password (`0000: ...cn=app..s3cret`, even when the bind is
+- LDAP simple bind password: withheld since Surl a423807a5d (`0000: ...cn=app..****`, the user name kept; also when the bind is
   refused unchecked over ldap://: `LDAP bind refused: confidentialityRequired: simple bind needs TLS or
-  --allow-plaintext-auth`); per ADR-0182 also MQTT, Redis, HTTP/3 and the extended servers (NATS, STOMP, AMQP,
+  --allow-plaintext-auth`). STILL LOGGED IN CLEAR per ADR-0182 (not re-probed): MQTT, Redis, HTTP/3 and the extended servers (NATS, STOMP, AMQP,
   Kafka, XMPP, MQTT 5, S3/Azure/GCS/OCI headers) until BL-1424, BL-1432..1435, BL-1458..1465 land (only LDAP
   probed). Not secrets, so never withheld: Digest/NTLM/Negotiate responses, a token in a URL query (event line
   `GET /a.txt?token=...: 401`), uploaded bodies, FTP data connections.

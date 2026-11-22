@@ -8,7 +8,7 @@
 //   offset        -C 100000, whatever is on disk
 //   wrong         a partial copy of 65,536 other bytes
 //   verbose       the resume with -v, to read the REST from the client's side
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -59,8 +59,7 @@ string[] options = which switch
 (int code, string output, string stderr) = await Curl(options.Prepend("-s").Concat(["-o", Local, "-w", "%{size_download}", url + "update.iso"]).ToArray());
 
 // The commands the server received and the 350 it sent, from the one exchange.
-CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-var chunks = recorded.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray().Last().GetProperty("chunks").EnumerateArray().ToList();
+var chunks = (await RecordedAsync(EndsWithReply)).GetProperty("exchanges").EnumerateArray().Last().GetProperty("chunks").EnumerateArray().ToList();
 string[] received = chunks.Where(c => c.GetProperty("direction").GetString() == "received")
     .Select(c => c.GetProperty("data").GetString()!.TrimEnd('\r', '\n')).ToArray();
 string sent = string.Concat(chunks.Where(c => c.GetProperty("direction").GetString() == "sent").Select(c => c.GetProperty("data").GetString()));
@@ -88,3 +87,29 @@ async Task<(int Code, string Out, string Err)> Curl(string[] curlArguments)
         answer.GetProperty("standardOutput").GetProperty("content").GetString()!,
         answer.GetProperty("standardError").GetProperty("content").GetString()!);
 }
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

@@ -6,7 +6,7 @@
 //   untrusted    the same fetch without caFile
 //   https-proxy  through the https proxy: transfer, then the curl tool with --proxy-cacert
 //   refused      through a proxy whose fault rule answers CONNECT with 503
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;
@@ -59,9 +59,20 @@ switch (which)
     case "fetch":
     {
         await Transfer(httpProxy, "server.pem");
-        // surl-mcp get_exchanges: each chunk is text, or base64 when it is not.
-        CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server.GetProperty("server_id").GetString() });
-        foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())
+        // surl-mcp get_exchanges: each chunk is text, or base64 when it is not. The record can trail
+        // curl's answer by a moment: ask again until the proxy and the origin have each sent something,
+        // for at most 10 s.
+        JsonElement recorded = default;
+        for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); ; await Task.Delay(100))
+        {
+            CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server.GetProperty("server_id").GetString() });
+            recorded = exchanges.StructuredContent!.Value.GetProperty("exchanges").Clone();
+            bool Answered(string listener) => recorded.EnumerateArray().Any(x => x.GetProperty("listen_url").GetString() == listener
+                && x.GetProperty("chunks").EnumerateArray().Any(c => c.GetProperty("direction").GetString() == "sent"));
+            if ((Answered(httpProxy) && Answered(origin)) || DateTime.UtcNow >= deadline) break;
+        }
+
+        foreach (JsonElement exchange in recorded.EnumerateArray())
         {
             string listener = exchange.GetProperty("listen_url").GetString() == httpProxy ? "proxy" : "origin";
             var chunks = exchange.GetProperty("chunks").EnumerateArray().ToList();

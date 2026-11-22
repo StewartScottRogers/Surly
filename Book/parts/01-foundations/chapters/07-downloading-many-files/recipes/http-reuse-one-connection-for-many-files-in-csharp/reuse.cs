@@ -8,8 +8,8 @@
 //   http1.0     one client, each request over HTTP/1.0
 //   pause       one client, 2 s between requests
 //   idle        one client, 2 s between requests, against a server with a 1 s idle timeout
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Http;
@@ -74,5 +74,18 @@ foreach (string name in names)
 }
 
 await client.DisposeAsync();
+await WaitForEndsAsync();
 Console.WriteLine($"exchanges the server saw: {server.Exchanges.Count - before}");
 return 0;
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

@@ -6,7 +6,7 @@
 //   list       list_keys and DBSIZE for each database
 //   range      database 16
 //   no-login   a client with no login
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol;

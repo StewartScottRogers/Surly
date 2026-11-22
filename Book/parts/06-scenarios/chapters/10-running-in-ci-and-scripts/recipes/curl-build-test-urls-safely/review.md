@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Finding worth a note (libcurl behaviour, not a bug): build_url without UrlEncode answers a malformed URL with no failure; parse_url refuses it. That is the recipe's failure path.
 2. --allow-plaintext-auth has its refusal case (in-clear: 403 and 530/67, no login event).
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's HTTP 403 now carries the body `403 Forbidden` (BL-1444), which the curl tool prints before the status; refused-in-clear matches it.

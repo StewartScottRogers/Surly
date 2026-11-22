@@ -10,8 +10,8 @@
 //   wrong-password   mqtt | mqtt5: a wrong password
 //   no-login         mqtt | mqtt5: no user name
 //   clear-password   mqtt | mqtt5: the right password, with no --allow-plaintext-auth
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

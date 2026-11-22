@@ -3,7 +3,7 @@
 // start HTTP and SMTP on free ports, report the bound URLs, run the tests, stop the server,
 // and exit with a code the job can act on.
 // Run: dotnet run run-in-ci.cs [-- pass|wrong-password|port-taken]
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Net;
 using System.Net.Sockets;
@@ -69,13 +69,26 @@ try
             "--mail-rcpt", "app@example.com", "-T", "greeting.txt", smtpUrl + "example.com");
     }
 
-    // What the server recorded: the messages in the mailbox the tests mailed.
-    CallToolResult boxes = await surl.CallToolAsync("list_mailboxes", new Dictionary<string, object?>
+    // What the server recorded: the messages in the mailbox the tests mailed. Delivery follows the
+    // accepted send a moment later, so after a passing run ask again until the message is in, for up to 10 s.
+    JsonElement inbox;
+    var waited = System.Diagnostics.Stopwatch.StartNew();
+    while (true)
     {
-        ["server_id"] = serverId, ["owner"] = "app@example.com",
-    });
-    JsonElement inbox = boxes.StructuredContent!.Value.GetProperty("mailboxes").EnumerateArray()
-        .Single(box => box.GetProperty("name").GetString() == "INBOX");
+        CallToolResult boxes = await surl.CallToolAsync("list_mailboxes", new Dictionary<string, object?>
+        {
+            ["server_id"] = serverId, ["owner"] = "app@example.com",
+        });
+        inbox = boxes.StructuredContent!.Value.GetProperty("mailboxes").EnumerateArray()
+            .Single(box => box.GetProperty("name").GetString() == "INBOX").Clone();
+        if (result != 0 || inbox.GetProperty("message_count").GetInt32() > 0 || waited.Elapsed.TotalSeconds >= 10)
+        {
+            break;
+        }
+
+        await Task.Delay(100);
+    }
+
     Console.WriteLine($"server stored {inbox.GetProperty("message_count")} message(s)");
 }
 finally

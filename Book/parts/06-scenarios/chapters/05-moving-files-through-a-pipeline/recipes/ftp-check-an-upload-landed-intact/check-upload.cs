@@ -7,7 +7,7 @@
 //   refused    upload to a server that was not told to accept uploads
 //   too-big    upload to a server whose --max-filesize is smaller than the file
 //   no-login   upload to a server that was not told to accept anonymous logins
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text;
@@ -91,11 +91,18 @@ Console.WriteLine($"download exit: {download.GetProperty("exitCode")}");
 Console.WriteLine($"download same as the original: {Hash(File.ReadAllBytes("back.bin")) == Hash(original)}");
 
 // Step 4: the server's own record of the upload, the commands only: a binary transfer and the store.
-CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-IEnumerable<string> commands = recorded.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks").EnumerateArray()
-    .Where(chunk => chunk.GetProperty("direction").GetString() == "received")
-    .Select(chunk => chunk.GetProperty("data").GetString()!.TrimEnd('\r', '\n'))
-    .Where(line => line.StartsWith("TYPE", StringComparison.Ordinal) || line.StartsWith("STOR", StringComparison.Ordinal));
+// The record can trail the clients by a moment, so ask again until the STOR is in it, for up to 10 s.
+List<string> commands = [];
+for (var waited = System.Diagnostics.Stopwatch.StartNew(); !commands.Any(c => c.StartsWith("STOR", StringComparison.Ordinal)) && waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+{
+    CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
+    commands = recorded.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks").EnumerateArray()
+        .Where(chunk => chunk.GetProperty("direction").GetString() == "received")
+        .Select(chunk => chunk.GetProperty("data").GetString()!.TrimEnd('\r', '\n'))
+        .Where(line => line.StartsWith("TYPE", StringComparison.Ordinal) || line.StartsWith("STOR", StringComparison.Ordinal))
+        .ToList();
+}
+
 Console.WriteLine("server received: " + string.Join(", ", commands));
 return 0;
 

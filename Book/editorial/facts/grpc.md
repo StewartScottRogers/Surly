@@ -21,7 +21,7 @@ surl-mcp `start_server(listen_urls ["grpc://127.0.0.1:0"], arguments ["--allow-a
 
 ## C#
 - Surl.Api hosts `grpc://127.0.0.1:0`; `BoundUrl.Port` for the framework client: `HttpClient` with `Version = 2.0`, `VersionPolicy = RequestVersionExact`, a `POST` of `[0, 4-byte big-endian length, message]`, `Content-Type: application/grpc`, header `TE: trailers` (the server answers 13 `te: trailers required` without it). Status in `response.TrailingHeaders` (`grpc-status`, `grpc-message`), or in `Headers` when the call fails before a reply.
-- Curl.Api 0.2.0: `GET grpc://.../surl.test.Echo/Echo` = reflection call with an empty request, body `{}`. A `POST` body is not sent (status 0, `{}`); with `Content-Type: application/json` it fails `HTTP status 415`. No option for a `.proto` file. Unknown service `CurlException` 22 `HttpReturnedError`; unknown method 2 `FailedInit`.
+- Curl.Api 0.2.0: `GET grpc://.../surl.test.Echo/Echo` = reflection call with an empty request, body `{}`. A `POST` body was not sent (status 0, `{}`) before Curl 0680b97577; since then a `POST` body IS the request message: `{"message":"hello"}` over grpcs is echoed back as indented JSON (`{\n  "message": "hello"\n}`); a `GET` still sends the empty message, `{}`. With `Content-Type: application/json` it fails `HTTP status 415`. No option for a `.proto` file. Unknown service `CurlException` 22 `HttpReturnedError`; unknown method 2 `FailedInit`.
 - Libcurl 0.2.0: `UnsupportedProtocol` for `grpc://` (and `kafka://`).
 
 ## Gotchas

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent serves a two-word glossary over DICT with surl-mcp and looks a word up with curl-mcp's curl tool.
 // Run: dotnet run look-up.cs [-- dict-path]   (default d:surly; try m:surl or d:cheerful)
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

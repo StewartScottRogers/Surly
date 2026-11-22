@@ -5,7 +5,7 @@
 //   right            the app sends signup.eml to ann; the test passes (the default)
 //   wrong-subject    the app sends bad-subject.eml, whose subject is misspelt
 //   wrong-recipient  the app mails an@example.com instead of ann@example.com
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

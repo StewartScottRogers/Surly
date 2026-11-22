@@ -5,8 +5,8 @@
 //   (no argument) the second request asks for HttpVersion.Http3
 //   none          the second request has no version option (HttpVersion.None)
 //   http1.1       the second request asks for HttpVersion.Http11
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Http;
@@ -70,7 +70,14 @@ async Task Fetch(string which, HttpVersion version)
     string altSvc = string.Join("; ", response.Headers.Where(h => h.Key.Equals("alt-svc", StringComparison.OrdinalIgnoreCase)).Select(h => h.Value));
     Console.WriteLine($"{which}: HTTP/{response.Version} {response.StatusCode}, Alt-Svc [{altSvc}]");
 
-    // A QUIC exchange records its bytes per QUIC stream; a TCP one has no stream IDs.
-    bool quic = server.Exchanges.Skip(before).Any(e => e.Chunks.Any(c => c.StreamId is not null));
+    // A QUIC exchange records its bytes per QUIC stream; a TCP one has no stream IDs. The record can
+    // trail the answer by a moment, so after an HTTP/3 answer look again until it is there, for up to 10 s.
+    bool Quic() => server.Exchanges.Skip(before).Any(e => e.Chunks.Any(c => c.StreamId is not null));
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); response.Version.Major == 3 && !Quic() && DateTime.UtcNow < deadline;)
+    {
+        await Task.Delay(100);
+    }
+
+    bool quic = Quic();
     Console.WriteLine($"{which}: the server saw {(quic ? "QUIC" : "TCP")}");
 }

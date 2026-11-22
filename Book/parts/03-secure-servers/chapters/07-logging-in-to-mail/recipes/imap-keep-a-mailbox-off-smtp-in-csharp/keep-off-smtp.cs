@@ -4,8 +4,8 @@
 // Run: dotnet run keep-off-smtp.cs [-- <case>]
 //   (no argument)  the viewer on IMAP, SMTP and POP3; app, which has no restriction, on all three
 //   wrong          the viewer's IMAP login with a wrong password
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -93,6 +93,16 @@ Console.WriteLine($"viewer over POP3: {await Try(new CurlRequest(HttpMethod.Get,
 
 // A wrong password for app, an account that may use SMTP, and the reply every SMTP refusal got on the wire.
 Console.WriteLine($"app, wrong password, over SMTP: {await Try(Send("app@example.com", "wrong", "viewer@example.com"))}");
+
+// The server records an exchange's last bytes and its end a moment after the client has gone. The app's
+// client still holds the first SMTP exchange open; wait, for at most 10 s, until every later one has ended.
+var later = server.FindExchanges(new SurlEventQuery { Scheme = "smtp" }).Skip(1).Select(x => x.ExchangeId).ToList();
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    var ended = server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }).Cast<ExchangeEndedEvent>().Select(e => e.ExchangeId).ToHashSet();
+    if (later.All(x => ended.Contains(x))) break;
+}
+
 string[] replies = server.FindExchanges(new SurlEventQuery { Scheme = "smtp" })
     .Select(x => Encoding.ASCII.GetString(x.Sent).Split("\r\n").FirstOrDefault(line => line.StartsWith("535")) ?? "")
     .Where(line => line != "").ToArray();

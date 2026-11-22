@@ -5,8 +5,8 @@
 //   teardown      clients disposed, then every server stopped (the default)
 //   no-teardown   the servers are left running, as a test without a finally leaves them
 //   clients-last  the servers are stopped while a client still holds a connection
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using Curl.Api;

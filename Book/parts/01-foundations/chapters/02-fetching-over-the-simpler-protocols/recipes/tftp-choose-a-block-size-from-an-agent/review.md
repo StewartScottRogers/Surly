@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. transfer has no TFTP options, so the block size is chosen with the curl tool; the transfer-tool case says so.
 2. files takes text only; a binary file goes in files_base64, as the Discussion says.
 3. Not run on Linux or macOS.
+4. Bounded wait before reading the server's record (CI race sweep).

@@ -7,7 +7,7 @@
 //   by-hand    two curl calls without --retry
 //   whole      the copy in the folder is already the whole image
 //   longer     the copy in the folder is a 300,000-byte file
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -70,6 +70,7 @@ byte[] served = Convert.FromBase64String(read.StructuredContent!.Value.GetProper
 byte[] copy = File.ReadAllBytes("image.iso");
 Console.WriteLine($"image.iso: {copy.Length} bytes, {(copy.AsSpan().SequenceEqual(served) ? "identical to the server's" : "DIFFERENT from the server's")}");
 
+await WaitForExchangesToEnd();
 CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
 var rests = new List<string>();
 foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())
@@ -93,6 +94,23 @@ foreach (JsonElement e in events.StructuredContent!.Value.GetProperty("events").
     Console.WriteLine($"fault_applied: {e.GetProperty("rule_id").GetString()} {e.GetProperty("fault_kind").GetString()} {e.GetProperty("target").GetString()}");
 }
 return 0;
+
+// The server records an exchange's end a moment after its client is done: ask again until every
+// exchange it started has ended, for at most 10 s, before reading what it recorded.
+async Task WaitForExchangesToEnd()
+{
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?>
+        {
+            ["server_id"] = id, ["kinds"] = new[] { "exchange_started", "exchange_ended" }, ["max_events"] = 500,
+        });
+        if (events.StructuredContent!.Value.GetProperty("events").EnumerateArray().Sum(e => e.GetProperty("kind").GetString() == "exchange_started" ? 1 : -1) == 0)
+        {
+            return;
+        }
+    }
+}
 
 async Task Fetch(string[] extra)
 {

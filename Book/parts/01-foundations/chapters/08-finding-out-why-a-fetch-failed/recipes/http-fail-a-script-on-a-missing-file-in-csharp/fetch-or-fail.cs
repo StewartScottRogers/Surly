@@ -2,8 +2,8 @@
 // Downloads one file and fails with a clear message when the server does not have it.
 // Run: dotnet run fetch-or-fail.cs [-- path [--no-check]]   (the path defaults to report.txt)
 //   --no-check   save whatever comes back, as curl without -f does
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;

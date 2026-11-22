@@ -6,8 +6,8 @@
 //   status         try to send IMAP STATUS through Curl.Api
 //   no-folder      count a folder ann does not have
 //   unknown-owner  ask the store about an account that does not exist
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

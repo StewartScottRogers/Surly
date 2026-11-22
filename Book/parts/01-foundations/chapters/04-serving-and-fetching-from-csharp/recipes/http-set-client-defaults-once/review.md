@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. ConnectTimeout is set and named (--connect-timeout) but no case shows it firing: a connect that hangs needs a non-loopback address, which CI cannot rely on.
 2. The timeout case claims only that the 2 s Timeout fires before the server's 5 s delay, not an exact time.
 3. Program note: a client with no options sends no User-Agent (the curl command sends curl/8.22.0).
+4. Bounded wait before reading the server's record (CI race sweep).

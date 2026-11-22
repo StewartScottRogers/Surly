@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Delete through Curl.Api: CurlRequest with method DELE on pop3://.../1. The deletion lands only when the CurlClient is disposed (QUIT on close); kept as case delete-on-quit, a real trap for tests.
 2. Failure path: Mail.DeliverAsync to an address with no mailbox throws SurlSeedRefusedException NoSuchAccount.
+3. Bounded wait before reading the server's record (CI race sweep).

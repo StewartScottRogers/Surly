@@ -2,8 +2,8 @@
 // A mail flow with an OAuth 2.0 token, end to end: an in-process Surl server that accepts only OAUTHBEARER and
 // XOAUTH2, a send and a read with the token, what the server stored and judged, and every way in that stays shut.
 // Run: dotnet run token-mail.cs [-- why]   (why: ordinary mailboxes, to show what protocols=http closes)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

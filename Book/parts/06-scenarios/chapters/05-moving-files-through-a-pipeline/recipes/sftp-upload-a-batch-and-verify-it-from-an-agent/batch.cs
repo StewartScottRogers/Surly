@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent uploads a batch of files over SFTP to a pinned host key with curl-mcp, then lists the server's side and
 // compares every name and size. host_key and host_key.pub come from setup: in recipe.yml.
-// Run: dotnet run batch.cs [-- all|glob-refused|wrong-pin|missing|short|repaired|uploads-off|no-listing]
-#:package ModelContextProtocol.Core@2.2.0
+// Run: dotnet run batch.cs [-- all|glob|glob-escape|wrong-pin|missing|short|repaired|uploads-off|no-listing]
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -56,14 +56,18 @@ string pin = Convert.ToBase64String(SHA256.HashData(blob)).TrimEnd('=');
 string wrongPin = new('A', 43);
 
 // Each scenario is one call of the curl tool, which is one curl process: its -T pairs upload, in order, and the folder
-// URL at the end lists /inbox/ on the same connection. (curl-mcp refuses a glob in -T, so each file has its own pair.)
+// URL at the end lists /inbox/ on the same connection.
 string[] three = ["notes.txt", "config.ini", "data.csv"];
 switch (scenario)
 {
     case "all": await Run(pin, Pairs("batch", [.. sizes.Keys]), list: true); break;
-    case "glob-refused":
-        // curl would expand the glob itself; curl-mcp refuses it before curl runs, as a failure of kind PathRefused.
-        JsonElement refused = await Curl("-s", "-S", "--hostpubsha256", pin, "-u", "alice:s3cret", "-T", "batch/{notes.txt,config.ini}", $"{root}inbox/");
+    case "glob":
+        // One -T with a glob: curl expands it, and each file goes to the folder URL under its own name.
+        await Run(pin, ["-T", "batch/{blob.bin,config.ini,data.csv,notes.txt}", $"{root}inbox/"], list: true);
+        break;
+    case "glob-escape":
+        // curl-mcp checks every expansion of the glob; one outside CURL_MCP_ROOT refuses the call before curl runs.
+        JsonElement refused = await Curl("-s", "-S", "--hostpubsha256", pin, "-u", "alice:s3cret", "-T", "batch/{notes.txt,../../outside.txt}", $"{root}inbox/");
         Console.WriteLine($"curl-mcp: {refused.GetProperty("failure").GetProperty("kind").GetString()}");
         break;
     case "wrong-pin": await Run(wrongPin, Pairs("batch", ["notes.txt"]), list: false); break;

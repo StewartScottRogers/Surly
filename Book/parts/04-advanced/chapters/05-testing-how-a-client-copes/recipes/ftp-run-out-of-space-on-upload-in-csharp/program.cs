@@ -9,8 +9,8 @@
 //   old        upload it to /backups-old, beside /backups
 //   fills      /staging fills up while the server runs, then has space again
 //   closed     upload it to a server that takes no uploads at all
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

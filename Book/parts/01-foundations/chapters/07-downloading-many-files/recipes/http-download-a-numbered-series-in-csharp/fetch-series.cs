@@ -2,8 +2,8 @@
 // Downloads report-1.csv to report-N.csv in turn with one shared CurlClient, saves each one
 // that is there into reports/, and reports the numbers that were 404.
 // Run: dotnet run fetch-series.cs [-- last]   (the series ends at 12 by default)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -46,5 +46,18 @@ await using (CurlClient client = CurlClient.Create())
 
 Console.WriteLine($"saved: {saved}");
 Console.WriteLine($"missing: {(missing.Count == 0 ? "none" : string.Join(", ", missing))}");
+await WaitForEndsAsync();
 Console.WriteLine($"connections: {server.Exchanges.Count}");
 return missing.Count == 0 ? 0 : 1;
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

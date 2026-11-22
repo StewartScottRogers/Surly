@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Maps a bucket onto a folder of an in-process Surl.Api server and reads, lists and writes it with
 // Curl.Api. Run: dotnet run program.cs
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

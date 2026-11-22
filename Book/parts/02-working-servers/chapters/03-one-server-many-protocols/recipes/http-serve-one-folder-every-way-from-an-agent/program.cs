@@ -5,7 +5,7 @@
 //   six           start with --allow-anonymous and fetch hello.txt six ways (the default)
 //   warning       the same start, printing the log lines it answered
 //   no-anonymous  start without --allow-anonymous and fetch over FTP
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

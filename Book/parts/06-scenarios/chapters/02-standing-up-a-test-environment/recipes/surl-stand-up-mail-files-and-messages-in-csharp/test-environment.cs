@@ -5,8 +5,8 @@
 //   (no argument)  the app mails, uploads and publishes as it should; the test passes
 //   wrong-topic    the app publishes on invoices/7 instead of orders/7
 //   strict         the server keeps its default and refuses passwords sent in clear
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -32,6 +32,7 @@ string smtp = $"{server.BoundUrls[0]}", http = $"{server.BoundUrls[2]}", mqtt = 
 
 // The app: when order 7 ships it mails the customer, uploads the invoice and publishes an event.
 var login = new CurlAuthenticationOptions { UserName = "app@example.com", Password = "apppass" };
+string? published = null;
 await using (CurlClient app = CurlClient.Create())
 {
     try
@@ -52,6 +53,7 @@ await using (CurlClient app = CurlClient.Create())
         string topic = mode == "wrong-topic" ? "invoices/7" : "orders/7";
         await Send(app, new CurlRequest(HttpMethod.Post, $"{mqtt}{topic}") { Authentication = login, Body = "shipped"u8.ToArray() });
         Console.WriteLine($"app published on {topic}");
+        published = topic;
     }
     catch (CurlException failed)
     {
@@ -66,6 +68,15 @@ SurlMailMessage mail = await server.Mail.ReadMessageAsync("ann@example.com", "IN
 string subject = Encoding.UTF8.GetString(mail.Bytes.Span).Split("\r\n").First(l => l.StartsWith("Subject: "))["Subject: ".Length..];
 SurlFileContents invoice = await server.Files.ReadAsync("/invoice-7.txt", CancellationToken.None);
 SurlRetainedMessage? kept = await server.Messages.ReadRetainedAsync("orders/7", CancellationToken.None);
+
+// The publish is MQTT QoS 0, never acknowledged, so the broker may keep it a moment after the app is
+// done: the test reads again until it is there, for at most 10 s.
+DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+while (published == "orders/7" && kept is null && DateTime.UtcNow < deadline)
+{
+    await Task.Delay(100);
+    kept = await server.Messages.ReadRetainedAsync("orders/7", CancellationToken.None);
+}
 
 var checks = new (string Store, string Got, string Want)[]
 {

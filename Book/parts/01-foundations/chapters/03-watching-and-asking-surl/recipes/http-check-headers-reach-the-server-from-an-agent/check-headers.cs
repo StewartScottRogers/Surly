@@ -6,8 +6,9 @@
 //   agent       the same, with transfer's userAgent field set
 //   twice       the trace ID given twice
 //   empty       the API key with an empty value
+//   empty-sent  the API key with an empty value and sendEmpty
 //   no-accept   an Accept header with an empty value
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -39,8 +40,12 @@ string id = started.StructuredContent!.Value.GetProperty("server_id").GetString(
 string url = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
 
 // The request: headers is a list of name and value pairs, sent in that order.
-JsonObject Header(string name, string value) => new() { ["name"] = name, ["value"] = value };
-var headers = new JsonArray(Header("X-Api-Key", which == "empty" ? "" : "k123"), Header("X-Trace-Id", "7f3a9c"));
+// An empty value removes the header; sendEmpty true sends it with nothing after the colon.
+JsonObject Header(string name, string value, bool sendEmpty = false) =>
+    sendEmpty ? new() { ["name"] = name, ["value"] = value, ["sendEmpty"] = true } : new() { ["name"] = name, ["value"] = value };
+var headers = new JsonArray(
+    which switch { "empty" => Header("X-Api-Key", ""), "empty-sent" => Header("X-Api-Key", "", sendEmpty: true), _ => Header("X-Api-Key", "k123") },
+    Header("X-Trace-Id", "7f3a9c"));
 if (which == "twice") headers.Add((JsonNode)Header("X-Trace-Id", "again"));
 if (which == "no-accept") headers.Add((JsonNode)Header("Accept", ""));
 var request = new Dictionary<string, object?> { ["url"] = url + "hello.txt", ["headers"] = headers };
@@ -50,8 +55,7 @@ using JsonDocument answer = JsonDocument.Parse(fetched.Content.OfType<TextConten
 Console.WriteLine($"statusCode: {answer.RootElement.GetProperty("statusCode").GetInt32()}");
 
 // What arrived: the first received chunk of the exchange holds the request head.
-CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
-JsonElement exchange = result.StructuredContent!.Value.GetProperty("exchanges")[0];
+JsonElement exchange = (await RecordedAsync(EndsWithReply)).GetProperty("exchanges")[0];
 JsonElement received = exchange.GetProperty("chunks").EnumerateArray().First(c => c.GetProperty("direction").GetString() == "received");
 string head = received.GetProperty("data").GetString()!.Split("\r\n\r\n")[0];
 foreach (string line in head.Split("\r\n"))
@@ -60,3 +64,29 @@ foreach (string line in head.Split("\r\n"))
 }
 
 return fetched.IsError == true ? 1 : 0;
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

@@ -4,7 +4,7 @@
 // Run: dotnet run slow-path.cs -- [seconds] [path]
 //   seconds   transfer's timeoutSeconds for each fetch (2 if not given; 0 for none)
 //   path      the second path, fetched beside /slow/report.txt (/hello.txt if not given)
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Diagnostics;
 using System.Text.Json;

@@ -9,3 +9,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 
 1. The curl tool's `stdin` feeds the session; a no-quit session with `-m 2` is exit 28, a tool error of kind CurlExit.
 2. Whether a chunk of get_exchanges is base64 or text varied between runs (negotiation bytes and lines can share a chunk), so the program decodes each chunk by its encoding and searches the whole.
+3. Bounded wait before reading the server's record (CI race sweep).

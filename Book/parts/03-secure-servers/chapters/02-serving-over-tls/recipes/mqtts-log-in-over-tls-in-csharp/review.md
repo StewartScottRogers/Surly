@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 1. Truth (4): every claim in the Discussion is a case; certificates come from setup:, never fixtures.
 2. Fitness (1): the Solution answers the Problem as stated; loosening options are shown refused where named.
 3. Fitness (3): surl itself has no property for the 4 versus 5 code; the program reads it from CurlException.Message, which carries curl's text.
+4. Bounded wait before reading the server's record (CI race sweep).

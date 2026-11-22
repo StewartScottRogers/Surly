@@ -4,7 +4,7 @@
 //   retry      the curl tool with --retry 1 --retry-all-errors (the default)
 //   retry-alone  the curl tool with --retry 1 only
 //   transfer   transfer twice: it makes no retry of its own
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -64,6 +64,15 @@ else
             ? $"transfer {attempt}: curl exit {failure.GetProperty("exitCode")}, tool error: {(fetched.IsError == true ? "yes" : "no")}"
             : $"transfer {attempt}: {answer.GetProperty("statusCode")} {answer.GetProperty("body").GetProperty("content").GetString()!.TrimEnd()}");
     }
+}
+
+// The server records an exchange a moment after curl has its answer: ask until every exchange
+// that started has ended, for at most 10 s, before reading the record.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    JsonElement seen = (await surl.CallToolAsync("get_events", new Dictionary<string, object?> { ["server_id"] = server, ["kinds"] = new[] { "exchange_started", "exchange_ended" } })).StructuredContent!.Value;
+    var kinds = seen.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+    if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) break;
 }
 
 // What the server counted: its exchanges, the times the rule acted, and what is left of the rule.

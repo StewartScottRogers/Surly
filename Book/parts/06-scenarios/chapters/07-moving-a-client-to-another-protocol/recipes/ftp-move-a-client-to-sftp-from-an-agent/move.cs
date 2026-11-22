@@ -11,7 +11,7 @@
 //   wrong-pin     SFTP pinned to a fingerprint that is not the server's
 //   cutover       a server that refuses plaintext passwords: FTP is refused, SFTP is served
 // host_key and host_key.pub come from setup: in recipe.yml.
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text.Json;

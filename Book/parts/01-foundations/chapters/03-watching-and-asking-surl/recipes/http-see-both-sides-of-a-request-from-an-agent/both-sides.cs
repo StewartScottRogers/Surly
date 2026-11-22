@@ -6,7 +6,7 @@
 //   wrong-password   the same upload with the wrong password
 //   no-login         the same upload with no login
 //   allowed          log in with Digest; the server was started with --allow-uploads
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -43,7 +43,8 @@ string id = started.StructuredContent!.Value.GetProperty("server_id").GetString(
 string url = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
 
 // curl-mcp: the upload, with -v writing curl's side of the conversation to standard error.
-var line = new List<string> { "-s", "-v", "-T", "notes.txt", "-w", "%{http_code}" };
+// -o keeps the server's short text body (such as "405 Method Not Allowed") out of standard output.
+var line = new List<string> { "-s", "-v", "-T", "notes.txt", "-o", "reply.txt", "-w", "%{http_code}" };
 if (which != "no-login")
 {
     line.AddRange(["--digest", "-u", which == "wrong-password" ? "alice:wrong" : "alice:s3cret"]);
@@ -65,6 +66,7 @@ foreach (string verbose in answer.GetProperty("standardError").GetProperty("cont
 
 // The server's side: get_exchanges holds the bytes as they crossed; print each head's first line
 // and the headers that explain the outcome.
+await WaitForEndsAsync();
 CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
 foreach (JsonElement chunk in seen.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray().SelectMany(e => e.GetProperty("chunks").EnumerateArray()))
 {
@@ -93,3 +95,21 @@ foreach (JsonElement e in events.EnumerateArray())
 // The exit code says whether the curl call was a tool error.
 Console.WriteLine($"tool error: {(result.IsError == true ? "yes" : "no")}");
 return result.IsError == true ? 1 : 0;
+
+// The server records an exchange a moment after curl has its answer, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?>
+        {
+            ["server_id"] = id, ["kinds"] = new[] { "exchange_started", "exchange_ended" }, ["max_events"] = 500,
+        });
+        var kinds = events.StructuredContent!.Value.GetProperty("events").EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+        if (kinds.Count(k => k == "exchange_ended") >= kinds.Count(k => k == "exchange_started"))
+        {
+            return;
+        }
+    }
+}

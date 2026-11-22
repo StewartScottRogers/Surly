@@ -3,10 +3,11 @@
 
 Verdict: accept with minor findings (author's draft; self-review against REVIEW.md)
 
-Checked against surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167fa10a), local builds, 2026-11-20, windows: 6 of 6 cases pass.
+Checked against surl 1.0.0 (Surl commit a423807a5d), Curl port (Curl commit 0680b97577), local builds, 2026-11-21, windows: 6 of 6 cases pass.
 
 ## Findings
 
-1. Same retitling as the console twin. Sync is HEAD-then-GET on Last-Modified equality, so it does not depend on surl's conditional support.
-2. SurlServerOptions.TimeProvider drives Last-Modified for in-memory files, which makes the same-second miss deterministic.
-4. Moving the TestClock back five seconds also changed b.txt's Last-Modified (to 15:04:00): surl sends no Last-Modified later than its Date; claimed in the older-date case.
+1. Re-pinned to Surl a423807a5d / Curl 0680b97577: the job is now GET with If-None-Match and surl's own 304 (BL-1449), replacing HEAD-then-GET on Last-Modified; title restored to 'Skipping Unchanged Files with ETags in C#' (and the plan row).
+2. The ETag is write-time ticks plus length; with the TestClock frozen, the same-second rewrite is caught by its new length (claimed so). A same-length rewrite at a frozen clock would keep its tag; not shown.
+3. Moving the clock back moves b.txt's Last-Modified to 15:04:00 (none later than Date) while its ETag stays; claimed in the older case.
+4. Bounded wait before reading the server's record (CI race sweep).

@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. get_exchanges still carries raw received bytes by design (Surl ADR-0182 decision 4), so the agent's filtering is still needed although surl's own log and trace now withhold passwords; the Discussion says which is which.
 3. Certificate from setup: openssl, passed as --cert/--key inside SURL_MCP_ROOT; curl tool uses --cacert.
 4. Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: start_server's refusal of --log-file is now in surl-mcp's own terms (no .NET property named); the case and Discussion quote it.
+5. Bounded wait before reading the server's record (CI race sweep).

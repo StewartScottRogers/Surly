@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The holder is another surl with no --directory, so the script's surl can serve site.
 2. 'Address already in use' was seen on Windows only; CI will show whether Linux and macOS give the same text (http-serve-and-fetch-from-an-agent claims it unmarked too).
+3. CI (Linux, run 45018591547): curl exited 7 just after the Listening on line, so the script now also waits, at most 5 s, until the port answers before it fetches.

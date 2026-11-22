@@ -5,3 +5,5 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. transfer cannot drop a default header: an empty Accept value replaces curl-mcp's Accept: */* with an empty Accept: at the end of the head; curl -H "Accept:" drops it. Stated as a difference, not a bug.
 2. headers must be passed as JsonNode/JsonElement: the SDK's source-generated serializer rejects List<Dictionary<string,string>> (NotSupportedException) and reflection serialization is disabled in file-based apps.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: transfer now removes a header with an empty value, Accept included, and sends it empty only with sendEmpty (Curl BL-5598); empty-value restated, empty-value-sent added, empty-accept-replaces became empty-accept-removes.
+3. Bounded wait before reading the server's record (CI race sweep).

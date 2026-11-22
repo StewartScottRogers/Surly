@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. With --directory the mail store persists across runs, so the program reports the change in message count, not the total.
 3. CurlResponse.StatusCode is 0 for an FTP GET when SendAsync returns (body started before the final reply); the program only checks it for >= 400. Not claimed.
 4. Re-pinned to Surl 9ad60d80c / Curl 7d167fa10a: no change. A ConfigFiles-only start (url lines from the file) is decided in Surl's ADR-0099 amendment of 2026-11-20 (BL-1439) but not in this build; StartAsync still throws ArgumentException, so the workaround and case listen-urls-needed stay.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: StartAsync now starts a server whose only listen URLs come from its ConfigFiles (BL-1439); listen-urls-needed became listen-urls-from-the-file, and the program serves from the file's URL in that mode instead of crashing on the missing FTP listener.

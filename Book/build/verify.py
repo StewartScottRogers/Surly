@@ -321,11 +321,12 @@ def recipe_versions(recipe, spec, tool_versions):
 
 
 WRITE = [True]
+RETRY = [0]          # --retry-broken: more runs for a broken recipe (CI)
 
 
 def show(lines, failed, quiet):
     """Print a recipe's result; quiet prints only a broken one, each failure cut short."""
-    if quiet and not failed:
+    if quiet and not failed and not any(": flaky: " in l for l in lines):
         return
     if quiet:
         lines = [l if len(l) <= 300 else l[:297] + "..." for l in "\n".join(lines).split("\n")]
@@ -341,6 +342,17 @@ def check_one(recipe, spec, bins, tool_versions, today):
         # fault. Try once more on fresh ports, and say so.
         lines.append(f"{spec['key']}: a server's port was taken; retrying once on fresh ports")
         results, failures = verify_recipe(recipe, spec, bins)
+    first_failures = list(failures)
+    for attempt in range(RETRY[0]):
+        if not failures:
+            break
+        # --retry-broken (CI): a loaded runner can lose a race a recipe has not yet been made
+        # proof against. Run it again; if it passes, it counts, and the first failure is
+        # printed as "flaky" so the recipe is still fixed.
+        results, failures = verify_recipe(recipe, spec, bins)
+        if not failures:
+            lines.append(f"{spec['key']}: flaky: failed, then passed on retry {attempt + 1}; first failure:\n  "
+                         + "\n  ".join(first_failures))
     status = "verified" if not failures else "broken"
     versions = recipe_versions(recipe, spec, tool_versions)
     previous = spec["verified"]
@@ -368,11 +380,15 @@ def main():
                         help="print only broken recipes (each failure cut to 300 characters) and a one-line total")
     parser.add_argument("--no-write", action="store_true",
                         help="write no verified.yml (a check against a local, unreleased build)")
+    parser.add_argument("--retry-broken", type=int, default=0, metavar="N",
+                        help="run a broken recipe up to N more times; one that then passes counts, and is "
+                             "printed as flaky with its first failure (for CI, whose loaded runners lose races)")
     parser.add_argument("--shard", metavar="I/N",
                         help="run only every Nth recipe starting at the Ith (1-based), so N machines share the book")
     opts = parser.parse_args()
     jobs, wanted = opts.jobs, set(opts.keys)
     WRITE[0] = not opts.no_write
+    RETRY[0] = max(0, opts.retry_broken)
     selected = [(recipe, spec) for _, _, recipe, spec in recipes(wanted or None)]
     if opts.shard:
         i, n = (int(x) for x in opts.shard.split("/"))

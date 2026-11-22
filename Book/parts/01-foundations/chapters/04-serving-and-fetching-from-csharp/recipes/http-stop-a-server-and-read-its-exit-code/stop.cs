@@ -5,8 +5,8 @@
 //   twice         stop the same server twice
 //   client-open   stop while a client still holds its kept-alive connection
 //   folder        serve site/ from disk, stop, and start a new server on the same folder
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using Curl.Api;

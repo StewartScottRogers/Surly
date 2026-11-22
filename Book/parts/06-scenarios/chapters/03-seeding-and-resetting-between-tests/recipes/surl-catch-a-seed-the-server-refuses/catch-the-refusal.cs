@@ -2,8 +2,8 @@
 // Seeds an in-process server's mail and files, catches each seed the server refuses, reads why,
 // and checks that a refused seed left nothing behind and that a client is refused the same way.
 // Run: dotnet run catch-the-refusal.cs
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

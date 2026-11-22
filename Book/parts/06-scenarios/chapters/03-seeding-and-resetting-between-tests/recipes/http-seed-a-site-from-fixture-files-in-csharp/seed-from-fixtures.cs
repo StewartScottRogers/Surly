@@ -7,8 +7,8 @@
 //   strict      the same server with AllowAnonymous and AllowUploads left off
 //   no-uploads  AllowAnonymous on, AllowUploads left off
 //   on-disk     ask for the fixtures folder as DataDirectory and in Files at once
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

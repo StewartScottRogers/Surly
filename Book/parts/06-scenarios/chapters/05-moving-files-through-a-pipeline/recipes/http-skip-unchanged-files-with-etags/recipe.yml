@@ -1,13 +1,12 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification. key MUST equal the folder name and never changes once published.
-# The planned task was ETags; the pinned surl sends Last-Modified only, so this recipe syncs by date (see review.md).
 schema: 2
 key: http-skip-unchanged-files-with-etags
-title: Skipping Unchanged Files by Date
+title: Skipping Unchanged Files with ETags
 protocols: [http]
 tier: scenarios
 surl-options: [--directory]
-curl-options: [-z, -R, -f, -s, -o, -w, -v]
+curl-options: [--etag-compare, --etag-save, -f, -s, -o, -w, -v]
 exit-codes: [0, 22]
 references: [surl-readme, curl-manual, rfc9110]
 
@@ -17,12 +16,12 @@ fixtures:
   sync.sh: |
     #!/bin/sh
     # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
-    # A sync job: fetches each file only when the server's copy is newer than the local one.
+    # A sync job: fetches each file only when the server's entity tag differs from the one saved with it.
     # Usage: sh sync.sh <base URL> <file>...
     base=$1; shift
     mkdir -p local
     for f in "$@"; do
-      curl -s -f -R -z "local/$f" -o "local/$f" -w "%{http_code} $f\n" "$base$f"
+      curl -s -f --etag-compare "local/$f.etag" --etag-save "local/$f.etag" -o "local/$f" -w "%{http_code} $f\n" "$base$f"
     done
 
 setup:
@@ -36,7 +35,7 @@ servers:
 cases:
   - id: solution
     role: solution
-    claim: The first run has no local copies, so curl fetches both files, 200 each, and saves them.
+    claim: The first run has no saved tags, so curl fetches both files, 200 each, and saves each body with its ETag beside it.
     run: sh sync.sh http://127.0.0.1:{{port}}/ a.txt b.txt
     expect:
       exit: 0
@@ -44,9 +43,18 @@ cases:
       files:
         local/a.txt: "alpha\n"
         local/b.txt: "beta\n"
+        local/a.txt.etag: null
+        local/b.txt.etag: null
+
+  - id: tag-saved
+    claim: The saved tag is the server's strong ETag, in double quotes, on one line.
+    run: cat local/a.txt.etag
+    expect:
+      exit: 0
+      stdout-matches: '^"[0-9a-f]+-[0-9a-f]+"\n$'
 
   - id: second-run-skips
-    claim: A second run with nothing changed takes no new copy of either file, and curl reports each as 304 Not Modified.
+    claim: A second run with nothing changed sends each saved tag as If-None-Match; surl answers 304 Not Modified for both and the local copies stay as they were.
     run: sh sync.sh http://127.0.0.1:{{port}}/ a.txt b.txt
     expect:
       exit: 0
@@ -56,7 +64,7 @@ cases:
         local/b.txt: "beta\n"
 
   - id: changed-file-fetched
-    claim: When a.txt is rewritten on the server, its date moves past the local copy's, so the next run fetches a.txt again (200) and still skips b.txt (304).
+    claim: When a.txt is rewritten on the server its ETag changes, so the next run fetches a.txt again (200) and still skips b.txt (304).
     fixtures:
       site/a.txt: "alpha, revised\n"
     run: sh sync.sh http://127.0.0.1:{{port}}/ a.txt b.txt
@@ -67,16 +75,27 @@ cases:
         local/a.txt: "alpha, revised\n"
         local/b.txt: "beta\n"
 
-  - id: older-date-missed
-    claim: A file whose content changes but whose date goes back, as a restore from a backup can do, is skipped (304) and the stale local copy is kept; a date comparison cannot see that change.
+  - id: older-date-caught
+    claim: A file whose content changes and whose date goes back, as a restore from a backup can do, gets a new ETag too, so it is fetched (200); a comparison of dates with curl -z would have skipped it.
     fixtures:
       site/b.txt: "beta, restored\n"
     run: touch -t 202301010000 site/b.txt && sh sync.sh http://127.0.0.1:{{port}}/ b.txt
     expect:
       exit: 0
-      stdout: "304 b.txt\n"
+      stdout: "200 b.txt\n"
       files:
-        local/b.txt: "beta\n"
+        local/b.txt: "beta, restored\n"
+
+  - id: date-alone-misses
+    claim: For the same restored b.txt, curl -z with a local copy dated 2024 reports 304 and takes no new copy, since the server's 2023 date is not newer.
+    fixtures:
+      dated/b.txt: "beta\n"
+    run: touch -t 202401021504.05 dated/b.txt && curl -s -z dated/b.txt -o dated/b.txt -w "%{http_code}" http://127.0.0.1:{{port}}/b.txt
+    expect:
+      exit: 0
+      stdout: "304"
+      files:
+        dated/b.txt: "beta\n"
 
   - id: deleted-file-kept
     claim: A file gone from the server is answered 404; with -f curl exits 22 without touching the local copy, so the job keeps its last good copy.
@@ -88,19 +107,26 @@ cases:
         local/a.txt: "alpha, revised\n"
 
   - id: without-fail-clobbers
-    claim: Without -f, the same fetch of a file the server does not have writes the empty 404 body over the local copy.
+    claim: Without -f, the same fetch of a file the server does not have writes surl's short 404 body, 404 Not Found, over the local copy.
     fixtures:
       local/old.txt: "kept\n"
-    run: curl -s -R -z local/old.txt -o local/old.txt -w "%{http_code}" http://127.0.0.1:{{port}}/old.txt
+    run: curl -s --etag-compare local/old.txt.etag --etag-save local/old.txt.etag -o local/old.txt -w "%{http_code}" http://127.0.0.1:{{port}}/old.txt
     expect:
       exit: 0
       stdout: "404"
       files:
-        local/old.txt: ""
+        local/old.txt: "404 Not Found\n"
 
-  - id: sends-if-modified-since
-    claim: With -z and a local file, curl sends an If-Modified-Since header carrying the local file's date; after the skipped fetch of the restored b.txt, -R had set that date back to the server's, 1 January 2023.
-    run: curl -s -v -R -z local/b.txt -o {{null}} http://127.0.0.1:{{port}}/b.txt
+  - id: sends-if-none-match
+    claim: With --etag-compare, curl sends the saved tag as an If-None-Match header (-v shows it).
+    run: curl -s -v --etag-compare local/b.txt.etag -o {{null}} http://127.0.0.1:{{port}}/b.txt
     expect:
       exit: 0
-      stderr-contains: "> If-Modified-Since: Sun, 01 Jan 2023 "
+      stderr-contains: '> If-None-Match: "'
+
+  - id: server-answers-304
+    claim: The 304 comes from surl itself, a reply with no body, not from curl deciding on its own.
+    run: curl -s -v --etag-compare local/b.txt.etag -o {{null}} http://127.0.0.1:{{port}}/b.txt
+    expect:
+      exit: 0
+      stderr-contains: "< HTTP/1.1 304 Not Modified"

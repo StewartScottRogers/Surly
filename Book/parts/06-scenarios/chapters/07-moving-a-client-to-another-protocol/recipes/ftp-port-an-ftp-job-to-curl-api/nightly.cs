@@ -8,8 +8,8 @@
 //   password      each job with a wrong password
 //   commands      what each job sent the server, from the recorded exchanges
 //   plaintext     a stand-in left at its default, which refuses a password in clear
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Text;

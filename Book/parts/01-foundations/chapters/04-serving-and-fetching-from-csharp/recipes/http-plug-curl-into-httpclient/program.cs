@@ -6,8 +6,8 @@
 //   requests   what the server received from each handler, header names only
 //   reuse      three GETs on one HttpClient: how many connections each handler opened
 //   timeout    GET a path the server holds for 5 s, with HttpClient.Timeout at 1 s
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using System.Text;
@@ -89,8 +89,16 @@ foreach (string name in new[] { "sockets", "curl" })
     switch (which)
     {
         case "requests":
-            // The header names of the request head the server received, in the order sent.
-            string head = Encoding.ASCII.GetString(server.Exchanges[^1].Received).Split("\r\n\r\n")[0];
+            // The header names of the request head the server received, in the order sent. The record can
+            // trail the client by a moment, so read it again until it holds a whole head, for up to 10 s.
+            string received = Encoding.ASCII.GetString(server.Exchanges[^1].Received);
+            for (var waited = Stopwatch.StartNew(); !received.Contains("\r\n\r\n") && waited.Elapsed.TotalSeconds < 10;)
+            {
+                await Task.Delay(100);
+                received = Encoding.ASCII.GetString(server.Exchanges[^1].Received);
+            }
+
+            string head = received.Split("\r\n\r\n")[0];
             string[] lines = head.Split("\r\n");
             Console.WriteLine($"{name}: {lines[0]} | {string.Join(", ", lines.Skip(1).Select(l => l[..l.IndexOf(':')]))}");
             break;

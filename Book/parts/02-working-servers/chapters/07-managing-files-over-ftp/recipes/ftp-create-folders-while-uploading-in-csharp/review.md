@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. CreateMissingDirectories = Create is --ftp-create-dirs (libcurl CURLFTP_CREATE_DIR); None is exit 9, RemoteAccessDenied.
 2. Files.ListAsync lists each level without needing ListDirectories.
+3. Bounded wait before reading the server's record (CI race sweep).

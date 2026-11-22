@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent starts a server that offers Basic alone, over HTTPS and plain HTTP, with surl-mcp, and logs in
 // to both with curl-mcp, over the official MCP SDK. Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -43,6 +43,7 @@ return 0;
 
 // curl-mcp's curl tool runs curl's own arguments. -i puts the status line and headers before the body;
 // --http1.1 keeps the header names as the server wrote them. The answer is JSON in text.
+// A refusal's body is one line naming its status, so only a 200's body is printed.
 async Task Fetch(string label, string url, params string[] more)
 {
     CallToolResult result = await curl.CallToolAsync("curl", new Dictionary<string, object?>
@@ -53,5 +54,6 @@ async Task Fetch(string label, string url, params string[] more)
     string output = answer.RootElement.GetProperty("standardOutput").GetProperty("content").GetString()!;
     string[] head = output.Split("\r\n\r\n", 2)[0].Split("\r\n");
     string offered = string.Join("; ", head.Where(l => l.StartsWith("WWW-Authenticate: ")).Select(l => l[18..]));
-    Console.WriteLine($"{label}: {head[0].Split(' ')[1]} [{offered}] {output.Split("\r\n\r\n", 2)[1]}".TrimEnd());
+    string status = head[0].Split(' ')[1];
+    Console.WriteLine($"{label}: {status} [{offered}] {(status == "200" ? output.Split("\r\n\r\n", 2)[1] : "")}".TrimEnd());
 }

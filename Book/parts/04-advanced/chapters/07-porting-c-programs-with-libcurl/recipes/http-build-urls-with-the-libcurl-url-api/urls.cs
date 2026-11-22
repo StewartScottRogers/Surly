@@ -4,7 +4,7 @@
 // Run: dotnet run urls.cs -- parse <url>
 //      dotnet run urls.cs -- join <base> <relative>
 //      dotnet run urls.cs -- build <host> <port> <path> [<query>...]
-#:package Libcurl@0.2.0
+#:package Surly.Libcurl@*
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;

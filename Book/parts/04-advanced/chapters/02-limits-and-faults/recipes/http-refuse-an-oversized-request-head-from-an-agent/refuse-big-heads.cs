@@ -5,7 +5,7 @@
 //   small      a 600-byte cookie under the same limit
 //   default    the 1,200-byte cookie, with surl's own limit left in place
 //   recorded   the 1,200-byte cookie, then what the server says it sent back
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -65,11 +65,17 @@ else
 if (which == "recorded")
 {
     // get_exchanges shows what the server received and sent, byte for byte; the last exchange is the fetch.
-    CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server });
-    JsonElement last = exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray().Last();
-    string sent = string.Concat(last.GetProperty("chunks").EnumerateArray()
-        .Where(c => c.GetProperty("direction").GetString() == "sent")
-        .Select(c => c.GetProperty("data").GetString()));
+    // The record can trail curl's answer by a moment: ask again until the answer is in it, for at most 10 s.
+    string sent = "";
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); ; await Task.Delay(100))
+    {
+        CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server });
+        JsonElement last = exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray().Last();
+        sent = string.Concat(last.GetProperty("chunks").EnumerateArray()
+            .Where(c => c.GetProperty("direction").GetString() == "sent")
+            .Select(c => c.GetProperty("data").GetString()));
+        if (sent.Contains("\r\n") || DateTime.UtcNow >= deadline) break;
+    }
     Console.WriteLine($"get_exchanges: sent {sent.Split("\r\n")[0]}");
 }
 

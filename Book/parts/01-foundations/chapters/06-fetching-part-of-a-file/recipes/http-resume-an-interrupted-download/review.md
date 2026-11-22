@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. The partial file is made by a fixture, not by interrupting a transfer, which would be timing-dependent.
 3. The case that the file may have changed on the server is shown with a wrong prefix, not with a changed server file.
 4. If-Range is honoured by surl (a date that is not the file's Last-Modified gets 200 and the whole file); curl -C - then exits 33 and leaves the partial file.
+5. Re-pinned to Surl a423807a5d / Curl 0680b97577: the 416 now has a 26-byte body that size_download counts; curl still does not append it.

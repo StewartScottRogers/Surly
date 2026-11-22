@@ -2,8 +2,8 @@
 // A C# file-based app: `dotnet run keys.cs -- SCENARIO`. The keys come from setup: in recipe.yml:
 // host_key, deploy_a, deploy_a2 and deploy_b, each with a .pub half, and a_keys, two lines.
 //   own-key (the default), second-user, a-key-as-b, b-key-as-a, second-key, second-key-as-b, unknown-user, events
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;
@@ -57,7 +57,7 @@ switch (scenario)
     case "events":
         await Fetch("deploy-a", "deploy_a");
         await Fetch("deploy-b", "deploy_a");
-        // After a key is refused the client may try its other methods; those logins are judged and refused too.
+        // A key the server refuses is only offered, never used to sign, so it leaves no login_judged event.
         var judged = server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.LoginJudged }).Cast<LoginJudgedEvent>().ToList();
         foreach (string user in new[] { "deploy-a", "deploy-b" })
         {

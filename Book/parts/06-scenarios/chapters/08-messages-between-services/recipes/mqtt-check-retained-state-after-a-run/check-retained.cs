@@ -8,7 +8,7 @@
 //   outside    a device reports on a topic the broker was not told to keep
 //   no-retain  a broker started without retain
 //   refused    a broker started without --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

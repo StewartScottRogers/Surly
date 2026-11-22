@@ -8,7 +8,7 @@
 //   write          curl -s -o hello.txt -w "%{http_code}" URL/hello.txt
 //   outside-root   curl -s -o ../hello.txt URL/hello.txt
 //   unknown        curl --no-such-option URL/hello.txt
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. The PNG fixture is the real 8-byte signature, to show non-UTF-8 bytes round-trip.
 2. The root case passes '' as the path, and the program's own check fails it with exit 1, as a test would.
+3. Re-pinned to Surl a423807a5d / Curl 0680b97577: the root's 404 is now 14 bytes of text/plain (BL-1444).

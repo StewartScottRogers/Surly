@@ -11,3 +11,4 @@ Checked against local builds on 2026-11-18 (not releases): surl 1.0.0 (Surl comm
 2. "The default 401 offers nothing but Digest" matches the whole header block; the loosened one's Basic and Bearer challenges are matched in order after the Digest ones.
 3. The Solution's output is a refusal, `403`, which fits the Problem (checking that a client is refused); the ways in follow in the Discussion.
 4. The startup warning for `--allow-plaintext-auth` is cited to the README: verify.py cannot see surl's log.
+5. Re-pinned to Surl a423807a5d / Curl 0680b97577: the 401 now carries Content-Type and a 17-byte body (BL-1444) before its WWW-Authenticate lines.

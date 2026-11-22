@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 2. Big cookies come from fixture files through `curl -H @file`, so the command line stays short; the 1,200-byte fixture makes recipe.yml one long line.
 3. The 1 KiB boundary itself is not claimed: the head's length depends on the port in Host, so the cases keep a margin (600 and 1,200 bytes).
 4. The 100k default and "0 means no limit" are claimed from `surl --aihelp limits`, not by sending a 100 KiB head (fixture too large); the C# twin sends 200,000 bytes and gets 431.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 431 now carries a 36-byte text body, `431 Request Header Fields Too Large` (BL-1444); the cases and the Discussion say so.

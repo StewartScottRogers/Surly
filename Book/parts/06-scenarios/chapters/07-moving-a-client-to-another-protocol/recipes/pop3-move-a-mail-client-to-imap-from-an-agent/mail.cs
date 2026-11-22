@@ -8,7 +8,7 @@
 //   password      a wrong password over both
 //   delete        the old client deletes a message
 //   cutover       a mailbox whose logins are limited to SMTP and IMAP
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

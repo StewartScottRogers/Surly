@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 1. Each transfer call is its own connection (three calls, three exchanges); reuse needs one curl tool call.
 2. curl tool standardOutput has CRLF line ends on Windows; the program trims.
 3. Extended to ten cases, one claim each, carrying every console claim curl-mcp can show (glob, URLs, separate calls, Connection: close, --http1.0, --rate within and past --idle-timeout).
+4. Bounded wait before reading the server's record (CI race sweep).

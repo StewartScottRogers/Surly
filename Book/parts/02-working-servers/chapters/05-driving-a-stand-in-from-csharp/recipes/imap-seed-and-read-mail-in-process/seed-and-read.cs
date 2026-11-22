@@ -4,8 +4,8 @@
 //   (no argument)   seed a message for alice, fetch it over IMAP, show its flags before and after
 //   bob             seed a message for an account the server does not have
 //   wrong-password  seed as usual, then fetch with the wrong password
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

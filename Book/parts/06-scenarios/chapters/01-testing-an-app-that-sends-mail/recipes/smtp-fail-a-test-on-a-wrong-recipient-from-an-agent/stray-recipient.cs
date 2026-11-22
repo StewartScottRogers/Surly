@@ -6,7 +6,7 @@
 //   own-domain  the app mails ann@example.com
 //   seed        the agent seeds mail for carol@elsewhere.org itself
 //   no-domain   the app mails carol@elsewhere.org, and the server has no mail domain
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -60,10 +60,18 @@ using JsonDocument answer = JsonDocument.Parse(result.Content.OfType<TextContent
 string error = answer.RootElement.GetProperty("standardError").GetProperty("content").GetString()!.TrimEnd();
 Console.WriteLine($"curl to {to}: exit {answer.RootElement.GetProperty("exitCode")}, tool error {(result.IsError == true ? "yes" : "no")}{(error == "" ? "" : $", {error}")}");
 
-// What the server answered RCPT TO, byte for byte as recorded.
-CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["scheme"] = "smtp" });
-JsonElement[] chunks = [.. exchanges.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks").EnumerateArray()];
+// What the server answered RCPT TO, byte for byte as recorded. The record of the exchange can lag
+// curl's answer a moment, so the agent reads it again until it holds the reply, for at most 10 s.
+JsonElement[] chunks = await Chunks();
 int rcpt = Array.FindIndex(chunks, c => c.GetProperty("data").GetString()!.StartsWith("RCPT TO:"));
+DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+while ((rcpt < 0 || rcpt + 1 >= chunks.Length) && DateTime.UtcNow < deadline)
+{
+    await Task.Delay(100);
+    chunks = await Chunks();
+    rcpt = Array.FindIndex(chunks, c => c.GetProperty("data").GetString()!.StartsWith("RCPT TO:"));
+}
+
 Console.WriteLine($"get_exchanges: {chunks[rcpt].GetProperty("data").GetString()!.TrimEnd()} -> {chunks[rcpt + 1].GetProperty("data").GetString()!.TrimEnd()}");
 
 // What the server stored for ann, read with no client.
@@ -74,3 +82,11 @@ if (which != "no-domain")
 }
 
 return result.IsError == true ? 1 : 0;
+
+// The chunks of the server's first SMTP exchange, or none while it has not recorded one.
+async Task<JsonElement[]> Chunks()
+{
+    CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["scheme"] = "smtp" });
+    JsonElement all = exchanges.StructuredContent!.Value.GetProperty("exchanges");
+    return all.GetArrayLength() == 0 ? [] : [.. all[0].GetProperty("chunks").EnumerateArray().Select(c => c.Clone())];
+}

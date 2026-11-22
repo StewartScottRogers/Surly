@@ -2,7 +2,7 @@
 // post-form.c, which posts a multipart form (a text field and a file) with libcurl's curl_mime API,
 // ported call for call to C# with Libcurl. Each line names the C call it stands for.
 // Run: dotnet run post-form.cs -- <url> <file>
-#:package Libcurl@0.2.0
+#:package Surly.Libcurl@*
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;

@@ -154,6 +154,10 @@ DELE is gone for IMAP too. Each listen URL needs its own port.
   kept returns at once; later waits still return it.
 - `read_message` -> `text` (the message); `read_retained_message` -> `{topic, qos, text}` or
   `{"retained":false}`.
+- Since Surl a423807a5d: an account from `add_account` HAS an INBOX: `seed_mail to task-1@example.com` ->
+  `{"delivered":true}`, `INBOX?ALL` -> `* SEARCH 1`, another added account's INBOX `* SEARCH`; after
+  `remove_account` login 67, and re-adding the name finds the old mail (mailbox outlives the account).
+  The lines below are the old behaviour (Surl 9ad60d80c and before).
 - `add_account(user, password)` -> `{"user":..}`; the account logs in on every scheme but has NO mailbox:
   IMAP SELECT INBOX -> `NO [NONEXISTENT]` (curl 67), seed_mail -> `NoSuchAccount`, SMTP to it 250 and
   discarded (also for `user@example.com` under `--mail-domain`). `remove_account` keeps a start-time

@@ -8,8 +8,8 @@
 //   uploads-off   a server that accepts no uploads
 //   no-login      a server that accepts no anonymous login
 //   login         list the root and print the login the server received
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -42,6 +42,13 @@ try
             break;
         case "login":
             await List("");
+            // The record can trail the client by a moment: look again until it holds the login, for up to 10 s.
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!Received().Any(l => l.StartsWith("USER ")) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(100);
+            }
+
             Console.WriteLine($"received: {string.Join(", ", Received().Where(l => l.StartsWith("USER ")))}");
             break;
         case "missing":

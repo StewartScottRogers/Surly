@@ -6,8 +6,8 @@
 //   sync          a first run that downloads the file and a second that finds the copy current
 //   missing       ask about a file that is not there
 //   refused       ask a server that accepts no anonymous login
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Globalization;
 using System.Text;
@@ -61,8 +61,15 @@ try
                 Console.WriteLine($"size: {size}");
                 Console.WriteLine($"modified: {modified:yyyy-MM-ddTHH:mm:ssZ}");
 
-                // What the server received, as the commands that matter here.
+                // What the server received, as the commands that matter here. The record can trail the
+                // client by a moment, so read it again until it holds the SIZE that was answered, for up to 10 s.
                 string received = Encoding.ASCII.GetString(server.Exchanges[0].Received);
+                for (var waited = System.Diagnostics.Stopwatch.StartNew(); !received.Contains("SIZE ") && waited.Elapsed.TotalSeconds < 10;)
+                {
+                    await Task.Delay(100);
+                    received = Encoding.ASCII.GetString(server.Exchanges[0].Received);
+                }
+
                 Console.WriteLine("commands: " + string.Join(" ", received.Split("\r\n")
                     .Select(line => line.Split(' ')[0]).Where(name => name is "MDTM" or "SIZE" or "RETR" or "EPSV" or "PASV")));
                 break;

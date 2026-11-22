@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // One account file for four protocols: Surl.Api serves HTTPS, FTPS, IMAPS and MQTTS from users.txt,
 // and Curl.Api logs in on each. Run: dotnet run program.cs -- alice s3cret [users-file]
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

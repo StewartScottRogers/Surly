@@ -5,7 +5,7 @@
 //   timeout    transfer with timeoutSeconds 2 (the default)
 //   none       transfer with no limit
 //   retry      the curl tool with -m 2 --retry 1
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Diagnostics;
 using System.Text.Json;

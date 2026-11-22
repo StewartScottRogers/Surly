@@ -2,8 +2,8 @@
 // Serves one directory over SMB and HTTP with Surl.Api, uploads to it over SMB with Curl.Api,
 // and reads the file back over HTTP and SMB.
 // Run: dotnet run program.cs -- allow    (also: closed, small)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

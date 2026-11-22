@@ -5,8 +5,8 @@
 //   (no argument)  a server that names APOP with AuthenticationMethods: login, digest, wrong password, USER and PASS
 //   default        the default server: no timestamp, APOP refused, Curl.Api logs in with CRAM-MD5
 //   both           APOP and CRAM-MD5 named together
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -74,6 +74,13 @@ foreach (LoginJudgedEvent login in server.FindEvents(new SurlEventQuery { Kind =
 
 if (mode == "apop")
 {
+    // The server records an exchange's last bytes and its end a moment after the client has gone: wait,
+    // for at most 10 s, until every exchange that started has ended.
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+    {
+        if (server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted }).Count == server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }).Count) break;
+    }
+
     // The exchange of that login: the server's timestamp is in what it sent, the APOP line in what the client sent.
     SurlExchangeRecord exchange = server.FindExchanges(new SurlEventQuery { Scheme = "pop3" }).Last(x => Encoding.ASCII.GetString(x.Received).Contains("APOP ann@"));
     string sent = Encoding.ASCII.GetString(exchange.Sent), received = Encoding.ASCII.GetString(exchange.Received);

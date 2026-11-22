@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Self-review against REVIEW.md. The raw case uses a TcpClient to send AUTH PLAIN/LOGIN, since Curl.Api will not send a mechanism the server does not offer.
 2. Same missing citations as the console twin (RFC 2195, RFC 4954).
+3. Bounded wait before reading the server's record (CI race sweep).

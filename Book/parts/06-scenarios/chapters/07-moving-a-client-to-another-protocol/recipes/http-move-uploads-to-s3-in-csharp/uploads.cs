@@ -8,8 +8,8 @@
 //   refused       an HTTP PUT with no login, an unsigned S3 put, and one signed with the wrong secret
 //   cutover       a server that takes signed requests only
 // server.pem and server.key come from setup: in recipe.yml.
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -56,7 +56,7 @@ switch (which)
         await Send("new client, S3 put summary.csv", HttpMethod.Put, "s3://uploads/summary.csv", summary, "s3cret");
         Console.Write(await Send(null, HttpMethod.Get, "s3://uploads/", null, "s3cret"));
         Console.WriteLine($"store: report.csv {await Stored("report.csv", report)}, summary.csv {await Stored("summary.csv", summary)}");
-        Console.WriteLine($"HTTP uploads logged: {string.Join(", ", log.ToString().Split('\n').Where(l => l.Contains("* PUT /")).Select(l => l[(l.IndexOf("PUT /") + 4)..l.IndexOf(',')]))}");
+        Console.WriteLine($"uploads logged: {string.Join(", ", log.ToString().Split('\n').Where(l => l.Contains("* PUT /")).Select(l => l[(l.IndexOf("PUT /") + 4)..l.IndexOf(',')]))}");
         foreach (LoginJudgedEvent login in server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.LoginJudged }).Cast<LoginJudgedEvent>())
         {
             Console.WriteLine($"login judged: {login.Scheme} {login.Mechanism} {login.Account}");

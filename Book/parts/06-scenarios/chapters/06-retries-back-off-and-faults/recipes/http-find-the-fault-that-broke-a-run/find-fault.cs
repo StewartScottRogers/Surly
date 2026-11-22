@@ -4,7 +4,7 @@
 //   match   the run, then each failed request with the rule that broke it, if any (the default)
 //   answers the run, then each exchange the server did not answer 2xx, with its faults
 //   rules   the run, then each rule with how often it fired
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

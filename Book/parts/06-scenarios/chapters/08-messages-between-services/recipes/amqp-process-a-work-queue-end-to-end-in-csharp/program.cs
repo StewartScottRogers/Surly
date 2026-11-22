@@ -7,8 +7,8 @@
 //   restart    two jobs queued, the server restarted on the same folder, a worker takes them
 //   fails      three jobs, a worker that acknowledges two of them
 //   refused    a server with no AllowAnonymous
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using System.Text.RegularExpressions;
@@ -126,10 +126,18 @@ async Task<string> Receive(SurlServer server)
     return await new StreamReader(body).ReadToEndAsync();
 }
 
-// Browsing counts what is ready, and what a consumer holds, without taking anything.
+// Browsing counts what is ready, and what a consumer holds, without taking anything. The server puts back
+// what a consumer held only once it notices the consumer has gone, so browse until nothing is in flight,
+// for at most 10 s.
 static async Task<string> Browse(SurlServer server)
 {
     SurlQueuePage page = await server.Messages.BrowseQueueAsync("jobs", -1, 100, CancellationToken.None);
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); page.InFlightCount > 0 && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+        page = await server.Messages.BrowseQueueAsync("jobs", -1, 100, CancellationToken.None);
+    }
+
     return $"{page.ReadyCount} [{string.Join(", ", page.Messages.Select(m => Encoding.UTF8.GetString(m.Payload.Span)))}], in flight {page.InFlightCount}";
 }
 

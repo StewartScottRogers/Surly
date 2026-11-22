@@ -7,8 +7,8 @@
 //   flag-off       the test seeds the flag off: the app ships nothing
 //   no-extensions  AreExtensionsTurnedOn = false
 //   strict         without AllowPlaintextAuthentication
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -51,6 +51,7 @@ await using (server)
 
     // The app ships order 7 if the flag says so: a Redis read, an upload, a mail, an event, a Redis write.
     var login = new CurlAuthenticationOptions { UserName = "app", Password = "apppass" };
+    bool shipped = false;
     await using (CurlClient app = CurlClient.Create())
     {
         try
@@ -73,6 +74,7 @@ await using (server)
                 await Text(app, new CurlRequest(HttpMethod.Post, $"{mqtt}orders/7") { Authentication = login, Body = "shipped"u8.ToArray() });
                 await Text(app, new CurlRequest(HttpMethod.Get, $"{redis}SET/order:7/shipped") { Authentication = login });
                 Console.WriteLine("app shipped order 7");
+                shipped = true;
             }
         }
         catch (CurlException failed)
@@ -89,7 +91,16 @@ await using (server)
         inbox = await Text(ann, new CurlRequest(HttpMethod.Get, $"{imap}INBOX?SUBJECT%20%22Order%207%22") { Authentication = new CurlAuthenticationOptions { UserName = "ann@example.com", Password = "annpass" } });
     }
 
+    // The MQTT publish is QoS 0, never acknowledged, so the broker may keep it a moment after the app
+    // is done: the test reads again until it is there, for at most 10 s.
     SurlRetainedMessage? retained = await server.Messages.ReadRetainedAsync("orders/7");
+    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+    while (shipped && retained is null && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100);
+        retained = await server.Messages.ReadRetainedAsync("orders/7");
+    }
+
     var checks = new (string What, string Got, string Want)[]
     {
         ("IMAP search for ann's order mail", inbox.Trim(), "* SEARCH 1"),

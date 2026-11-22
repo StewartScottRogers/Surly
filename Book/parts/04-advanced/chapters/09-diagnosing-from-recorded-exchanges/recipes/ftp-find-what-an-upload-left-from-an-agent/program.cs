@@ -3,7 +3,7 @@
 // and checks it against what the job meant to upload. Run: dotnet run program.cs [-- <case>]
 //   job         the job uploads three files with one curl call and no --fail-early (the default)
 //   fail-early  the same job with --fail-early
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

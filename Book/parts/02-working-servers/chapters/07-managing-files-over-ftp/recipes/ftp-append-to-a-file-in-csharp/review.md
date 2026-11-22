@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. CurlFtpOptions.Append is --append; refusals are CurlException UploadFailed 25, RemoteDiskFull 70, LoginDenied 67.
 2. Both appends share one CurlClient, so the commands come from the single exchange.
+3. Bounded wait before reading the server's record (CI race sweep).

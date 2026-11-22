@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. TOP's two arguments go in the URL path (`TOP` + `/2%200`), the only way with Curl.Api 0.2.0's one-token methods; stated in the Discussion.
 2. DeliverAsync adds no Return-Path/Received, so headers are 73 bytes; the console twin's SMTP-delivered headers are longer.
 3. Program finding: Curl.Api `new HttpMethod("UIDL")` with the path `2` (UIDL 2) did not return within 60 s under verify, while curl -X "UIDL 2" returns at once; that case was dropped. Expected an empty body, as the CLI gives.
+4. Bounded wait before reading the server's record (CI race sweep).

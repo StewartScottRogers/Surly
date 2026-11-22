@@ -12,8 +12,8 @@
 //   count          how often the rule acted, from the rule and from the events
 //   late-rule      no rule at start; one is added during the test, then removed
 //   bad-shape      a rule whose reply is not in IMAP's shape
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using System.Text.RegularExpressions;
@@ -89,7 +89,14 @@ await using (server)
             break;
         case "reply":
             await Try("INBOX;UID=1;SECTION=TEXT");
-            string sent = string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Sent)));
+            // The server records an exchange a moment after the client has its answer: look again until
+            // every exchange that started has ended, for up to 10 s.
+            for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+            {
+                if (server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted }).Count == server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }).Count) break;
+            }
+
+            string sent =string.Concat(server.Exchanges.Select(e => Encoding.ASCII.GetString(e.Sent)));
             foreach (string line in sent.Split("\r\n").Where(l => Regex.IsMatch(l, "^A00[34] ")))
             {
                 Console.WriteLine(line);

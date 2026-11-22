@@ -7,7 +7,7 @@
 //   verbose       a singlecwd fetch with -v, to read the CWD from the client's side
 //   locked        a file under a folder whose CWD the server refuses, with each method
 //   missing       a missing file, and a missing folder with multicwd and nocwd
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -85,12 +85,7 @@ async Task Fetch(string label, string[] options, string path)
     });
     JsonElement answer = JsonDocument.Parse(result.Content.OfType<TextContentBlock>().Single().Text).RootElement;
 
-    CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?>
-    {
-        ["server_id"] = serverId,
-        ["after_exchange_id"] = lastExchange,
-    });
-    JsonElement exchange = recorded.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray().Last();
+    JsonElement exchange = (await RecordedAsync(EndsWithReply, lastExchange)).GetProperty("exchanges").EnumerateArray().Last();
     lastExchange = exchange.GetProperty("exchange_id").GetInt32();
     var chunks = exchange.GetProperty("chunks").EnumerateArray().ToList();
     string commands = string.Join(", ", chunks
@@ -109,3 +104,29 @@ async Task Fetch(string label, string[] options, string path)
 
     Console.WriteLine($"{label}: {commands} -> exit {answer.GetProperty("exitCode")}, {answer.GetProperty("standardOutput").GetProperty("content").GetString()!.TrimEnd()}");
 }
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

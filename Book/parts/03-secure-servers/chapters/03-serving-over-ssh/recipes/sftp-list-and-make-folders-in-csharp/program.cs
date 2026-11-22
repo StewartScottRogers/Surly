@@ -2,8 +2,8 @@
 // Lists and makes SFTP folders with Surl.Api and Curl.Api, in one process: a server that lists
 // and takes folders, one that lists only, and one that does neither.
 // Run: dotnet run program.cs
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

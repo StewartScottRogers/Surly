@@ -6,8 +6,8 @@
 //             cancel:  a CancellationToken cancelled after 2 s
 //             none:    no limit
 //   retries   how many retries the client may make after a timeout (0 if not given)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
 using Curl.Api;

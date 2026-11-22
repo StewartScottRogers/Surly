@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. UrlEncode alone encodes the query's = as %3D; AppendQuery keeps it. Shown as a case, and the solution uses both flags.
 2. The program prints the bound port as PORT so outputs are exact.
+3. Bounded wait before reading the server's record (CI race sweep).

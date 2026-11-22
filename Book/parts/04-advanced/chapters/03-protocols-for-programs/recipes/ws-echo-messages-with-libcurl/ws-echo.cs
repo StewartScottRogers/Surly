@@ -2,7 +2,7 @@
 // Sends each message to a WebSocket server with libcurl's curl_ws_send and prints what
 // curl_ws_recv brings back, through Libcurl, the libcurl API for C#.
 // Run: dotnet run ws-echo.cs -- <ws-url> <message>...
-#:package Libcurl@0.2.0
+#:package Surly.Libcurl@*
 
 using System.Buffers.Binary;
 using System.Text;

@@ -9,8 +9,8 @@
 //   twice          two restarts, with a message in between
 //   in-use         a second server on the folder while the first runs
 //   memory         the same test with no DataDirectory
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;

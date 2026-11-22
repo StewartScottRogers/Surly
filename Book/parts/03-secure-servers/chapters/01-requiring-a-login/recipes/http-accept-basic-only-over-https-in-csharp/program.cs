@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Serves HTTPS and plain HTTP with Basic as the only method, and tries both with Curl.Api, in one process.
 // Run: dotnet run program.cs
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -36,7 +36,8 @@ await Show("http, wrong password", http, "alice", "guess", tls: null);
 await Show("http, no login", http, null, null, tls: null);
 return 0;
 
-// One GET: prints the status, the WWW-Authenticate headers the answer carries, and the body if it was 200.
+// One GET: prints the status, the WWW-Authenticate headers the answer carries, and the body if it was 200
+// (a refusal's body is one line naming its status).
 async Task Show(string label, string url, string? user, string? password, CurlTlsOptions? tls)
 {
     var request = new CurlRequest(HttpMethod.Get, url);
@@ -54,5 +55,5 @@ async Task Show(string label, string url, string? user, string? password, CurlTl
     await using Stream body = response.Body;
     string text = await new StreamReader(body).ReadToEndAsync();
     string offered = string.Join("; ", response.Headers.Where(h => h.Key.Equals("WWW-Authenticate", StringComparison.OrdinalIgnoreCase)).Select(h => h.Value));
-    Console.WriteLine($"{label}: {response.StatusCode} [{offered}] {text}".TrimEnd());
+    Console.WriteLine($"{label}: {response.StatusCode} [{offered}] {(response.StatusCode == 200 ? text : "")}".TrimEnd());
 }

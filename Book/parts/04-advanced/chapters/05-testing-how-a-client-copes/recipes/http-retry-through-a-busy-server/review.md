@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 1. Distinct from http-retry-a-flaky-endpoint: exact-enough retries (--retry 2 --retry-delay 1), path and count scoping, a timing range from a short sh script (needs a POSIX shell). curl %{time_total} covers only the last attempt, so the script times the whole command.
 2. With --retry-max-time 1 and --retry-delay 3 the port still made one retry (503 1); upstream curl would not. Probed, not claimed.
 3. The waits-seconds case timed out once under heavy load (40 s limit) and passed on rerun; timeout kept at 40.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: each 503 now carries the body 503 Service Unavailable, which curl writes before retrying (BL-1444).

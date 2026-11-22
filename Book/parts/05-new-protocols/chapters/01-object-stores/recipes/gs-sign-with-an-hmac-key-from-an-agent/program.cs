@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent logs in to Cloud Storage with an HMAC key and with an OAuth token, refuses the wrong ones, and finds that
 // writes need --allow-uploads, with surl-mcp and curl-mcp over the official MCP SDK. Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

@@ -2,7 +2,7 @@
 // An agent receives files bigger than 64 KiB over WebSocket with curl-mcp, compares each with the original,
 // and reads from surl-mcp's exchange record how the server framed it. Over the official MCP SDK.
 // Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -64,8 +64,8 @@ foreach ((string name, byte[] original) in files)
 // surl-mcp: each exchange as the server saw it, the request head, the 101 head and the bytes it sent, as
 // base64. The record shows the first 64 KiB only, so it holds the first frame's header and no more.
 var seen = new HashSet<string>();
-CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())
+JsonElement exchanges = await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() > files.Count);
+foreach (JsonElement exchange in exchanges.GetProperty("exchanges").EnumerateArray())
 {
     JsonElement chunks = exchange.GetProperty("chunks");
     string request = chunks.EnumerateArray().First(c => c.GetProperty("direction").GetString() == "received").GetProperty("data").GetString()!;
@@ -88,3 +88,23 @@ foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty(
 }
 
 return 0;
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}

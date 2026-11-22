@@ -5,8 +5,8 @@
 //   events        each service fetches its file, one guesses wrong; read who fetched what (the default)
 //   one-client    the same fetches, both made through one client and so one connection
 //   not-recorded  the same server with RecordExchanges left off
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -41,6 +41,13 @@ await using (CurlClient stranger = CurlClient.Create())
     Console.WriteLine($"billing GET /invoices.csv: {await Get(billing, "invoices.csv", "billing", "b1-secret")}");
     Console.WriteLine($"search GET /index.html: {await Get(one ? billing : search, "index.html", "search", "s1-secret")}");
     Console.WriteLine($"search, wrong password, GET /invoices.csv: {await Get(one ? billing : stranger, "invoices.csv", "search", "guess")}");
+}
+
+// The server records an exchange's end a moment after the client has gone: wait, for at most 10 s,
+// until every exchange that started has ended, before reading the record.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); options.RecordExchanges && DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    if (server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted }).Count == server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }).Count) break;
 }
 
 IReadOnlyList<SurlEvent> logins;

@@ -53,7 +53,6 @@ fixtures:
 cases:
   - id: solution
     role: solution
-    platforms: [windows, linux]
     claim: surl started with --unix-socket listens on the socket file and says so in its Listening on line, and curl --unix-socket fetches a file through it.
     run: sh on-a-socket.sh surl.sock http://localhost:{{port}}/ curl -s --unix-socket surl.sock http://localhost:{{port}}/hello.txt
     timeout: 60
@@ -62,7 +61,6 @@ cases:
       stdout-matches: '^Listening on http://localhost:\d+/ over unix://surl\.sock\nhello over a socket\n$'
 
   - id: host-is-only-a-name
-    platforms: [windows, linux]
     claim: Through the socket the URL's host is never looked up or connected to; it only names the server in the request, so a host that does not exist is answered 200 all the same.
     run: sh on-a-socket.sh any.sock http://localhost:{{port}}/ curl -s -o {{null}} -w "%{http_code}\n" --unix-socket any.sock http://files.example/hello.txt
     timeout: 60
@@ -70,30 +68,21 @@ cases:
       exit: 0
       stdout-matches: '\n200\n$'
 
-  - id: fails-on-macos
-    platforms: [macos]
-    claim: On macOS, with surl 1.0.0, surl binds the socket file but stops on the first connection, so the request through it fails (curl exits 52 or 55); Surl BL-1565 fixes it.
-    run: sh on-a-socket.sh mac.sock http://localhost:{{port}}/ sh -c 'curl -s -o {{null}} --unix-socket mac.sock http://localhost:{{port}}/hello.txt; c=$?; test $c -eq 52 -o $c -eq 55 && echo "curl failed"'
-    timeout: 60
-    expect:
-      exit: 0
-      stdout-matches: '^Listening on http://localhost:\d+/ over unix://mac\.sock\ncurl failed\n$'
-
   - id: no-tcp-port
     claim: The port in the listen URL is not opened; curl without --unix-socket finds nothing listening on it and exits 7.
     run: sh on-a-socket.sh tcp.sock http://localhost:{{port}}/ curl -s -o {{null}} -w "%{exitcode}\n" http://localhost:{{port}}/hello.txt
     timeout: 60
     expect:
       exit: 7
-      stdout-matches: '\n7\n$'
+      stdout-matches: '(?:^|\n)7\n$'
 
   - id: file-exists
-    claim: A path where a file already exists is refused with exit 45 before surl listens, and the file is left as it was.
+    claim: A path where a file already exists is refused with exit 45 before surl listens, with a message that says so, and the file is left as it was.
     run: surl --unix-socket taken.sock http://localhost:{{port}}/
     timeout: 60
     expect:
       exit: 45
-      stderr-contains: "surl: (45) Could not bind http://localhost:"
+      stderr-contains: "surl: (45) Could not bind taken.sock: the path exists already"
       files:
         taken.sock: "not a socket\n"
 
@@ -103,7 +92,7 @@ cases:
     timeout: 60
     expect:
       exit: 45
-      stderr-contains: "surl: (45) Could not bind http://localhost:"
+      stderr-contains: "surl: (45) Could not bind dead.sock: the path exists already"
 
   - id: removed-on-stop
     platforms: [linux, macos]

@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Curl.Api has no client-wide default headers (CurlClientOptions has none), so 'adds headers on every request' is a helper, Build, that stands in for the code under test.
 2. The test joins every exchange's Received bytes and splits at blank lines; safe only because these requests have no body, as the Discussion says.
+3. Bounded wait before reading the server's record (CI race sweep).

@@ -5,8 +5,8 @@
 //   careful    the client retries a 503 but stops at a 401 (the default)
 //   hammering  the client retries every failed status, the 401 included
 //   no-rule    the careful client against the same server without the rule
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

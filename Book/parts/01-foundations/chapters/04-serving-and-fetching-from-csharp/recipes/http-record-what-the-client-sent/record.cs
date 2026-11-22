@@ -5,8 +5,8 @@
 //   agent         the same with a User-Agent set on the client
 //   requests      two requests on one client, then how many exchanges were recorded
 //   off           recording left off, then what reading Exchanges does
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -33,6 +33,11 @@ await using (CurlClient client = CurlClient.Create(clientOptions))
         await using Stream body = response.Body;
         await body.CopyToAsync(Stream.Null);
     }
+}
+
+if (mode != "off")
+{
+    await WaitForEndsAsync();
 }
 
 if (mode == "off")
@@ -77,3 +82,15 @@ foreach (string line in head.Split("\r\n"))
 string sent = Encoding.ASCII.GetString(exchange.Sent);
 Console.WriteLine($"< {sent[..sent.IndexOf("\r\n", StringComparison.Ordinal)]}");
 return 0;
+
+// The server records an exchange a moment after the client has gone, so wait (at most 10 s) until
+// every exchange it started has ended before reading the record.
+async Task WaitForEndsAsync()
+{
+    var started = new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted };
+    var ended = new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded };
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); server.FindEvents(ended).Count < server.FindEvents(started).Count && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+    }
+}

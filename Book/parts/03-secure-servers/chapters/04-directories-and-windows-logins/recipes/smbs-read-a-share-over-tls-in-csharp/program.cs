@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Serves an SMBS share with Surl.Api and reads a file from it with Curl.Api.
 // Run: dotnet run program.cs -- trusted    (also: untrusted, wrong-password, no-certificate, self-signed, self-signed-skip)
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

@@ -6,7 +6,7 @@
 //   no-quit    send one line and no quit, with a time limit
 //   too-long   a server started with --max-line 10, and a line past it
 //   terminal   set the terminal type and read what the server was told from get_exchanges
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;
@@ -72,8 +72,8 @@ if (which == "terminal")
 {
     // What the client told the server is in the bytes it sent, which surl-mcp keeps: negotiation
     // as base64, the lines as text, and the two can share a chunk.
-    CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-    string received = string.Concat(seen.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()
+    JsonElement seen = await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() > 0);
+    string received = string.Concat(seen.GetProperty("exchanges").EnumerateArray()
         .SelectMany(e => e.GetProperty("chunks").EnumerateArray())
         .Where(c => c.GetProperty("direction").GetString() == "received")
         .Select(c => c.GetProperty("encoding").GetString() == "base64"
@@ -86,3 +86,23 @@ if (which == "terminal")
 // The exit code says whether the last call was a tool error.
 Console.WriteLine($"tool error: {(result.IsError == true ? "yes" : "no")}");
 return result.IsError == true ? 1 : 0;
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}

@@ -4,8 +4,8 @@
 //   tries   how many attempts the client may make in all (10 if not given)
 //   start   when the server starts: seconds after the first refused attempt (2 if not given),
 //           0 for before the client, or never
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Net.Sockets;

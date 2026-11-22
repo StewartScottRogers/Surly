@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. StopAsync returns Ok after a passing and a failing run; the non-Ok branch has no case (no way found to make StopAsync fail) and is described as what the code does.
 2. A TcpListener holds the port for the BindFailed case, as in surl-recover-when-a-port-is-taken-in-csharp.
+3. Bounded wait before reading the server's record (CI race sweep).

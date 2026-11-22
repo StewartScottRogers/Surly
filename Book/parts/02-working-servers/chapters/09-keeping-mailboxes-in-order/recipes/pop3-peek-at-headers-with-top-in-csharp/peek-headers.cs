@@ -7,8 +7,8 @@
 //   whole          TOP 2 99 against RETR 2
 //   after-delete   DELE 1, then UIDL in the same session and in a new one
 //   missing        TOP for a message that is not there
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -66,6 +66,15 @@ if (mode == "after-delete")
 
     // A new client is a new session; disposing the first sends QUIT, which makes the deletion take effect.
     await client.DisposeAsync();
+
+    // The server applies the deletion when it handles that QUIT, a moment after the client is gone: wait,
+    // for up to 10 s, until the store no longer holds message 1.
+    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+    while ((await server.Mail.ListMessagesAsync("ann@example.com", "INBOX")).Messages.Any(m => m.Uid == 1) && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100);
+    }
+
     await using CurlClient next = CurlClient.Create();
     Console.Write($"next session:\n{(await Pop3("UIDL", "", next)).Replace("\r\n", "\n")}");
     return 0;

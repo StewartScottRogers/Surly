@@ -2,7 +2,7 @@
 // headers.c, which fetches a URL and then reads the response headers with libcurl's header API,
 // ported call for call to C# with Libcurl. Each line names the C call it stands for.
 // Run: dotnet run headers.cs -- <url> <header name>...
-#:package Libcurl@0.2.0
+#:package Surly.Libcurl@*
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;
@@ -53,11 +53,11 @@ CurlHeaderCode later = CurlEasyHeaders.Header(curl, "Server", 0, CurlHeaderOrigi
 Console.WriteLine($"Server request 5: {(int)later} {later}");
 
 // Every header, in the order they came: while((h = curl_easy_nextheader(curl, CURLH_HEADER, -1, prev))) ...
-// Date and Last-Modified change from run to run, so the walk prints only their names.
+// Date, ETag and Last-Modified change from run to run, so the walk prints only their names.
 CurlHeader? prev = null;
 while ((prev = CurlEasyHeaders.NextHeader(curl, CurlHeaderOrigin.Header, -1, prev!)) is not null)
 {
-    Console.WriteLine(prev.Name is "Date" or "Last-Modified" ? $"walk: {prev.Name}" : $"walk: {prev.Name}: {prev.Value}");
+    Console.WriteLine(prev.Name is "Date" or "ETag" or "Last-Modified" ? $"walk: {prev.Name}" : $"walk: {prev.Name}: {prev.Value}");
 }
 
 return 0;                                                                // curl_easy_cleanup and curl_global_cleanup run as the usings end

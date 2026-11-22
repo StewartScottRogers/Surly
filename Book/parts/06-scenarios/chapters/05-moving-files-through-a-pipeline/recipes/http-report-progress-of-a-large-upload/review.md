@@ -9,3 +9,4 @@ Checked against surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167
 
 1. Uses a locked IProgress implementation instead of Progress<T>, whose posting could reorder or delay reports; the reason is from Curl.Api's documentation of CurlRequest.Progress.
 2. Refused case: 405 before the body; reports stay at Connecting, 0 of 0.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 405 now carries a short text body (BL-1444), so the refused PUT's reports reach Downloading; refused and the Discussion say so.

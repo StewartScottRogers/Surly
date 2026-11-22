@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Truth: the error code 2 is read from `get_exchanges` (base64 datagrams); a missing store path is a `read_file` tool error, printed as nothing stored.
 2. Reader: the local files to send are written by the program into the folder both hosts are confined to.
+3. Bounded wait before reading the server's record (CI race sweep).

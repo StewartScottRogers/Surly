@@ -4,8 +4,8 @@
 // Run: dotnet run choose-version.cs [-- upgrade]
 //   (no argument) HTTP/1.0, HTTP/1.1 and HTTP/2 with prior knowledge
 //   upgrade       HTTP/2 without prior knowledge: an HTTP/1.1 request offering to upgrade
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -35,7 +35,15 @@ foreach (HttpVersion version in versions)
     }
 
     // What the server received: the first line of the newest exchange, and an Upgrade header if any.
-    string[] head = Encoding.ASCII.GetString(server.Exchanges[^1].Received).Split("\r\n");
+    // The record can trail the client by a moment, so read it again until it holds a whole head, for up to 10 s.
+    string received = Encoding.ASCII.GetString(server.Exchanges[^1].Received);
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); !received.Contains("\r\n\r\n") && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+        received = Encoding.ASCII.GetString(server.Exchanges[^1].Received);
+    }
+
+    string[] head = received.Split("\r\n");
     string? upgrade = head.FirstOrDefault(l => l.StartsWith("Upgrade:", StringComparison.OrdinalIgnoreCase));
     bool close = response.Headers.Any(h => h.Key.Equals("Connection", StringComparison.OrdinalIgnoreCase) && h.Value == "close");
     Console.WriteLine($"{version}: answered in {response.Version}, {response.StatusCode}{(close ? ", Connection: close" : "")}");

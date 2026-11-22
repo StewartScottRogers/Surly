@@ -8,8 +8,8 @@
 //   missing    a file the server does not have
 //   dot        a dot file the server holds
 //   commands   the control connection's commands, as the server recorded them
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -56,7 +56,16 @@ catch (CurlException failure)
 
 if (which == "commands")
 {
-    foreach (string line in Encoding.ASCII.GetString(server.Exchanges[0].Received).Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
+    // The record can trail the client by a moment: read it again until it holds the RETR that was
+    // answered, for up to 10 s.
+    string received = Encoding.ASCII.GetString(server.Exchanges[0].Received);
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); !received.Contains("RETR ") && waited.Elapsed.TotalSeconds < 10;)
+    {
+        await Task.Delay(100);
+        received = Encoding.ASCII.GetString(server.Exchanges[0].Received);
+    }
+
+    foreach (string line in received.Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
     {
         Console.WriteLine(line.StartsWith("PASS") ? "PASS ****" : line);
     }

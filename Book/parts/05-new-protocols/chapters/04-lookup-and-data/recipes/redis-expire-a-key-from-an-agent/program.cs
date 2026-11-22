@@ -4,7 +4,7 @@
 //   expire     a key that lives six seconds, read before and after (the default)
 //   no-expiry  a key with no expiry, then a limit put on it with curl's EXPIRE
 //   bounds     expire_ms values set_key refuses
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol;

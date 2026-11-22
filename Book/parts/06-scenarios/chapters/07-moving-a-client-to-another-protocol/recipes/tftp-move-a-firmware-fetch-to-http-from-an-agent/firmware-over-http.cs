@@ -5,7 +5,7 @@
 //   exact     an image of exactly 1024 bytes, two full blocks
 //   missing   ask both for an image that is not there
 //   write     send a file to both
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text.Json;

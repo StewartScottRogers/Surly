@@ -4,8 +4,8 @@
 // Run: dotnet run seed-mailbox.cs [-- <address>]
 //   (no argument)  seed ann@example.com and run the client (the default)
 //   <address>      seed another address instead, such as bob@example.com
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Surl.Api;
@@ -53,8 +53,18 @@ await using (CurlClient client = CurlClient.Create())
     Console.WriteLine($"before the client closed: {(await Inbox()).MessageCount} messages");
 }
 
-// After: the store as the client left it, read from the server's side.
+// After: the store as the client left it, read from the server's side. The server commits the DELE
+// when it sees the POP3 session end, a moment after the client closes, so the test reads again until
+// the count drops, for at most 10 s.
+int held = inbox.MessageCount;
 inbox = await Inbox();
+DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+while (inbox.MessageCount >= held && DateTime.UtcNow < deadline)
+{
+    await Task.Delay(100);
+    inbox = await Inbox();
+}
+
 Console.WriteLine($"after: {inbox.MessageCount} messages, {inbox.UnseenCount} unseen");
 IReadOnlyList<SurlMessageSummary> left = (await server.Mail.ListMessagesAsync("ann@example.com", "INBOX")).Messages;
 Console.WriteLine($"seen: UID {string.Join(" ", left.Where(m => m.Flags.Contains(@"\Seen")).Select(m => m.Uid))}");

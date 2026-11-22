@@ -4,3 +4,4 @@ Verdict: accept
 Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl commit 9ad60d80c), Curl port 8.22.0 (Curl commit 7d167fa10a), surl-mcp 1.0.0, curl-mcp 0.1.0.0, ModelContextProtocol.Core 2.2.0: 5 of 5 cases pass on windows.
 ## Findings
 1. Allow is GET, HEAD without --allow-uploads and GET, HEAD, PUT with it; the agent tells the server-side fix from the client-side one by that header.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 401 and 405 now carry a one-line body (BL-1444) after each head on standard output, which made the program read a body as the last head and crash; it now takes the last part that starts HTTP/.

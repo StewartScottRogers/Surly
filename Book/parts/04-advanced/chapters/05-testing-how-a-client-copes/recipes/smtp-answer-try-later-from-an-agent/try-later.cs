@@ -10,7 +10,7 @@
 //   allowfails  the same send with --mail-rcpt-allowfails (the second answer): bob alone gets it
 //   spent       then a plain send to ann, the rule spent
 //   bad-reply   a rule whose reply is a code with no text
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

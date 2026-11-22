@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 2. Not carried over from the console twin: the Digest refusal and the default-offers-Digest comparison (a second server and a second program run for little gain here).
 3. `SurlServerOptions.AuthenticationMethods` is a null `IList<string>` that a collection initializer cannot fill (NullReferenceException); it is assigned with a collection expression instead. Worth a default empty list in Surl.Api.
 4. The start-up warning is cited to the README, not cased.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: surl's 401 and 403 now carry a one-line body (BL-1444); the program prints only a 200's body, as its comment said.

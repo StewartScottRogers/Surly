@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. AllowPlaintextAuthentication is needed for MQTT and Redis; the strict case shows WRONGPASS (LoginDenied).
 3. A Mailboxes entry with ;protocols=...,redis is refused (FailedInit, unknown scheme redis) when extensions are off, so the app uses a plain account.
 4. 'No external binaries' is stated from the Surl README (in-process), not a case.
+5. Bounded wait before reading the server's record (CI race sweep).

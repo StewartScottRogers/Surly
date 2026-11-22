@@ -5,7 +5,7 @@
 //   all              every test as written (the default)
 //   missing-file     the page test's server lacks its file, so that test fails
 //   needs=<feature>  the IPv6 test needs this feature instead of IPv6
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

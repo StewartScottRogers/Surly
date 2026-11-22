@@ -8,7 +8,7 @@
 //   missing       a rename of, and a delete of, a file that is not there, and a rename with no source
 //   uploads-off   a server started without --allow-uploads
 //   no-login      a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

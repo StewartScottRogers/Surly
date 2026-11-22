@@ -9,8 +9,8 @@
 //   read-back        read the seeded zone back as master-file text
 //   second-zone      seed a second zone for the same apex
 //   no-dns-server    seed a zone into a server with only an HTTP listener
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text.Encodings.Web;
 using System.Text.Json;

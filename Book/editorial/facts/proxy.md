@@ -52,7 +52,7 @@ http-run-a-test-proxy, http-run-a-test-proxy-in-csharp, http-run-a-test-proxy-fr
 
 ## Proxy accounts (http-rotate-a-proxy-account, Surl 9ad60d80c, 2026-11-20, windows)
 - `-U app-v1:old-secret` on a `--proxy` server: no login 407 with three `Proxy-Authenticate: Digest` (MD5, SHA-256, SHA-512-256); `curl -x P --proxy-digest -U u:p` 200; wrong 407. Plain `-U` (Basic) over an http proxy listener: 403, unchecked. The origin (no `--user`) serves GET with no login.
-- surl-mcp `add_proxy_account`/`remove_proxy_account` (`server_id, user, password`) -> `{"user"}`. Removing the LAST proxy account makes the proxy anonymous (no login 200) with NO warning. `add_account` is an origin account: the proxy still answers 407 to it.
+- surl-mcp `add_proxy_account`/`remove_proxy_account` (`server_id, user, password`) -> `{"user"}`. Removing the LAST proxy account makes the proxy anonymous (no login 200); since Surl a423807a5d (BL-1479) the answer adds `"warning":"server s1 has no proxy account left and its proxy now needs no login"`. `add_account` is an origin account: the proxy still answers 407 to it.
 - Events: proxy logins are `login_judged` with scheme `http`, mechanism `Digest`, account as claimed. Log: `Answered 407: GET <url>: a proxy login is needed.`, `Login accepted: Digest app-v1`, `Forwarded GET to 127.0.0.1:P; the origin answered 200.`
 - The -v log holds `Proxy-Authorization: Basic <base64 user:password>` for the refused Basic login on an http proxy listener: NOT withheld in this build (reported).
 

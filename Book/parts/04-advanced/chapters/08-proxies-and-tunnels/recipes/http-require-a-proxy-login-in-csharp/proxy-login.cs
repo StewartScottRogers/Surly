@@ -11,8 +11,8 @@
 //   plaintext     Basic to an http proxy that allows passwords in clear
 //   swapped       the origin's account at the proxy, then the proxy's account at the origin
 //   events        the logins the server judged during a fetch
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

@@ -92,13 +92,20 @@ cases:
       exit: 0
       stdout: "204\n"
 
-  - id: s3-scheme-has-no-delete
-    claim: curl's s3:// scheme sends only GET, or PUT with -T; -X DELETE on it is refused by curl with exit 4 before anything is sent.
-    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -X DELETE s3://reports/2026-q2.csv
+  - id: s3-scheme-wrong-secret-delete
+    claim: curl's s3:// scheme sends a DELETE too, with -X DELETE and the same -u; signed with the wrong secret it is refused 403 SignatureDoesNotMatch, and curl exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:wrong -X DELETE -w "%{http_code}\n" s3://reports/2026-q2.csv
     expect:
-      exit: 4
-      stdout: ""
-      stderr-contains: "s3:// does not support -X DELETE"
+      exit: 22
+      stdout: "403\n"
+      stderr-contains: "S3 returned error 403: SignatureDoesNotMatch"
+
+  - id: s3-scheme-delete
+    claim: Signed with the right secret, -X DELETE on s3:// is answered 204 No Content, and the bucket is then empty.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -X DELETE -w "%{http_code}\n" s3://reports/2026-q2.csv --next --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -w "listed\n" s3://reports/
+    expect:
+      exit: 0
+      stdout: "204\nlisted\n"
 
   - id: unsigned-delete
     claim: A DELETE with no signature is answered 403 with Code AccessDenied.

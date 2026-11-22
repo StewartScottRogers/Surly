@@ -7,7 +7,7 @@
 //   transfer   the transfer tool reads the root
 //   off        a server started without --list-directories
 //   missing    a path that is not there, and a dot file the server holds
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -50,8 +50,7 @@ switch (which)
         await Show("/", ["-s", root]);
 
         // What the server saw: the upgrade it accepted, and the one text message it sent.
-        CallToolResult recorded = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-        JsonElement chunks = recorded.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks");
+        JsonElement chunks = (await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() > 0)).GetProperty("exchanges")[0].GetProperty("chunks");
         foreach (JsonElement chunk in chunks.EnumerateArray())
         {
             // The upgrade is text. A frame is binary, so base64: its first byte says what it is, 0x81 a text
@@ -86,8 +85,7 @@ switch (which)
         await Show("/", ["-s", root]);
 
         // The server's record says what curl's exit code cannot: it answered the upgrade 404.
-        CallToolResult refusal = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-        foreach (JsonElement chunk in refusal.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks").EnumerateArray())
+        foreach (JsonElement chunk in (await RecordedAsync(EndsWithReply)).GetProperty("exchanges")[0].GetProperty("chunks").EnumerateArray())
         {
             Console.WriteLine($"{chunk.GetProperty("direction").GetString()}: {chunk.GetProperty("data").GetString()!.Split('\r')[0]}");
         }
@@ -116,3 +114,29 @@ async Task Show(string label, string[] curlArguments)
         Console.WriteLine(ran.GetProperty("failure").GetProperty("text").GetString()!.Replace("\n", " / "));
     }
 }
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

@@ -5,7 +5,7 @@
 //   hello    fetch hello.txt both ways (the default)
 //   missing  fetch a path that is not there both ways, and with curl -f
 //   save     save hello.txt to a file with the curl tool
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

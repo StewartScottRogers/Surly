@@ -5,7 +5,7 @@
 //   logins      every login the server judged, then what each account fetched (the default)
 //   by-account  only the events get_events keeps for the account billing
 //   nobody      get_events for an account no request named
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -40,6 +40,14 @@ string url = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetSt
 Console.WriteLine($"billing GET /invoices.csv: {await Fetch("billing:b1-secret", "invoices.csv")}");
 Console.WriteLine($"search GET /index.html: {await Fetch("search:s1-secret", "index.html")}");
 Console.WriteLine($"search, wrong password, GET /invoices.csv: {await Fetch("search:guess", "invoices.csv")}");
+
+// The server records an exchange's end a moment after curl has its answer: ask until every exchange
+// that started has ended, for at most 10 s, before reading the record.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    var kinds = (await Events(new() { ["kinds"] = new[] { "exchange_started", "exchange_ended" } })).EnumerateArray().Select(e => e.GetProperty("kind").GetString()).ToList();
+    if (kinds.Count(k => k == "exchange_started") == kinds.Count(k => k == "exchange_ended")) break;
+}
 
 switch (which)
 {

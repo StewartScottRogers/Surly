@@ -7,8 +7,8 @@
 //   plain          the client insists on PLAIN (LoginOptions AUTH=PLAIN)
 //   raw            a client that sends AUTH PLAIN and AUTH LOGIN whatever the server offers
 //   loose          AUTH=PLAIN against a server with AllowPlaintextAuthentication
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net.Sockets;
 using System.Text;
@@ -74,6 +74,13 @@ await using (CurlClient client = CurlClient.Create())
         Console.WriteLine($"not sent: curl error {(int)failed.Code}: {failed.Message}");
         exit = 1;
     }
+}
+
+// The server records an exchange's last bytes and its end a moment after the client has gone: wait,
+// for at most 10 s, until every exchange that started has ended.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    if (server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeStarted }).Count == server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.ExchangeEnded }).Count) break;
 }
 
 // What the server judged, and what the client put on the wire.

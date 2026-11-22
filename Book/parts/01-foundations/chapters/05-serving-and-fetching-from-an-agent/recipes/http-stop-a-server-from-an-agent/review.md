@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 2. Fixed: earlier finding 2 (list_servers no longer showing a stopped server could not be a case) is resolved: the restart case's anchored pattern allows exactly one running server, the new one, and the Discussion says so. The solution also now checks exchange_count 0 before any request.
 3. Fixed: the restart case now also checks that the new server serves its own file (hello again) and that the program stops it before exiting.
 4. Only exit code 0 from stop_server is claimed. No way was found to make a clean stop answer anything else.
+5. Bounded wait before reading the server's record (CI race sweep).

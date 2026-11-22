@@ -6,7 +6,7 @@
 //   right          the app mails support@ and alerts@; the test passes (the default)
 //   wrong-address  the app mails alert@ instead of alerts@
 //   typo-target    the alerts@ alias names opps@, which has no mailbox
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

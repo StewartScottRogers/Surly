@@ -31,13 +31,16 @@ fixtures:
     # Usage: sh ci-step.sh <test command> [<argument>...]
     "$@" && exit 0
     status=$?
+    # surl traces an exchange's last lines a moment after its client has gone: wait, at most 10 s,
+    # until every exchange the trace opened has ended.
+    i=0; until [ "$(grep -c 'Exchange [0-9]* opened: ' trace.txt)" -eq "$(grep -c 'Exchange [0-9]* ended; ' trace.txt)" ]; do i=$((i+1)); [ $i -ge 100 ] && break; sleep 0.1; done
     mkdir -p ci-logs
     cp trace.txt ci-logs/trace.txt
     exit "$status"
   drop-received.sh: |
     #!/bin/sh
     # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
-    # Print a trace without the bytes clients sent, for a server whose secrets surl still logs.
+    # Print a trace without the bytes clients sent: no user names, paths or other client data.
     # After a "<= Recv data" line come the bytes a client sent, one offset-led line each, up to
     # the next line that starts with an exchange number. Drop those bytes; keep everything else.
     # Usage: sh drop-received.sh <trace file>
@@ -100,11 +103,12 @@ cases:
       stdout: "2\n"
 
   - id: https-header-block-withheld
-    claim: Over HTTP/2 the header block that carried the Basic login is dumped with four asterisks in place of its headers, on the line before the one that judged the login.
-    run: 'grep -B1 "Login accepted: Basic app" ci-logs/trace.txt'
+    claim: Over HTTP/2 every Basic and Bearer login judged comes after a header block dumped with four asterisks in place of its headers, since the login before it; other frames may come between the two, in an order that differs by platform.
+    run: >-
+      sh -c "awk -v yes=withheld -v no=missing -v b=Basic -v t=Bearer '/[*][*][*][*]/ { w = 1 } / Login (accepted|refused): / && /Basic/ { print b, (w ? yes : no); w = 0; next } / Login (accepted|refused): / && /Bearer/ { print t, (w ? yes : no); w = 0; next } / Login (accepted|refused): / { w = 0 }' ci-logs/trace.txt"
     expect:
       exit: 0
-      stdout-matches: '^0000: .*\*\*\*\*\r?\n#\d+ \* Login accepted: Basic app\r?\n$'
+      stdout-matches: '^(?:Basic withheld\r?\nBearer withheld\r?\n)+$'
 
   - id: kept-trace-holds-no-secret
     claim: The kept trace holds neither password nor the token.
@@ -113,16 +117,16 @@ cases:
       exit: 1
       stdout: "0\n"
 
-  - id: ldap-password-still-traced
-    claim: An LDAP simple bind's password is not withheld yet; it is in the LDAP server's trace, though surl refused the bind unchecked over ldap://.
-    run: sh -c "curl -s -u cn=app:s3cret ldap://127.0.0.1:{{port3}}/dc=example?cn; grep -c -m1 s3cret ldap-trace.txt"
+  - id: ldap-password-withheld
+    claim: An LDAP simple bind's password is withheld too; the LDAP server's trace holds the bind's user name followed by four asterisks, though surl refused the bind unchecked over ldap://, and no s3cret.
+    run: sh -c "curl -s -u cn=app:s3cret ldap://127.0.0.1:{{port3}}/dc=example?cn; grep -c -m1 'cn=app[.][.][*][*][*][*]' ldap-trace.txt; grep -c s3cret ldap-trace.txt"
     expect:
-      exit: 0
-      stdout: "1\n"
+      exit: 1
+      stdout: "1\n0\n"
 
-  - id: filter-drops-the-password
-    claim: For such a server, drop-received.sh leaves the trace without the bytes clients sent, and so without the password.
-    run: sh drop-received.sh ldap-trace.txt | grep -c s3cret
+  - id: filter-drops-the-client-bytes
+    claim: For an artifact with no bytes the clients sent at all, drop-received.sh leaves the trace without them, so not even the bind's user name.
+    run: sh drop-received.sh ldap-trace.txt | grep -c cn=app
     expect:
       exit: 1
       stdout: "0\n"

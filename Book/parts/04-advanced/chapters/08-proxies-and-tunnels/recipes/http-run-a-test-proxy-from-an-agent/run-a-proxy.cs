@@ -7,7 +7,7 @@
 //   tunnel-outside  the same through a CONNECT tunnel, with the curl tool and -p
 //   allowed         the same from a proxy started with --proxy-allow-origin 192.0.2.1
 //   every-origin    start a proxy with --proxy-allow-origin * and show its log lines
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -67,9 +67,19 @@ string via = answer.GetProperty("headers").EnumerateArray()
     .Where(h => h.GetProperty("name").GetString() == "Via").Select(h => h.GetProperty("value").GetString()).FirstOrDefault() ?? "none";
 Console.WriteLine($"statusCode: {answer.GetProperty("statusCode")}, Via: {via}, failure: {answer.GetProperty("failure").GetRawText()}");
 
-// surl-mcp: the request line each listener received, and its Via header if any.
-CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server.GetProperty("server_id").GetString() });
-foreach (JsonElement exchange in exchanges.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())
+// surl-mcp: the request line each listener received, and its Via header if any. The record can trail
+// curl's answer by a moment: ask again until every exchange holds a whole request head, for at most 10 s.
+JsonElement recorded = default;
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); ; await Task.Delay(100))
+{
+    CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server.GetProperty("server_id").GetString() });
+    recorded = exchanges.StructuredContent!.Value.GetProperty("exchanges").Clone();
+    bool whole = recorded.EnumerateArray().All(x => string.Concat(x.GetProperty("chunks").EnumerateArray()
+        .Where(c => c.GetProperty("direction").GetString() == "received").Select(c => c.GetProperty("data").GetString())).Contains("\r\n\r\n"));
+    if (whole || DateTime.UtcNow >= deadline) break;
+}
+
+foreach (JsonElement exchange in recorded.EnumerateArray())
 {
     string head = exchange.GetProperty("chunks").EnumerateArray()
         .First(c => c.GetProperty("direction").GetString() == "received").GetProperty("data").GetString()!;

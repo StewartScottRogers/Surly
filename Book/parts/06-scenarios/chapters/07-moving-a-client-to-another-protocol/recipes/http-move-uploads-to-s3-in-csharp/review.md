@@ -4,3 +4,4 @@ Verdict: accept
 Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl commit 9ad60d80c), Curl port (Curl commit 7d167fa10a): 13 of 13 cases pass on windows.
 ## Findings
 1. Carries the console claims plus a store read (server.Files.ReadAsync); logins from LoginJudgedEvent with Scheme https/s3; AuthenticationMethods (null by default) assigned a new list for the cutover.
+Re-pinned to Surl a423807a5d / Curl 0680b97577: the S3 put now logs a 'PUT /summary.csv: 200' line (Surl BL-1554), so the log case lists both uploads and tells them apart by path and status.

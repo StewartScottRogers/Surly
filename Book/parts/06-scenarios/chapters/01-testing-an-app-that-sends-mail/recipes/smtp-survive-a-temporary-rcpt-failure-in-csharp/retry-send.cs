@@ -6,8 +6,8 @@
 //   no-retry       the same server; the sender gives up on the first refusal
 //   permanent      every RCPT is answered 550; the sender retries temporary refusals only
 //   no-plaintext   the first case, with the server's default: no password in clear without TLS
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net;
 using System.Net.Mail;

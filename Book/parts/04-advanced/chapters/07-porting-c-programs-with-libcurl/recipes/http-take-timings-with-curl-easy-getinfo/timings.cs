@@ -2,7 +2,7 @@
 // timings.c, which fetches each URL on one easy handle and reports libcurl's timers for it,
 // ported call for call to C# with Libcurl. Each line names the C call it stands for.
 // Run: dotnet run timings.cs -- <url>...
-#:package Libcurl@0.2.0
+#:package Surly.Libcurl@*
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;

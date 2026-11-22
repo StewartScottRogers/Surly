@@ -5,7 +5,7 @@
 //   uploads     create, replace, then a missing folder (the default)
 //   fail        the missing folder again, with -f
 //   read-only   the first upload to a server started without --allow-uploads
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -61,7 +61,11 @@ async Task<bool> Upload(string file, string path, params string[] extra)
     curlArgs.Add(url + path.TrimStart('/'));
     CallToolResult put = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = curlArgs });
     JsonElement answer = JsonDocument.Parse(put.Content.OfType<TextContentBlock>().Single().Text).RootElement;
-    Console.Write($"PUT {path}: {answer.GetProperty("standardOutput").GetProperty("content").GetString()}");
+    // -w writes the status after any body, so it is the last line; a refusal's body is one line before it.
+    string output = answer.GetProperty("standardOutput").GetProperty("content").GetString()!;
+    int cut = output.LastIndexOf('\n');
+    string body = cut < 0 ? "" : output[..cut];
+    Console.Write($"PUT {path}: {output[(cut + 1)..]}{(body.Length > 0 ? $" (body: {body})" : "")}");
     Console.Write($", exitCode {answer.GetProperty("exitCode")}, tool error {(put.IsError == true ? "yes" : "no")}");
 
     // surl-mcp answers read_file in structured content, or with a tool error when there is no file.

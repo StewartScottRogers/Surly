@@ -7,7 +7,7 @@
 //   page     two requests, then one exchange at a time
 //   filter   two requests, then only those through the http listener the server bound
 //   unknown  get_exchanges for a server ID this host is not running
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -44,6 +44,7 @@ if (which is "after" or "page" or "filter")
     await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = new[] { "-s", "-A", "surly-reader", url + "hello.txt" } });
 }
 
+await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() >= (which is "after" or "page" or "filter" ? 2 : 1) && EndsWithReply(answer));
 var query = new Dictionary<string, object?> { ["server_id"] = which == "unknown" ? "s9" : id };
 if (which == "after") query["after_exchange_id"] = 1;
 if (which == "page") query["max_exchanges"] = 1;
@@ -70,3 +71,29 @@ foreach (JsonElement exchange in answer.GetProperty("exchanges").EnumerateArray(
 
 Console.WriteLine($"has_more: {answer.GetProperty("has_more").GetRawText()}");
 return 0;
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

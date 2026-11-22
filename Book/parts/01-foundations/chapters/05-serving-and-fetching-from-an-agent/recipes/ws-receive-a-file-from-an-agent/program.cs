@@ -6,7 +6,7 @@
 //   binary    logo.bin, six bytes that are not text
 //   frame     hello.txt, then the first frame the server sent, from get_exchanges
 //   missing   a path the server does not have
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -67,11 +67,30 @@ Console.WriteLine(message == held && outputIsBase64 != fileIsText ? "the same by
 if (which == "frame")
 {
     // The exchange as the server saw it: the request head, the 101 head, then WebSocket frames in base64.
-    CallToolResult exchanges = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-    JsonElement chunks = exchanges.StructuredContent!.Value.GetProperty("exchanges")[0].GetProperty("chunks");
+    JsonElement chunks = (await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() > 0)).GetProperty("exchanges")[0].GetProperty("chunks");
     JsonElement first = chunks.EnumerateArray().First(c => c.GetProperty("encoding").GetString() == "base64");
     byte[] frame = Convert.FromBase64String(first.GetProperty("data").GetString()!);
     Console.WriteLine($"first frame: 0x{frame[0]:x2} 0x{frame[1]:x2}, then {frame.Length - 2} bytes");
 }
 
 return 0;
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}

@@ -7,7 +7,7 @@
 //   stanza-errors   an unknown node, an account with no stream, a foreign domain
 //   login           no login, and a wrong password
 //   untrusted       no --cacert
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -91,16 +91,26 @@ async Task Ask(params string[] arguments)
 // prints the IQ questions curl asked, from the chunks the server received.
 async Task Questions()
 {
-    CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server });
-    foreach (JsonElement exchange in result.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray())
+    // The server records the last bytes of an exchange a moment after curl has its answer: ask again
+    // until a question is there, for at most 10 s.
+    List<string> asked = await Asked();
+    for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); asked.Count == 0 && DateTime.UtcNow < deadline; asked = await Asked())
     {
-        foreach (JsonElement chunk in exchange.GetProperty("chunks").EnumerateArray())
-        {
-            string data = chunk.GetProperty("data").GetString()!;
-            if (chunk.GetProperty("direction").GetString() == "received" && data.Contains("disco#"))
-            {
-                Console.WriteLine($"curl asked: {data}");
-            }
-        }
+        await Task.Delay(100);
     }
+
+    foreach (string data in asked)
+    {
+        Console.WriteLine($"curl asked: {data}");
+    }
+}
+
+async Task<List<string>> Asked()
+{
+    CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = server });
+    return result.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()
+        .SelectMany(exchange => exchange.GetProperty("chunks").EnumerateArray())
+        .Where(chunk => chunk.GetProperty("direction").GetString() == "received" && chunk.GetProperty("data").GetString()!.Contains("disco#"))
+        .Select(chunk => chunk.GetProperty("data").GetString()!)
+        .ToList();
 }

@@ -8,7 +8,7 @@
 //   uploads-off   a server started without --allow-uploads
 //   too-big       a server started with --max-filesize 15
 //   no-login      a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -61,12 +61,12 @@ switch (which)
         Console.WriteLine($"log.txt: {await Read("log.txt")}");
         await Upload("log.txt", append: true);
         Console.WriteLine($"log.txt: {await Read("log.txt")}");
-        Console.WriteLine($"commands: {string.Join(", ", await Commands())}");
+        Console.WriteLine($"commands: {string.Join(", ", await Commands(2))}");
         break;
     case "replace":
         await Upload("replace.txt", append: false);
         Console.WriteLine($"replace.txt: {await Read("replace.txt")}");
-        Console.WriteLine($"commands: {string.Join(", ", await Commands())}");
+        Console.WriteLine($"commands: {string.Join(", ", await Commands(1))}");
         break;
     case "edges":
         await Upload("fresh.txt", append: true);
@@ -104,7 +104,21 @@ async Task<string> Read(string name)
 }
 
 // surl-mcp get_exchanges: the upload commands the server received, in order, with the names they carried.
-async Task<List<string>> Commands()
+// The record can trail curl by a moment, so ask again until it holds one per upload, for up to 10 s.
+async Task<List<string>> Commands(int uploads)
+{
+    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+    List<string> commands = await Recorded();
+    while (commands.Count < uploads && DateTime.UtcNow < deadline)
+    {
+        await Task.Delay(100);
+        commands = await Recorded();
+    }
+
+    return commands;
+}
+
+async Task<List<string>> Recorded()
 {
     CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
     return result.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()

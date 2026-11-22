@@ -5,7 +5,7 @@
 //   empty           delete everything over POP3 (the default)
 //   wrong-password  delete ann's mail with the wrong password
 //   reset           reset_server instead of POP3
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -47,7 +47,9 @@ foreach (string to in new[] { "ann@example.com", "ann@example.com", "bob@example
 }
 
 // What is left, mailbox by mailbox.
-Dictionary<string, int> left = await Counts("left");
+Dictionary<string, int> left = await Counts();
+Print("left", left);
+HashSet<string> emptied = [];
 
 if (which == "reset")
 {
@@ -71,11 +73,25 @@ else
         using JsonDocument answer = JsonDocument.Parse(deleted.Content.OfType<TextContentBlock>().Single().Text);
         string error = answer.RootElement.GetProperty("standardError").GetProperty("content").GetString()!.TrimEnd();
         Console.WriteLine($"DELE 1 to {count} for {owner}: curl exit {answer.RootElement.GetProperty("exitCode")}{(error == "" ? "" : $", {error}")}");
+        if (answer.RootElement.GetProperty("exitCode").GetInt32() == 0)
+        {
+            emptied.Add(owner);
+        }
     }
 }
 
 // The check: every mailbox empty in the store, and ann's INBOX empty to an IMAP client too.
-Dictionary<string, int> after = await Counts("after");
+// The server commits the deletes as each POP3 session ends, so the agent reads again until the
+// emptied mailboxes show it, for at most 10 s.
+Dictionary<string, int> after = await Counts();
+DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+while (emptied.Any(owner => after[owner] > 0) && DateTime.UtcNow < deadline)
+{
+    await Task.Delay(100);
+    after = await Counts();
+}
+
+Print("after", after);
 CallToolResult search = await curl.CallToolAsync("curl", new Dictionary<string, object?>
 {
     ["args"] = new[] { "-s", "-u", "ann@example.com:annpass", imap + "INBOX?ALL" },
@@ -88,15 +104,22 @@ using (JsonDocument found = JsonDocument.Parse(search.Content.OfType<TextContent
 return after.Values.All(count => count == 0) ? 0 : 1;
 
 // list_mailboxes for each owner: the message count of its INBOX.
-async Task<Dictionary<string, int>> Counts(string when)
+async Task<Dictionary<string, int>> Counts()
 {
     var counts = new Dictionary<string, int>();
     foreach (string owner in passwords.Keys)
     {
         CallToolResult boxes = await surl.CallToolAsync("list_mailboxes", new Dictionary<string, object?> { ["server_id"] = id, ["owner"] = owner });
         counts[owner] = boxes.StructuredContent!.Value.GetProperty("mailboxes")[0].GetProperty("message_count").GetInt32();
-        Console.WriteLine($"{when}: {owner} message_count {counts[owner]}");
     }
 
     return counts;
+}
+
+void Print(string when, Dictionary<string, int> counts)
+{
+    foreach ((string owner, int count) in counts)
+    {
+        Console.WriteLine($"{when}: {owner} message_count {count}");
+    }
 }

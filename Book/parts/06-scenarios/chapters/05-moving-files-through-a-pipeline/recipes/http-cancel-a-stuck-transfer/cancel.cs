@@ -4,10 +4,11 @@
 //   cancel     cancel the stuck request after one second with a CancellationToken (the default)
 //   timeout    let the client's own Timeout of one second end it instead
 //   one-slot   cancel as above, against a server that takes one connection per address
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Diagnostics;
+using System.Text;
 using Curl.Api;
 using Curl.Api.Errors;
 using Surl.Api;
@@ -16,11 +17,12 @@ using Surl.Protocol.Abstractions;
 string which = args.Length > 0 ? args[0] : "cancel";
 
 // The server: /stuck.txt is held for a minute before any reply; /hello.txt is answered at once.
-// In one-slot, the server holds one connection per address at most.
+// In one-slot, the server holds one connection per address at most. It records what each connection carried.
 var options = new SurlServerOptions
 {
     ListenUrls = { "http://127.0.0.1:0" },
     MaxConnectionsPerAddress = which == "one-slot" ? 1 : null,
+    RecordExchanges = true,
 };
 options.Files["stuck.txt"] = "too late\n"u8.ToArray();
 options.Files["hello.txt"] = "hello from surl\n"u8.ToArray();
@@ -68,5 +70,15 @@ await using (Stream body = next.Body)
 }
 
 Console.WriteLine($"next on a new connection: {(next.Info.NumConnects == 1 ? "yes" : "no")}");
+
+// What the server saw: did any connection carry /hello.txt after /stuck.txt?
+bool shared = server.Exchanges.Any(x =>
+{
+    string received = Encoding.ASCII.GetString(x.Received);
+    int stuckAt = received.IndexOf("GET /stuck.txt ");
+    return stuckAt >= 0 && received.IndexOf("GET /hello.txt ", stuckAt) >= 0;
+});
+Console.WriteLine($"next on the given-up connection: {(shared ? "yes" : "no")}");
 Console.WriteLine($"next took under 5 s: {(clock.Elapsed.TotalSeconds < 5 ? "yes" : "no")}");
-return next.StatusCode == 200 ? 0 : 1;
+// In one-slot, a 503 or a 200 are both the server's honest answer (see the recipe), so neither fails the run.
+return next.StatusCode == 200 || which == "one-slot" ? 0 : 1;

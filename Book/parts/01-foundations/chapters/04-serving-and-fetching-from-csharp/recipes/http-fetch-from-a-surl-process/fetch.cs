@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Fetches one URL with Curl.Api, from a server running somewhere else.
 // Run: dotnet run fetch.cs -- <url>
-#:package Curl.Api@0.2.0
+#:package Surly.Curl.Api@*
 
 using Curl.Api;
 using Curl.Api.Errors;

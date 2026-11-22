@@ -58,7 +58,7 @@ def lint_programs(recipe, spec, pins):
                 found.append(f"{rel}: package {name} has no pinned version yet")
             elif version != str(pins[name]):
                 found.append(f"{rel}: #:package {name}@{version or '(no version)'} must be {name}@{pins[name]}; run build/pin.py")
-            if name == "Libcurl" and spec["tier"] != "advanced":
+            if name == "Surly.Libcurl" and spec["tier"] != "advanced":
                 found.append(f"{rel}: Libcurl recipes belong in the advanced tier, not {spec['tier']}")
     return found
 

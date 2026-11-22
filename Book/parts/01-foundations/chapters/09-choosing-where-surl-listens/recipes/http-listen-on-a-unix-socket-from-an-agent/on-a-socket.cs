@@ -6,7 +6,7 @@
 //   file-exists    start a server on a path where a file already is
 //   outside-root   start a server on a socket path outside SURL_MCP_ROOT
 //   curl-outside   ask the curl tool for a socket path outside CURL_MCP_ROOT
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
@@ -80,8 +80,7 @@ else
             Console.Write(answer.GetProperty("standardOutput").GetProperty("content").GetString()!.Replace("\r\n", "\n"));
 
             // What the server saw: one exchange, from a client with no address.
-            CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = "s1" });
-            JsonElement exchange = seen.StructuredContent!.Value.GetProperty("exchanges")[0];
+            JsonElement exchange = (await RecordedAsync(EndsWithReply)).GetProperty("exchanges")[0];
             Console.WriteLine($"client: {exchange.GetProperty("client")}");
             string head = exchange.GetProperty("chunks")[0].GetProperty("data").GetString()!;
             Console.WriteLine(head.Split("\r\n").First(line => line.StartsWith("Host:")));
@@ -96,3 +95,29 @@ else
 // The exit code says whether the last call was a tool error.
 Console.WriteLine($"tool error: {(result.IsError == true ? "yes" : "no")}");
 return result.IsError == true ? 1 : 0;
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = "s1", ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
+}
+
+// True once the newest exchange ends with something the server sent, as every finished exchange here does.
+static bool EndsWithReply(JsonElement answer) =>
+    answer.GetProperty("exchanges").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } newest
+    && newest.GetProperty("chunks").EnumerateArray().LastOrDefault() is { ValueKind: JsonValueKind.Object } final
+    && final.GetProperty("direction").GetString() == "sent";

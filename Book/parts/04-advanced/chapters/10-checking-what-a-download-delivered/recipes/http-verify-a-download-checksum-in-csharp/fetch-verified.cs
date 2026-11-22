@@ -6,8 +6,8 @@
 //   wrong-digest  check the same download against another digest
 //   changed       keep a good copy, change the served file, and download it again
 //   missing       download a file the server does not have
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Security.Cryptography;
 using Curl.Api;

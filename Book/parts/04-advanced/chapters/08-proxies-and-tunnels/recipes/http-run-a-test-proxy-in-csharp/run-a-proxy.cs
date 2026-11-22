@@ -7,8 +7,8 @@
 //   tunnel-outside the same through a CONNECT tunnel
 //   allowed        the same from a proxy started with --proxy-allow-origin 192.0.2.1
 //   every-origin   start a proxy with --proxy-allow-origin * and print its log
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Text;
 using Curl.Api;
@@ -73,6 +73,13 @@ catch (CurlException failure)
 {
     Console.WriteLine($"CurlException {(int)failure.Code} {failure.Code}: {failure.Message}");
     return 1;
+}
+
+// The record can trail the answer by a moment: look again until every exchange holds a whole
+// request head, for up to 10 s.
+for (DateTime deadline = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < deadline; await Task.Delay(100))
+{
+    if (server.Exchanges.All(e => Encoding.ASCII.GetString(e.Received).Contains("\r\n\r\n"))) break;
 }
 
 // What each listener received: the request line, and the Via header if any.

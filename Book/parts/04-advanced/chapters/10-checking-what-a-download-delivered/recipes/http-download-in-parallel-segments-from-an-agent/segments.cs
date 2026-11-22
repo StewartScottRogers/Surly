@@ -6,7 +6,7 @@
 //   curl           one curl tool call, four transfers with --parallel, each saved to a file
 //   slow           as transfer, against a server that holds every request 1 s
 //   past-the-end   one transfer for a range that starts after the last byte
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -52,7 +52,9 @@ if (which == "past-the-end")
 byte[][] parts;
 if (which == "curl")
 {
-    // curl: one command line, a transfer per range separated by --next, run side by side.
+    // curl: one command line, a transfer per range separated by --next, run side by side. curl may
+    // reuse a finished connection for a later range; Connection: close gives each range its own, so
+    // each request head is the first thing in its own exchange of the server's record.
     var line = new List<string> { "--parallel", "--parallel-immediate" };
     for (int i = 0; i < ranges.Length; i++)
     {
@@ -61,7 +63,7 @@ if (which == "curl")
             line.Add("--next");
         }
 
-        line.AddRange(["-s", "-f", "-r", ranges[i], "-o", $"segment{i}", url]);
+        line.AddRange(["-s", "-f", "-H", "Connection: close", "-r", ranges[i], "-o", $"segment{i}", url]);
     }
 
     CallToolResult fetched = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = line.ToArray() });
@@ -86,14 +88,21 @@ byte[] joined = parts.SelectMany(p => p).ToArray();
 bool same = SHA256.HashData(joined).SequenceEqual(SHA256.HashData(original));
 Console.WriteLine($"joined: {joined.Length} bytes, {(same ? "identical" : "differs")}");
 
-// The server's side: get_exchanges holds each request head it received.
-CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
-IEnumerable<string> received = seen.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()
-    .SelectMany(e => e.GetProperty("chunks").EnumerateArray())
-    .Where(c => c.GetProperty("direction").GetString() == "received")
-    .SelectMany(c => c.GetProperty("data").GetString()!.Split("\r\n"))
-    .Where(l => l.StartsWith("Range: "))
-    .OrderBy(l => long.Parse(l[13..l.IndexOf('-')]));
+// The server's side: get_exchanges holds each request head it received, up to 64 KiB per exchange
+// (so one request per connection). The record can trail the client by a moment, so ask again until
+// all four ranges are there, for up to 10 s.
+List<string> received = [];
+for (var waited = System.Diagnostics.Stopwatch.StartNew(); received.Count < 4 && waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+{
+    CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = id });
+    received = seen.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray()
+        .SelectMany(e => e.GetProperty("chunks").EnumerateArray())
+        .Where(c => c.GetProperty("direction").GetString() == "received")
+        .SelectMany(c => c.GetProperty("data").GetString()!.Split("\r\n"))
+        .Where(l => l.StartsWith("Range: "))
+        .OrderBy(l => long.Parse(l[13..l.IndexOf('-')]))
+        .ToList();
+}
 foreach (string range in received)
 {
     Console.WriteLine($"server received {range}");

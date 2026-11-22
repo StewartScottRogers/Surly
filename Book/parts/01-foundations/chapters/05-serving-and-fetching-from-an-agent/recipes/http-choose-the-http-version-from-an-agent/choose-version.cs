@@ -5,7 +5,7 @@
 // Run: dotnet run choose-version.cs [-- transfer]
 //   (no argument) the curl tool with --http1.0, --http1.1 and --http2-prior-knowledge
 //   transfer      the transfer tool, which has no version field
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text;
 using System.Text.Json;
@@ -62,10 +62,29 @@ return 0;
 // request; text for HTTP/1.x, base64 for HTTP/2's binary frames.
 async Task<string> LastRequestLine()
 {
-    CallToolResult seen = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId });
-    JsonElement last = seen.StructuredContent!.Value.GetProperty("exchanges").EnumerateArray().Last();
+    JsonElement last = (await RecordedAsync(answer => answer.GetProperty("exchanges").GetArrayLength() > 0)).GetProperty("exchanges").EnumerateArray().Last();
     JsonElement chunk = last.GetProperty("chunks").EnumerateArray().First(c => c.GetProperty("direction").GetString() == "received");
     string data = chunk.GetProperty("data").GetString()!;
     string text = chunk.GetProperty("encoding").GetString() == "base64" ? Encoding.ASCII.GetString(Convert.FromBase64String(data)) : data;
     return text[..text.IndexOf('\r')];
+}
+
+// get_exchanges, asked again until the record holds what ready looks for and two answers 100 ms apart
+// agree: the server's record can trail curl by a moment. At most 10 s, then the last answer.
+async Task<JsonElement> RecordedAsync(Func<JsonElement, bool> ready, int after = 0)
+{
+    JsonElement last = default;
+    for (var waited = System.Diagnostics.Stopwatch.StartNew(); waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
+    {
+        CallToolResult result = await surl.CallToolAsync("get_exchanges", new Dictionary<string, object?> { ["server_id"] = serverId, ["after_exchange_id"] = after });
+        JsonElement answer = result.StructuredContent!.Value.Clone();
+        if (ready(answer) && last.ValueKind != JsonValueKind.Undefined && answer.GetRawText() == last.GetRawText())
+        {
+            return answer;
+        }
+
+        last = answer;
+    }
+
+    return last;
 }

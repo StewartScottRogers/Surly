@@ -5,7 +5,7 @@
 //   careful    curl -f --retry 3 (the default)
 //   hammering  curl -f --retry 3 --retry-all-errors
 //   lifted     the careful client after remove_fault
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -7,8 +7,8 @@
 //   deliver        the test seeds mail for team@example.com through Surl.Api
 //   curl-append    the append is asked of Curl.Api, as a PUT with a stream body
 //   curl-store     the flag is asked of Curl.Api, as a request method
-#:package Surl.Api@1.0.0
-#:package Curl.Api@0.2.0
+#:package Surly.Surl.Api@*
+#:package Surly.Curl.Api@*
 
 using System.Net.Sockets;
 using System.Security.Cryptography;

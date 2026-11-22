@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-21 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. Observation for Curl: Curl.Api sends `Content-Type: application/x-www-form-urlencoded` with a PUT that has a Body (curl -T sends none). Not claimed.
 2. The program prints only the first comma-separated part of Authorization from Exchanges, which hold it in clear by design.
+3. Bounded wait before reading the server's record (CI race sweep).

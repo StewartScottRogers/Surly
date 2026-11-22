@@ -5,7 +5,7 @@
 //   rotate                 the whole rotation (the default)
 //   last                   remove_proxy_account of the only proxy account
 //   not-an-origin-account  add_account (an origin account) instead of add_proxy_account
-#:package ModelContextProtocol.Core@2.2.0
+#:package ModelContextProtocol.Core@*
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
