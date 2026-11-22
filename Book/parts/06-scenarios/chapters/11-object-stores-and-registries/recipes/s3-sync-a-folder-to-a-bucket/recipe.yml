@@ -1,0 +1,132 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: s3-sync-a-folder-to-a-bucket
+title: Syncing a Folder to a Bucket
+protocols: [s3]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --user, --allow-uploads, --list-directories, -v, --log-file]
+curl-options: [--cacert, --connect-to, -u, -T, --next, --http1.1, --aws-sigv4, -s, -S]
+exit-codes: [0, 22, 26]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+# site/ is the folder to sync: three small reports.
+fixtures:
+  site/a.csv: "region,total\nnorth,1200\n"
+  site/b.csv: "region,total\nsouth,950\n"
+  site/c.csv: "region,total\neast,700\n"
+  store/reports/old.csv: "stale\n"
+  readonly/reports/old.csv: "stale\n"
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# main is the bucket: uploads and listings on, and every request logged to surl.log, which lives beside
+# the folders, not in one. readonly has no --allow-uploads and no --list-directories. Each serves its own
+# folder: one surl holds a folder at a time.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads --list-directories s3://127.0.0.1:{{port}}/
+    ready: port
+  readonly:
+    command: surl --directory readonly --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret s3://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl command uploads the three files of site/ into the bucket reports, a put for each, and a second transfer lists the bucket, one name a line; the objects are the files store/reports/a.csv, b.csv and c.csv.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T "site/{a.csv,b.csv,c.csv}" s3://reports/ --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/
+    expect:
+      exit: 0
+      stdout: "a.csv\nb.csv\nc.csv\nold.csv\n"
+      files:
+        store/reports/a.csv: "region,total\nnorth,1200\n"
+        store/reports/b.csv: "region,total\nsouth,950\n"
+        store/reports/c.csv: "region,total\neast,700\n"
+
+  - id: one-put-per-file
+    claim: The server's log shows three objects stored so far, one per file; the listing's old.csv was already in the folder.
+    run: grep -c "bytes stored" surl.log
+    expect:
+      exit: 0
+      stdout: "3\n"
+
+  - id: listing-with-sizes
+    claim: Signed over HTTPS to the bucket's host name, the same listing is ListObjectsV2 XML with a size for each key, 24, 23 and 22 bytes, and an ETag, which for a put like this is the MD5 of the content, here ae51bb33b8abab1fcc34f63346ab15d8 for a.csv.
+    run: curl -sS --http1.1 --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret --cacert server.pem --connect-to ::127.0.0.1:{{port}} "https://reports.s3.us-east-1.amazonaws.com/?list-type=2"
+    expect:
+      exit: 0
+      stdout-matches: '(?s)<Key>a\.csv</Key>.*?<ETag>"ae51bb33b8abab1fcc34f63346ab15d8"</ETag><Size>24</Size>.*<Key>b\.csv</Key>.*?<Size>23</Size>.*<Key>c\.csv</Key>.*?<Size>22</Size>'
+
+  - id: resync-one-file
+    claim: After b.csv changes, uploading only that file puts it again; the listing by name is the same as before, so names alone prove nothing.
+    fixtures:
+      site/b.csv: "region,total\nsouth,19500\n"
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T site/b.csv s3://reports/ --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/
+    expect:
+      exit: 0
+      stdout: "a.csv\nb.csv\nc.csv\nold.csv\n"
+
+  - id: one-more-put
+    claim: The log now shows four objects stored, the three of the first run and one more, so the second run put one file and not three.
+    run: grep -c "bytes stored" surl.log
+    expect:
+      exit: 0
+      stdout: "4\n"
+
+  - id: listing-proves-it
+    claim: The listing with sizes shows the change; b.csv is now 25 bytes with a new ETag, and a.csv and c.csv have the sizes and ETags they had.
+    run: curl -sS --http1.1 --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret --cacert server.pem --connect-to ::127.0.0.1:{{port}} "https://reports.s3.us-east-1.amazonaws.com/?list-type=2"
+    expect:
+      exit: 0
+      stdout-matches: '(?s)^(?!.*d15d0cbaa072a2b77975ca7e6dedc95e).*<Key>a\.csv</Key>.*?<ETag>"ae51bb33b8abab1fcc34f63346ab15d8"</ETag><Size>24</Size>.*<Key>b\.csv</Key>.*?<Size>25</Size>.*<Key>c\.csv</Key>.*?<ETag>"cf0261da3a2512a7499610f976864853"</ETag><Size>22</Size>'
+
+  - id: changed-file-reads-back
+    claim: Getting b.csv through s3:// returns the changed content.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/b.csv
+    expect:
+      exit: 0
+      stdout: "region,total\nsouth,19500\n"
+
+  - id: missing-source
+    claim: A name in the list that is not a file in site/ stops the run with curl exit 26, after the files before it were put.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T "site/{c.csv,gone.csv}" s3://reports/
+    expect:
+      exit: 26
+      stdout: ""
+      stderr-contains: "Failed to open/read local data from file/application"
+
+  - id: wrong-secret
+    claim: A sync signed with the wrong secret is refused 403 SignatureDoesNotMatch for every file, and curl exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port}} -u AKIAIOSFODNN7EXAMPLE:wrong -T "site/{a.csv,b.csv,c.csv}" s3://reports/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: SignatureDoesNotMatch"
+
+  - id: uploads-off
+    claim: Without --allow-uploads, the sync is refused 403 AccessDenied and curl exits 22.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T "site/{a.csv,b.csv,c.csv}" s3://reports/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied"
+
+  - id: nothing-arrived
+    claim: After the refused sync the bucket holds none of the files; a.csv is 404 NoSuchKey.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/a.csv
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 404: NoSuchKey"
+
+  - id: listing-off
+    claim: Without --list-directories, a signed listing is refused 403 AccessDenied, so a sync there cannot be checked by listing.
+    run: curl -sS --cacert server.pem --connect-to ::127.0.0.1:{{port2}} -u AKIAIOSFODNN7EXAMPLE:s3cret s3://reports/
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "S3 returned error 403: AccessDenied"

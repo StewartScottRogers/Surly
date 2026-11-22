@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-search-by-sender-and-date-in-csharp]]
+=== Searching by Sender and Date in C#
+
+==== Problem
+
+Your C# mail client finds the messages from one sender since a given date over Internet Message Access Protocol (IMAP), and you want a test that runs those searches through Curl.Api against a server you host in the test.
+
+==== Solution
+
+Host the server with Surl.Api, put four dated messages in, search with the query of the folder{apos}s URL, and fetch the matches by UID:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` holds one `imap://` URL on port 0, bound to a free port; `MailDomains` is `--mail-domain`; `Mailboxes` is `--mailbox`, an address and password, the address also being the login (<<surl-readme>>). `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrls` gives its real port. `server.Mail` is the mail store, a `SurlServerMail`; its `DeliverAsync` puts each message into `ann`{apos}s `INBOX` as delivery would, with the `From` and `Date` headers the program wrote, and returns once it is stored, so no search waits for mail.
+
+A `CurlRequest` for `INBOX?FROM%20shop` is a `SEARCH`: a query on an IMAP URL, with `%20` for a space. The `CurlResponse` `Body` is the answer, `* SEARCH` and the numbers of the matching messages (<<rfc9051>>). `CurlAuthenticationOptions` is the login; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `CurlClient` uses, so no loosening option is set. A request for `INBOX;UID=3;SECTION=HEADER.FIELDS%20(FROM%20SUBJECT)` is a fetch of those two headers of the message with UID 3. `FROM shop` and `SENTSINCE 01-Jun-2026` together name messages 3 and 4, and fetching them gives `Order 2` and `Order 3`.
+
+`FROM` matches part of the `From` header in any letter case: `shop` and `SHOP` both name messages 1, 3 and 4. It reads the whole header, so `FROM "Shop Team"` names message 4 alone, whose header carries that display name. Dates come in two kinds. `SINCE` compares the day the server received a message; all four arrived when the program ran, so `SINCE 01-Jan-2020` names all of them and `SINCE 01-Jan-2099` returns `* SEARCH` with no numbers, which is an answer and not an error. `SENTSINCE` and `SENTBEFORE` compare the `Date` header: `01-Jul-2026` splits the mailbox into messages 3 and 4 and messages 1 and 2. Criteria in one search must all hold, so `FROM shop SENTSINCE 01-Jun-2026 SENTBEFORE 01-Oct-2026` names message 3 alone, and `OR FROM bank FROM Team` names a message meeting either, 2 and 4. A search that matches nothing, `FROM nobody`, returns the empty line and throws nothing.
+
+Errors arrive as exceptions. A date in the wrong shape, `SENTSINCE 2026-11-03`, is refused by the server, and Curl.Api throws `CurlException` whose `Code` is `curl`{apos}s exit code, 21, `Quote command returned error`; the exception does not carry the server{apos}s `BAD Invalid arguments` line, which the console recipe shows.
+
+A search answers message numbers, and they change. The program marks message 1 `\Deleted` and expunges it with `CustomRequest`, the spelling of `curl -X`, which is sent as written in place of the method: `FROM shop` then names `2 3` instead of `1 3 4`. `UID SEARCH FROM shop`, sent the same way, answers `3 4`, UIDs that did not move, and fetching `;UID=3` gives `Order 2`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-search-by-sender-and-date>> for the same searches on the console.
+* <<imap-search-by-sender-and-date-from-an-agent>> for an agent searching a mailbox.
+* <<surl-readme>>, <<rfc9051>>.

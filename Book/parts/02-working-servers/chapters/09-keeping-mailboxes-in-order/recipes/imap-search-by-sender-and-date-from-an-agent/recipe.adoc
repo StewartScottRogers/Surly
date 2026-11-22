@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-search-by-sender-and-date-from-an-agent]]
+=== Searching by Sender and Date from an Agent
+
+==== Problem
+
+You want an agent to find the messages from one sender since a given date over Internet Message Access Protocol (IMAP) and read just those messages, with a mail server it starts itself.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, seeds four dated messages, searches with the query of the folder{apos}s URL through the `curl` tool, and fetches the matches by UID:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `imap://127.0.0.1:0` for a free port, and `arguments`, the options of `surl`: `--mail-domain` serves the domain and `--mailbox` adds `ann` with her login (<<surl-readme>>). The answer carries the `server_id` and the `bound_urls`. `seed_mail` puts each message into `ann`{apos}s `INBOX`, with the `From` and `Date` headers the program wrote. Delivery is an event: `wait_for_event` on `store_changed` for the name `ann@example.com/INBOX/;UID=n`, with a ten second bound, answers when the message is in, or says it timed out, so no search runs before the mail has arrived.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError`; the program adds `-s` to keep the progress meter off and `-S` to keep the error line, and gives the login with `-u`. A query on an IMAP URL is a `SEARCH`, with `%20` for a space: `INBOX?FROM%20shop` answers `* SEARCH` and the numbers of the matching messages (<<curl-manual>>, <<rfc9051>>). Without Transport Layer Security `surl` offers only `CRAM-MD5`, which `curl` uses, so no loosening option is needed. `FROM shop` with `SENTSINCE 01-Jun-2026` names messages 3 and 4, and `INBOX;UID=3;SECTION=HEADER.FIELDS%20(FROM%20SUBJECT)` fetches the two headers of one of them: `Order 2` and `Order 3`.
+
+`FROM` matches part of the `From` header in any letter case: `shop` and `SHOP` both name messages 1, 3 and 4. It reads the whole header, so `FROM "Shop Team"` names message 4 alone, whose header carries that display name. Dates come in two kinds. `SINCE` compares the day the server received a message; all four arrived when the program ran, so `SINCE 01-Jan-2020` names all of them, and `SINCE 01-Jan-2099` answers `* SEARCH` with no numbers, which is an answer and not an error: `exitCode` is `0`. `SENTSINCE` and `SENTBEFORE` compare the `Date` header: `01-Jul-2026` splits the mailbox into messages 3 and 4 and messages 1 and 2. Criteria in one search must all hold, so `FROM shop SENTSINCE 01-Jun-2026 SENTBEFORE 01-Oct-2026` names message 3 alone, and `OR FROM bank FROM Team` names a message meeting either, 2 and 4. A search that matches nothing, `FROM nobody`, returns the empty line and `exitCode` `0`.
+
+A date in the wrong shape is not an error in the tool: the call succeeds and `exitCode` is `21`, `curl`{apos}s code for a command the server refused. The reason is in `standardError` when the program adds `-v`: `SENTSINCE 2026-11-03` is answered `A004 BAD Invalid arguments`.
+
+A search answers message numbers, and they change. The program marks message 1 `\Deleted` and expunges it with `-X` on the `INBOX` URL, and `FROM shop` then names `2 3` instead of `1 3 4`. `-X "UID SEARCH FROM shop"` answers `3 4`, UIDs that did not move, and fetching `;UID=3` gives `Order 2`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-search-by-sender-and-date>> for the same searches on the console.
+* <<imap-search-by-sender-and-date-in-csharp>> for the searches from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

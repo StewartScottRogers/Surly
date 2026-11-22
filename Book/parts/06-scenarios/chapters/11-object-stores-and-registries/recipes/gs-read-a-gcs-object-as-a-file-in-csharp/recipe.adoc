@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[gs-read-a-gcs-object-as-a-file-in-csharp]]
+=== Reading a GCS Object as a File in C#
+
+==== Problem
+
+The objects your .NET app writes to Google Cloud Storage (GCS) must also be readable as plain files. You want a test, with no Google account and no process to start, that writes an object through the Cloud Storage interface and reads the same bytes back over Hypertext Transfer Protocol (HTTP).
+
+==== Solution
+
+Start a `SurlServer` that serves one store as `gs://` and `https://`, put an object through `gs://` with a `CurlClient`, read it over `https://`, and read the stored file back from the server:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds two listen URLs, `gs://127.0.0.1:0` and `https://127.0.0.1:0`, and both serve one store: a top-level folder is a bucket, the path under it is the object name, and the app{apos}s object is a file to every protocol. `Files` seeds the store in memory. Port 0 takes a free port for each, and `BoundUrls` holds one address per listen URL, in the order they were given, so `BoundUrls[0]` is the Cloud Storage port and `BoundUrls[1]` the HTTPS one. Both listeners are Transport Layer Security (TLS) and take `CertificateFile` and `KeyFile`, a certificate that names `storage.googleapis.com` as well as `127.0.0.1`.
+
+`Accounts` takes two logins, each a `SurlAccount`. `new SurlAccount("GOOGTESTKEY", "s3cret")` is a Hash-based Message Authentication Code (HMAC) key pair, which `CurlAuthenticationOptions.UserName` and `Password` sign a `gs://` request with. `new SurlAccount("", "ya29.t0ken")` has an empty name, so its password is an OAuth Bearer token, `XOAuth2Bearer`. Over `https://` the method has to be named too, `HttpAuthentication` set to `HttpAuthenticationMethods.Bearer` or `Basic`; the HMAC key pair is an ordinary Basic login there. `AllowUploads` is what lets a put write.
+
+`CurlClient.SendAsync` sends a `CurlRequest`. `curl` sends `gs://photos/note.txt` to `storage.googleapis.com:443`, so `CurlNetworkOptions.ConnectTo` routes it to the server{apos}s port, and `CurlTlsOptions` with a `CurlTlsPeerOptions.CertificateAuthorityBlob` makes the client trust the certificate. A put sets `Body` to a `CurlContent`, here `CurlContent.FromBytes`, and the answer is a `CurlResponse` with `StatusCode` 200. A `gs://` refusal does not come back as a response: it throws `CurlException`, whose `Code` is `HttpReturnedError` and whose `Message` carries the status and Cloud Storage{apos}s error code. A wrong secret is `403 SignatureDoesNotMatch`, a name with no object is `404 NoSuchKey`, and a server with `AllowUploads` off answers a correctly signed put `403 AccessDenied`, though it still reads what is already there. A refusal over `https://` is an ordinary response, so a read with no login is a `CurlResponse` with `StatusCode` 401.
+
+The test{apos}s assertions are about the bytes and where they are. `SurlServerFiles.ReadAsync` reads the object back from the store with no HTTP in between and returns a `SurlFileContents`, whose `Bytes` the program decodes; when a name has no object it throws `SurlNotFoundException`, which is how the program shows that a refused put wrote nothing. A slash in an object name is a folder, so `photos/2026/q1/report.txt` is read over `https://` at the same path and found in the store at `/photos/2026/q1/report.txt`. An object whose last byte is not a newline is 17 bytes in and 17 bytes out, and an object named `.txt` is served over `https://` as `Content-Type: text/plain`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<gs-read-a-gcs-object-as-a-file>> for the same test on the console.
+* <<gs-read-a-gcs-object-as-a-file-from-an-agent>> for the same test driven by an agent.
+* <<gs-sign-with-an-hmac-key-in-csharp>> for the two kinds of login.
+* <<surl-readme>>, <<curl-readme>>, <<gcs-xml-api>>, <<rfc6750>>, <<rfc7617>>.

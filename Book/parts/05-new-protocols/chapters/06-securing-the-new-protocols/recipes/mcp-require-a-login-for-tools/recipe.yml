@@ -1,0 +1,119 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: mcp-require-a-login-for-tools
+title: Requiring a Login for MCP
+protocols: [mcps, mcp]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --allow-plaintext-auth, --allow-anonymous]
+curl-options: [--cacert, --oauth2-bearer, -d, -u]
+exit-codes: [0, 8, 58, 60, 67]
+references: [mcp-spec, rfc6750, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  plain/hello.txt: "hello from surl\n"
+  plaintext/hello.txt: "hello from surl\n"
+  open/hello.txt: "hello from surl\n"
+  read.json: '{"name":"read_file","arguments":{"path":"hello.txt"}}'
+
+# main is the recipe: mcps with a certificate and one token. --user with an empty user name
+# makes the password a Bearer token. The others show what changes it: plain is mcp with the
+# same token, plaintext the same with --allow-plaintext-auth, open mcps with --allow-anonymous.
+# Each serves its own directory.
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key --user :agent-token-1 --user alice:secret mcps://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl --directory plain --user :agent-token-1 mcp://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --directory plaintext --user :agent-token-1 --allow-plaintext-auth mcp://127.0.0.1:{{port3}}/
+    ready: port
+  open:
+    command: surl --directory open --cert server.pem --key server.key --user :agent-token-1 --allow-anonymous mcps://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over mcps, with the server's certificate trusted by --cacert and the token sent by --oauth2-bearer, curl lists the tools, exit 0.
+    run: curl --cacert server.pem --oauth2-bearer agent-token-1 mcps://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: call-with-login
+    claim: The same login lets a tools/call through; read_file returns the file's text.
+    run: curl --cacert server.pem --oauth2-bearer agent-token-1 -d @read.json mcps://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 0
+      stdout: "hello from surl\n\n"
+
+  - id: no-login
+    claim: Without a token, surl answers 401 and curl exits 67, listing nothing.
+    run: curl --cacert server.pem mcps://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "curl: (67) The server answered with status 401."
+
+  - id: wrong-token
+    claim: A token that is not the account's is answered 401 as well, exit 67.
+    run: curl --cacert server.pem --oauth2-bearer agent-token-2 mcps://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "status 401"
+
+  - id: password-is-not-a-login
+    claim: A user name and password sent with -u is not a login the MCP endpoint takes, even for an account surl has; it answers 400 and curl exits 8.
+    run: curl --cacert server.pem -u alice:secret mcps://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 8
+      stdout: ""
+      stderr-contains: "status 400"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify surl's certificate and exits 60 before any token is sent.
+    run: curl --oauth2-bearer agent-token-1 mcps://127.0.0.1:{{port}}/mcp
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: plain-mcp-refuses-the-token
+    claim: Over plain mcp, the right token is refused unchecked, 401, exit 67, because it would travel in clear.
+    run: curl --oauth2-bearer agent-token-1 mcp://127.0.0.1:{{port2}}/mcp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "status 401"
+
+  - id: plaintext-allowed
+    claim: With --allow-plaintext-auth, the same token over plain mcp is checked and accepted.
+    run: curl --oauth2-bearer agent-token-1 mcp://127.0.0.1:{{port3}}/mcp
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: anonymous-allowed
+    claim: With --allow-anonymous, a server with the same token lists its tools to a client with no login at all.
+    run: curl --cacert server.pem mcps://127.0.0.1:{{port4}}/mcp
+    expect:
+      exit: 0
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
+
+  - id: mcps-needs-a-certificate
+    claim: An mcps listen URL without --cert (or --self-signed) is refused at start, exit 58.
+    run: surl --directory site --user :agent-token-1 mcps://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) mcps://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n'

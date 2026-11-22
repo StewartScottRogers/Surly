@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-see-why-mail-was-refused-from-an-agent]]
+=== Seeing Why Mail Was Refused from an Agent
+
+==== Problem
+
+An app{apos}s mail never arrives, and the app says nothing about it. You want an agent to find, in the server{apos}s record of the Simple Mail Transfer Protocol (SMTP) dialogue, which command was refused and with what reply.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, plays the app{apos}s send through the `curl` tool, waits for the exchange to end, and reads the refusal from `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes `listen_urls`, one `smtp://` URL on port 0, and `arguments`, `surl`{apos}s own options: `--mail-domain example.com` and three `--mailbox` values, one of them, `ops@example.com:opspass;quota=200`, too small for one report (<<surl-readme>>).
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in text that is JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. The app{apos}s send is `-u` its login, `--mail-from` and `--mail-rcpt` the envelope, and `-T report.eml` the message from the folder; its settings name `ann@example.org`, a typo. Run with `-s` alone, as an app runs it, it exits `55` and leaves `standardError` empty, and `list_mailboxes` counts nothing in Ann{apos}s `INBOX`. With `-S` added, `curl` says `curl: (55) RCPT failed: 550`: the command and the code, not why.
+
+The agent reads the server{apos}s side only once the server has finished: `wait_for_event` with `kinds` `exchange_ended`, `scheme` `smtp`, `after_sequence` the last event{apos}s `sequence`, and `timeout_ms` 10000. Then `get_exchanges` with `scheme` `smtp` answers every exchange{apos}s `chunks` in the order they crossed, each with a `direction`, `received` from the client or `sent` by `surl`, and its `data`. In the last exchange each line `surl` sent that starts with `4` or `5` is a refusal, and the line received just before it is the command refused: `RCPT TO:<ann@example.org>`, answered `550 5.7.1 Relaying denied`, a permanent refusal (<<rfc5321>>). That pair is the explanation an agent can give the app{apos}s owner.
+
+With the address corrected the send is answered `250`, which `-w "%{response_code}"` prints, and the exchange holds no refusal. Delivery is asynchronous, so the agent waits for the report{apos}s `store_changed` event, `store` `mail` and `name` `ann@example.com/INBOX/;UID=1`, before `list_mailboxes` counts one message.
+
+The same reading finds the other refusals. Without `-u` the app never logs in, and `MAIL FROM` is refused, `530 5.7.0 Authentication required`. With a wrong password the refusal is `535 5.7.8 Authentication credentials invalid`, after the client{apos}s answer to the `CRAM-MD5` challenge, which `get_exchanges` keeps as sent: the account name and a digest in base64, never the password. `get_events` with `kinds` `login_judged` and the `account` adds the judgement itself: `app@example.com`, `mechanism` `CRAM-MD5`, `is_accepted` false. To `ops@example.com` the whole message is sent and only the end of the data, the lone `.`, is answered `452 4.2.2 Mailbox full`. There the record matters most, because `curl` says only `curl: (8) Weird server reply`, with neither the command nor the code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-see-why-mail-was-refused>> for the same diagnosis from `surl`{apos}s log on the console, with its reasons.
+* <<smtp-see-why-mail-was-refused-in-csharp>> for the diagnosis in a C# test.
+* <<imap-enforce-a-mailbox-quota-from-an-agent>> for the quota behind the `452`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

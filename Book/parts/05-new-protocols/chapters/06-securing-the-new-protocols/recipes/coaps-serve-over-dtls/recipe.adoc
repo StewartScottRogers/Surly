@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[coaps-serve-over-dtls]]
+=== Serving CoAP over DTLS
+
+==== Problem
+
+Your sensors fetch their configuration over the Constrained Application Protocol (CoAP) secured with Datagram Transport Layer Security (DTLS). You want the resources served over `coaps` with your certificate, and plain CoAP reads refused once the server has an account.
+
+==== Solution
+
+Serve the directory over `coaps` with your certificate and key, and fetch with `curl`, trusting the certificate with `--cacert`:
+
+include::.generated/solution.adoc[]
+
+The checked claims below also run three more `surl` servers, on ports `8081` to `8084`, to show what an account changes. You do not need them. Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+CoAP is a small request and response protocol over the User Datagram Protocol (UDP), for devices that cannot afford the Hypertext Transfer Protocol (HTTP); its secure form, `coaps`, runs it inside DTLS, Transport Layer Security (TLS) adapted to datagrams (<<rfc7252>>, <<rfc8446>>). `curl` sends a confirmable `GET` for the path and writes the payload of the answer, here the sensor's configuration from the directory `--directory config` serves (<<curl-readme>>, <<curl-protocols>>). With `-i` it writes the response code first, `2.05`, Content, and a blank line.
+
+`--cert` and `--key` give `surl` the certificate and key the first command made with `openssl`, and `--cacert server.pem` makes `curl` trust that certificate as its own authority. Without `--cacert`, `curl` cannot verify the certificate in the DTLS handshake and exits `60`, writing nothing. A `coaps` listen URL with neither a certificate nor an account does not start: `surl` exits `58`, and the message names `--cert`, `--self-signed` and `--user` (<<surl-readme>>). The port speaks DTLS only: plain `coap` sent to it gets no answer at all, and `curl` would retransmit for a long time; `-m 10`, a limit of ten seconds on every command here, ends the wait with exit `28`.
+
+An account changes everything for plain CoAP. With `--user alice:secret`, `surl` answers every plain `coap` read `4.01`, Unauthorized, because plain CoAP has no way to carry a login, so no client can prove it is `alice`. `-u alice:secret` changes nothing; the read is still `4.01`. Exit `0` there means only that an answer came; <<coap-get-a-resource>> shows `-f`, which makes `curl` fail on a `4.xx`. That is the default because a server with accounts holds something worth protecting, and anyone on the network can send a plain CoAP request. `--allow-anonymous` gives that up: with the same account, plain reads are `2.05` again. It is for a test on your own machine.
+
+In `coaps`, an account is a pre-shared key: the DTLS handshake itself proves the client knows the account's secret (<<rfc7252>>). `curl` offers certificates, not pre-shared keys. So once the server on port `8082` has an account, a `curl` that trusts its certificate still gets `4.01`: it reached the server, but logged in as no one. And a `coaps` server with an account and no certificate serves pre-shared keys only; `curl` fails its handshake, exit `35`. To serve sensors that `curl` can stand in for, as the Solution does, give `surl` a certificate and no account; the certificate is what protects the configuration from being changed or read on the way.
+
+CoAP listens on UDP only, so there is no Transmission Control Protocol (TCP) port to watch for `surl` being ready. The first claimed command retries instead: `--retry 5` allows five more tries, `--retry-all-errors` retries on any failure, including the one a port nobody listens on yet gives, and `--retry-delay 1` waits a second between tries.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<coaps-serve-over-dtls-in-csharp>> for the same server and reads in a .NET test.
+* <<coaps-serve-over-dtls-from-an-agent>> for an agent serving and reading through `surl-mcp` and `curl-mcp`.
+* <<coap-get-a-resource>> for plain CoAP, not-found answers and `-f`.
+* <<rfc7252>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

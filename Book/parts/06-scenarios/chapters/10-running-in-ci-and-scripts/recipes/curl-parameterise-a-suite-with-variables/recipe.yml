@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: curl-parameterise-a-suite-with-variables
+title: Parameterising a Suite with Variables
+protocols: [http]
+tier: scenarios
+surl-options: [--directory, --user, --allow-plaintext-auth]
+curl-options: [-K, --variable, --expand-url, --expand-oauth2-bearer, -f, -s, -S, -w, --out-null]
+exit-codes: [0, 2, 22]
+references: [curl-manual, surl-readme, rfc6750]
+
+fixtures:
+  site/health.txt: "ok\n"
+  site/report.csv: "id,total\n1,42\n"
+  staging/health.txt: "ok\n"
+  staging/report.csv: "id,total\n"
+  plain/health.txt: "ok\n"
+  suite.conf: |
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # The suite: one config for any server. The host, port and token come from the environment;
+    # the host defaults to 127.0.0.1 when SURL_HOST is not set.
+    variable = %SURL_HOST=127.0.0.1
+    variable = %SURL_PORT
+    variable = %API_TOKEN
+
+    silent
+    show-error
+    fail
+    write-out = "%{url.path} %{http_code}\n"
+    expand-oauth2-bearer = "{{API_TOKEN:trim}}"
+
+    expand-url = "http://{{SURL_HOST}}:{{SURL_PORT:trim}}/health.txt"
+    out-null
+    expand-url = "http://{{SURL_HOST}}:{{SURL_PORT:trim}}/report.csv"
+    out-null
+
+# Two servers with their own token, and one that refuses a token over plain HTTP.
+servers:
+  local:
+    command: surl --directory site --user :t0ken-123 --allow-plaintext-auth http://127.0.0.1:{{port}}/
+    ready: port
+  staging:
+    command: surl --directory staging --user :st4ging-456 --allow-plaintext-auth http://127.0.0.1:{{port2}}/
+    ready: port
+  strict:
+    command: surl --directory plain --user :t0ken-123 http://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the port and token in the environment, the one config fetches both paths with the token, each answered 200, and curl exits 0.
+    run: env SURL_PORT={{port}} API_TOKEN=t0ken-123 curl -K suite.conf
+    expect:
+      exit: 0
+      stdout: "/health.txt 200\n/report.csv 200\n"
+
+  - id: another-server
+    claim: The same config, unchanged, runs against another server when the environment names its host, port and token.
+    run: env SURL_HOST=127.0.0.1 SURL_PORT={{port2}} API_TOKEN=st4ging-456 curl -K suite.conf
+    expect:
+      exit: 0
+      stdout: "/health.txt 200\n/report.csv 200\n"
+
+  - id: wrong-token
+    claim: A token the server does not hold is refused 401 on each path, and with fail set curl exits 22.
+    run: env SURL_PORT={{port}} API_TOKEN=st4ging-456 curl -K suite.conf
+    expect:
+      exit: 22
+      stdout: "/health.txt 401\n/report.csv 401\n"
+      stderr-contains: "curl: (22) The requested URL returned error: 401"
+
+  - id: missing-variable
+    claim: A variable imported with no default and not set in the environment stops curl before it sends anything, exit 2, naming the variable.
+    run: env SURL_PORT={{port}} curl -K suite.conf
+    expect:
+      exit: 2
+      stdout: ""
+      stderr-contains: "curl: Variable 'API_TOKEN' import fail, not set"
+
+  - id: token-over-plain-http
+    claim: A server without --allow-plaintext-auth refuses a token sent over plain HTTP with 403, unchecked, the right token included.
+    run: env SURL_PORT={{port3}} API_TOKEN=t0ken-123 curl -K suite.conf
+    expect:
+      exit: 22
+      stdout-matches: '^/health\.txt 403\n'

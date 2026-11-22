@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[oci-check-an-image-landed]]
+=== Checking an Image Landed
+
+==== Problem
+
+After a container image push, you want an artificial intelligence (AI) agent to list the registry{apos}s store and confirm that the manifest and every layer arrived, whole and under the right names, and to say so when one did not.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the Model Context Protocol (MCP) software development kit (SDK). It starts `surl-mcp` as an Open Container Initiative (OCI) registry, pushes an image through `curl-mcp`{apos}s `curl` tool, and then reads the registry{apos}s store with `list_files` and `read_file`: the tag in `index.json`, the manifest it names, and the config and each layer the manifest names:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server that answers as `surl` with the same options would: `listen_urls` is `oci://127.0.0.1:0`, with port 0 for a free port that the program reads from `bound_urls`. `arguments` holds `--cert` and `--key`, which an `oci` listener needs, one account with `--user`, and `--allow-uploads`, which lets a push write. The registry keeps its store as files: each repository is a folder in OCI image layout, so `demo/app` is `/demo/app` with `oci-layout`, `index.json`, and `blobs/sha256`, which holds every blob under the hexadecimal of its SHA-256 (Secure Hash Algorithm 256) digest. The manifest is a blob like the rest. That is what lets an agent check a push from the store and not from the registry{apos}s own answers.
+
+`curl` runs `curl-mcp`{apos}s curl as the command line would, from `args`, confined to the folder `CURL_MCP_ROOT` names, so `-T layer1.txt` and `--cacert server.pem` find their files there. One call pushes the image as a client does: each blob with `-T file oci://HOST/demo/app@sha256:DIGEST`, then the manifest with `-T manifest.json oci://HOST/demo/app:1.0`, which tags it. `curl` hashes a blob before it sends it, so a file pushed under a digest that is not its own is refused with exit `25` and nothing is stored. The answer is JavaScript Object Notation (JSON) text with `exitCode`, `standardOutput` and `standardError`, each with `content`; a failed push is a tool error with curl{apos}s own message in `standardError`.
+
+The check has four steps. `read_file`, with the `server_id` that `start_server` returned and a `path`, answers `/demo/app/index.json` as `text`; its `manifests` list records each tag in the annotation `org.opencontainers.image.ref.name`, with the manifest{apos}s digest and size. The digest is the SHA-256 of the manifest file that was pushed. `list_files` on `/demo/app/blobs/sha256` answers `entries`, each with a `name`, a `kind` and a `byte_count`, which says which blobs are there and how long each is. `read_file` on the manifest{apos}s blob gives the config and layer descriptors, each with a digest and a size. For each, the agent checks that the blob is there, that its length is the size the manifest gives, and that its content hashes to its name. A blob that fails the first test is missing; one that fails the third, though the length is right, was changed after it arrived, and only hashing it finds that. A pull by tag, `oci://HOST/demo/app:1.0`, returns the manifest bytes that were pushed.
+
+The failures leave their marks in the store. A push that sent the blobs and not the manifest leaves them with no tag, and there is no `index.json`: `read_file` of it is a tool error, which the program reads as the image not having landed. A manifest that names a layer the registry does not hold is refused, `400 MANIFEST_BLOB_UNKNOWN`, curl exit `22`, and records no tag. Without `--allow-uploads` a push is `403 DENIED`, exit `67`, and the store stays empty, and a wrong password gets no token, exit `67`. The program also changes a store by hand to show what the check finds: `delete_file` removes a layer, and `put_file` writes other bytes of the same length over one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<oci-push-and-pull-an-image>> for pushing and pulling an image with `curl` alone.
+* <<s3-audit-a-bucket-after-a-sync>> for the same check of a bucket against a list of what should be in it.
+* <<surl-readme>>, <<curl-readme>>, <<oci-distribution>>, <<oci-image-spec>>.

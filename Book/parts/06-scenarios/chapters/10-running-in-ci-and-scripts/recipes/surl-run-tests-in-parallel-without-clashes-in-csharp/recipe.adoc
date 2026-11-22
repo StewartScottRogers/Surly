@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-tests-in-parallel-without-clashes-in-csharp]]
+=== Running Tests in Parallel Without Clashes
+
+==== Problem
+
+In a C# test: your suite runs in parallel workers; you want each worker on its own server, ports and store, and nothing shared but the binary.
+
+==== Solution
+
+Have each worker start its own in-process server with `SurlServer.StartAsync` on port 0, keep its files in that server's own memory, and stop it when its tests end. Here four workers run at once with `Task.WhenAll`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Each worker builds its own `SurlServerOptions`. `ListenUrls` `http://127.0.0.1:0` lets the system pick a free port, which `BoundUrl` reports once `StartAsync` returns, so the four servers had four ports nobody chose. With no `DataDirectory`, `Files` is the server{apos}s own in-memory store: every worker uploads under the same name, `result.txt`, and reads back its own result, and `server.Files.ReadAsync` answers a `SurlFileContents` holding that worker{apos}s result and no other. The worker stops its server with `StopAsync` in `finally`, so no worker waits on or stops another{apos}s server. Nothing is shared between them but the `Surl.Api` package loaded once in the process.
+
+The account is the same in every worker, a `SurlAccount` named `tester`, but each server holds its own copy, and `AllowUploads` lets it store files on that server only. With an account configured every request needs a login; the tests send it with `CurlAuthenticationOptions`, `HttpAuthentication` set to `HttpAuthenticationMethods.Digest` (<<rfc7616>>). A `CurlRequest` `PUT` with a `CurlContent` body uploads, and its `CurlResponse` `StatusCode` is 201 when the file is new. One `CurlClient` per worker keeps the workers{apos} connections apart.
+
+A worker that fails stays its own business. With a wrong password in worker 2, its upload is answered 401; workers 1 and 3 pass, every server is stopped, and the run exits 1. `Task.WhenAll` gives the results in worker order, whatever order they finished in.
+
+The two shared things a suite most often slips into are both refused at start. Two servers given one `DataDirectory`: `surl` locks the directory, and the second `StartAsync` throws `SurlServerStartException` with `ExitCode` `SurlExitCode.DataDirectoryInUse`, 124. A fixed port another server holds: `BindFailed`, 45. Port 0 and a store per worker keep either from happening.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-tests-in-parallel-without-clashes>> for the same workers on the console.
+* <<surl-run-tests-in-parallel-without-clashes-from-an-agent>> for the same workers from an agent.
+* <<surl-share-one-server-across-a-test-class>> for the opposite choice: one server for many tests in sequence.
+* <<surl-readme>>, <<curl-readme>>, <<rfc7616>>.

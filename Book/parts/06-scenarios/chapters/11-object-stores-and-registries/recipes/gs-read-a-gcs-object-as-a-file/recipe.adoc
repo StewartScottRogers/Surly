@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[gs-read-a-gcs-object-as-a-file]]
+=== Reading a GCS Object as a File
+
+==== Problem
+
+The objects your app writes to Google Cloud Storage (GCS) must also be readable as plain files, by a web server, a build step or a person with a browser. You want a test that writes an object through the Cloud Storage interface and reads the same bytes back over Hypertext Transfer Protocol (HTTP), with no Google account.
+
+==== Solution
+
+Serve one folder with `surl` as `gs://` and `https://` at once, put a file through `gs://`, and read it with a second transfer over `https://`; the object is a file in the served folder:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` keeps one store of files, and every protocol it is asked to serve is a view of it. Here the same `--directory store` is answered on two listen URLs: `gs://` for the app{apos}s Cloud Storage client and `https://` for whatever reads files. A top-level folder is a bucket, the path under it is the object name, and a file already in the folder is an object. So `photos/note.txt` put through `gs://` is the file `store/photos/note.txt`, and `https://127.0.0.1:8443/photos/note.txt` serves that file. A slash in an object name is a folder: `photos/2026/q1/report.txt` is a file three levels down, read over `https://` at the same path.
+
+Both listeners are TLS and use one certificate. `curl` sends `gs://photos/note.txt` to `storage.googleapis.com:443` as path style, so `--connect-to ::127.0.0.1:PORT` routes it to `surl`, and the certificate names `storage.googleapis.com` as well as `127.0.0.1`. The `https://` URL needs neither. `-T` puts and a URL with no `-T` gets, and `--next` starts a second transfer with its own options, which is why the second one repeats `--cacert`.
+
+`surl` takes the certificate with `--cert` and `--key`. On the `curl` side, `-s` quiets the progress meter and `-S` still shows an error, `-o` writes what a transfer read into a file, and `-w` prints a value afterwards, such as `%{size_download}`. There are two logins on one server. `--user GOOGTESTKEY:s3cret` is a Hash-based Message Authentication Code (HMAC) key pair, which `-u` signs a `gs://` request with and which `https://` takes as an ordinary Basic login. `--user :ya29.t0ken` has an empty name, so its password is an OAuth Bearer token, sent with `--oauth2-bearer` over either scheme. The read over `https://` is as closed as the write: with no login it is answered `401`. A wrong secret on a put is answered `403 SignatureDoesNotMatch`, `curl` writes nothing and exits `22`, and the refused put left nothing behind. A name with no object is `404 NoSuchKey`.
+
+`--allow-uploads` is what lets a put write. A server without it answers a correctly signed put `403 AccessDenied`, exit `22`, and still reads what is already there, through `gs://` and `https://` alike.
+
+What makes the check worth having is that nothing between the two views changes the data. An object whose last byte is not a newline is 17 bytes in and 17 bytes out, and an object named `.txt` is served over `https://` as `Content-Type: text/plain`, as any file would be.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<gs-read-a-gcs-object-as-a-file-in-csharp>> for the same test in a C# program.
+* <<gs-read-a-gcs-object-as-a-file-from-an-agent>> for the same test driven by an agent.
+* <<gs-put-and-get-an-object>> for the Cloud Storage scheme on its own.
+* <<gs-sign-with-an-hmac-key>> for the two kinds of login.
+* <<surl-readme>>, <<curl-readme>>, <<gcs-xml-api>>, <<rfc6750>>, <<rfc7617>>.

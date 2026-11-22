@@ -1,0 +1,45 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-see-why-mail-was-refused]]
+=== Seeing Why Mail Was Refused
+
+==== Problem
+
+Your app sends a report by mail every night, it never arrives, and the app logs nothing useful. You want the server{apos}s record of the Simple Mail Transfer Protocol (SMTP) dialogue to show which command was refused, with what reply, and why.
+
+==== Solution
+
+Run `surl` with its verbose log kept in a file, let the app send, and read the refusal out of the log with a short script that needs a POSIX shell (Git Bash on Windows). It finds the last SMTP exchange, waits until `surl` has ended it, and prints each reply of `4xx` or `5xx` with the two lines before it:
+
+[source,sh]
+----
+include::why-refused.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+The first two cases below are the failure as the app{apos}s owner meets it: a send that says nothing, and an empty mailbox.
+
+==== Discussion
+
+One `surl` serves SMTP for the app and Internet Message Access Protocol (IMAP) for looking into the mailboxes, over one mail store (<<surl-readme>>). `--mail-domain example.com` is the domain it takes mail for, and each `--mailbox` adds a mailbox with its login; `quota=200` on `ops@example.com` makes that mailbox too small for one report. `-v` logs every line of every exchange, and `--log-file mail.log` appends the log to that file rather than standard error.
+
+The app is `curl` as an app runs it: `-u` its login, `--mail-from` and `--mail-rcpt` the envelope, `-T report.eml` the message, `--crlf` the line ends mail needs, and `-s`, so nothing is printed. Its settings name `ann@example.org`, a typo. `curl` exits `55`, which the app ignores, and `STATUS INBOX (MESSAGES)` on Ann{apos}s mailbox, sent with `-X`, answers 0.
+
+The log holds the whole dialogue. Each line starts with `#` and the exchange{apos}s number; `<` is what the client sent, `>` what `surl` answered, and `*` an event, with the line ends shown as `\r\n`. The script takes the number of the last `opened: smtp` line, waits for that exchange{apos}s `ended` line, a second at a time for at most ten, so it never reads a dialogue still under way, and prints each refusal with the two lines before it, number and line ends stripped. For the typo they are the command, `RCPT TO:<ann@example.org>`; `surl`{apos}s reason, `outside every --mail-domain`; and the reply, `550 5.7.1 Relaying denied`, a permanent refusal (<<rfc5321>>). The client side says less: with `-S`, `curl`{apos}s error line is `curl: (55) RCPT failed: 550`, the command and the code but not why.
+
+With the address corrected the send is accepted, `-w "%{response_code}"` prints `250`, and the script, run after `&&`, prints nothing: the exchange had no refusal. Delivery is asynchronous, so the check of Ann{apos}s mailbox first asks for message 1{apos}s flags until it exists, `--retry 10` more tries, `--retry-all-errors` to retry the error a missing message gives, `--retry-delay 1` a second apart, with the answer dropped by `-o /dev/null`; and `--next` then asks for the count, 1.
+
+The same script reads the other ways a send fails; each case runs it after `||`, that is when the app{apos}s send has failed. Without `-u` the app never logs in, and `surl` refuses `MAIL FROM` with `530 5.7.0 Authentication required`, the reason `log in with AUTH first, or give --allow-anonymous`. With a wrong password the refusal comes at the login, `535 5.7.8 Authentication credentials invalid`, with `Login refused: CRAM-MD5 app@example.com`; the line the client sent is logged as `****`, because `surl` withholds what a login carries. To `ops@example.com` the recipient is accepted, the whole message sent, and only the end of the data, the lone `.`, is answered `452 4.2.2 Mailbox full`, the reason `a recipient's mailbox would pass its quota`. That is the refusal where the server{apos}s record matters most: `curl` reports it as `curl: (8) Weird server reply`, with neither the command nor the code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-see-why-mail-was-refused-in-csharp>> for the same diagnosis in a C# test, from the recorded exchange.
+* <<smtp-see-why-mail-was-refused-from-an-agent>> for an agent that reads the refusal from `get_exchanges`.
+* <<imap-find-why-a-client-sees-no-mail>> for mail that was accepted and went somewhere else.
+* <<imap-enforce-a-mailbox-quota>> for the quota behind the `452`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

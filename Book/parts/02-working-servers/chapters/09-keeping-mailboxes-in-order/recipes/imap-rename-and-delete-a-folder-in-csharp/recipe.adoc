@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-rename-and-delete-a-folder-in-csharp]]
+=== Renaming and Deleting a Folder in C#
+
+==== Problem
+
+Your C# client manages mail folders over Internet Message Access Protocol (IMAP), and you want to rename and delete them through Curl.Api and check the folder list with `Mail.ListMailboxesAsync`.
+
+==== Solution
+
+Host the server with Surl.Api, give `ann` three folders, send `RENAME` as a custom request, and read the folder list back over IMAP:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: `ListenUrls` holds one `imap://` URL on port 0, bound to a free port; `MailDomains` is `--mail-domain`; `Mailboxes` is `--mailbox`, whose `folders=Old,Drafts,Keep` option starts the mailbox with those three empty folders (<<surl-readme>>). `SurlServer.StartAsync` returns once the listener is bound, and `BoundUrls` gives its real port. `server.Mail` is the mail store, a `SurlServerMail`. Its `DeliverAsync` puts three orders into `INBOX`, and the program files the first two into `Old` with `MOVE 1:2 Old`, so `Old` holds two messages and `INBOX` one. Curl.Api 0.2.0 has no IMAP `APPEND`, which is the console recipe{apos}s way to fill a folder.
+
+A `CurlRequest` is a method and a URL. `CustomRequest` is the spelling of `curl -X`: it is sent as written, spaces and all, in place of the method, which a .NET `HttpMethod` could not carry because it is one token. A URL with no folder sends the command straight after the login, which is right for `RENAME`, `DELETE` and `STATUS`; a URL with a folder, as in the `MOVE`, selects it first. A `GET` of the root URL with no custom request is a `LIST`. `CurlAuthenticationOptions` is the login; without Transport Layer Security `surl` offers only `CRAM-MD5`, which `CurlClient` uses, so no loosening option is set. The `CurlResponse` `Body` is the server{apos}s answer: for `LIST`, one line a folder, `INBOX` first, then the rest in name order, and for `RENAME` and `DELETE` nothing (<<rfc9051>>).
+
+After `RENAME Old Archive` the list shows `Archive` where `Old` was. The store{apos}s view is `ListMailboxesAsync`, one `SurlMailboxInfo` per folder with its `Name` and `MessageCount`, read with no client: `Archive 2, Drafts 0, INBOX 1, Keep 0`, so the folder kept its two messages. `STATUS Old (MESSAGES)` through the same client is now refused. `DELETE Drafts` removes the folder, and the store lists `INBOX`, `Keep` and `Old` only.
+
+Errors arrive as exceptions. A refusal is a `CurlException` whose `Code` is `curl`{apos}s exit code, 21, `Quote command returned error`; it does not carry the server{apos}s `NO` line, which the console and agent recipes show, so the store is the check that nothing changed. `RENAME` of a folder that does not exist is refused, and so is a second `DELETE Drafts`. `RENAME Keep Old` onto a name in use is refused and neither folder changes. `DELETE INBOX` is refused, and `INBOX` keeps its message.
+
+`RENAME INBOX Mail2025` is not refused, as the standard asks. The store shows `INBOX 0` and `Mail2025 1`: the messages moved to the new folder and an empty `INBOX` stays in place, and `STATUS INBOX (MESSAGES)` sent as a custom request answers `MESSAGES 0`. `DELETE Old`, with two messages in it, is accepted without a warning, and the store then lists neither the folder nor its messages.
+
+A name with a slash is a folder under a parent. After `RENAME Keep Work/Notes` the list has `Work/Notes` and above it `Work` with the flags `\Noselect \HasChildren`: the parent is only implied by the path. `DELETE Work` is refused, and the store still lists `Work/Notes`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-rename-and-delete-a-folder>> for the same folder changes on the console.
+* <<imap-rename-and-delete-a-folder-from-an-agent>> for an agent tidying folders.
+* <<surl-readme>>, <<rfc9051>>.

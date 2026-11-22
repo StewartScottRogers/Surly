@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-repeat-a-failure-with-a-fixed-seed-from-an-agent]]
+=== Repeating a Failure with a Fixed Seed
+
+==== Problem
+
+As an artificial intelligence (AI) agent: a failure only shows with certain generated names; you want the server's random seed fixed so the rerun draws the same names and the failure repeats.
+
+==== Solution
+
+Pass `--random-seed` with the seed the failed run's log printed in `start_server`{apos}s `arguments`, run the same steps through `curl-mcp`, and read back what the server stored. The agent's side is a C# program on the official Model Context Protocol (MCP) software development kit (SDK); the run is an Amazon Simple Storage Service (S3) multipart upload by an app with a bug that only some upload IDs bring out. A run that failed printed `seed=3`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from `PATH` over standard input and output, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client (<<mcp-spec>>).
+
+`start_server` takes `surl`{apos}s options as its words. `--random-seed 3` seeds the identifiers the server draws that grant nothing, such as the `UploadId` an S3 multipart upload is handed (<<aws-s3-api>>); without it they come from the system's cryptographic source and differ every run. Seed 3 draws `5639b40740dd9a241e86ed60a3306b6a` every time, the same ID `surl` draws for seed 3 on the console and in-process, and the stand-in bug trips over its leading digit every time. Seed 1 draws an ID that begins with a letter, and that run passes. No tool reports a seed, so the agent that runs the tests must choose one, pass it, and write it into the run's log.
+
+A seed fixes the draws for each exchange, numbered from 1 in the order connections arrive. Each `curl` tool call makes its own connection, so one call more before the upload, here a readiness check, makes the upload exchange 2, which draws `bb73347a1372eccb4997db86ac06e8c4`, and the failure is gone. A rerun repeats the names only if the agent repeats its calls in the same order and to a server of its own (<<surl-run-tests-in-parallel-without-clashes-from-an-agent>>). `start_server` answers once the listener has bound, so the agent needs no readiness check.
+
+The rest of the arguments make the endpoint: `--s3-plaintext` serves S3 as plain Hypertext Transfer Protocol (HTTP), so `bound_urls` holds an `s3://` URL that `curl` reaches as `http://`; `--user` is the access key ID and secret, and `--allow-uploads` lets signed requests store objects; `files` puts the bucket folder in the server's in-memory store. The upload goes through `curl-mcp`{apos}s `curl` tool, `curl`{apos}s command line run in-process, each step signed with `--aws-sigv4 aws:amz:us-east-1:s3` and `-u`: `-X POST ...?uploads` answers the `UploadId`, `-T` sends the part with `-D -` showing its `ETag`, and `--data-binary @complete.xml` completes it, `-f` failing on an error status. `read_file` shows what the server recorded: big.bin with its one part after the passing run, and a tool error after the failing one, which never completed its upload.
+
+The seed never reaches anything secret: two HTTP servers started with `--random-seed 3` and an account send different Digest nonces, because keys, nonces, challenges, salts and tokens always come from the cryptographic source. A seed that is not a whole number is a `start_server` tool error whose answer holds `surl`{apos}s `exit_code`, 2, and its message in `lines`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-repeat-a-failure-with-a-fixed-seed>> for the same rerun on the console.
+* <<surl-repeat-a-failure-with-a-fixed-seed-in-csharp>> for the same rerun from a C# test.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<aws-s3-api>>.

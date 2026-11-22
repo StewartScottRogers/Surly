@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs full-mailbox.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-enforce-a-mailbox-quota-from-an-agent
+title: Enforcing a Mailbox Quota from an Agent
+protocols: [imap, smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, list_mailboxes, list_messages, seed_mail]
+curl-options: [-s, -S, -v, -w, -u, -X, -T, --mail-from, --mail-rcpt]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+fixtures:
+  newsletter.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Our autumn newsletter\r\n\r\nNew this autumn: wool coats in five colours, boots with a lighter sole,\r\nand scarves woven from the same yarn as the coats. Every order over\r\nfifty pounds ships free until the end of the month, and returns stay\r\nfree for thirty days. See you in store.\r\n"
+  note.eml: "From: ann@example.com\r\nTo: ann@example.com\r\nSubject: A note to self\r\n\r\nBuy a scarf to go with the grey coat, the one woven from the same yarn.\r\nAsk whether the boots with the lighter sole come in a half size.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'Two newsletters fill most of ann''s 1k; a third sent through the curl tool is refused, and the tool reports curl''s exit 8, reply 452, Weird server reply.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^send 1: curl exit 0, 250\nsend 2: curl exit 0, 250\nsend 3: curl exit 8, 452, curl: \(8\) Weird server reply\n'
+
+  - id: refused-after-the-data
+    claim: 'get_exchanges, read after waiting for the exchange to end, shows the recipient accepted with 250, the 354 that asks for the data, and the refusal, 452 4.2.2 Mailbox full, after it.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nreplies from RCPT on: 250 2\.1\.5 Recipient OK \| 354 End data with <CR><LF>\.<CR><LF> \| 452 4\.2\.2 Mailbox full\n'
+
+  - id: nothing-stored
+    claim: 'A refused message is not stored; list_mailboxes still counts two messages in INBOX.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nINBOX: 2 messages\n'
+
+  - id: stored-size-counts
+    claim: 'The quota counts each message as stored, Return-Path and Received lines included, so list_messages gives each 332-byte newsletter a size of about 460.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstored sizes: 4[5-6][0-9], 4[5-6][0-9] of 332 sent\n'
+
+  - id: seed-refused
+    claim: 'seed_mail obeys the quota too; into the full mailbox it is a tool error, Mail for ann@example.com was refused: QuotaExceeded.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nseed_mail: isError True, Mail: Mail for ann@example\.com was refused: QuotaExceeded\.\n'
+
+  - id: append-refused
+    claim: 'An IMAP APPEND through the curl tool into the full mailbox is answered NO [OVERQUOTA], and curl exits 25.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nAPPEND: curl exit 25, < A003 NO \[OVERQUOTA\] Mailbox is over its quota\n'
+
+  - id: whole-message-refused
+    claim: 'One full mailbox refuses the whole message, so bob, named with ann, gets nothing either.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbob and ann: curl exit 8, 452, curl: \(8\) Weird server reply; bob''s INBOX: 0 messages\n'
+
+  - id: quota-is-per-mailbox
+    claim: 'Sent to bob alone, who has no quota, the newsletter is accepted with 250.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbob alone: curl exit 0, 250\n'
+
+  - id: deleted-still-counts
+    claim: 'A message marked \Deleted still counts against the quota, and the next send is refused again.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nSTORE 1 \+FLAGS \(\\Deleted\): \* 1 FETCH \(FLAGS \(\\Deleted\)\)\nsend with UID 1 deleted: curl exit 8, 452'
+
+  - id: expunge-frees-room
+    claim: 'EXPUNGE removes the marked message and frees its room, and the next send is accepted with 250.'
+    program: full-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nEXPUNGE: \* 1 EXPUNGE\nsend after EXPUNGE: curl exit 0, 250\n$'
+
+  - id: quota-zero-refused
+    claim: 'A quota must be above 0; with quota=0 start_server is a tool error carrying surl''s exit code 2, FailedInit.'
+    program: full-mailbox.cs
+    args: [zero]
+    expect:
+      exit: 1
+      stdout: "start_server: tool error, exit_code 2 (FailedInit), option --mailbox: key quota needs a value above 0\n"

@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-sync-a-folder-to-a-bucket]]
+=== Syncing a Folder to a Bucket
+
+==== Problem
+
+You have a folder of files and an Amazon Simple Storage Service (S3) bucket. You want to upload the folder, list the bucket, change one file and upload only that file again, and have the listing show that one object changed and the rest did not.
+
+==== Solution
+
+One `curl` command puts every file of the folder with a single `-T` pattern, and `--next` starts a second transfer that lists the bucket:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`curl` has no sync command; a sync is a decision about which files to put, and the puts themselves are `curl -T`. `-T "site/{a.csv,b.csv,c.csv}"` is a pattern `curl` expands itself, so the quotes keep the shell out of it, and a URL that ends in `/` takes each file{apos}s own name as the object key. The bucket is `reports`, the host of the `s3://` URL, and `curl` sends to `reports.s3.us-east-1.amazonaws.com:443`, so `--connect-to ::127.0.0.1:PORT` routes it to `surl` and the certificate names `*.s3.us-east-1.amazonaws.com` as well as `127.0.0.1`. `-u` signs every request, and `--cacert` makes `curl` trust the certificate that `surl` was given with `--cert` and `--key`. `-s` quiets the progress meter and `-S` still shows an error. `--next` gives the listing its own options, which is why it repeats them, and the command{apos}s exit code is the last transfer{apos}s. A URL ending in `/` with no `-T` is a listing, one name a line, sorted; `old.csv` was in the bucket{apos}s folder before the sync and is an object like the rest.
+
+Uploading the folder is the easy half. The hard half is knowing what the second run did, and a listing by name cannot say: after b.csv is changed and put again, the listing is the same four names. Two other things say it. The server{apos}s log, written with `-v` to the file `--log-file` names (the bucket is `--directory store` with one account from `--user`), has a line for each object stored, so `grep -c "bytes stored"` counts puts: three for the folder, and four after the second run, which put one file and not three. And the listing that carries sizes. The same bucket listed over HTTPS to its host name, signed with `--aws-sigv4 aws:amz:us-east-1:s3`, is the ListObjectsV2 reply as XML, with a `Size` and an `ETag` for each key. For a put like these the ETag is the MD5 of the content, so a test can hash its own file and compare. After the change b.csv is 25 bytes and has a new ETag, and a.csv and c.csv have the sizes and ETags they had. AWS Signature Version 4 (SigV4) over HTTP/2 is refused by `surl` for now, so the signed request uses `--http1.1`; `s3://` itself is always HTTP/1.1.
+
+The failures stop a sync in different ways. A name in the pattern that is not a file stops `curl` with exit `26`, after the files before it were put. A wrong secret is `403 SignatureDoesNotMatch` for every file and exit `22`. Without `--allow-uploads` every put is `403 AccessDenied`, exit `22`, and nothing arrives: the bucket then answers `404 NoSuchKey` for a.csv. Without `--list-directories` a signed listing is `403 AccessDenied`, so a bucket that cannot be listed cannot be checked by listing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-sync-a-folder-to-a-bucket-in-csharp>> for the same sync in a C# program.
+* <<s3-sync-a-folder-to-a-bucket-from-an-agent>> for the same sync driven by an agent.
+* <<s3-list-a-bucket>> for listings on their own.
+* <<s3-audit-a-bucket-after-a-sync>> for checking a bucket against what a sync meant to put.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-fetch-only-new-messages-in-csharp
+title: Fetching Only New Messages in C#
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlMessagePage, SurlMailboxInfo, SurlEventQuery, SurlEvent, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Between two syncs two orders arrive; the second sync, remembering UID 2, asks UID SEARCH UID 3:*, gets 3 4, and surl's record shows it fetched those two and nothing else.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsync 2 \(after UID 2\): \* SEARCH 3 4; fetched 3 4; last UID 4\nsync 2, surl received: UID FETCH 3 BODY\[\] \| UID FETCH 4 BODY\[\]\n'
+
+  - id: first-sync-fetches-all
+    claim: The first sync, from UID 0, fetches both messages there, 1 and 2, and remembers UID 2.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^sync 1 \(after UID 0\): \* SEARCH 1 2; fetched 1 2; last UID 2\nsync 1, surl received: UID FETCH 1 BODY\[\] \| UID FETCH 2 BODY\[\]\n'
+
+  - id: store-lists-above-a-uid
+    claim: ListMessagesAsync with afterUid 2 lists what the test expects the second sync to fetch, UIDs 3 and 4.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nstore above UID 2: 3 4\n'
+
+  - id: nothing-new-is-not-empty
+    claim: With nothing new, UID SEARCH UID 5:* still answers 4, the largest UID in use; the client drops it and surl receives no UID FETCH.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsync 3 \(after UID 4\): \* SEARCH 4; fetched none; last UID 4\nsync 3, surl received: no UID FETCH\n'
+
+  - id: uidnext-and-uidvalidity
+    claim: STATUS through CustomRequest answers UIDNEXT 5, and its UIDVALIDITY equals the store's UidValidity.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nSTATUS: UIDNEXT 5; UIDVALIDITY equals the store''s: True\n'
+
+  - id: expunge-renumbers
+    claim: Another client marks message 1 \Deleted and expunges it; EXPUNGE answers its number, 1.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nEXPUNGE: \* 1 EXPUNGE\n'
+
+  - id: uids-are-not-reused
+    claim: A fifth order then gets UID 5, not 4, though the INBOX holds four messages; the next sync fetches UID 5 alone.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nsync 4 \(after UID 4\): \* SEARCH 5; fetched 5; last UID 5\nsync 4, surl received: UID FETCH 5 BODY\[\]\n'
+
+  - id: message-numbers-shift
+    claim: The URL query INBOX?UID%205:* sends a plain SEARCH and answers 4, the same message's number, not its UID.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nURL query INBOX\?UID%205:\*: \* SEARCH 4\n'
+
+  - id: gone-uid
+    claim: Fetching the expunged UID 1 throws CurlException RemoteFileNotFound, code 78.
+    program: sync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nUID 1: CurlException RemoteFileNotFound \(78\)\n$'

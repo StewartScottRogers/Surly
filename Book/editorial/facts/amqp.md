@@ -96,4 +96,11 @@ surl-mcp's `publish_message(queue:)` or curl-mcp's `curl -d` publish for real.
   `.OfType<StoreChangedEvent>()`, `Change` `Enqueued`/`Delivered`/`Acknowledged`.
 
 ## Recipes
-amqp-send-and-receive, amqp-seed-a-queue-and-browse-what-is-left, amqp-check-what-a-queue-still-holds, amqp-bridge-to-amqp-1-0, amqp-process-a-work-queue-end-to-end, amqp-keep-a-queue-across-restarts (each with C# and agent twins)
+amqps-log-in-over-tls, amqp-send-and-receive, amqp-seed-a-queue-and-browse-what-is-left, amqp-check-what-a-queue-still-holds, amqp-bridge-to-amqp-1-0, amqp-process-a-work-queue-end-to-end, amqp-keep-a-queue-across-restarts (each with C# and agent twins)
+
+## AMQPS and PLAIN (amqps-log-in-over-tls and twins; Surl 5da5b3eaf / Curl c84035f797, 2026-11-22, windows)
+- `surl --cert server.pem --key server.key --user alice:s3cret amqps://h:P/ amqp://h:Q/`: curl `--cacert server.pem -u alice:s3cret` over `amqps://h:P/%2F/orders` publishes (`-d`) and reads (exit 0; `--ssl-no-revoke` not needed). Same login over `amqp://` is exit 67 `AMQP server offers no mechanism this client can use (it offers "CRAM-MD5")`; with `--allow-plaintext-auth` on its own server it works, and a wrong password there is 403 as below. (curl has no `--allow-plaintext-auth`; exit 2.)
+- Over TLS a wrong password, an unknown user and no `-u` are all 67 `AMQP server sent connection.close: reply code 403, ACCESS_REFUSED - login refused`. No `--cacert`: exit 60 (schannel wording). `surl --user a:b amqps://...` with no cert: exit 58 `needs a certificate`.
+- Surl.Api: `ListenUrls = { "amqps://127.0.0.1:0", "amqp://127.0.0.1:0" }`, `CertificateFile`, `KeyFile`, `Accounts`, `AllowPlaintextAuthentication`, `Queues.Add`; Curl.Api GET with `CurlAuthenticationOptions` reads one message (`EnqueueAsync` puts it there; Curl.Api cannot publish); `CurlClientOptions { Tls = new CurlTlsOptions { Origin = new CurlTlsPeerOptions { CertificateAuthorityFile = "server.pem" } } }` trusts the cert; no CA: `CurlException` 60 `PeerFailedVerification`; refusals 67 `LoginDenied`; no certificate: `SurlServerStartException.ExitCode` `CertificateProblem` (58).
+- surl-mcp `start_server` with an amqps listener and no `--cert`: tool error, structured `exit_code` 58 `CertificateProblem`. curl-mcp `curl` with a non-zero exit (67, 60) is a tool error (`IsError`); `standardError.content` holds `curl: (67) ...`. After `curl -d` wait with `wait_for_event(kinds:["store_changed"], store:"bus", name:"$queue/orders")` before reading.
+- Linux and macOS not probed (CI checks).

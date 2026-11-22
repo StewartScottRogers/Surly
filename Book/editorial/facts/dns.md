@@ -11,7 +11,7 @@ refused on Windows (exit 45, Permission denied); use `{{port}}`.
 - `--directory <dir>`: zones are master files `<dir>/.surl/dns/<apex>.zone`, read once at start. A fixture
   `site/.surl/dns/example.test.zone` works (the `.test` apex is fine). `$ORIGIN`, `$TTL`, relative names work.
 - No `--directory` or no zone file: every query is REFUSED. A name in no zone is REFUSED.
-- `--allow-zone-transfer`: loosens; AXFR/IXFR (not probed).
+- `--allow-zone-transfer`: loosens (no stderr warning seen); AXFR over TCP sends the zone, the apex SOA first and last (`dns-transfer-a-whole-zone`). Default: REFUSED over TCP and UDP. With it: UDP AXFR is NOTIMP; AXFR of a name that is not an apex (even one inside the zone) is NOTAUTH, which curl writes `RCODE9`.
 
 ## Client: curl
 curl 8.22.0 has no `dns` scheme; the Curl port adds `dns://server:port/name?type=MX` (RFC 4501; `;TYPE=MX`
@@ -26,6 +26,9 @@ in the path does not work, use `?type=`). Type defaults to A.
 - A name with a type it has no record of: NOERROR, empty answer, the SOA in authority.
 - MX answers also fill `additional` with the glue A record when the zone has it; the authority holds the NS.
 
+- curl asks `type=AXFR` only: `type=IXFR` is curl exit 3 `The dns: URL's query element "type=IXFR" is not TYPE= or CLASS= with a known value`, before any query (Curl.Api: `CurlException` code 3). AXFR over UDP and TCP both exit 0.
+- Two surls cannot share one `--directory` (lock): a second server in a recipe needs its own copy of the zone fixture.
+
 ## MCP
 - surl-mcp `add_dns_zone`: `server_id`, `apex`, `zone_text`; answers `{"apex","byte_count"}`. A second zone for an
   apex: tool error `Zones: The zone example.test was refused: a second zone for example.test.`; on a server with no
@@ -39,11 +42,13 @@ in the path does not work, use `?type=`). Type defaults to A.
 ## Gotchas
 - Surl.Api: `server.Zones.AddZoneAsync(apex, text)`, `ReadAsync`, `ListAsync`; `SurlSeedRefusedException`
   (`Store` Zones; `Refusal` `a second zone for example.test` or `This instance holds no DNS zones`).
-- Curl.Api 0.2.0 answers `dns://` with the dig text only (no `--dns-json` property); read the body, split record
-  lines on tabs. `JsonSerializer.Serialize` of anonymous types fails in a file-based app (reflection disabled): build
+- Curl.Api (Curl c84035f797) has `CurlRequest.Dns = new CurlDnsOptions { Transport = "tcp", Json = true }` (namespace `Curl.Api`): `--dns-transport` and `--dns-json`; the default is UDP and dig text (older 0.2.0: text only; split record
+  lines on tabs). Server side: `--allow-zone-transfer` has no Surl.Api property: `AdditionalArguments.Add(...)`; surl-mcp: `start_server` `arguments`. `JsonSerializer.Serialize` of anonymous types fails in a file-based app (reflection disabled): build
   with `JsonObject` and `JsonArray`, casting `(JsonNode)` when adding, and use `UnsafeRelaxedJsonEscaping` to keep quotes.
 - Platforms: UDP to a port where nothing listens is exit 7 at once on Windows and retransmits on Linux and macOS
   (see platforms.md, CoAP; not probed for dns). No recipe here depends on it, so none is platform-marked.
 
 ## Recipes
-dns-read-answers-as-json (and twins)
+dns-read-answers-as-json, dns-transfer-a-whole-zone (and twins)
+
+- Decided by Surl (2026-11-22): `--allow-zone-transfer` writes no warning; it is a deployment choice like `--list-directories` (Surl ADR-0092; ADR-0046 d.5 warns only for test-only loosenings).

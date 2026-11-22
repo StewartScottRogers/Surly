@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[stomp-send-and-read-over-mqtt]]
+=== Sending over STOMP, Reading MQTT
+
+==== Problem
+
+Your back end sends over the Simple Text Oriented Messaging Protocol (STOMP) and your devices listen over Message Queuing Telemetry Transport (MQTT). You want a message sent over STOMP kept as a retained message, so a device that subscribes later is sent it.
+
+==== Solution
+
+Start `surl` with a STOMP listener and an MQTT listener, and a `--topic` filter that keeps what is sent under `devices/`. Send with `curl` over STOMP, then subscribe with `curl` over MQTT:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` runs one message bus, and its STOMP, MQTT, Advanced Message Queuing Protocol (AMQP), NATS and Kafka listeners all read and write it (<<surl-readme>>). The destination `/topic/devices/lamp/state` on the STOMP side is the MQTT topic `devices/lamp/state` (<<stomp12>>, <<mqtt311>>). `curl -d on` over STOMP sends the body `on` there, and `-s` keeps the progress meter out of the output, and `--next` starts a second transfer with its own options: the MQTT subscribe, which has no `-d`.
+
+Keeping the message is the job of `--topic "devices/#;retain"`. It keeps every message published on a topic that matches the filter, whichever protocol it arrived on and whatever flag it carried, since a STOMP send has no retain flag to set. `--allow-anonymous` lets both clients in without an account and warns on start; it is only for a test.
+
+`curl` writes what an MQTT subscriber is sent as the topic{apos}s length in two bytes, the topic and the payload, so the solution{apos}s output begins with a zero byte and `devices/lamp/state` (<<curl-readme>>). `surl` answers a subscribe with the matching retained messages and then closes the connection, so the subscriber ends by itself, exit `0`.
+
+A topic keeps one message. A second send to `devices/fan/state` replaces the first, and the subscriber is sent only the second. A send with an empty body clears the topic, and the subscriber is sent nothing. A subscriber to `devices/hall/#` is sent every retained topic under it, here two; `#` has to be written `%23` in a URL, since a plain one starts a fragment that `curl` does not send.
+
+A send is kept only where the server was told to keep it. A topic outside every filter, here `other/lamp`, is accepted and `curl` exits `0`, but nothing is kept. A server started with no `--topic` filter at all keeps nothing, and that is what the `plain` server shows. Nothing about the send tells the sender: the refusal to keep is silent.
+
+A `/queue/` destination is a different thing from a topic. A message sent to `/queue/devices/jobs` goes to a queue, and no MQTT topic carries it. And a STOMP subscriber to a topic is not sent the retained message the way an MQTT one is: it receives nothing, and `surl` ends the idle subscription after the one second `--idle-timeout 1` gives it, so `curl` exits `0` with no output; `-m 10` is only a ceiling in case it did not.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<stomp-send-and-read-over-mqtt-in-csharp>> for the same send and read from a C# test.
+* <<stomp-send-and-read-over-mqtt-from-an-agent>> for an agent that drives them.
+* <<stomp-send-to-a-queue>> for STOMP queues and logins.
+* <<mqtt-keep-a-retained-message>> for the MQTT side of retained messages.
+* <<stomp12>>, <<mqtt311>>, <<surl-readme>>, <<curl-readme>>.

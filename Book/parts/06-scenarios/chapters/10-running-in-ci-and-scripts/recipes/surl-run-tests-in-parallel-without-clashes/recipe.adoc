@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-run-tests-in-parallel-without-clashes]]
+=== Running Tests in Parallel Without Clashes
+
+==== Problem
+
+Your suite runs in parallel workers; you want each worker on its own server, ports and store, and nothing shared but the binary.
+
+==== Solution
+
+Give each worker its own `surl` on port 0 over a directory of its own, started and stopped by the worker itself. The scripts need a POSIX shell, which Linux and macOS have and Windows has as Git Bash. A worker:
+
+[source,sh]
+----
+include::worker.sh[]
+----
+
+The runner starts the workers side by side and waits for all of them:
+
+[source,sh]
+----
+include::run-parallel.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Three things can clash between workers, and each worker here owns all three. The port: `http://127.0.0.1:0/` lets the system pick a free one, and the worker reads it from the `Listening on` line `surl` writes once it has bound, so four workers got four ports that nobody chose. The store: `--directory work/<n>/site` is the worker{apos}s own folder, so every worker can upload under the same name, `result.txt`, and read back only its own. The process: each worker starts its `surl`, waits for it, and stops it with `kill` and `wait` when its tests end, so no worker depends on another{apos}s server being up, and a slow worker never finds its server stopped by a fast one.
+
+Nothing else is shared. The account is the same in every worker, `--user tester:s3cret`, but each server holds its own copy, and `--allow-uploads` lets that account store files on its own server only. Every request needs the login because an account is configured; the tests send it with `-u`, and `--digest` makes it a Digest login (<<rfc7616>>). `-T` uploads, `-f` fails on an error status, `-s` keeps `curl` quiet and `-S` still prints an error.
+
+A worker that fails stays its own business. With a wrong password in worker 2, its upload is answered 401 and `curl -f` exits 22; workers 1 and 3 pass and stop their servers all the same. The runner waits for every worker, prints each one{apos}s output in worker order rather than finishing order, and exits with the failing worker{apos}s code, naming it.
+
+The two shared things a suite most often slips into are both refused, so they fail at once rather than corrupt a run. `surl` locks its data directory: a second `surl` on a directory another one serves exits 124 with `Directory shared is in use by another surl process`. A fixed port another worker holds exits 45, `Could not bind`. Port 0 and a directory per worker keep either from happening.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-run-tests-in-parallel-without-clashes-in-csharp>> for the same workers in a C# test.
+* <<surl-run-tests-in-parallel-without-clashes-from-an-agent>> for the same workers from an agent.
+* <<surl-run-a-test-server-in-ci>> for one server per job step, with every exit code checked.
+* <<surl-readme>>, <<curl-manual>>, <<rfc7616>>.

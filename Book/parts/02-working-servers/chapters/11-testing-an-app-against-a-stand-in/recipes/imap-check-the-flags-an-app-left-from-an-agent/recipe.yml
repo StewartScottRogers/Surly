@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs app-flags.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-check-the-flags-an-app-left-from-an-agent
+title: Checking an App's Flags from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, curl, list_messages, list_mailboxes, read_message]
+curl-options: [-s, -S, -u, -X, -o]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the app's run through the curl tool, list_messages gives each message's flags by UID, the two orders \Seen, the spam \Seen and \Deleted, the newsletter none.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^after the app: UID 1 \(\\Seen\); UID 2 \(\\Seen\); UID 3 \(\\Seen \\Deleted\); UID 4 \(\)\n'
+
+  - id: check-sets-no-flag
+    claim: list_messages sets no flag; a second listing is the same, and a SEARCH for UNSEEN through the curl tool still names the newsletter, 4.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisted again: UID 1 \(\\Seen\); UID 2 \(\\Seen\); UID 3 \(\\Seen \\Deleted\); UID 4 \(\)\nIMAP UNSEEN: \* SEARCH 4\n'
+
+  - id: search-deleted
+    claim: A SEARCH for DELETED through the curl tool names only the spam, 3.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nIMAP DELETED: \* SEARCH 3\n'
+
+  - id: search-processed
+    claim: SEEN NOT DELETED names the messages the app processed and kept, 1 and 2.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nIMAP SEEN NOT DELETED: \* SEARCH 1 2\n'
+
+  - id: deleted-is-still-there
+    claim: \Deleted only marks a message; list_mailboxes still counts four messages, one unseen.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlist_mailboxes: 4 messages, 1 unseen\n'
+
+  - id: read-message-sets-no-flag
+    claim: read_message gives the agent the newsletter's text and sets no flag; its UID 4 still has none.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nread_message UID 4: Subject: Our autumn newsletter; after it: [^\n]*UID 4 \(\)\n'
+
+  - id: reading-to-check-spoils-it
+    claim: Checking by fetching the newsletter through the curl tool is a read and sets \Seen; STORE 4 -FLAGS (\Seen) takes it off again.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter a curl fetch of UID 4: [^\n]*UID 4 \(\\Seen\)\nSTORE 4 -FLAGS \(\\Seen\): \* 4 FETCH \(FLAGS \(\)\)\n'
+
+  - id: expunge-removes
+    claim: EXPUNGE through the curl tool removes the message marked \Deleted and answers its number, 3.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nEXPUNGE: \* 3 EXPUNGE\n'
+
+  - id: check-by-uid
+    claim: After the expunge list_messages gives UIDs 1, 2 and 4, and UID FETCH shows the newsletter is now message 3 with UID 4 still.
+    program: app-flags.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nafter EXPUNGE: UID 1 \(\\Seen\); UID 2 \(\\Seen\); UID 4 \(\)\nIMAP UID FETCH: \* 1 FETCH \(UID 1 FLAGS \(\\Seen\)\) \| \* 2 FETCH \(UID 2 FLAGS \(\\Seen\)\) \| \* 3 FETCH \(UID 4 FLAGS \(\)\)\n$'

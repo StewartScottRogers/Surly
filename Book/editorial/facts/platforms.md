@@ -110,3 +110,11 @@ http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it, htt
 - Unix sockets on macOS (diagnosed 2026-11-21, fixed in Surl 5da5b3eaf): see "Unix domain sockets" above; no `platforms:` needed any more.
 - natss on Windows (2026-11-22, Curl c84035f797): `--cacert` needs `--ssl-no-revoke` too (exit 35 without), with a single self-signed certificate; the nats-log-in-with-a-token recipes pass `--ssl-no-revoke` everywhere. Linux and macOS not probed.
 - `telnet://` as a raw XML client (xmpp-require-tls-before-login): `curl -m 3 -T file telnet://127.0.0.1:P` ends with exit 28 on Windows once -m passes; not yet seen on Linux or macOS.
+
+## PowerShell and Pester (surl-run-a-fixture-from-pester, 2026-11-22)
+- GitHub runner images (ubuntu-26.04 20261116, macos-26-arm64 20261117) have PowerShell 7.6 and Pester 5.9.0; windows images have Pester 3.4.0 and 5.9.0. This Windows machine has pwsh 7.6 with only Pester 3.4.0 (inbox). Pester 3.4 knows only `Should Be`, Pester 5 only `Should -Be`, so a test file for both throws instead. Checked by hand with Pester 5.7.1 saved into the scratchpad (PSModulePath); not installed.
+- A BeforeAll that throws: Pester 3.4 counts 1 failure, Pester 5 fails each It (3). Claim only that the run fails.
+- Start surl from pwsh with `System.Diagnostics.Process` and `RedirectStandardOutput`, then `StandardOutput.ReadLine()` for `Listening on`; no file polling, works the same on Unix. `Kill()` + `WaitForExit()` in AfterAll.
+
+- A .NET program that starts `curl` with `Process`/`ProcessStartInfo("curl")` on Windows gets `C:\Windows\System32\curl.exe` (Windows searches System32 before PATH), not the port's curl; it fails `Protocol "webtransport" not supported`. `Process("surl")` is fine (nothing of that name in System32). Batch 11 C# recipes start only surl that way (`mcp-start-an-mcp-server-as-a-program-in-csharp`).
+- WebTransport datagram limit (1,099-byte payload, 1,100 refused with exit 55) and the coaps PSK refusal (exit 35) are the port's own QUIC/DTLS code on both sides; probed on Windows only, not marked `platforms:` (batch 11, `webtransport-send-datagrams-and-streams`, `coaps-serve-over-dtls`).

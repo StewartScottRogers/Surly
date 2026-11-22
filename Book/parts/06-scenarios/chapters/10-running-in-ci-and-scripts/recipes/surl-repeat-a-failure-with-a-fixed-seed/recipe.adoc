@@ -1,0 +1,51 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-repeat-a-failure-with-a-fixed-seed]]
+=== Repeating a Failure with a Fixed Seed
+
+==== Problem
+
+A failure only shows with certain generated names; you want the server's random seed fixed so the rerun draws the same names and the failure repeats.
+
+==== Solution
+
+Start `surl` with `--random-seed` in every test run and print the seed first, so a failed run's log names it; rerun with that seed to draw the same names again. Here a run is one script, which starts `surl`{apos}s Amazon Simple Storage Service (S3) endpoint, runs the app's upload and stops `surl`. The scripts need a POSIX shell, which Linux and macOS have and Windows has as Git Bash:
+
+[source,sh]
+----
+include::test-run.sh[]
+----
+
+The app under test is a multipart upload, with a bug that only some upload IDs bring out:
+
+[source,sh]
+----
+include::upload.sh[]
+----
+
+A run that failed printed `seed=3`. Rerun with it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--random-seed <n>` seeds the identifiers a server draws that grant nothing: names a client is handed and must use again, such as the `UploadId` an S3 multipart upload gets (<<aws-s3-api>>). Without it they come from the system's cryptographic source and differ every run, so a failure that depends on one shows once and is gone. With it, seed 3 draws `5639b40740dd9a241e86ed60a3306b6a` for the upload every time, the stand-in bug trips over the leading digit every time, and the failure can be studied, fixed and checked against the very name that broke it. Seed 1 draws an ID that begins with a letter, and that run passes.
+
+The seed is not printed by `surl`, and without `--random-seed` nothing is seeded at all, so a seed is only useful if the run chose it and said so. `test-run.sh` takes one as its argument or draws one from `/dev/urandom`, and writes `seed=<n>` before anything else. A continuous integration (CI) job that always runs it that way has the seed in the log of the run that failed. `--random-seed` loosens nothing and writes no warning, so it can stay on in every run.
+
+A seed fixes the draws for each exchange, numbered from 1 in the order connections arrive, not one sequence for the whole server. So a rerun repeats the names only if it repeats the order: one more connection before the upload, here a readiness check that connects and leaves, makes the upload exchange 2, which draws `bb73347a1372eccb4997db86ac06e8c4`, and the failure does not show. Tests that run side by side against one server reach it in an order nobody fixed; give each its own server (<<surl-run-tests-in-parallel-without-clashes>>). This script waits for the `Listening on` line instead of connecting, so its first exchange is the app's.
+
+The rest of the command line is the S3 endpoint the app needs. `--s3-plaintext` serves S3 as plain Hypertext Transfer Protocol (HTTP) instead of over Transport Layer Security (TLS), so no certificate is needed; `--user` is the access key ID and secret every request must be signed with, `--allow-uploads` lets signed requests store objects, `--directory store` is where they land, and `-v` keeps a log line per event in `surl.log`. The app signs each request with `-u` and `--aws-sigv4`, here `aws:amz:us-east-1:s3`, and runs `curl` quiet with `-s` but for errors, which `-S` still prints; `-o` drops a reply it does not need and `-f` fails on an error status; `-X POST ...?uploads` begins the upload and answers the `UploadId`, `-T` sends the part and `-D -` shows the part{apos}s `ETag`, and `--data-binary @complete.xml` completes it. The failed run left only the upload it began: nothing is stored as `big.bin`. The passing run stored the object, its one part.
+
+What the seed never touches is anything secret. Keys, nonces, challenges, salts and tokens are always drawn from the cryptographic source, so a seed in a log gives nobody a way in: two HTTP servers started with the same seed and an account still send different Digest nonces. A seed must be a whole number from 0 to 9223372036854775807; anything else is refused, exit 2, before anything listens.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-repeat-a-failure-with-a-fixed-seed-in-csharp>> for the same rerun from a C# test.
+* <<surl-repeat-a-failure-with-a-fixed-seed-from-an-agent>> for the same rerun from an agent.
+* <<surl-run-a-test-server-in-ci>> for the job step that starts and stops the server.
+* <<surl-readme>>, <<curl-manual>>, <<aws-s3-api>>.

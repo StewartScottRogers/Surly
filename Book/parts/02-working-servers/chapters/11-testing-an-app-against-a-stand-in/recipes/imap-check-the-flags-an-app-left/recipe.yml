@@ -1,0 +1,99 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-check-the-flags-an-app-left
+title: Checking the Flags an App Left
+protocols: [imap, smtp]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-u, -X, -s, -S, -o, -T, --crlf, --mail-from, --mail-rcpt, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures:
+  order1.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 1 shipped\n\nYour first order is on its way.\n"
+  order2.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 2 shipped\n\nYour second order is on its way.\n"
+  spam.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: You have won a prize\n\nClick here to claim it.\n"
+  news.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Our autumn newsletter\n\nNew colours in store.\n"
+
+# One surl: SMTP to put mail in, IMAP for the app and for the test, one mail store.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox shop@example.com:shoppass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+# Four messages arrive (the second line waits, at most ten tries a second apart, until message 4 is in);
+# then the app's run: it reads both orders, reads the spam's subject and marks it \Deleted, and leaves
+# the newsletter alone.
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T "{order1,order2,spam,news}.eml" smtp://127.0.0.1:{{port}}/example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "FETCH 4 FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+  - curl -sS -o "read#1.eml" -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=[1-2]"
+  - curl -sS -o {{null}} -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=3;SECTION=HEADER.FIELDS%20(SUBJECT)" --next -sS -o {{null}} -u ann@example.com:annpass -X "STORE 3 +FLAGS (\Deleted)" imap://127.0.0.1:{{port2}}/INBOX
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the app's run, FETCH 1:* FLAGS shows each message's flags in one answer, the two orders \Seen, the spam \Deleted and \Seen, the newsletter none.
+    run: curl -u ann@example.com:annpass -X "FETCH 1:* FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: |
+        * 1 FETCH (FLAGS (\Seen))
+        * 2 FETCH (FLAGS (\Seen))
+        * 3 FETCH (FLAGS (\Deleted \Seen))
+        * 4 FETCH (FLAGS ())
+
+  - id: check-sets-no-flag
+    claim: Asking for FLAGS sets none, so the newsletter the app had to leave alone is still the one unread message; a SEARCH for UNSEEN names 4.
+    run: curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?UNSEEN"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 4\n"
+
+  - id: search-deleted
+    claim: A SEARCH for DELETED names only the spam, 3.
+    run: curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?DELETED"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 3\n"
+
+  - id: search-processed
+    claim: Search keys combine; SEEN NOT DELETED names the messages the app processed and kept, 1 and 2.
+    run: curl -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?SEEN%20NOT%20DELETED"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1 2\n"
+
+  - id: deleted-is-still-there
+    claim: \Deleted only marks a message; the mailbox still holds four until something expunges it.
+    run: curl -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 4)\n"
+
+  - id: reading-to-check-spoils-it
+    claim: Checking by fetching the message itself is a read, so it sets \Seen on the newsletter; STORE 4 -FLAGS (\Seen) puts it back.
+    run: curl -s -o {{null}} -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=4" --next -u ann@example.com:annpass -X "FETCH 4 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -u ann@example.com:annpass -X "STORE 4 -FLAGS (\Seen)" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: |
+        * 4 FETCH (FLAGS (\Seen))
+        * 4 FETCH (FLAGS ())
+
+  - id: expunge-removes
+    claim: EXPUNGE removes the messages marked \Deleted, and the answer names the spam's number, 3.
+    run: curl -u ann@example.com:annpass -X EXPUNGE imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: "* 3 EXPUNGE\n"
+
+  - id: check-by-uid
+    claim: After the expunge the newsletter is message 3 but keeps UID 4; UID FETCH answers both, so a test that names messages by UID still finds it.
+    run: curl -u ann@example.com:annpass -X "UID FETCH 1:* FLAGS" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout: |
+        * 1 FETCH (UID 1 FLAGS (\Seen))
+        * 2 FETCH (UID 2 FLAGS (\Seen))
+        * 3 FETCH (UID 4 FLAGS ())

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-transfer-a-whole-zone-in-csharp]]
+=== Transferring a Whole Zone in C#
+
+==== Problem
+
+Your secondary name server copies zones with a full zone transfer, AXFR, and you want a C# test to show the primary refusing it by default, serving the whole zone over the Transmission Control Protocol (TCP) once it is allowed, and refusing it over the User Datagram Protocol (UDP), with no `surl` or `curl` process to manage.
+
+==== Solution
+
+Start a `SurlServer` with a `dns` listen URL and `--allow-zone-transfer`, seed a zone, and ask for the type `AXFR` over TCP with a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `dns://127.0.0.1:0`: port 0 asks for a free port, and the one Domain Name System (DNS) listener serves UDP and TCP on it. `--allow-zone-transfer` has no property of its own, so it goes in `AdditionalArguments` in `surl`{apos}s own words, read after the properties (<<surl-readme>>). The option widens what a peer may do, and without it the server refuses every transfer. `SurlServer.Zones`, a `SurlServerZones`, seeds the zone from master-file text with `AddZoneAsync`, where the console recipe writes a file under `.surl/dns` before `surl` starts (<<rfc1035>>, section 5).
+
+`CurlRequest` is the method and the URL, and the URL is the shape RFC 4501 gives a DNS query: the server and port, the name as the path and `type=` the record type, `AXFR` here (<<rfc4501>>, <<curl-readme>>). `CurlRequest.Dns` is a `CurlDnsOptions`: `Transport` is `--dns-transport` and `Json` is `--dns-json`, which writes the answer as JavaScript Object Notation (JSON) in place of `dig`{apos}s text. `CurlClient.SendAsync` returns a `CurlResponse` whose `Body` the program reads whole and parses with `JsonDocument`. A refusal is an answer, not an error: `SendAsync` throws nothing for it, and the program reads the `status` instead.
+
+Over TCP with the option, the answer is `NOERROR` and holds every record in the zone, with the start of authority (SOA) record first and again last, which is how a secondary knows it has read to the end. The zone here has an SOA, a name server, a mail exchange and two address records, so six records come back. Without the option the same request is answered `REFUSED` with no records, and over UDP too.
+
+`CurlDnsOptions.Transport` defaults to UDP, and a transfer over UDP is answered `NOTIMP`, not implemented, with no records, even on the server that allows transfers, because a whole zone does not fit a UDP answer. A name that is no zone{apos}s apex, here `mail.example.test`, which the zone holds but does not own, is answered with a status that the text writes as `RCODE9`, which is `NOTAUTH`, even with transfers allowed. Without `Json` the body is the `dig`-style text, and the program reads the header line that counts six answers and the type of the first and last record lines, which are tab-separated.
+
+`CurlClient` accepts `AXFR` only. A request for the incremental type `IXFR` throws a `CurlException` before any query is sent, with `Code` 3, the code `curl` exits with for a URL it cannot use, and a message about the query element. The program prints it and exits `1`; both exit codes are the program{apos}s choice.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-transfer-a-whole-zone>> for the same transfers on the console.
+* <<dns-transfer-a-whole-zone-from-an-agent>> for an agent that drives them.
+* <<dns-read-answers-as-json-in-csharp>> for single lookups from C#.
+* <<rfc1035>>, <<rfc4501>>, <<surl-readme>>, <<curl-readme>>.

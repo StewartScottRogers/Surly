@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs file-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-file-mail-into-a-folder-from-an-agent
+title: Filing Mail into Folders from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, wait_for_event, curl, list_mailboxes, list_messages]
+curl-options: [-s, -S, -v, -u, -X]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "CREATE, COPY 1, STORE +FLAGS (\\Deleted) and EXPUNGE through the curl tool file order 1: list_mailboxes counts INBOX 2 and Archive 1."
+    program: file-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^copied:\\ Archive\\ 1,\\ INBOX\\ 3\\nSTORE:\\ \\*\\ 1\\ FETCH\\ \\(FLAGS\\ \\(\\\\Deleted\\)\\)\\nEXPUNGE:\\ \\*\\ 1\\ EXPUNGE\\nfiled:\\ Archive\\ 1,\\ INBOX\\ 2\\n$"
+
+  - id: create-existing
+    claim: "A second CREATE of the same folder is answered NO [ALREADYEXISTS] and curl exits 21; list_mailboxes still shows one Archive."
+    program: file-mail.cs
+    args: ["exists"]
+    expect:
+      exit: 0
+      stdout-matches: "^CREATE\\ Archive:\\ curl\\ exit\\ 21,\\ <\\ A003\\ NO\\ \\[ALREADYEXISTS\\]\\ Mailbox\\ already\\ exists\\nfolders:\\ Archive\\ 0,\\ INBOX\\ 3\\n$"
+
+  - id: copy-to-missing-folder
+    claim: "COPY into a folder that does not exist is answered NO [TRYCREATE] and curl exits 21; no folder appears."
+    program: file-mail.cs
+    args: ["no-folder"]
+    expect:
+      exit: 0
+      stdout-matches: "^COPY\\ 1\\ Nowhere:\\ curl\\ exit\\ 21,\\ <\\ A004\\ NO\\ \\[TRYCREATE\\]\\ Mailbox\\ does\\ not\\ exist\\nfolders:\\ INBOX\\ 3\\n$"
+
+  - id: copy-missing-message
+    claim: "COPY of message 9, which INBOX does not have, is answered BAD Invalid message sequence number and curl exits 21; Archive stays empty."
+    program: file-mail.cs
+    args: ["no-message"]
+    expect:
+      exit: 0
+      stdout-matches: "^COPY\\ 9\\ Archive:\\ curl\\ exit\\ 21,\\ <\\ A004\\ BAD\\ Invalid\\ message\\ sequence\\ number\\nfolders:\\ Archive\\ 0,\\ INBOX\\ 3\\n$"
+
+  - id: copy-keeps-the-original
+    claim: "COPY 2 alone leaves INBOX at 3 messages and puts 1 in Archive."
+    program: file-mail.cs
+    args: ["keeps"]
+    expect:
+      exit: 0
+      stdout-matches: "^after\\ COPY\\ 2:\\ Archive\\ 1,\\ INBOX\\ 3\\n$"
+
+  - id: copy-carries-flags
+    claim: "A flagged message copied into Archive is found there by a FLAGGED search, and INBOX still names the original."
+    program: file-mail.cs
+    args: ["flags"]
+    expect:
+      exit: 0
+      stdout-matches: "^FLAGGED\\ in\\ Archive:\\ \\*\\ SEARCH\\ 1\\nFLAGGED\\ in\\ INBOX:\\ \\*\\ SEARCH\\ 2\\n$"
+
+  - id: deleted-flag-is-not-removal
+    claim: "STORE +FLAGS (\\Deleted) only marks UID 1: list_messages lists the flag, a DELETED search names it, and INBOX still holds 3."
+    program: file-mail.cs
+    args: ["deleted"]
+    expect:
+      exit: 0
+      stdout-matches: "^copied:\\ Archive\\ 1,\\ INBOX\\ 3\\nSTORE:\\ \\*\\ 1\\ FETCH\\ \\(FLAGS\\ \\(\\\\Deleted\\)\\)\\nDELETED\\ in\\ INBOX:\\ \\*\\ SEARCH\\ 1\\nlist_messages\\ UID\\ 1:\\ \\\\Deleted\\nmarked:\\ Archive\\ 1,\\ INBOX\\ 3\\n$"
+
+  - id: expunge-removes
+    claim: "EXPUNGE takes the marked message out: INBOX holds 2, and STATUS answers MESSAGES 2 and UIDNEXT 4."
+    program: file-mail.cs
+    args: ["expunge"]
+    expect:
+      exit: 0
+      stdout-matches: "(?s)^(?=.*filed:\\ Archive\\ 1,\\ INBOX\\ 2\\nSTATUS:\\ \\*\\ STATUS\\ INBOX\\ \\(MESSAGES\\ 2\\ UIDNEXT\\ 4\\)\\n)"
+
+  - id: move-in-one-command
+    claim: "MOVE 1 Archive is the copy and the removal in one command, answered OK MOVE completed: INBOX goes from 3 to 2 and Archive holds 1."
+    program: file-mail.cs
+    args: ["move"]
+    expect:
+      exit: 0
+      stdout-matches: "^before:\\ Archive\\ 0,\\ INBOX\\ 3\\nMOVE\\ 1\\ Archive:\\ <\\ A004\\ OK\\ MOVE\\ completed\\nafter\\ MOVE\\ 1:\\ Archive\\ 1,\\ INBOX\\ 2\\n$"

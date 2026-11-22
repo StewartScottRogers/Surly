@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-fetch-only-new-messages]]
+=== Fetching Only New Messages
+
+==== Problem
+
+Your sync job remembers the last unique identifier (UID) it fetched over Internet Message Access Protocol (IMAP). On its next run you want it to ask the server for the UIDs above that one and fetch only those, without downloading the mailbox again.
+
+==== Solution
+
+Ask for the UIDs above the last one seen with `UID SEARCH`, sent with `curl -X`:
+
+include::.generated/solution.adoc[]
+
+The seed lines are the job{apos}s history: two orders arrive, its last run fetches them and remembers UID 2, and two more orders arrive; each wait line holds until the newest message is in.
+
+==== Discussion
+
+One `surl` with an `smtp://` and an `imap://` listen URL serves both over one mail store (<<surl-readme>>); `--mail-domain example.com` serves the domain, and each `--mailbox` adds a mailbox whose whole address is the login, given with `-u`. The seed sends with `-T "order[1-2].eml"`, a `curl` range of files, and `--crlf`, `--mail-from` and `--mail-rcpt` make it mail. Delivery is asynchronous, so each wait line asks for the newest message{apos}s flags with `-X "FETCH 4 FLAGS"`, dropped with `-o /dev/null`, until it exists: `--retry 10` allows ten more tries, `--retry-all-errors` retries the error a missing message gives, and `--retry-delay 1` spaces them. `-s` keeps `curl` quiet, and `-S` keeps its error line. Where one command does several things, `--next` starts the next transfer with its own options.
+
+Every message has a UID that the mailbox gives out in rising order and never gives out again (<<rfc9051>>). `UID SEARCH UID 3:*` on `.../INBOX` asks for every message whose UID is 3 or more, and answers with UIDs, `* SEARCH 3 4`. The job then fetches only those: `INBOX;UID=[3-4]` is a `curl` range over the two, and `;SECTION=HEADER.FIELDS%20(SUBJECT)` keeps the example to their subjects.
+
+One edge needs code in the job. In IMAP `*` means the largest UID in use, and a range is the same whichever way round it is written, so `5:*` when the largest is 4 is `4:5`, and `UID SEARCH UID 5:*` answers `* SEARCH 4`, the message the job already has. The job must drop every UID not above the one it remembered. A cheaper question needs no search: `STATUS INBOX (UIDNEXT)` answers the UID the next message will get, `5`, without opening the mailbox; one more than the last UID seen means nothing is new. The same `STATUS` answers `UIDVALIDITY`. The job keeps it beside its last UID, because the UIDs it remembered mean something only while that number stays the same; when the server changes it, the job starts again from the beginning.
+
+`curl` has a shorter spelling that is not the same thing. A query on the URL, `INBOX?UID%203:*`, sends `SEARCH UID 3:*`, as `-v` shows, and a plain `SEARCH` answers message numbers. Message numbers are positions, and they shift. When another client marks message 1 `\Deleted` and sends `EXPUNGE`, answered `* 1 EXPUNGE`, every message after it moves up one. The fifth order then gets UID 5, not 4, although the mailbox holds four messages, and `UID SEARCH UID 5:*` names it as `5`; the URL query answers `4`, the same message by position. A job that stored that `4` would fetch the wrong message next time, or one that is gone: a fetch of a UID that was expunged, `INBOX;UID=1`, fails with exit `78`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-fetch-only-new-messages-in-csharp>> for a C# test of a sync client across two syncs.
+* <<imap-fetch-only-new-messages-from-an-agent>> for an agent that remembers its last UID.
+* <<imap-check-unread-counts>> for `STATUS` and its other items.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mcp-start-an-mcp-server-as-a-program-in-csharp]]
+=== Starting MCP over Stdio in C#
+
+==== Problem
+
+Your Model Context Protocol client starts its server as a child process over standard input and output, and you want a .NET test to do the same with `surl`: start it with no port, list its tools and call one.
+
+==== Solution
+
+Start `surl` with the listen URL `mcp+stdio:`, write JavaScript Object Notation Remote Procedure Call (JSON-RPC) messages to its standard input one per line, read the answers from its standard output, and close its input to stop it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The Model Context Protocol (MCP) stdio transport is a child process and two pipes: the client writes JSON-RPC messages to the server's standard input, one per line, and reads one answer per request from its standard output (<<mcp-spec>>). `surl mcp+stdio:` is such a server. It names no host or port and serves the one session on its own pipes (<<surl-readme>>).
+
+`ProcessStartInfo` describes the program to start: `surl`, found on the `PATH`, with each argument added to `ArgumentList`, so nothing needs quoting, and all three streams redirected. `Process.Start` starts it, and the `Process` gives the program those streams. Standard error is read to its end in the background from the start: `surl` writes its log there, `Listening on mcp+stdio:`, and a pipe nobody reads would fill. Standard output holds only MCP messages.
+
+The program is the MCP client, in about twenty lines. `Ask` writes one request with a fresh `id` and reads one line back; `JsonNode.Parse` turns that line into a `JsonNode`, indexed by name. The session opens with `initialize`, whose answer names the server as `surl`, then the `notifications/initialized` notification, which gets no answer. Then the call: `tools/call` naming `read_file` and the path, answered by content items, which the program prints one to a line, as `curl` does. Closing standard input ends the session, and `surl` exits `0` without being killed.
+
+The session takes no login. Started with `--user alice:secret` and no `--allow-anonymous`, a `surl` on a port would refuse every request without a token; over stdio, `tools/list` answers `read_file` and `echo` all the same, because whoever started the program is trusted. The options that widen what a client may do still gate the tools. Without `--allow-uploads` there is no `write_file`: the call is JSON-RPC error `-32602`, invalid parameters, and the program exits `1`. With it, `write_file` creates `notes.txt` in the served directory and answers how many bytes it wrote.
+
+`Curl.Api` can start the program itself. A `CurlRequest` for `mcp+stdio://localhost/surl?--directory&site&mcp+stdio:` makes `CurlClient` run `surl` with the query's items, split at `&`, as its arguments, and the `CurlResponse` body is the tool list, one line per tool: name, tab, description (<<curl-protocols>>, <<curl-readme>>). It goes no further: `Curl.Api` 0.2.0 does not send a request `Body` as a `tools/call`, and a request with one still answers the list. That is why this program speaks JSON-RPC itself for the call.
+
+`Surl.Api` is no help here either. `SurlServer.StartAsync` with `SurlServerOptions` listing `mcp+stdio:` throws instead of starting: an in-process server has no standard input and output of its own to serve. To test MCP inside one process, give `SurlServerOptions` an `mcp://127.0.0.1:0` listen URL instead.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mcp-start-an-mcp-server-as-a-program>> for the same session from the command line.
+* <<mcp-start-an-mcp-server-as-a-program-from-an-agent>> for an agent's MCP client starting `surl`.
+* <<mcp-spec>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

@@ -1,0 +1,146 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# No servers: block. Each worker run-parallel.sh starts runs its own surl on port 0, and
+# clash.sh starts the pairs that clash.
+schema: 1
+key: surl-run-tests-in-parallel-without-clashes
+title: Running Tests in Parallel Without Clashes
+protocols: [http]
+tier: scenarios
+surl-options: [--directory, --user, --allow-uploads]
+curl-options: [-f, -s, -S, --digest, -u, -T]
+exit-codes: [0, 22, 45, 124]
+references: [surl-readme, curl-manual, rfc7616]
+
+fixtures:
+  shared/notes.txt: "one directory, one surl\n"
+  worker.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # One test worker: its own surl on a free port over its own directory, its own tests, its own
+    # stop. Nothing is shared with another worker but the surl binary.
+    # Usage: sh worker.sh <worker number> [<password the tests log in with>]
+    n=$1; password=${2:-s3cret}; dir=work/$n
+    rm -rf "$dir" && mkdir -p "$dir/site"
+    printf 'worker %s\n' "$n" > "$dir/site/whoami.txt"
+    : > "$dir/listening.txt"
+    surl --directory "$dir/site" --user tester:s3cret --allow-uploads http://127.0.0.1:0/ \
+      > "$dir/listening.txt" 2> "$dir/surl.log" &
+    pid=$!
+
+    tries=0
+    until grep -q '^Listening on ' "$dir/listening.txt"; do
+      if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; exit; fi
+      tries=$((tries + 1))
+      if [ "$tries" -ge 100 ]; then kill "$pid"; exit 1; fi
+      sleep 0.1
+    done
+    url=$(sed -n 's|^Listening on ||p' "$dir/listening.txt" | tr -d '\r')
+    echo "$url" | sed 's|.*:\([0-9]*\)/$|\1|' > "$dir/port"
+
+    # The tests: upload a result under the name every worker uses, then read it and whoami.txt back.
+    printf 'result of worker %s\n' "$n" > "$dir/result.txt"
+    get="curl -fsS --digest -u tester:$password"
+    $get -T "$dir/result.txt" "${url}result.txt" &&
+      result=$($get "${url}result.txt") && whoami=$($get "${url}whoami.txt")
+    tests=$?
+    [ "$tests" -ne 0 ] || echo "worker $n: $whoami, $result"
+
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    exit "$tests"
+  run-parallel.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Runs <count> workers side by side, waits for all of them, prints each one's output in order,
+    # and exits with the first failing worker's code, or 0.
+    # Usage: sh run-parallel.sh <count> [<worker whose tests use a wrong password>]
+    count=$1; broken=${2:-0}; pids=
+    i=1
+    while [ "$i" -le "$count" ]; do
+      password=s3cret; [ "$i" -ne "$broken" ] || password=wrong
+      sh worker.sh "$i" "$password" > "out-$i.txt" 2>&1 &
+      pids="$pids $!"
+      i=$((i + 1))
+    done
+
+    status=0; i=1
+    for pid in $pids; do
+      wait "$pid"; code=$?
+      cat "out-$i.txt"
+      if [ "$code" -ne 0 ]; then
+        echo "worker $i failed: exit $code"
+        [ "$status" -ne 0 ] || status=$code
+      fi
+      i=$((i + 1))
+    done
+    exit "$status"
+
+  clash.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # What a worker meets when it shares with another: starts one surl over shared/ on a free
+    # port, then a second on the same directory or the same port, and exits with the second's code.
+    # Usage: sh clash.sh directory|port
+    : > first.txt
+    surl --directory shared http://127.0.0.1:0/ > first.txt 2> /dev/null &
+    first=$!
+    tries=0
+    until grep -q '^Listening on ' first.txt; do
+      tries=$((tries + 1)); [ "$tries" -lt 100 ] || break; sleep 0.1
+    done
+    url=$(sed -n 's|^Listening on ||p' first.txt | tr -d '\r')
+    if [ "$1" = directory ]; then surl --directory shared http://127.0.0.1:0/; else surl "$url"; fi
+    code=$?
+    kill "$first"
+    exit "$code"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Four workers run side by side, each on its own surl, and each reads back the result it uploaded under the shared name result.txt and its own whoami.txt; the run exits 0.
+    run: sh run-parallel.sh 4
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "worker 1: worker 1, result of worker 1\nworker 2: worker 2, result of worker 2\nworker 3: worker 3, result of worker 3\nworker 4: worker 4, result of worker 4\n"
+
+  - id: four-ports
+    claim: Port 0 gave the four servers four different ports, none of them chosen by the suite.
+    run: sh -c "cat work/*/port | sort -u | wc -l | tr -d ' '"
+    expect:
+      exit: 0
+      stdout: "4\n"
+
+  - id: own-store
+    claim: Each server stored the upload in its own directory, so the same name holds a different result in each and no worker saw another's.
+    run: sh -c "cat work/*/site/result.txt"
+    expect:
+      exit: 0
+      stdout: "result of worker 1\nresult of worker 2\nresult of worker 3\nresult of worker 4\n"
+      files:
+        work/1/site/result.txt: "result of worker 1\n"
+        work/4/site/result.txt: "result of worker 4\n"
+
+  - id: one-worker-fails
+    claim: When one worker's tests fail, here worker 2 logging in with a wrong password so curl -f exits 22 on the 401, the other workers still pass and stop their servers, and the run exits 22 and names the worker.
+    run: sh run-parallel.sh 3 2
+    timeout: 60
+    expect:
+      exit: 22
+      stdout: "worker 1: worker 1, result of worker 1\ncurl: (22) The requested URL returned error: 401\nworker 2 failed: exit 22\nworker 3: worker 3, result of worker 3\n"
+
+  - id: shared-directory
+    claim: Two surl processes cannot serve one directory; the second is refused with exit 124, so workers that share a data directory fail at start rather than overwrite each other.
+    run: sh clash.sh directory
+    timeout: 30
+    expect:
+      exit: 124
+      stderr-contains: "is in use by another surl process"
+
+  - id: shared-port
+    claim: A fixed port another worker already holds is refused with exit 45 (Could not bind), which port 0 never meets.
+    run: sh clash.sh port
+    timeout: 30
+    expect:
+      exit: 45
+      stderr-contains: "Could not bind http://127.0.0.1:"

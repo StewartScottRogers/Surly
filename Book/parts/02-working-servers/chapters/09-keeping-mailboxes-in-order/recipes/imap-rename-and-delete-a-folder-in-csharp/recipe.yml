@@ -1,0 +1,113 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: imap-rename-and-delete-a-folder-in-csharp
+title: Renaming and Deleting a Folder in C#
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMail, SurlMailboxInfo, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "RENAME Old Archive through Curl.Api, then a LIST, shows INBOX, Archive, Drafts and Keep."
+    program: rename-folders.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: "^\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ INBOX\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Archive\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Drafts\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Keep\\n$"
+
+  - id: rename-keeps-the-messages
+    claim: "The renamed folder keeps its messages; the store says Archive 2."
+    program: rename-folders.cs
+    args: ["keeps"]
+    expect:
+      exit: 0
+      stdout-matches: "^folders:\\ Archive\\ 2,\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0\\n$"
+
+  - id: old-name-is-gone
+    claim: "STATUS for the old name is refused with CurlException code 21, and the store lists no Old."
+    program: rename-folders.cs
+    args: ["gone"]
+    expect:
+      exit: 0
+      stdout-matches: "^STATUS\\ Old\\ \\(MESSAGES\\):\\ curl\\ error\\ 21,\\ Quote\\ command\\ returned\\ error\\nfolders:\\ Archive\\ 2,\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0\\n$"
+
+  - id: delete
+    claim: "DELETE Drafts removes the folder; the store lists INBOX, Keep and Old but no Drafts."
+    program: rename-folders.cs
+    args: ["delete"]
+    expect:
+      exit: 0
+      stdout-matches: "^folders:\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: rename-missing-folder
+    claim: "RENAME of a folder that does not exist is refused with CurlException code 21, and the store is unchanged."
+    program: rename-folders.cs
+    args: ["no-rename"]
+    expect:
+      exit: 0
+      stdout-matches: "^RENAME\\ Nowhere\\ Elsewhere:\\ curl\\ error\\ 21,\\ Quote\\ command\\ returned\\ error\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: delete-missing-folder
+    claim: "DELETE of a folder already deleted is refused with CurlException code 21."
+    program: rename-folders.cs
+    args: ["no-delete"]
+    expect:
+      exit: 0
+      stdout-matches: "^DELETE\\ Drafts:\\ curl\\ error\\ 21,\\ Quote\\ command\\ returned\\ error\\nfolders:\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: rename-onto-an-existing-folder
+    claim: "RENAME onto a name in use, Keep to Old, is refused with CurlException code 21, and neither folder changes."
+    program: rename-folders.cs
+    args: ["onto"]
+    expect:
+      exit: 0
+      stdout-matches: "^RENAME\\ Keep\\ Old:\\ curl\\ error\\ 21,\\ Quote\\ command\\ returned\\ error\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: delete-inbox
+    claim: "DELETE INBOX is refused with CurlException code 21, and INBOX keeps its message."
+    program: rename-folders.cs
+    args: ["delete-inbox"]
+    expect:
+      exit: 0
+      stdout-matches: "^DELETE\\ INBOX:\\ curl\\ error\\ 21,\\ Quote\\ command\\ returned\\ error\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\n$"
+
+  - id: rename-inbox
+    claim: "RENAME INBOX is accepted: the store has Mail2025 with the message and an empty INBOX, and STATUS INBOX answers MESSAGES 0."
+    program: rename-folders.cs
+    args: ["rename-inbox"]
+    expect:
+      exit: 0
+      stdout-matches: "^RENAME\\ INBOX\\ Mail2025:\\ accepted\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 0,\\ Keep\\ 0,\\ Mail2025\\ 1,\\ Old\\ 2\\nSTATUS\\ INBOX:\\ \\*\\ STATUS\\ INBOX\\ \\(MESSAGES\\ 0\\)\\n$"
+
+  - id: delete-takes-the-messages
+    claim: "DELETE of Old, which holds two messages, is accepted and the folder and its messages are gone from the store."
+    program: rename-folders.cs
+    args: ["delete-full"]
+    expect:
+      exit: 0
+      stdout-matches: "^before:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0,\\ Old\\ 2\\nDELETE\\ Old:\\ accepted\\nafter:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Keep\\ 0\\n$"
+
+  - id: rename-into-a-path
+    claim: "RENAME Keep Work/Notes lists Work as a parent that cannot be selected, with Work/Notes under it."
+    program: rename-folders.cs
+    args: ["path"]
+    expect:
+      exit: 0
+      stdout-matches: "^\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ INBOX\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Drafts\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Old\\n\\*\\ LIST\\ \\(\\\\Noselect\\ \\\\HasChildren\\)\\ \"/\"\\ Work\\n\\*\\ LIST\\ \\(\\\\HasNoChildren\\)\\ \"/\"\\ Work/Notes\\n$"
+
+  - id: parent-is-not-a-folder
+    claim: "DELETE Work, the implied parent, is refused with CurlException code 21, and Work/Notes stays."
+    program: rename-folders.cs
+    args: ["parent"]
+    expect:
+      exit: 0
+      stdout-matches: "^DELETE\\ Work:\\ curl\\ error\\ 21,\\ Quote\\ command\\ returned\\ error\\nfolders:\\ Drafts\\ 0,\\ INBOX\\ 1,\\ Old\\ 2,\\ Work/Notes\\ 0\\n$"

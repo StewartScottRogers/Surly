@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: amqps-log-in-over-tls-in-csharp
+title: AMQP Logins over TLS in C#
+protocols: [amqps, amqp]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlRequest, CurlAuthenticationOptions, CurlResponse, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, amqp091, rfc4616, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over AMQPS, with the certificate trusted through CertificateAuthorityFile, a login as alice with PLAIN reads the message on the queue orders, on a server with one account and no loosening option.
+    program: program.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "read: paid\n"
+
+  - id: plain-refused
+    claim: The same login over plain AMQP on the same server throws a CurlException, code 67 LoginDenied, because the server offers only CRAM-MD5 there and Curl.Api logs in with PLAIN.
+    program: program.cs
+    args: [plain-refused]
+    expect:
+      exit: 0
+      stdout: "refused: 67 LoginDenied: AMQP server offers no mechanism this client can use (it offers \"CRAM-MD5\")\n"
+
+  - id: plaintext-allowed
+    claim: A server given AllowPlaintextAuthentication offers PLAIN over plain AMQP, and the same login reads the message.
+    program: program.cs
+    args: [plaintext-allowed]
+    expect:
+      exit: 0
+      stdout: "read: paid\n"
+
+  - id: wrong-password
+    claim: A wrong password over AMQPS is answered with connection.close, reply code 403 ACCESS_REFUSED, and surfaces as a CurlException with code 67.
+    program: program.cs
+    args: [wrong-password]
+    expect:
+      exit: 0
+      stdout: "refused: 67 LoginDenied: AMQP server sent connection.close: reply code 403, ACCESS_REFUSED - login refused\n"
+
+  - id: unknown-user
+    claim: A user name the server has no account for gets the same 403 as a wrong password.
+    program: program.cs
+    args: [unknown-user]
+    expect:
+      exit: 0
+      stdout: "refused: 67 LoginDenied: AMQP server sent connection.close: reply code 403, ACCESS_REFUSED - login refused\n"
+
+  - id: no-login
+    claim: A request with no Authentication logs in as RabbitMQ's default account, which a server with accounts does not have, and gets the same 403.
+    program: program.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "refused: 67 LoginDenied: AMQP server sent connection.close: reply code 403, ACCESS_REFUSED - login refused\n"
+
+  - id: plaintext-wrong-password
+    claim: With AllowPlaintextAuthentication the password is checked, not just accepted; a wrong one is still 403, code 67.
+    program: program.cs
+    args: [plaintext-wrong-password]
+    expect:
+      exit: 0
+      stdout: "refused: 67 LoginDenied: AMQP server sent connection.close: reply code 403, ACCESS_REFUSED - login refused\n"
+
+  - id: untrusted-certificate
+    claim: A client given no certificate to trust does not trust the self-signed one, and the call throws a CurlException with code 60, PeerFailedVerification, before any login.
+    program: program.cs
+    args: [untrusted-certificate]
+    expect:
+      exit: 0
+      stdout: "refused: 60 PeerFailedVerification\n"
+
+  - id: needs-a-certificate
+    claim: A server asked to listen on amqps with no CertificateFile and KeyFile does not start; StartAsync throws SurlServerStartException with exit code 58, CertificateProblem, as surl exits, and the program exits 1.
+    program: program.cs
+    args: [needs-a-certificate]
+    expect:
+      exit: 1
+      stdout: "start refused: 58 CertificateProblem\n"

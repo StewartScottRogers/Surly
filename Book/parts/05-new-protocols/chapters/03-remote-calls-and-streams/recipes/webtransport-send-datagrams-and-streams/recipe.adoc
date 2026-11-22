@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[webtransport-send-datagrams-and-streams]]
+=== Sending WebTransport Datagrams
+
+==== Problem
+
+Your game client uses WebTransport datagrams for its state and one-way streams for its logs. You want a server that echoes each mode back, and refuses a session that does not log in.
+
+==== Solution
+
+Serve WebTransport with your certificate and an account, and send the state as a datagram with `?wt=datagram`, logging in with `-u`. The file `state.json` holds the state:
+
+[source,json]
+----
+{"player":1,"x":3,"y":4}
+----
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+WebTransport is a session inside HTTP/3: the client sends an extended `CONNECT`, and once the server accepts it, both sides can open streams and send datagrams that belong to the session (<<webtransport-http3>>, <<rfc9114>>). HTTP/3 runs over QUIC, which is always encrypted with Transport Layer Security (TLS) 1.3 (<<rfc9000>>, <<rfc8446>>), so a `webtransport://` listen URL needs a certificate: `--cert` and `--key` give `surl` the ones the first `openssl` command made, and `--cacert server.pem` makes `curl` trust it. `surl` accepts a session at any path, `/game` here, and echoes each stream and datagram back (<<surl-readme>>). The query parameter `wt=` picks how `curl` sends the `-d` data (<<curl-readme>>, <<curl-protocols>>).
+
+`?wt=datagram` sends it as one datagram. A datagram is not retransmitted if lost and is not ordered with anything else; that suits game state, where the next update replaces this one. It must also fit in one QUIC packet. 1,099 bytes, with the one-byte quarter stream ID that ties it to the session, make 1,100 and go through, echoed whole; 1,100 bytes do not, and `curl` refuses to send them, exit `55`, naming the limit. Anything larger belongs on a stream. `-w "%{size_upload} %{size_download}"` with `-o` shows how many bytes went each way without writing binary data to the terminal, and `--data-binary` sends the file as it is, where `-d` would drop its line ends.
+
+`?wt=uni` sends the data on a unidirectional stream, and `surl` echoes it on a unidirectional stream of its own. A stream is reliable and ordered and carries any amount: 100,000 bytes go out and come back whole. That suits logs, which must arrive complete and in order but need no answer. With no `wt=` (or `wt=bidi`), `curl` uses one bidirectional stream and reads the echo from the same stream. Any other mode, such as `wt=dgram`, is refused before anything is sent, exit `3`, with the three it accepts.
+
+The account is the lock. `--user player1:secret` gives `surl` one, and from then on a session with no login is answered `401` and `curl` exits `22`, with `The server refused the WebTransport session: HTTP status 401` and nothing written. A wrong password is the same `401`. `-u player1:secret` logs in; inside QUIC the password is never in clear. Without any account, `surl` refuses sessions with no login all the same, unless it is given `--allow-anonymous` (<<webtransport-open-a-stream>>).
+
+WebTransport listens on the User Datagram Protocol (UDP) only, so there is no Transmission Control Protocol (TCP) port to watch for `surl` being ready. The first claimed command retries instead: `--retry 5` allows five more tries, `--retry-all-errors` retries on any failure, including the one a port nobody listens on yet gives, and `--retry-delay 1` waits a second between tries. Every command also has `-m 10`, a limit of ten seconds, so a datagram or session that never gets an answer fails instead of hanging.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<webtransport-send-datagrams-and-streams-in-csharp>> for the session's login checked from a .NET test.
+* <<webtransport-send-datagrams-and-streams-from-an-agent>> for the same server and modes through `surl-mcp` and `curl-mcp`.
+* <<webtransport-open-a-stream>> for what a session needs: the certificate, the login and the UDP port.
+* <<webtransport-http3>>, <<rfc9114>>, <<rfc9000>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

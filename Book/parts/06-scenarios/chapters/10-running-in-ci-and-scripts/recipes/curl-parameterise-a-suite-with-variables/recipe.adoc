@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[curl-parameterise-a-suite-with-variables]]
+=== Parameterising a Suite with Variables
+
+==== Problem
+
+You want one curl config reused against any server by passing its host, port and token as variables from the environment.
+
+==== Solution
+
+Import each value into a `curl` variable with `variable = %NAME`, and use it in options whose name starts with `expand-`, which `curl` expands before use. The suite is one config file:
+
+[source]
+----
+include::suite.conf[]
+----
+
+Run it with the server's port and token in the environment:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--variable` sets a variable that later options can use as `{{name}}`, and in a config file it is written `variable = ...` like any option. A leading `%` imports the value from the environment variable of that name: `%SURL_PORT` takes `SURL_PORT`, and `%SURL_HOST=127.0.0.1` takes `SURL_HOST` or, when it is not set, `127.0.0.1`. Variables are expanded only in options named with the `expand-` prefix, so `--expand-url` (`expand-url` in the file) and `--expand-oauth2-bearer` are `--url` and `--oauth2-bearer` with the `{{...}}` filled in. `:trim` drops surrounding white space, which a value read from a file or a continuous integration (CI) secret often carries. `env NAME=value ... curl` sets the environment for the one command, the same way from a POSIX shell and from Windows with Git{apos}s `env` on the path; a CI job sets the same names in its step{apos}s environment.
+
+Nothing in the config names a server, so the same file runs against another: the local server and a staging server, each with its own token, answer both paths 200 when the environment names them. The token travels as `Authorization: Bearer` (<<rfc6750>>) from `--expand-oauth2-bearer`, and the config file never holds it. The rest of the config is the suite{apos}s own: `-s` (`silent`) and `-S` (`show-error`) keep `curl` quiet but for errors, `-f` (`fail`) makes an error status a failure, `-w` (`write-out`) prints a line per path, and `--out-null` (`out-null`) after each URL drops its body. `-K suite.conf` reads the file.
+
+A variable the config imports with no default and the environment does not set is an error before anything is sent: `curl` names it, `Variable 'API_TOKEN' import fail, not set`, and exits 2. That makes a forgotten secret in a CI job fail loudly instead of sending an empty token. A wrong token is the server{apos}s business: 401 on each path and exit 22.
+
+On the server side each server serves its own folder with `--directory`, and each token is an account with an empty name, `--user :t0ken-123`. `surl` refuses a token sent over plain Hypertext Transfer Protocol (HTTP) unless `--allow-plaintext-auth` loosens that, because anyone on the path could read it and use it: without the option the right token is answered 403 unchecked. The two servers that take the token here have it; a suite against a real deployment would use `https://` and leave it off.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<curl-check-many-urls-from-one-config>> for a config that checks many URLs at once.
+* <<curl-write-a-test-report-with-write-out>> for a report per run from `-w`.
+* <<curl-manual>>, <<surl-readme>>, <<rfc6750>>.

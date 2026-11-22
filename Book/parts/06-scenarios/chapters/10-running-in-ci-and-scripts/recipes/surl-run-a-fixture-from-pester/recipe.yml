@@ -1,0 +1,111 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+# No servers: block. Server.Tests.ps1 starts its own surl in BeforeAll and stops it in AfterAll.
+# Needs pwsh and Pester on PATH: every GitHub runner image has PowerShell 7 and Pester 5; Windows
+# also ships Pester 3.4, which this file runs on too.
+schema: 1
+key: surl-run-a-fixture-from-pester
+title: Running a Fixture from Pester
+protocols: [http]
+tier: scenarios
+surl-options: [-v, --log-file, --directory]
+curl-options: [-f, -s, -S, -o, -w]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual]
+
+fixtures:
+  site/greeting.txt: "Welcome aboard.\n"
+  expected-greeting.txt: "Welcome aboard.\n"
+  Server.Tests.ps1: |
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Pester tests against a surl that BeforeAll starts on a free port and AfterAll stops, which
+    # Pester runs even when a test fails. The checks throw, so the file runs on Pester 5 and 3.4.
+    Describe 'the site served by surl' {
+        BeforeAll {
+            # Start surl on port 0 and read its first line, Listening on <url>, for the port it bound.
+            Remove-Item surl.log -ErrorAction Ignore
+            $start = [Diagnostics.ProcessStartInfo]::new((Get-Command surl -CommandType Application)[0].Source)
+            foreach ($argument in '-v', '--log-file', 'surl.log', '--directory', 'site', 'http://127.0.0.1:0/') {
+                $start.ArgumentList.Add($argument)
+            }
+            $start.RedirectStandardOutput = $true
+            $surl = [Diagnostics.Process]::Start($start)
+            $surl.Id | Set-Content surl.pid
+            $line = $surl.StandardOutput.ReadLine()
+            if ($line -notmatch '^Listening on (http://\S+)$') {
+                $surl.WaitForExit()
+                throw "surl did not start: exit $($surl.ExitCode)"
+            }
+            $url = $Matches[1]
+        }
+
+        AfterAll {
+            # Stop surl however the tests went, and wait until it has gone.
+            if ($surl -and -not $surl.HasExited) {
+                $surl.Kill()
+                $surl.WaitForExit()
+            }
+        }
+
+        It 'listens on a port the system chose' {
+            if ($url -notmatch '^http://127\.0\.0\.1:[1-9][0-9]*/$') { throw "unexpected URL $url" }
+        }
+
+        It 'serves the greeting' {
+            $body = curl -fsS "${url}greeting.txt"
+            $expected = Get-Content expected-greeting.txt
+            if ($body -ne $expected) { throw "expected '$expected', got '$body'" }
+        }
+
+        It 'answers 404 for a missing file' {
+            $status = curl -s -o missing.out -w '%{http_code}' "${url}missing.txt"
+            if ($status -ne '404') { throw "expected 404, got $status" }
+        }
+    }
+  run-tests.ps1: |
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Runs the Pester tests and exits with the number that failed, so a CI step fails with them.
+    $result = Invoke-Pester -Path ./Server.Tests.ps1 -PassThru
+    "passed $($result.PassedCount), failed $($result.FailedCount)"
+    exit $result.FailedCount
+
+cases:
+  - id: solution
+    role: solution
+    claim: The three tests pass against the surl BeforeAll started, and the run exits 0.
+    run: pwsh -NoProfile -File run-tests.ps1
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\npassed 3, failed 0\n$'
+
+  - id: server-recorded
+    claim: surl's verbose log shows what the tests asked for, the greeting answered 200 and the missing file 404.
+    run: 'grep -o -e "GET /[a-z]*\.txt: [0-9]*" surl.log'
+    expect:
+      exit: 0
+      stdout: "GET /greeting.txt: 200\nGET /missing.txt: 404\n"
+
+  - id: stopped
+    claim: After the run the surl process BeforeAll started is gone.
+    run: pwsh -NoProfile -Command "if (Get-Process -Id (Get-Content surl.pid) -ErrorAction SilentlyContinue) { 'running'; exit 1 } else { 'stopped' }"
+    expect:
+      exit: 0
+      stdout: "stopped\n"
+
+  - id: test-fails
+    claim: When a test fails, here the greeting test expecting another text, Pester still runs AfterAll; the run reports one failure and exits 1.
+    fixtures:
+      expected-greeting.txt: "Goodbye.\n"
+    run: pwsh -NoProfile -File run-tests.ps1
+    timeout: 60
+    expect:
+      exit: 1
+      stdout-matches: '\npassed 2, failed 1\n$'
+
+  - id: stopped-after-failure
+    claim: After the failing run the surl process is gone too, so it holds no port and no directory for the next run.
+    run: pwsh -NoProfile -Command "if (Get-Process -Id (Get-Content surl.pid) -ErrorAction SilentlyContinue) { 'running'; exit 1 } else { 'stopped' }"
+    expect:
+      exit: 0
+      stdout: "stopped\n"

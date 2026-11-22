@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: amqps-log-in-over-tls
+title: Logging In to AMQP over TLS
+protocols: [amqps, amqp]
+tier: new-protocols
+surl-options: [--cert, --key, --user, --allow-plaintext-auth]
+curl-options: [--cacert, -u, -d, --next, -s, -S, -m]
+exit-codes: [0, 58, 60, 67]
+references: [surl-readme, curl-readme, amqp091, rfc4616, rfc8446]
+
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# main: one account, AMQP over TLS and plain AMQP side by side, no loosening option. plaintext: the same
+# account over plain AMQP with --allow-plaintext-auth. The queue is created by the first publish to it.
+servers:
+  main:
+    command: surl --cert server.pem --key server.key --user alice:s3cret amqps://127.0.0.1:{{port}}/ amqp://127.0.0.1:{{port2}}/
+    ready: port
+  plaintext:
+    command: surl --user alice:s3cret --allow-plaintext-auth amqp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over AMQPS curl logs in as alice with PLAIN, trusting the certificate with --cacert, publishes paid to the queue orders and then reads it back, with no loosening option on surl.
+    run: curl -sS -m 10 --cacert server.pem -u alice:s3cret -d paid amqps://127.0.0.1:{{port}}/%2F/orders --next -sS -m 10 --cacert server.pem -u alice:s3cret amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "paid"
+
+  - id: plain-refused
+    claim: The same login over plain AMQP, on the same server, is refused by curl with exit 67, because the server offers only CRAM-MD5 there and curl logs in with PLAIN.
+    run: curl -sS -m 10 -u alice:s3cret -d paid amqp://127.0.0.1:{{port2}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: 'it offers "CRAM-MD5"'
+
+  - id: plaintext-allowed
+    claim: A server started with --allow-plaintext-auth offers PLAIN over plain AMQP, and the same login publishes and reads back paid, exit 0.
+    run: curl -sS -m 10 -u alice:s3cret -d paid amqp://127.0.0.1:{{port3}}/%2F/orders --next -sS -m 10 -u alice:s3cret amqp://127.0.0.1:{{port3}}/%2F/orders
+    expect:
+      exit: 0
+      stdout: "paid"
+
+  - id: wrong-password
+    claim: A wrong password over AMQPS is answered with connection.close, reply code 403 ACCESS_REFUSED, and curl exits 67.
+    run: curl -sS -m 10 --cacert server.pem -u alice:wrong -d paid amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: unknown-user
+    claim: A user name surl has no account for gets the same 403 as a wrong password.
+    run: curl -sS -m 10 --cacert server.pem -u bob:s3cret -d paid amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: no-login
+    claim: With no -u curl logs in as RabbitMQ's default account, which a server with accounts does not have, and gets the same 403.
+    run: curl -sS -m 10 --cacert server.pem -d paid amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: plaintext-wrong-password
+    claim: With --allow-plaintext-auth the password is checked, not just accepted; a wrong one is still 403 and exit 67.
+    run: curl -sS -m 10 -u alice:wrong -d paid amqp://127.0.0.1:{{port3}}/%2F/orders
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "reply code 403, ACCESS_REFUSED"
+
+  - id: untrusted-certificate
+    claim: Without --cacert curl does not trust the self-signed certificate and exits 60 before any login is sent.
+    run: curl -sS -m 10 -u alice:s3cret -d paid amqps://127.0.0.1:{{port}}/%2F/orders
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: needs-a-certificate
+    claim: surl refuses to listen on amqps:// with no --cert and no --self-signed, exit 58, and says so.
+    run: surl --user alice:s3cret amqps://127.0.0.1:{{port4}}/
+    expect:
+      exit: 58
+      stderr-contains: "needs a certificate"

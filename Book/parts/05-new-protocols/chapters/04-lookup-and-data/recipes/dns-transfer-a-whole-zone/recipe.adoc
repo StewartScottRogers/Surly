@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-transfer-a-whole-zone]]
+=== Transferring a Whole Zone
+
+==== Problem
+
+Your secondary name server copies zones from a primary with a full zone transfer, AXFR. You want to see the primary refuse the transfer until it is allowed, serve the whole zone over the Transmission Control Protocol (TCP) once it is, and refuse it over the User Datagram Protocol (UDP).
+
+==== Solution
+
+Put the zone in a master file under `.surl/dns`, start `surl` as a Domain Name System (DNS) server over it with `--allow-zone-transfer`, and ask for the type `AXFR` over TCP with `curl`. The zone file is shown with the commands:
+
+include::.generated/solution.adoc[]
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` is an authoritative name server for the zones it finds as master files, `<apex>.zone` under `.surl/dns` in its `--directory` (<<rfc1035>>, section 5; <<surl-readme>>). A transfer copies the whole of one of them in one answer, which is what a secondary does to stay level with its primary. Upstream `curl` has no `dns` scheme, and the Curl port adds one in the shape RFC 4501 gives a DNS query: the server and port, the name as the path and `type=` the record type (<<rfc4501>>, <<curl-readme>>). `type=AXFR` asks for the transfer. `-s` keeps the progress meter out of the output, `--dns-json` writes the answer as one line of JavaScript Object Notation (JSON), and `--dns-transport tcp` sends the query over TCP.
+
+A zone transfer hands every name in the zone to whoever asks, so `surl` is surly about it: it answers `REFUSED` unless it was started with `--allow-zone-transfer`. The option widens what a peer may do. The `closed` server in the claims below is the same zone without it, and answers an `AXFR` with status `REFUSED`, no records, and the same exit code `0` from `curl`, because a refusal is a complete answer and the status says how it went. It refuses over UDP just the same.
+
+With the option, a transfer over TCP answers the zone in one message: `NOERROR`, the `aa` flag for an authoritative answer, and every record the zone holds with the start of authority (SOA) record first and again last. That bracket is how a secondary knows it has read to the end. The zone here has an SOA, a name server (NS), a mail exchange (MX) and two address records, so the answer has six records. Without `--dns-json` `curl` writes the same answer as `dig`{apos}s text, a header that says `ANSWER: 6` and a tab-separated line per record, which a script would have to cut apart by hand.
+
+A transfer needs TCP because a whole zone does not fit a UDP answer. Over UDP an `AXFR` is answered `NOTIMP`, not implemented, with no records, even on the server that allows transfers. `--dns-transport` defaults to UDP, so a script that forgets it sees `NOTIMP` and not the zone.
+
+A transfer is for a zone as a whole: the name has to be a zone{apos}s apex. A name that is no apex, here `mail.example.test`, which the zone holds but does not own, is refused with a status that `curl` writes as `RCODE9`. That is `NOTAUTH`, the server is not authoritative for the name as a zone, a code `curl` has no name for. It is the answer on the server that allows transfers, so the refusal is about the name and not the option.
+
+`curl` asks for `AXFR` only. The incremental type `IXFR` is refused by `curl` itself before any query is sent, exit `3`, with a message about the query element of the URL, which `-S` brings back after `-s` has hidden it.
+
+Two servers cannot serve one directory, since each locks it, so `closed` has its own copy of the zone file.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-transfer-a-whole-zone-in-csharp>> for the same transfers from a C# test.
+* <<dns-transfer-a-whole-zone-from-an-agent>> for an agent that drives them.
+* <<dns-read-answers-as-json>> for single lookups and the JSON an answer is written as.
+* <<rfc1035>>, <<rfc4501>>, <<surl-readme>>, <<curl-readme>>.

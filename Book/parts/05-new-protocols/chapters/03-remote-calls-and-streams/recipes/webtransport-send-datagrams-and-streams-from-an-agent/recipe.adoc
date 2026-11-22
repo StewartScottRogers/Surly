@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[webtransport-send-datagrams-and-streams-from-an-agent]]
+=== Sending WebTransport Datagrams from an Agent
+
+==== Problem
+
+Your game client uses WebTransport datagrams for its state and one-way streams for its logs, and you want your agent to stand up a server that echoes each mode back, send it both, and check that a session without a login is refused.
+
+==== Solution
+
+Start WebTransport through `surl-mcp` with the certificate and an account, then send the state as a datagram through `curl-mcp`{apos}s `curl` tool, logged in:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+WebTransport is a session inside HTTP/3, in which both sides can open streams and send datagrams (<<webtransport-http3>>, <<rfc9114>>). HTTP/3 runs over QUIC, which is always encrypted with Transport Layer Security (TLS) 1.3 (<<rfc9000>>, <<rfc8446>>), so the server needs a certificate. `surl` accepts a session at any path, `/game` here, and echoes each stream and datagram back (<<surl-readme>>).
+
+`start_server` takes the listen URL `webtransport://127.0.0.1:0`, a free User Datagram Protocol (UDP) port, and passes the rest in `arguments`, in `surl`{apos}s own words: `--cert server.pem --key server.key`, the files the `setup` step made, read from `SURL_MCP_ROOT`, and `--user player1:secret`, the account. It answers once the port is bound, so there is nothing to wait for. Without a certificate it is a tool error carrying exit code `58`, `CertificateProblem`, and `surl`{apos}s message naming `--cert` and `--self-signed`.
+
+`curl` runs `curl` in-process with its arguments as a list, so the JavaScript Object Notation (JSON) state needs no quoting (<<curl-readme>>, <<curl-protocols>>). `--cacert server.pem`, read from `CURL_MCP_ROOT`, trusts the certificate; `-u player1:secret` logs in; `-m 10` bounds every call at ten seconds, so a session or datagram that never gets an answer is a tool error instead of a hang. The query parameter `wt=` picks the mode. `?wt=datagram` sends the data as one datagram, unreliable and unordered, which suits state that the next update replaces. `?wt=uni` sends it on a unidirectional stream, reliable and ordered, which suits logs; `surl` echoes it on a stream of its own. With no `wt=`, one bidirectional stream carries the data both ways. The answer's `standardOutput` holds the echo, and its `exitCode` says how `curl` ended.
+
+A datagram must fit in one QUIC packet. 1,099 bytes go through and come back whole; 1,100 bytes do not, and `curl` refuses to send them: exit code `55`, a tool error whose standard error names the limit, 1,100 bytes with the one-byte quarter stream ID that ties the datagram to its session. A stream has no such limit: 100,000 bytes come back whole. Those payloads go in as the `curl` tool's `stdin`, read by `--data-binary @-`, which sends them unchanged, so the agent writes no file; the answer's `totalBytes` counts what came back.
+
+The account is the lock. A session with no login is answered `401`, and `curl` exits `22` with `The server refused the WebTransport session: HTTP status 401` and nothing on standard output. A wrong password gets the same answer. `wait_for_event` on `surl-mcp` then shows what `surl` made of it: a `login_judged` event for `player1` with `is_accepted` false, so an agent can tell a wrong password from a missing one, and see which account was tried.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<webtransport-send-datagrams-and-streams>> for the same server and modes on the console.
+* <<webtransport-send-datagrams-and-streams-in-csharp>> for the session's login checked from a .NET test.
+* <<webtransport-open-a-stream>> for what a session needs: the certificate, the login and the UDP port.
+* <<webtransport-http3>>, <<rfc9114>>, <<rfc9000>>, <<rfc8446>>, <<curl-protocols>>, <<surl-readme>>, <<curl-readme>>.

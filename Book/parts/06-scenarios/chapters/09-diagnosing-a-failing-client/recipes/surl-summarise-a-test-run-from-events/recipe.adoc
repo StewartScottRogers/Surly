@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-summarise-a-test-run-from-events]]
+=== Summarising a Test Run from Events
+
+==== Problem
+
+After a run you want an agent to read the server's events and report logins, uploads, mail delivered and faults applied.
+
+==== Solution
+
+After the run, have the agent page through `get_events` until `has_more` is false, then count the events by kind: `login_judged` for logins, `store_changed` for uploads and mail, `fault_applied` for faults, naming each one{apos}s scheme from the `exchange_started` event with the same `exchange_id`. The agent's side is a C# program on the official Model Context Protocol (MCP) software development kit (SDK); the run it summarises is five `curl` calls over Hypertext Transfer Protocol (HTTP), File Transfer Protocol (FTP) and Simple Mail Transfer Protocol (SMTP):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name from `PATH` over standard input and output, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; `mcp.json` beside this recipe is the same configuration for an agent{apos}s own client (<<mcp-spec>>). One `start_server` serves all three schemes on port 0 from one store: `--user alice:s3cret` is the account for HTTP and FTP, `--allow-uploads` lets it store files, `--allow-plaintext-auth` lets FTP (<<rfc959>>) take its password in the clear, `--mail-domain` and `--mailbox` give SMTP (<<rfc5321>>) one mailbox and its login, and `--fault` makes the first request for `/flaky.txt` answer 503.
+
+The run goes through `curl-mcp`{apos}s `curl` tool: two fetches with `--digest -u` (Digest, <<rfc7616>>), one with a wrong password; a fetch of `/flaky.txt` with `--retry 1`; an upload with `-T` over FTP; and a mail with `--mail-from`, `--mail-rcpt` and `-T`. `-s` and `-o` keep `curl` quiet. Every call exits 0: without `-f` a 401 is a finished conversation to `curl`, and the retry fetched `/flaky.txt` on its second try. The clients' side says the run was clean; the server's events say otherwise.
+
+`get_events` answers the events the server kept, oldest first, at most `max_events` at a time, with `has_more` set while more remain; passing the last `sequence` as `after_sequence` reads the next page. An exchange{apos}s events can come a moment after the client returns, so the program reads again until there are as many `exchange_ended` events as `exchange_started`. What each kind says:
+
+* `login_judged` is one login checked against an account: `account`, `scheme`, `mechanism` (`Digest`, `password` for FTP, a SASL name for SMTP) and `is_accepted`. It comes once per request that carries credentials, so the retried fetch, two requests on one connection, counts twice: five accepted logins from four good calls.
+* `store_changed` is one change to a store: `store` `content` with `change` `written` for an upload, naming the path and its `byte_count`, and `store` `mail` with `change` `delivered` for a message, naming the mailbox and its UID.
+* `fault_applied` is one time a fault rule acted: `rule_id`, `fault_kind` and `target`, the path here.
+
+None of these carry the scheme except `login_judged`; the program joins on `exchange_id` to the `exchange_started` event, which holds it.
+
+A failure shows the same way. With a wrong FTP password the upload is refused, `curl` exits 67, and the events hold a second refused login, over `ftp` with the `password` mechanism, and no upload at all. One kind of failure leaves no event: without `--allow-plaintext-auth`, `surl` refuses the FTP password sent in the clear before checking it, as it does by default because anyone on the path can read it. `curl` still exits 67 and no file is stored, but no `login_judged` event is kept, so the summary counts no refused FTP login. A summary from events is read beside the clients{apos} exit codes, not instead of them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-request-that-failed-from-an-agent>> for reading one failed exchange in full.
+* <<surl-keep-the-server-log-for-a-failed-run-from-an-agent>> for keeping what the server recorded after a failed run.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<rfc7616>>, <<rfc959>>, <<rfc5321>>.

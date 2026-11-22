@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-fetch-only-new-messages-in-csharp]]
+=== Fetching Only New Messages in C#
+
+==== Problem
+
+Your C# sync client should fetch only new mail: it remembers the last unique identifier (UID) it fetched over Internet Message Access Protocol (IMAP) and asks for what came since. You want a test that delivers mail between two syncs and checks, from the server{apos}s side, that only the new UIDs were fetched.
+
+==== Solution
+
+Host the server with Surl.Api, sync with Curl.Api, deliver between syncs, and read the `UID FETCH` commands each sync sent from the recorded exchanges:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `imap://` URL on port 0, `MailDomains` and `Mailboxes` for `ann`{apos}s mailbox, and `RecordExchanges`, which keeps every byte each client sent (<<surl-readme>>). `server.Mail` is the mail store, a `SurlServerMail`; its `DeliverAsync` stores a message and returns once it is in, so the test delivers between syncs with no wait.
+
+A sync is one `CurlClient`, logged in with `CurlAuthenticationOptions`. `CustomRequest`, the `curl -X` of Curl.Api, sends `UID SEARCH UID 3:*` on `.../INBOX` in a `CurlRequest`, and the `CurlResponse` `Body` is the answer with UIDs, `* SEARCH 3 4` (<<rfc9051>>). The client then fetches `INBOX;UID=3` and `INBOX;UID=4` and remembers the highest. Each sync uses a fresh client on purpose: a `CurlClient` keeps its connection with `INBOX` selected, and mail delivered after that selection is not seen on it (<<imap-check-unread-counts-in-csharp>> shows it), so a sync on an old connection would find nothing new.
+
+The test reads the server{apos}s side. After a sync it waits, at most ten seconds for each, until `surl` has ended every exchange it started: `server.FindEvents` counts the `ExchangeStarted` and `ExchangeEnded` events, and `server.WaitForEventAsync` with a `SurlEventQuery` and `AfterSequence`, the last `SurlEvent`{apos}s `Sequence`, waits for the next end. Then each new `SurlExchangeRecord` in `server.Exchanges` gives its `Received` bytes, and the `UID FETCH` lines among them are what the sync asked for: `UID FETCH 3 BODY[]` and `UID FETCH 4 BODY[]` in the second sync, nothing for 1 and 2. The first sync, from UID 0, fetched both of those. The store says what to expect: `ListMessagesAsync` with `afterUid` 2 answers a `SurlMessagePage` holding UIDs 3 and 4.
+
+One edge needs code in the client. In IMAP `*` is the largest UID in use, so when nothing is new, `UID 5:*` is the range from 4 to 5 and the search answers `* SEARCH 4`, a message already fetched. The client keeps only UIDs above the one it remembered, and the third sync fetches nothing: `surl` receives no `UID FETCH` at all. `CustomRequest` can also send `STATUS INBOX (UIDNEXT UIDVALIDITY)` on the root URL: `UIDNEXT` is `5`, the UID the next message will get, and `UIDVALIDITY` equals the `UidValidity` of the store{apos}s `SurlMailboxInfo`. The client keeps it beside its last UID, because remembered UIDs mean something only while it stays the same.
+
+UIDs never go back. Another client marks message 1 `\Deleted` and sends `EXPUNGE`, answered `* 1 EXPUNGE`; the fifth order then gets UID 5, not 4, though the mailbox holds four messages, and the fourth sync fetches UID 5 alone. Message numbers do shift. The URL query `INBOX?UID%205:*` sends a plain `SEARCH`, which answers message numbers, and names the same message `4`. A client that keeps that number fetches the wrong message, or a gone one: a fetch of the expunged `INBOX;UID=1` throws `CurlException` with `Code` `RemoteFileNotFound`, 78.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-fetch-only-new-messages>> for `UID SEARCH` with `curl` on the console.
+* <<imap-fetch-only-new-messages-from-an-agent>> for an agent that remembers its last UID.
+* <<imap-check-unread-counts-in-csharp>> for the kept connection that misses new mail.
+* <<surl-readme>>, <<rfc9051>>.

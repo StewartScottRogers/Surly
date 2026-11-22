@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-repeat-a-failure-with-a-fixed-seed-in-csharp
+title: Repeating a Failure with a Fixed Seed
+protocols: [s3, http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFileContents, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlAuthenticationOptions]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Rerun with the seed a failed run printed, 3 here, the upload draws the same ID, 5639b40740dd9a241e86ed60a3306b6a, the stand-in bug fails on it, the server holds no big.bin, and the run exits 1.
+    program: rerun.cs
+    args: ["3"]
+    expect:
+      exit: 1
+      stdout: "seed=3\nupload 5639b40740dd9a241e86ed60a3306b6a\nfailed: upload 5639b40740dd9a241e86ed60a3306b6a cannot be named\nserver holds no big.bin\n"
+
+  - id: again
+    claim: A second rerun with seed 3 draws that ID once more, and it is the ID surl draws for the same seed on the console.
+    program: rerun.cs
+    args: ["3"]
+    expect:
+      exit: 1
+      stdout-matches: '^seed=3\nupload 5639b40740dd9a241e86ed60a3306b6a\n'
+
+  - id: other-seed
+    claim: Seed 1 draws a3f0bca96a94bddcbbdee7353d87db57, which the bug lets through; the upload completes, the server holds big.bin with its one part, and the run exits 0.
+    program: rerun.cs
+    args: ["1"]
+    expect:
+      exit: 0
+      stdout: "seed=1\nupload a3f0bca96a94bddcbbdee7353d87db57\nstored big.bin\nserver holds big.bin: part one\n"
+
+  - id: order-matters
+    claim: The IDs follow the order of connections as well as the seed, so seed 3 after a readiness check on its own connection draws bb73347a1372eccb4997db86ac06e8c4 for the upload and the failure is gone.
+    program: rerun.cs
+    args: ["3", "probe"]
+    expect:
+      exit: 0
+      stdout-matches: '^seed=3\nupload bb73347a1372eccb4997db86ac06e8c4\nstored big.bin\n'
+
+  - id: nonces-never-seeded
+    claim: Two HTTP servers with RandomSeed 3 and one account still send different Digest nonces, because surl never draws a nonce, key, challenge, salt or token from the seed.
+    program: rerun.cs
+    args: [nonces]
+    expect:
+      exit: 0
+      stdout: "same seed, same nonce: False\n"
+
+  - id: bad-seed
+    claim: A negative RandomSeed is refused when the server starts.
+    program: rerun.cs
+    args: [bad-seed]
+    expect:
+      exit: 2
+      stdout: "seed -1: SurlServerStartException\n"

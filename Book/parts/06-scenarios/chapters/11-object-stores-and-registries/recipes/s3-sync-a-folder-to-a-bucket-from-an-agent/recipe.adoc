@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-sync-a-folder-to-a-bucket-from-an-agent]]
+=== Syncing a Folder to a Bucket
+
+==== Problem
+
+You want an artificial intelligence (AI) agent to sync a folder to an Amazon Simple Storage Service (S3) bucket: upload the folder, list the bucket, change one file, upload only that one, and have the listing show that the other objects were left alone. No AWS account is needed.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` as the bucket with `start_server`, lists the bucket with sizes and ETags through `curl-mcp`{apos}s `curl` tool, puts each file whose hash is not the ETag of the object of its name, and checks the result with `read_file` and `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server that answers as `surl` with the same options would. `listen_urls` is `s3://127.0.0.1:0`, and port 0 takes a free port, which the program reads from `bound_urls`. `arguments` holds `--cert` and `--key`, a certificate that names `*.s3.us-east-1.amazonaws.com` as well as `127.0.0.1`, the key pair as `--user`, `--allow-uploads`, which lets a put write, and `--list-directories`, which lets a listing be answered. `files` seeds the bucket in memory with `reports/old.csv`, an object that was there before the sync; a top-level folder is a bucket and the path under it is the key.
+
+`curl` runs `curl-mcp`{apos}s curl as the command line would, from `args`, confined to the folder `CURL_MCP_ROOT` names, so `-T site/a.csv` and `--cacert server.pem` find their files there. `s3://reports/a.csv` names the bucket as the host, and `curl` sends to `reports.s3.us-east-1.amazonaws.com:443`, so `--connect-to ::127.0.0.1:PORT` routes it to the server and `-u` signs every request. The answer is JavaScript Object Notation (JSON) text with `exitCode`, `standardOutput` and `standardError`, each with `content`. A URL ending in `/` with no `-T` is a listing, one name a line.
+
+The sync is the program{apos}s own and is a few lines: it lists the bucket, hashes each file of `site/` with Message-Digest 5 (MD5), and puts the file only if no object of its name has that hash as its ETag. For a put like these an ETag is the MD5 of the content in lower-case hexadecimal, and only a listing in XML carries it, so the program asks for ListObjectsV2 signed over HTTPS to the bucket{apos}s host name: `--aws-sigv4 aws:amz:us-east-1:s3` on `https://reports.s3.us-east-1.amazonaws.com/?list-type=2`. SigV4, the AWS Signature Version 4, is refused over HTTP/2 by `surl` for now, so the request adds `--http1.1`; `s3://` itself is always HTTP/1.1. The first sync finds nothing of the three names and puts all three; after b.csv changes, the second finds one hash that differs and puts that file alone, and a sync with nothing changed puts nothing.
+
+The listing is the proof, in two forms. Before and after, a.csv, c.csv and the old object have the size and ETag they had, and b.csv went from 23 to 25 bytes with a new ETag; the listing by name is the same four names both times and proves nothing. The other form is the server{apos}s own count. `get_events` with `kinds` `store_changed` and `store` `content` lists the change events `surl-mcp` kept; a put carries an `exchange_id`, the exchange that made it, and the seeded object does not, so the program counts the events that have one: three for the first sync, four after the second. `read_file` takes the `server_id` that `start_server` returned and a `path`, and answers an object as `text`, with no S3 in between, which the program compares with the file.
+
+A refusal is a tool error, with curl{apos}s own message in `standardError`. A wrong secret ends in exit `22` with `S3 returned error 403: SignatureDoesNotMatch`. A server started without `--allow-uploads` answers a signed put `403 AccessDenied` and nothing arrives: a get of a.csv is `404 NoSuchKey`. Without `--list-directories` a signed listing is `403 AccessDenied`, and a sync that needs the listing cannot run.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-sync-a-folder-to-a-bucket>> for the same sync on the console.
+* <<s3-sync-a-folder-to-a-bucket-in-csharp>> for the same sync in a C# program.
+* <<s3-list-a-bucket-from-an-agent>> for listings on their own.
+* <<s3-audit-a-bucket-after-a-sync>> for checking a bucket against what a sync meant to put.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

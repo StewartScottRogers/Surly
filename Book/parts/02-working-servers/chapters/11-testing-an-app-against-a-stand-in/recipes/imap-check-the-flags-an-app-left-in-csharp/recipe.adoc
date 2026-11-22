@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-check-the-flags-an-app-left-in-csharp]]
+=== Checking an App's Flags in C#
+
+==== Problem
+
+Your mail client marks what it processed as seen and marks spam for deletion over Internet Message Access Protocol (IMAP). You want a C# test that runs it against an in-process server and then checks each message{apos}s flags from the server{apos}s own store, without the check changing them.
+
+==== Solution
+
+Host the server with Surl.Api, let the app work over IMAP with Curl.Api, then list the messages with `Mail.ListMessagesAsync`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `imap://` URL on port 0 in `ListenUrls`, `example.com` in `MailDomains`, and one entry in `Mailboxes`, an address and password, the address being the login too (<<surl-readme>>). `server.Mail` is the server{apos}s mail store, a `SurlServerMail`; its `DeliverAsync` puts each message into `ann`{apos}s `INBOX` as Simple Mail Transfer Protocol delivery would and returns once it is stored, so the app can start at once.
+
+The app is four Curl.Api requests, each on a fresh `CurlClient`. A `CurlRequest` for `INBOX;UID=1` fetches a message into the `Body` of its `CurlResponse`, and the fetch sets the message{apos}s `\Seen` flag; the spam{apos}s subject, `INBOX;UID=3;SECTION=HEADER.FIELDS%20(SUBJECT)`, is a read too, because `curl` asks for `BODY[...]` and not `BODY.PEEK[...]`. `CustomRequest` sends an IMAP command as it is written, the `curl -X` of the console, so `STORE 3 +FLAGS (\Deleted)` on `.../INBOX` marks the spam. `CurlAuthenticationOptions` is the login; without Transport Layer Security `surl` offers only `CRAM-MD5`, which Curl.Api uses, so nothing is loosened.
+
+`ListMessagesAsync(owner, mailbox, afterUid, limit)` answers a `SurlMessagePage`, the messages in UID order from above `afterUid`, at most `limit` of them. Each `SurlMessageSummary` has the `Uid`, the `Size` and the `Flags`, the system flags as strings in a fixed order: `\Seen \Deleted` for the spam (the IMAP answer lists them the other way round), and none for the newsletter the app was right to leave alone. The listing sets no flag, so a second one is the same, and a search for `UNSEEN` through Curl.Api, `INBOX?UNSEEN`, still names `4`. When a flag is the whole assertion a search says it in one line: `INBOX?DELETED` answers `* SEARCH 3`, and `INBOX?SEEN%20NOT%20DELETED` the two processed and kept, `1 2`.
+
+The store has its own way to look inside a message. `ReadMessageAsync` returns a `SurlMailMessage` with the exact `Bytes`, 92 of them for the newsletter, and its `Summary`, and sets no flag. Fetching the same message over IMAP to look is a read: the listing then shows `\Seen` on UID 4, a flag the app never set. `STORE 4 -FLAGS (\Seen)` takes it off again, and its answer, `* 4 FETCH (FLAGS ())`, shows the flags as they now are.
+
+`\Deleted` is a mark, not a removal: `ListMailboxesAsync` still gives the `SurlMailboxInfo` for `INBOX` a `MessageCount` of four, one of them unseen. A client that empties the trash sends `EXPUNGE`, which answers `* 3 EXPUNGE` for the message it removed. The newsletter is then message 3 over IMAP but keeps UID 4, as `UID FETCH 1:* FLAGS` shows; the store lists UIDs `1`, `2` and `4`. A test that remembers which message is which should keep UIDs.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-check-the-flags-an-app-left>> for the same check with `curl` on the console.
+* <<imap-check-the-flags-an-app-left-from-an-agent>> for the check made by an agent.
+* <<imap-check-unread-counts-in-csharp>> for unread counts from C#.
+* <<surl-readme>>, <<rfc9051>>.

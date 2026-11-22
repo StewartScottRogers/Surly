@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+# Curl.Api 0.2.0 opens a WebTransport session but sends no data on it (see review.md), so this
+# twin checks the login gate and surl's record of the session; the console and agent twins
+# check the datagram and stream echoes.
+schema: 2
+key: webtransport-send-datagrams-and-streams-in-csharp
+title: Opening a WebTransport Session in C#
+protocols: [webtransport]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, SurlExchangeRecord, SurlExchangeChunk, SurlEventQuery, LoginJudgedEvent, CurlClient, CurlClientOptions, CurlAuthenticationOptions, CurlTlsPeerOptions, CurlRequest, CurlException]
+exit-codes: [0, 22, 58, 60]
+references: [webtransport-http3, rfc9114, rfc9000, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the account's login, Curl.Api's extended CONNECT for webtransport-h3 at /game is answered 200 and the session opens; surl records the login as player1, Basic, accepted.
+    program: check-the-session-login.cs
+    args: [login]
+    expect:
+      exit: 0
+      stdout: "session opened; 0 bytes echoed\nreceived :method: CONNECT\nreceived :protocol: webtransport-h3\nreceived :path: /game\nsent :status: 200\nlogin: player1, Basic, accepted True\n"
+
+  - id: no-data-yet
+    claim: Curl.Api 0.2.0 sends no data on a WebTransport session; the request's Body is not sent as a datagram, so nothing is echoed and the response body is empty.
+    program: check-the-session-login.cs
+    args: [login]
+    expect:
+      exit: 0
+      stdout-matches: '^session opened; 0 bytes echoed\n'
+
+  - id: no-login
+    claim: With no login, surl answers the CONNECT 401 and judges no login; SendAsync throws CurlException with code HttpReturnedError (22), naming the refused session.
+    program: check-the-session-login.cs
+    args: [none]
+    expect:
+      exit: 22
+      stdout: "refused: HttpReturnedError (22): The server refused the WebTransport session: HTTP status 401\nreceived :method: CONNECT\nreceived :protocol: webtransport-h3\nreceived :path: /game\nsent :status: 401\n"
+
+  - id: wrong-password
+    claim: A wrong password is answered 401 the same way, and surl records the login as player1, accepted False.
+    program: check-the-session-login.cs
+    args: [wrong]
+    expect:
+      exit: 22
+      stdout: "refused: HttpReturnedError (22): The server refused the WebTransport session: HTTP status 401\nreceived :method: CONNECT\nreceived :protocol: webtransport-h3\nreceived :path: /game\nsent :status: 401\nlogin: player1, Basic, accepted False\n"
+
+  - id: untrusted-certificate
+    claim: Without the certificate as an authority, the QUIC handshake fails, PeerFailedVerification (60), and surl sees no CONNECT and judges no login.
+    program: check-the-session-login.cs
+    args: [untrusted]
+    expect:
+      exit: 60
+      stdout-matches: '^refused: PeerFailedVerification \(60\): [^\n]*\n$'
+
+  - id: needs-a-certificate
+    claim: A webtransport listen URL with no certificate does not start; StartAsync throws SurlServerStartException with CertificateProblem (58), because QUIC is always TLS.
+    program: check-the-session-login.cs
+    args: [no-cert]
+    expect:
+      exit: 58
+      stdout: "start refused: CertificateProblem (58)\n(58) webtransport://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"

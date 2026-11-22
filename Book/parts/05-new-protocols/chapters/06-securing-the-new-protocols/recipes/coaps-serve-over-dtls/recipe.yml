@@ -1,0 +1,125 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the
+# pinned surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: coaps-serve-over-dtls
+title: Serving CoAP over DTLS
+protocols: [coaps, coap]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --allow-anonymous]
+curl-options: [--cacert, -i, -u, -m, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 28, 35, 58, 60]
+references: [rfc7252, rfc8446, surl-readme, curl-readme, curl-protocols]
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+fixtures:
+  config/sensor.json: "{\"interval\":60}\n"
+  locked/sensor.json: "{\"interval\":60}\n"
+  open/sensor.json: "{\"interval\":60}\n"
+  psk/sensor.json: "{\"interval\":60}\n"
+
+# CoAP listens on UDP only, so there is no TCP port to wait for (ready: none). The first
+# case waits instead: curl retries until surl answers. main starts last. Every curl has
+# -m 10, so a request that gets no answer fails in 10 seconds instead of retransmitting on.
+# locked has an account and serves coap and coaps; open has the same account and
+# --allow-anonymous; psk has the account and no certificate. Each serves its own directory.
+servers:
+  locked:
+    command: surl --directory locked --cert server.pem --key server.key --user alice:secret coap://127.0.0.1:{{port2}}/ coaps://127.0.0.1:{{port3}}/
+    ready: none
+  open:
+    command: surl --directory open --user alice:secret --allow-anonymous coap://127.0.0.1:{{port4}}/
+    ready: none
+  psk:
+    command: surl --directory psk --user alice:secret coaps://127.0.0.1:{{port5}}/
+    ready: none
+  main:
+    command: surl --directory config --cert server.pem --key server.key coaps://127.0.0.1:{{port}}/
+    ready: none
+
+cases:
+  - id: wait-for-start
+    claim: With --retry 5 --retry-all-errors --retry-delay 1, curl tries again until surl answers, then gets the resource over coaps, exit 0.
+    run: curl -s -m 10 --retry 5 --retry-all-errors --retry-delay 1 --cacert server.pem coaps://127.0.0.1:{{port}}/sensor.json
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "{\"interval\":60}\n"
+
+  - id: solution
+    role: solution
+    claim: curl, trusting surl's certificate with --cacert, completes the DTLS handshake, sends a confirmable GET inside it and writes the payload, exit 0.
+    run: curl -m 10 --cacert server.pem coaps://127.0.0.1:{{port}}/sensor.json
+    expect:
+      exit: 0
+      stdout: "{\"interval\":60}\n"
+
+  - id: response-code
+    claim: With -i, curl writes the response code first, 2.05 Content, then a blank line and the payload.
+    run: curl -s -i -m 10 --cacert server.pem coaps://127.0.0.1:{{port}}/sensor.json
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 2.05\n\n{\"interval\":60}\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl cannot verify the certificate in the DTLS handshake and exits 60, writing nothing.
+    run: curl -s -m 10 coaps://127.0.0.1:{{port}}/sensor.json
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: plain-to-the-dtls-port
+    claim: Plain coap to the coaps port gets no answer, since surl reads only DTLS there; -m 10 ends the wait, exit 28.
+    run: curl -s -m 10 coap://127.0.0.1:{{port}}/sensor.json
+    timeout: 30
+    expect:
+      exit: 28
+      stdout: ""
+
+  - id: account-refuses-plain-coap
+    claim: Once surl has an account, a plain coap read is answered 4.01 Unauthorized, because plain CoAP carries no login.
+    run: curl -s -i -m 10 coap://127.0.0.1:{{port2}}/sensor.json
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01\n\n"
+
+  - id: password-not-sent
+    claim: -u changes nothing over plain coap; the read is still 4.01.
+    run: curl -s -i -m 10 -u alice:secret coap://127.0.0.1:{{port2}}/sensor.json
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01\n\n"
+
+  - id: account-refuses-coaps-too
+    claim: The account closes coaps as well; a client that trusts the certificate but logs in with no pre-shared key is answered 4.01.
+    run: curl -s -i -m 10 --cacert server.pem coaps://127.0.0.1:{{port3}}/sensor.json
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 4.01\n\n"
+
+  - id: anonymous-allowed
+    claim: With --allow-anonymous, the same account no longer closes plain coap; the read is 2.05.
+    run: curl -s -i -m 10 coap://127.0.0.1:{{port4}}/sensor.json
+    expect:
+      exit: 0
+      stdout: "CoAP/1.0 2.05\n\n{\"interval\":60}\n"
+
+  - id: account-alone-is-a-psk
+    claim: coaps with an account and no certificate serves pre-shared keys only; curl, which offers certificates, fails the DTLS handshake, exit 35.
+    run: curl -s -S -m 10 --cacert server.pem coaps://127.0.0.1:{{port5}}/sensor.json
+    expect:
+      exit: 35
+      stdout: ""
+      stderr-contains: "curl: (35)"
+
+  - id: needs-a-certificate-or-an-account
+    claim: A coaps listen URL with neither a certificate nor an account is refused at start, exit 58, naming --cert, --self-signed and --user.
+    run: surl --directory config coaps://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 58
+      stdout-matches: '^surl: \(58\) coaps://127\.0\.0\.1:0/ needs a certificate or an account: give --cert <file>, --self-signed for a throwaway one, or --user <name:key> for a pre-shared key\n'
