@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-find-which-account-uploaded-a-file-from-an-agent]]
+=== Finding Who Uploaded from an Agent
+
+==== Problem
+
+Two accounts upload to one File Transfer Protocol (FTP) server, and a file on it is wrong. You want an artificial intelligence (AI) agent to name the account that stored it from the server{apos}s events, with Model Context Protocol (MCP) tool calls and no shell.
+
+==== Solution
+
+The program is the agent's side: it starts `surl-mcp` and `curl-mcp`, calls `start_server` for an FTP server with two accounts, makes three uploads with `curl-mcp`{apos}s `curl` tool, waits for the record to settle, and joins the store changes `get_events` reports to the logins it reports. The argument picks what to print; the solution is `who`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`StdioClientTransport` starts each host by name from `PATH`, and `SURL_MCP_ROOT` and `CURL_MCP_ROOT` confine both to the folder the program runs in, where it writes the three files it uploads. `start_server` takes `listen_urls`, port `0` for a free one, and answers a `server_id` and `bound_urls`. `arguments` holds `surl`{apos}s own words: two `--user name:password` accounts, `alice` and `bob`; `--allow-uploads`; `--max-filesize 100`; and `--allow-plaintext-auth`, without which the server refuses a password sent in clear over plain FTP and every upload exits `67` (<<surl-readme>>). That last is a stand-in{apos}s choice, not a production server{apos}s.
+
+Each upload is one `curl` tool call, `-u` for the account and `-T` for the file, and `-sS` to hide the progress meter but keep the error text; the answer is text holding JSON, with `exitCode` and `standardError` (<<curl-readme>>, <<rfc959>>). Each call is its own connection and so its own exchange. `alice` uploads the right `export.csv`, `bob` a wrong one to the same name, and the server replaces `alice`{apos}s file with `bob`{apos}s without telling either client, as `read_file` of `/export.csv` shows. `alice`{apos}s third upload is past the limit and exits `70`, and `bob`{apos}s file stays.
+
+`get_events` takes the `server_id` and filters, and answers `events`, oldest first. The record is kept as exchanges run, so the agent first waits until it has settled: it asks for the `exchange_started` and `exchange_ended` events five times a second until the counts agree, for ten seconds at most. Then `kinds: ["store_changed"]` with `name: "/export.csv"` lists each change to the file, each with an `exchange_id`, and `kinds: ["login_judged"]` lists each login with its `exchange_id`, `account` and `is_accepted`. Joined on the exchange, they say `alice` stored the file and then `bob` did, so `bob` stored it last. `get_exchanges` answers each exchange{apos}s `chunks`, and the `received` ones hold what the client sent: three exchanges hold `STOR export.csv`, the refused one included, but there are only two store changes. A store change is what proves a file was written; a command only shows it was asked for.
+
+`surl-mcp` keeps no log file: `start_server` refuses `--log-file` and points to `get_exchanges` and `get_events` instead. Unlike `surl`{apos}s log, which replaces each password with `pass:[****]`, `get_exchanges` keeps the bytes as they were received, and each `PASS` command there carries its password in clear, so an agent should not paste a record where a password must not be seen.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-find-which-account-uploaded-a-file>> for the same task on the console.
+* <<ftp-find-which-account-uploaded-a-file-in-csharp>> for the same task from C#.
+* <<ftp-see-which-command-broke-a-transfer-from-an-agent>> for finding the command that failed in the same record.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>, <<mcp-spec>>.

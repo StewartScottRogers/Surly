@@ -1,0 +1,87 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-see-which-command-broke-a-transfer-from-an-agent
+title: Seeing Which FTP Command Failed from an Agent
+protocols: [ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges]
+curl-options: [-T, -o, -sS]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: first-run-fails-at-upload
+    claim: "The job's first run fails at its upload; curl exits 25 saying the upload failed with 451."
+    program: program.cs
+    args: ["runs"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '^run 1: exit 25 curl: \(25\) Failed FTP upload: 451\n'
+
+  - id: second-run-fails-at-download
+    claim: "The second run uploads, then fails at its download, and curl exits 56."
+    program: program.cs
+    args: ["runs"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\nrun 2: exit 56 curl: \(56\) '
+
+  - id: third-run-passes
+    claim: "The third run passes, so the job fails now and then and not every time."
+    program: program.cs
+    args: ["runs"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\nrun 3: passed\n$'
+
+  - id: solution
+    role: solution
+    claim: "Once every exchange has ended, get_exchanges gives the two failed sessions with the command and the reply that ended each, STOR nightly.csv answered 451 and RETR orders.csv with no reply, and get_events has a fault_applied event for each naming the rule that acted."
+    program: program.cs
+    args: ["failed"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "exchange 1: STOR nightly.csv -> 451 Local error in processing\n  fault f1: error at command stage, on STOR /outbox/nightly.csv\nexchange 3: RETR orders.csv -> no reply\n  fault f2: drop at command stage, on RETR /inbox/orders.csv\n"
+
+  - id: passing-sessions-left-out
+    claim: "Three sessions sent STOR nightly.csv, one per run, but only the one that failed is listed."
+    program: program.cs
+    args: ["passing"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "3 sessions sent STOR nightly.csv\n"
+
+  - id: real-refusal-has-no-rule
+    claim: "On a server with no fault rule and no --allow-uploads the job fails at the upload, and curl exits 25 saying the upload failed with 550."
+    program: program.cs
+    args: ["real"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '^run 1: exit 25 curl: \(25\) Failed FTP upload: 550\n'
+
+  - id: real-refusal-in-record
+    claim: "The record gives that session as STOR nightly.csv answered 550 Not permitted, with no fault rule, which is how a real refusal reads."
+    program: program.cs
+    args: ["real"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\nexchange 1: STOR nightly\.csv -> 550 Not permitted\n$'
+
+  - id: login-needed
+    claim: "Without --allow-anonymous, and with no account given, the job's anonymous login is refused and curl exits 67."
+    program: program.cs
+    args: ["locked"]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '^run 1: exit 67 curl: \(67\) '

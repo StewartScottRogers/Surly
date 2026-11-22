@@ -1,0 +1,138 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: nats-log-in-with-a-token
+title: Logging In to NATS with a Token
+protocols: [nats, natss]
+tier: new-protocols
+surl-options: [--user, --allow-anonymous, --allow-plaintext-auth, --cert, --key, --log-file, -v]
+curl-options: [-s, -S, -u, -d, --cacert, --ssl-no-revoke]
+exit-codes: [0, 35, 60, 67]
+references: [surl-readme, curl-readme, curl-protocols, nats-protocol, rfc8446]
+triplet: nats-log-in-with-a-token
+
+fixtures:
+  wait-for.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Print every match of a pattern in a log file, once it is there: surl writes an exchange's
+    # last lines a moment after its client has gone, so wait, at most 10 s, for the first match.
+    # Usage: sh wait-for.sh <log file> <pattern>
+    i=0
+    until grep -q "$2" "$1"; do
+      i=$((i+1)); [ $i -ge 100 ] && break; sleep 0.1
+    done
+    grep -o "$2" "$1"
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# A token is an account with no name: --user :tok123. Each server logs to its own file. plain has the
+# token and no loosening; loose adds --allow-plaintext-auth; tls serves natss, which needs a certificate;
+# open accepts anonymous clients.
+servers:
+  plain:
+    command: surl --user :tok123 -v --log-file plain.log nats://127.0.0.1:{{port}}/
+    ready: port
+  loose:
+    command: surl --user :tok123 --allow-plaintext-auth -v --log-file loose.log nats://127.0.0.1:{{port2}}/
+    ready: port
+  tls:
+    command: surl --user :tok123 --cert server.pem --key server.key -v --log-file tls.log natss://127.0.0.1:{{port3}}/
+    ready: port
+  open:
+    command: surl --allow-anonymous nats://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With -u and a token as the user name and nothing after the colon, curl sends the token in the NATS CONNECT as its auth_token, not as a user and password; a server that takes anonymous clients accepts it unchecked and the publish succeeds, exit 0.
+    run: 'curl -sS -u tok123: -d paid nats://127.0.0.1:{{port4}}/orders.new'
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: refused-in-clear
+    claim: Over nats://, which has no encryption, a token is refused unchecked, even the one the server holds, with the error Authorization Violation, and curl exits 67.
+    run: 'curl -sS -u tok123: -d paid nats://127.0.0.1:{{port}}/orders.new'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authorization Violation"
+
+  - id: refused-before-it-is-judged
+    claim: The server's trace names the reason for that refusal as RefusedPlaintext, the token never having been compared.
+    run: sh wait-for.sh plain.log RefusedPlaintext
+    expect:
+      exit: 0
+      stdout: "RefusedPlaintext\n"
+
+  - id: loosening-judges-the-token
+    claim: With --allow-plaintext-auth, the token is judged at last, and a wrong one is refused with the same error, exit 67.
+    run: 'curl -sS -u wrong: -d paid nats://127.0.0.1:{{port2}}/orders.new'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authorization Violation"
+
+  - id: judged-reason
+    claim: The trace of that server names the reason as RefusedCredentials, not RefusedPlaintext.
+    run: sh wait-for.sh loose.log RefusedCredentials
+    expect:
+      exit: 0
+      stdout: "RefusedCredentials\n"
+
+  - id: natss-wrong-token
+    claim: Over natss://, with the certificate trusted through --cacert, the token is judged with no loosening option, and a wrong one is answered Authorization Violation, exit 67.
+    run: 'curl -sS --cacert server.pem --ssl-no-revoke -u wrong: -d paid natss://127.0.0.1:{{port3}}/orders.new'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authorization Violation"
+
+  - id: natss-no-token
+    claim: A client that sends no token at all is refused the same way, exit 67.
+    run: curl -sS --cacert server.pem --ssl-no-revoke -d paid natss://127.0.0.1:{{port3}}/orders.new
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authorization Violation"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, sends no token and exits 60.
+    run: 'curl -sS -u tok123: -d paid natss://127.0.0.1:{{port3}}/orders.new'
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: natss-needs-natss
+    claim: A natss server requires TLS before CONNECT, so a client that connects with nats:// is told so by the server's INFO, and curl exits 35 without sending a token.
+    run: 'curl -sS -u tok123: -d paid nats://127.0.0.1:{{port3}}/orders.new'
+    expect:
+      exit: 35
+      stdout: ""
+      stderr-contains: "NATS server requires TLS; use natss://"
+
+  - id: token-is-masked
+    claim: The trace of the natss server shows the CONNECT with the token masked, auth_token followed by four asterisks, and the token itself appears nowhere in it.
+    run: sh wait-for.sh tls.log "auth_token.:.\*\*\*\*"
+    expect:
+      exit: 0
+      stdout-matches: '\A(auth_token":"\*\*\*\*\n)+\Z'
+
+  - id: token-is-not-in-the-log
+    claim: The token the server holds is not in the log at all, so the log can be kept and shared.
+    run: grep -c tok123 tls.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: right-token-refused
+    claim: 'Known defect of the build checked: over natss://, with a trusted certificate and no loosening option, the token the server holds is refused as well, answered Authorization Violation, exit 67, so no case here shows a token accepted.'
+    run: 'curl -sS --cacert server.pem --ssl-no-revoke -u tok123: -d paid natss://127.0.0.1:{{port3}}/orders.new'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "Authorization Violation"

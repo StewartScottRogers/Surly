@@ -1,0 +1,130 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: nats-log-in-with-a-token-from-an-agent
+title: NATS Token Logins from an Agent
+protocols: [nats, natss]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_events, get_exchanges]
+curl-options: [-s, -S, -u, -d, --cacert, --ssl-no-revoke]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-protocols, nats-protocol, rfc8446, mcp-spec]
+triplet: nats-log-in-with-a-token
+
+fixtures: {}
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A server that takes anonymous clients accepts a token no account holds, unchecked, and the curl tool publishes with -u and the token as the user name, exit code 0.
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "published\n"
+
+  - id: refused-in-clear
+    claim: Over nats://, which has no encryption, a token is refused unchecked, even the one the server holds, and the curl tool answers exit code 67 and the error Authorization Violation, not a tool error.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\n"
+
+  - id: refused-before-it-is-judged
+    claim: The server recorded no login_judged event for that refusal, the token never having been compared.
+    program: program.cs
+    args: [clear-events]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\nlogins judged: 0\n"
+
+  - id: loosening-judges-the-token
+    claim: With --allow-plaintext-auth, the token is judged, and a wrong one is refused with the same error, exit code 67.
+    program: program.cs
+    args: [loose]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\n"
+
+  - id: judged-event
+    claim: The server recorded one login_judged event for that refusal.
+    program: program.cs
+    args: [loose-events]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\nlogins judged: 1\n"
+
+  - id: natss-wrong-token
+    claim: Over natss://, with the certificate trusted, the token is judged with no loosening option, and a wrong one is answered Authorization Violation, exit code 67.
+    program: program.cs
+    args: [tls-wrong]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\n"
+
+  - id: natss-no-token
+    claim: A client that sends no token at all is refused the same way.
+    program: program.cs
+    args: [tls-none]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\n"
+
+  - id: untrusted-certificate
+    claim: Without --cacert, curl does not trust the certificate, sends no token, and the tool answers exit code 60.
+    program: program.cs
+    args: [untrusted]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 60\n"
+
+  - id: natss-needs-natss
+    claim: A client that connects to the natss server with nats:// is told by its INFO that TLS is required, exit code 35, and sends no token.
+    program: program.cs
+    args: [wrong-scheme]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 35, curl: (35) NATS server requires TLS; use natss://\n"
+
+  - id: token-is-sent-as-auth-token
+    claim: The server's record of the CONNECT, from get_exchanges, shows the token in the field auth_token, with no user and no pass, so curl -u with a token and no password logs in as a token.
+    program: program.cs
+    args: [sent-as-token]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\nauth_token: \"auth_token\":\"wrong\", user: False, pass: False\n"
+
+  - id: record-holds-the-token
+    claim: The record get_exchanges keeps, which is the test's own view of what each client sent, holds the token as it was sent, in clear, so it is kept out of what is shared.
+    program: program.cs
+    args: [record]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\nrecord holds the token: True\n"
+
+  - id: right-token-refused
+    claim: 'Known defect of the build checked: over natss://, with a trusted certificate and no loosening, the token the server holds is refused as well, exit code 67, so no case here shows a token accepted.'
+    program: program.cs
+    args: [right]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\n"

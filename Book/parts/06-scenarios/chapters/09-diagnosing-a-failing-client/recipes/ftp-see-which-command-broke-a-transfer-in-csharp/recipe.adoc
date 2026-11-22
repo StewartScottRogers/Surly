@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-see-which-command-broke-a-transfer-in-csharp]]
+=== Seeing Which FTP Command Failed in C#
+
+==== Problem
+
+A File Transfer Protocol (FTP) job fails now and then, and the `CurlException` it throws does not say where. You want a test in your own .NET code to read the in-process server{apos}s record of each failing session and show the command the job sent last and the reply that ended it.
+
+==== Solution
+
+The program starts `SurlServer` in process with two fault rules that make the job fail the way a flaky server would, runs the job three times with `CurlClient`, waits for the record to settle, and reads each recorded exchange to the end. The argument picks what to print; the solution is `failed`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as an object. `AllowAnonymous` lets the job log in without an account, and without it the login throws `CurlException` with code 67, `LoginDenied`. `AllowUploads` is `--allow-uploads`, which the server refuses by default. `Files` seeds `outbox/` and `inbox/orders.csv`, and `RecordExchanges` keeps the record the test reads (<<surl-readme>>). Each entry in `Faults` is a `SurlFault`, `surl --fault` as an object, that makes the server misbehave on purpose, for tests only. `SurlFault.ProtocolError` scoped by `Scheme`, `Command` `STOR` and `Path` `/outbox` answers the upload `451 Local error in processing` instead of taking it; `SurlFault.DropConnection` at `FaultStage.Command`, scoped to `RETR` under `/inbox`, closes the connection when the download is asked for, with no reply. `Times = 1` spends each rule once, which is what makes the job fail now and then.
+
+The job is two `CurlRequest` calls, each on its own `CurlClient` and so its own connection: a `PUT` of a `CurlContent` body, then a `GET` whose `CurlResponse` body is read to the end (<<curl-readme>>). Run three times, it throws code 25, `UploadFailed`, then code 56, `RecvError`, then passes. From the client{apos}s side that is two codes.
+
+The record says more. It is kept as exchanges run, so the test first waits until it has settled: it polls `FindEvents` with a `SurlEventQuery` for `SurlEventKind.ExchangeStarted` and `ExchangeEnded` events five times a second until the counts agree, for ten seconds at most. Each `SurlExchangeRecord` in `server.Exchanges` is one connection, and its `Chunks` are `SurlExchangeChunk` entries in the order they crossed, each with a `SurlExchangeDirection` and its `Bytes`. The test keeps the last command received before `QUIT` and the last reply sent to it (<<rfc959>>). A file{apos}s bytes are recorded too, between a 1xx reply and the next reply, and are skipped, because they are not commands. A session whose last command got no reply, or one that was not 2xx or 3xx, is listed. A `FaultAppliedEvent` for the same `ExchangeId` names the rule that acted, with its `Kind`, its `Stage` and its `Target`, so a test can tell an injected failure from a real one. Sessions that ended well are left out: three sessions sent `STOR nightly.csv`, one per run, and only the failed one is listed.
+
+A real failure reads the same way without the rule. On a server with no fault rule and no `AllowUploads`, the job throws code 25 at its upload, and the record gives `STOR nightly.csv -> 550 Not permitted` with no fault rule after it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-see-which-command-broke-a-transfer>> for the same task on the console.
+* <<ftp-see-which-command-broke-a-transfer-from-an-agent>> for the same task from an agent.
+* <<ftp-find-which-account-uploaded-a-file-in-csharp>> for finding who stored a file in the same record.
+* <<surl-readme>>, <<curl-readme>>, <<rfc959>>.

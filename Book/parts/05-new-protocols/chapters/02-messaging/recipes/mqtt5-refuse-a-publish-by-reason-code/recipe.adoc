@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-refuse-a-publish-by-reason-code]]
+=== Refusing a Publish by Reason Code
+
+==== Problem
+
+Your MQTT 5 client must report why the broker refused it, by reason code. You want a publish and a subscribe refused by topic grants, with the reason code named, so a test can tell a missing grant from a wrong password.
+
+==== Solution
+
+Start `surl` as an MQTT 5 broker with four accounts and one grant line, and have `curl` publish as the account that may, then subscribe as the one that may only read:
+
+include::.generated/solution.adoc[]
+
+The second `surl` command, the same broker without `--allow-plaintext-auth`, is there for the last claim below. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+MQ Telemetry Transport (MQTT) version 5.0 answers every refusal with a reason code, a one-byte number that is the same wherever it appears: `0x87` is not authorized, `0x86` is bad user name or password (<<mqtt5>>). `curl`{apos}s `mqtt5://` scheme prints the code and its name, and `surl` on an `mqtt5` listen URL sends them. Both are extended: upstream curl has no `mqtt5` scheme, so the two programs are judged by the specification (<<surl-readme>>, <<curl-protocols>>).
+
+`--user` adds an account, `name:password`, and `-u` makes `curl` log in as one. `--topic-access "plant/#=ann:pubsub,bob:sub,dan:pub"` is the grant: the filter `plant/#`, every topic under `plant/`, and a right for each account, `pub`, `sub` or `pubsub`. Once any grant is given, every publish and every subscribe needs one, so an account the line does not name, `cy`, can log in and do nothing. `--topic "plant/#;retain"` keeps the last message on each topic under `plant/`, so the subscriber that comes after the publisher is sent it, and `--mqtt5-disconnect-after-retained` ends the subscription once it has been sent, so `curl` exits by itself (<<surl-readme>>). The Solution publishes with `-d` and, after `--next`, subscribes to the same topic; the message arrives as the payload alone.
+
+A subscribe is answered in the `SUBACK`, the subscribe acknowledgement, with one reason code per filter, and a refused one carries `0x87`. `curl` turns it into exit `8` and `MQTT 5 SUBACK reason code 0x87 NotAuthorized`. Three accounts show it: `ann` asking for `office/desk`, which no grant covers, even though she may do everything under `plant/`; `dan`, who was given `pub` and so may not subscribe; and `cy`, who has no grant.
+
+A publish is a different case, and the title promises more than the protocol and `curl` can show. An MQTT 5 broker can refuse a publish with a reason code, but only in the answer to a publish at quality of service (QoS) 1 or 2, the `PUBACK` or the `PUBREC`. `curl` publishes at QoS 0, which gets no answer, so a publish with no right to it is dropped with nothing said: `bob`, who was given only `sub`, publishes `99` and `curl` exits `0`, and `cy` does the same with `77`. The proof that the broker dropped them is a subscriber afterwards: `ann` still receives `21`. Whether a publish was refused is therefore a question for the stored state, not for the exit code.
+
+The login comes before any grant. A wrong password is refused in the `CONNACK`, the connect acknowledgement, with `0x86`; no login at all is `0x87`. Both are exit `67`, login denied. Over `mqtt5://` there is no encryption, so the broker refuses a password it was sent in clear, the right one too, and answers `0x87` as though no login had been sent: that is why the first `surl` command carries `--allow-plaintext-auth`, a loosening for a test, which makes the password checked, and why the second does not. `surl` warns on start while it is on. MQTT version 3.1.1 has no reason codes, and says the same things with a return code in the `CONNACK` (<<mqtt-grant-topics-to-a-group>>).
+
+In the checked claims, `-s` silences `curl`{apos}s progress meter and `-S` puts the error message back, so the reason shows on standard error.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-refuse-a-publish-by-reason-code-in-csharp>> for the same refusals from a C# test.
+* <<mqtt5-refuse-a-publish-by-reason-code-from-an-agent>> for the same refusals from an agent.
+* <<mqtt5-publish-and-subscribe>> for the MQTT 5 broker without grants.
+* <<mqtt-grant-topics-to-a-group>> for grants by group, on MQTT 3.1.1.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<mqtt5>>.

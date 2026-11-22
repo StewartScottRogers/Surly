@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the pinned
+# surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: ftp-offer-a-share-to-ftp-only
+title: Offering a Share to FTP Only
+protocols: [ftp, http]
+tier: working-servers
+surl-options: [--allow-anonymous, --list-directories, --share, --self-signed]
+curl-options: [-s, -k, -l, -o, -w]
+exit-codes: [0, 2, 78]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures:
+  drop/report.txt: "totals\n"
+  public/readme.txt: "open to all\n"
+
+servers:
+  main:
+    command: surl --allow-anonymous --list-directories --self-signed --share "drop=drop;protocols=ftp" --share public=public ftp://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/ ftps://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A share given protocols=ftp is read over FTP like any folder, here drop/report.txt, exit 0.
+    run: curl -s ftp://127.0.0.1:{{port}}/drop/report.txt
+    expect:
+      exit: 0
+      stdout: "totals\n"
+
+  - id: http-404
+    claim: The same path over HTTP is answered 404 Not Found, as if the share were not there.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port2}}/drop/report.txt
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: other-share-open
+    claim: A share with no protocols= is reached over both, so the HTTP answer for drop is not a fault in the server.
+    run: curl -s http://127.0.0.1:{{port2}}/public/readme.txt
+    expect:
+      exit: 0
+      stdout: "open to all\n"
+
+  - id: other-share-ftp
+    claim: That other share is read over FTP as well.
+    run: curl -s ftp://127.0.0.1:{{port}}/public/readme.txt
+    expect:
+      exit: 0
+      stdout: "open to all\n"
+
+  - id: ftps-too
+    claim: protocols=ftp admits the TLS twin, so the share is read over FTPS, with -k for the throwaway certificate.
+    run: curl -s -k ftps://127.0.0.1:{{port3}}/drop/report.txt
+    expect:
+      exit: 0
+      stdout: "totals\n"
+
+  - id: listed-over-ftp
+    claim: An FTP listing of the root names both shares.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "drop\npublic\n"
+
+  - id: hidden-from-http-folder
+    claim: The share's folder is not served over HTTP either, 404.
+    run: curl -s -o {{null}} -w "%{http_code}" http://127.0.0.1:{{port2}}/drop/
+    expect:
+      exit: 0
+      stdout: "404"
+
+  - id: unknown-scheme
+    claim: A protocols= value that names no scheme is refused at start, exit 2, naming the scheme.
+    run: surl --share "drop=drop;protocols=nope" ftp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: option --share: unknown scheme nope\nsurl: try 'surl --help' or 'surl --manual' for more information\n"

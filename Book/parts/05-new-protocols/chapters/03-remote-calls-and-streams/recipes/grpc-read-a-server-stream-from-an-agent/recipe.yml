@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs read-a-stream.cs; its argument picks the scenario.
+schema: 2
+key: grpc-read-a-server-stream-from-an-agent
+title: Reading gRPC Streams from an Agent
+protocols: [grpc]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl]
+curl-options: [-s, -S, -d, -m, -H]
+exit-codes: [0, 22, 28]
+references: [surl-readme, curl-readme, grpc-http2]
+triplet: grpc-read-a-server-stream
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'The curl tool calls Expand with a count of 3; the three replies are in standardOutput as JSON objects, in the order sent, index left out of the first because its value is 0, with exit code 0 and no tool error.'
+    program: read-a-stream.cs
+    args: [stream]
+    expect:
+      exit: 0
+      stdout: "exit 0, output [{ \"message\": \"s\" } { \"message\": \"s\", \"index\": 1 } { \"message\": \"s\", \"index\": 2 }]\n"
+
+  - id: empty-stream
+    claim: 'A stream with no replies is a success; a count of 0, and a request with no count, give empty output and exit code 0.'
+    program: read-a-stream.cs
+    args: [empty]
+    expect:
+      exit: 0
+      stdout: "exit 0, output []\nexit 0, output []\n"
+
+  - id: count-limit
+    claim: 'A count above 1000 is refused as INVALID_ARGUMENT, request field out of range, with exit code 22 and no output.'
+    program: read-a-stream.cs
+    args: [limit]
+    expect:
+      exit: 0
+      stdout: "exit 22, output [], grpc-status 3 (INVALID_ARGUMENT): request field out of range\n"
+
+  - id: replies-as-they-arrive
+    claim: 'Replies are in the output as they arrive; with each reply held back 300 milliseconds, a call curl stops after one second, exit code 28, has some of the ten replies and not all of them.'
+    program: read-a-stream.cs
+    args: [arrival]
+    expect:
+      exit: 0
+      stdout: "curl exit 28, some of 10 replies\n"
+
+  - id: fails-after-replies
+    claim: 'A stream that ends in a status other than OK keeps what arrived first; count 3 with statusCode 13 gives the three replies in the output and, in standardError, grpc-status 13 (INTERNAL): boom, exit code 22.'
+    program: read-a-stream.cs
+    args: [part-way]
+    expect:
+      exit: 0
+      stdout: "exit 22, output [{ \"message\": \"s\" } { \"message\": \"s\", \"index\": 1 } { \"message\": \"s\", \"index\": 2 }], grpc-status 13 (INTERNAL): boom\n"

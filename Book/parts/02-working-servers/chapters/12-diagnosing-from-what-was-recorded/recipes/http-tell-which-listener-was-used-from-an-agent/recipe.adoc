@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-which-listener-was-used-from-an-agent]]
+=== Telling Listeners Apart from an Agent
+
+==== Problem
+
+One server listens on several URLs, two for Hypertext Transfer Protocol (HTTP) and one for File Transfer Protocol (FTP), and you want an artificial intelligence (AI) agent to find out which one each client actually used.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts one server on three listen URLs with `start_server`, lets the clients fetch with `transfer` and the `curl` tool, then reads the listen URL of each exchange from `get_events` and filters `get_exchanges` by listener:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes as many `listen_urls` as `surl` does; three on port 0 get three free ports, and `bound_urls` answers them in the same order. All three serve the one report in `files`. `arguments` carries `surl`{apos}s options, here `--allow-anonymous`, for FTP: without it, and with no account, the FTP listener refuses `curl`{apos}s anonymous login, and `transfer` answers a tool error with `failure.exitCode` `67` (<<rfc959>>). It loosens the server, so keep it to tests.
+
+The app was meant to use the first HTTP listener and was configured with the second. `transfer` fetches the report from there with `statusCode` `200`, and the FTP download with `226`, FTP{apos}s transfer complete: nothing in either answer says which listener gave it. The third client connects to the second listener with a `Host` header that names the first. A `Host` is the client's word, not the server's (<<rfc9110>>), and the server serves it `200`. The agent makes this client with the `curl` tool, whose `args` are `curl`{apos}s command line: `-H "Host: ..."` replaces the header, `-s` keeps `curl` quiet, `-o` writes the body to a file under `CURL_MCP_ROOT`, and `-w "%{http_code}"` prints the status.
+
+The record knows. `get_events` with `kinds` `exchange_started` answers one event per exchange with its `exchange_id`, `scheme` and `listen_url`: the listen URL that accepted the connection, with its bound port, as `bound_urls` lists it. Exchanges 1 and 3 came through the second HTTP listener, the third whatever its `Host` said, and 2 through the FTP one. The agent reads each exchange's `Host` from its `received` chunks in `get_exchanges`, to show the two side by side. `get_exchanges` with `listen_url` answers one listener's exchanges alone: none for the first, 1 and 3 for the second. Before it reads, the agent waits, every 100 milliseconds for at most 10 seconds, until `get_events` finds as many `exchange_ended` events as `exchange_started` ones, so it never reads a record half kept (<<surl-readme>>, <<curl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-which-listener-was-used>> for the same question on the console, with the log and the trace.
+* <<http-tell-which-listener-was-used-in-csharp>> for asserting the listener from a .NET test.
+* <<http-compare-the-transfer-and-curl-tools-from-an-agent>> for when to use which `curl-mcp` tool.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc959>>.

@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-request-that-failed]]
+=== Finding the Request That Failed
+
+==== Problem
+
+A client run failed somewhere in fifty Hypertext Transfer Protocol (HTTP) requests, and its own output says little more than that. You want what the server recorded narrowed to the failing answer and the request that caused it.
+
+==== Solution
+
+Run `surl` with `-v --log-file surl.log`, so its log holds every line of every request and answer, let the client run, then narrow the log to each answer of `400` or more with the script below. It needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::narrow.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The client here is one `curl` command over a URL glob, `report-[1-50].csv`, which fetches fifty reports in turn (<<curl-manual>>). `-s` keeps it quiet, `-o` sends every body to nowhere, and `-w "%{http_code}\n"` prints a status for each. One report, the 37th, is not on the server, and that request is answered `404 Not Found` (<<rfc9110>>). `curl` exits `0` all the same: to `curl` a `404` is an answer. A real client often keeps less than these fifty lines.
+
+`surl` keeps more. `-v` logs every line a client sent as `#N <`, every line `surl` sent back as `#N >`, and between them an event line, `#N *`, that says what it did with the request: `GET /reports/report-1.csv: 200, ...` for each report it found. `--log-file surl.log` appends all of it to that file, and `--directory site` serves the reports (<<surl-readme>>). There is one event line for each request, so the 49 that succeeded are there as lines answered `200`. `N` is the exchange, and `curl` made all fifty requests over one connection, so they are all one exchange: the number says where to look, not which request.
+
+`narrow.sh` first waits, at most 10 seconds, until every exchange that opened in the log has ended, so it never reads half a record. It then reads the log once with `awk`, counting requests by their request lines and keeping the lines of the request being read. When an event line says an answer of `400` or more, it prints the request's place in the run, its exchange, its lines, the event, and the head of the answer that follows, leaving out `Date`. Here that is request 37, `GET /reports/report-37.csv`, and `surl`{apos}s reason: `404, nothing exists at` the path it looked in, which shows both the name the client asked for and the folder the server served. The last line counts the run: 50 requests, 1 answered `400` or more.
+
+The script exits `0` when it found a failing answer and `1` when it found none, so a continuous integration (CI) job can run it after a failed run and print only what matters. A second server, `clean`, serves a run in which all 36 requests succeed; there the script prints `36 requests, 0 answered 400 or more` and exits `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-request-that-failed-in-csharp>> for narrowing the recorded exchanges from a .NET test.
+* <<http-find-the-request-that-failed-from-an-agent>> for an agent narrowing them.
+* <<http-compare-a-good-and-a-bad-request>> for comparing the failing request with a good one.
+* <<http-fail-a-script-on-a-missing-file>> for making the client itself fail on a 404.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

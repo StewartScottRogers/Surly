@@ -1,0 +1,82 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: mqtt-test-a-sensor-to-alert-flow-in-csharp
+title: Testing a Sensor-to-Alert Flow in C#
+protocols: [mqtt, smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerMessages, SurlRetainedMessage, SurlEventQuery, StoreChangedEvent, SurlMessagePage, SurlMailMessage, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlMailOptions, CurlContent]
+exit-codes: [0]
+references: [surl-readme, curl-readme, mqtt311, rfc5321, rfc5322]
+triplet: mqtt-test-a-sensor-to-alert-flow
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test publishes 81.5 as the boiler's reading through Curl.Api and runs the service with a limit of 75; the service reads 81.5 and sends an alert.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\Aservice: alert sent for boiler at 81\.5\n'
+
+  - id: alert-mail
+    claim: The test waits for the mail store's delivery event and reads the message it names; the alert, from sensors@example.com to ops@example.com with the subject boiler at 81.5 C, behind the Return-Path line surl adds.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nalert: Return-Path: <sensors@example\.com> \| From: sensors@example\.com \| To: ops@example\.com \| Subject: boiler at 81\.5 C \| boiler reads 81\.5 C, past the limit of 75 C\.\n'
+
+  - id: one-mail
+    claim: The mailbox holds that one message and no other.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nmailbox: 1 message\(s\)\n'
+
+  - id: reading-kept
+    claim: The broker kept the reading the service read, under Topics "sensors/#;retain"; ReadRetainedAsync answers 81.5.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nkept: 81\.5\n\Z'
+
+  - id: under-the-limit
+    claim: On a second server a reading of 64.0, under the limit, makes the service send nothing.
+    program: program.cs
+    args: [quiet]
+    expect:
+      exit: 0
+      stdout-matches: '\Aservice: no alert for boiler at 64\.0\n'
+
+  - id: at-the-limit
+    claim: A reading of exactly 75 is not past the limit, and the service sends nothing either.
+    program: program.cs
+    args: [quiet]
+    expect:
+      exit: 0
+      stdout-matches: '\nservice: no alert for kiln at 75\n'
+
+  - id: mailbox-empty
+    claim: The test checks the second server's record; it holds no delivery to any mailbox.
+    program: program.cs
+    args: [quiet]
+    expect:
+      exit: 0
+      stdout-matches: '\ndeliveries: 0\n'
+
+  - id: no-reading
+    claim: A sensor that never published leaves the service nothing to read; after five tries a second apart it says so.
+    program: program.cs
+    args: [quiet]
+    expect:
+      exit: 0
+      stdout-matches: '\nservice: no reading from pump\n\Z'

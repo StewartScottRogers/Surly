@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs time-out.cs; its argument picks the scenario.
+schema: 2
+key: grpc-time-out-a-slow-call-from-an-agent
+title: Timing Out gRPC Calls from an Agent
+protocols: [grpc]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl]
+curl-options: [-s, -S, -m, -H, -d]
+exit-codes: [0, 22, 28]
+references: [surl-readme, curl-readme, grpc-http2]
+triplet: grpc-time-out-a-slow-call
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: 'A call the server holds back for 3000 milliseconds, that curl stops waiting for after one second with -m 1 and -H "grpc-timeout:", comes back from the curl tool as exit code 28, timed out, a tool error with no output; no gRPC status ever arrived.'
+    program: time-out.cs
+    args: [gives-up]
+    expect:
+      exit: 0
+      stdout: "curl exit 28, tool error yes, output [], timed out\n"
+
+  - id: within-limit
+    claim: 'A call that answers inside the limit is not affected by it; held back 200 milliseconds under -m 10, it is exit code 0, not a tool error, with its reply as the output.'
+    program: time-out.cs
+    args: [within-limit]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, tool error no, output [{ \"message\": \"x\" }]\n"
+
+  - id: how-long-it-waited
+    claim: 'The tool call returns at the limit and does not wait for the reply; against a 3000 millisecond hold-back with -m 1 it takes between one and three seconds, after one untimed call to make the first one fair.'
+    program: time-out.cs
+    args: [how-long]
+    expect:
+      exit: 0
+      stdout: "the tool call took between 1 and 3 s\n"
+
+  - id: server-deadline
+    claim: 'A deadline sent as a grpc-timeout header, 300m for 300 milliseconds, is enforced by the server, which ends the call with grpc-status 4 (DEADLINE_EXCEEDED), deadline exceeded; the curl tool answers exit code 22, not 28, though its own -m 10 has not passed.'
+    program: time-out.cs
+    args: [server-deadline]
+    expect:
+      exit: 0
+      stdout: "curl exit 22, tool error yes, output [], grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded\n"
+
+  - id: deadline-on-a-stream
+    claim: 'A deadline that passes part way through a stream keeps the replies sent before it; Expand with ten replies each held back 300 milliseconds under grpc-timeout 1S gives some of the ten in the output, not all, and ends DEADLINE_EXCEEDED, exit code 22.'
+    program: time-out.cs
+    args: [stream-deadline]
+    expect:
+      exit: 0
+      stdout: "some of 10 replies, curl exit 22, grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded\n"
+
+  - id: limit-reaches-the-server
+    claim: 'With -m 1 and no -H to keep the limit on the client, curl also sends it to the server as grpc-timeout, so the call ends at the limit either way: curl times out, exit 28, or the server answers DEADLINE_EXCEEDED, exit 22, whichever timer fires first.'
+    program: time-out.cs
+    args: [either]
+    expect:
+      exit: 0
+      stdout-matches: '^ended at the limit: (curl timed out|the server.s deadline)\n$'
+

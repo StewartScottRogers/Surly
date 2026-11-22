@@ -1,0 +1,153 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. The build generates run.sh, run.ps1 and
+# the listings in recipe.adoc from it; verify.py runs every case against the pinned
+# surl and curl and writes verified.yml. Edit this, never the generated files.
+schema: 2
+key: ftp-make-and-remove-folders
+title: Making and Removing FTP Folders
+protocols: [ftp]
+tier: working-servers
+surl-options: [--directory, --allow-anonymous, --allow-uploads, --list-directories]
+curl-options: [-Q, -l, -v, -s, -T, -o]
+exit-codes: [0, 21, 67]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  other/hello.txt: "hello from surl\n"
+  note.txt: "a note\n"
+
+# An empty folder on the read-only server, which fixtures cannot hold.
+setup:
+  - cd other && mkdir empty
+
+servers:
+  main:
+    command: surl --directory site --allow-anonymous --allow-uploads --list-directories ftp://127.0.0.1:{{port}}/
+    ready: port
+  read-only:
+    command: surl --directory other --allow-anonymous --list-directories ftp://127.0.0.1:{{port2}}/
+    ready: port
+  default:
+    command: surl ftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A quote command MKD reports makes the folder, and the listing that follows it holds reports beside hello.txt; exit 0.
+    run: curl -s -l -Q "MKD reports" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\nreports\n"
+
+  - id: made-on-disk
+    claim: The folder is on the server's disk, in the served directory.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/reports/
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: mkd-reply
+    claim: The server answers MKD with 257 and the path it made, "/archive".
+    run: curl -s -v -o {{null}} -Q "MKD archive" ftp://127.0.0.1:{{port}}/ 2>&1 | grep -E "^(> MKD|< 257 \"/archive)"
+    expect:
+      exit: 0
+      stdout-matches: "> MKD archive.*< 257 \"/archive\" created"
+
+  - id: mkd-inside
+    claim: MKD with a path makes the folder inside one that is there, so reports/2026 is made under reports.
+    run: curl -s -l -Q "MKD reports/2026" ftp://127.0.0.1:{{port}}/reports/
+    expect:
+      exit: 0
+      stdout: "2026\n"
+
+  - id: mkd-exists
+    claim: MKD for a folder that is already there is answered 550 Already exists, and curl exits 21, quote command failed.
+    run: curl -s -o {{null}} -Q "MKD reports" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+
+  - id: mkd-missing-parent
+    claim: MKD whose parent is not there is answered 550 No such directory, and nothing is made; curl does not make the parent, as --ftp-create-dirs does for an upload.
+    run: curl -s -v -o {{null}} -Q "MKD nowhere/new" ftp://127.0.0.1:{{port}}/ 2>&1 | grep -E "^(> MKD|< 550)"
+    expect:
+      exit: 0
+      stdout: "> MKD nowhere/new\n< 550 No such directory\n"
+
+  - id: rmd-removes
+    claim: RMD removes an empty folder, answered 250 Directory removed, and the folder is gone from the listing.
+    run: curl -s -v -l -Q "RMD archive" ftp://127.0.0.1:{{port}}/ 2>&1 | grep -E "^(> RMD|< 250 Directory|archive)"
+    expect:
+      exit: 0
+      stdout: "> RMD archive\n< 250 Directory removed\n"
+
+  - id: archive-gone
+    claim: The root listing no longer holds archive, only the folders still there.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\nreports\n"
+
+  - id: fill-folder
+    claim: A file uploaded into reports, with -T, is stored there.
+    run: curl -s -T note.txt ftp://127.0.0.1:{{port}}/reports/note.txt
+    expect:
+      exit: 0
+      files:
+        site/reports/note.txt: "a note\n"
+
+  - id: rmd-not-empty
+    claim: RMD for a folder that still holds a file is answered 550 Directory not empty.
+    run: curl -s -v -o {{null}} -Q "RMD reports" ftp://127.0.0.1:{{port}}/ 2>&1 | grep -E "^(> RMD|< 550)"
+    expect:
+      exit: 0
+      stdout: "> RMD reports\n< 550 Directory not empty\n"
+
+  - id: rmd-not-empty-exit
+    claim: curl exits 21 for it, and the folder and its file are still there.
+    run: curl -s -o {{null}} -Q "RMD reports" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 21
+      files:
+        site/reports/note.txt: "a note\n"
+
+  - id: delete-then-remove
+    claim: With the file deleted first, in the same command, RMD removes the folder, exit 0 (reports still holds the folder 2026, so it goes first).
+    run: curl -s -o {{null}} -Q "RMD reports/2026" -Q "DELE reports/note.txt" -Q "RMD reports" ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+
+  - id: reports-gone
+    claim: The root listing holds only hello.txt again.
+    run: curl -s -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "hello.txt\n"
+
+  - id: rmd-missing
+    claim: RMD for a name that is not there, or is a file, not a folder, is answered 550 No such directory.
+    run: curl -s -v -o {{null}} -Q "RMD hello.txt" ftp://127.0.0.1:{{port}}/ 2>&1 | grep -E "^(> RMD|< 550)"
+    expect:
+      exit: 0
+      stdout: "> RMD hello.txt\n< 550 No such directory\n"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads answers MKD 550 Not permitted.
+    run: curl -s -v -o {{null}} -Q "MKD reports" ftp://127.0.0.1:{{port2}}/ 2>&1 | grep -E "^(> MKD|< 550)"
+    expect:
+      exit: 0
+      stdout: "> MKD reports\n< 550 Not permitted\n"
+
+  - id: uploads-off-rmd
+    claim: RMD is refused there too, 550 Not permitted, even for an empty folder.
+    run: curl -s -v -o {{null}} -Q "RMD empty" ftp://127.0.0.1:{{port2}}/ 2>&1 | grep -E "^(> RMD|< 550)"
+    expect:
+      exit: 0
+      stdout: "> RMD empty\n< 550 Not permitted\n"
+
+  - id: login-refused
+    claim: A server started without --allow-anonymous refuses curl's anonymous login before either command is sent, and curl exits 67, login denied.
+    run: curl -s -o {{null}} -Q "MKD reports" ftp://127.0.0.1:{{port3}}/
+    expect:
+      exit: 67

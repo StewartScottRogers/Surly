@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-time-out-a-slow-call-in-csharp]]
+=== Timing Out gRPC Calls in C#
+
+==== Problem
+
+Your client sets a deadline on every call. You want a gRPC (gRPC Remote Procedure Calls) call made slow on purpose and the client giving up at its time limit, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+The program hosts a gRPC server in process, makes a call slow with `delayMilliseconds` and gives the client a limit. Its first argument picks what it does, one claim each:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServer.StartAsync` starts the server, and `SurlServerOptions` is the options of `surl` as properties: `ListenUrls` of `grpc://127.0.0.1:0` takes a free port, `AllowAnonymous` is `--allow-anonymous`, and `Log` with `LogLevel` `Verbose` is `-v`, the log the last case reads. The built-in `surl.test.Echo` service answers after `delayMilliseconds` milliseconds, which makes a call slow on purpose.
+
+`CurlClient.SendAsync` returns a `CurlResponse` whose `Body` is the reply as a `Stream`. `CurlClientOptions.Timeout` is the whole-call limit, `curl`{apos}s `-m`. A client with a `Timeout` of one second, calling a method held back 3000 milliseconds, throws a `CurlException` whose `Code` is `OperationTimedOut`, 28, and no reply; no gRPC status arrived, so it is a timeout and not a failed call. The call takes about the limit and not the hold-back: between one and three seconds, a range, since the exact time depends on the machine. The first request `Curl.Api` makes in a process takes about four seconds of one-time set-up, so the program makes one untimed request before it times anything. A call that answers inside the limit is not touched by it.
+
+`Curl.Api` also sends the `Timeout` to the server, as the `grpc-timeout` header, as `curl` does for `-m`, and `surl` enforces a `grpc-timeout` it is sent. With both on one call, two timers end at about the same moment and either can be first, so a test that must not depend on the race lists `grpc-timeout` in `CurlRequest.RemovedHeaders`, which is `-H "grpc-timeout:"`; the first claim does that. The verbose log shows it: the two lines of the first call, the lookup of the method by reflection and the call itself, name `grpc-timeout` in their metadata, and a call with the header removed adds none.
+
+The header can be sent on its own. A `Headers` entry `grpc-timeout` of `300m` is a deadline of 300 milliseconds, and the server ends the call with `grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded`. The exception is `HttpReturnedError`, 22, not 28, though the client{apos}s `Timeout` of 10 seconds has not passed: a server deadline is a status the program has to handle, a client timeout is not. A deadline that passes part way through a stream ends it the same way, and the exception is all the program gets: the replies sent before the deadline are not handed to it, unlike on the console, where `curl` prints them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-time-out-a-slow-call>> for the same task on the console.
+* <<grpc-time-out-a-slow-call-from-an-agent>> for the same task from an agent.
+* <<grpc-read-a-server-stream-in-csharp>> for reading a stream.
+* <<grpc-http2>>, <<surl-readme>>, <<curl-readme>>.

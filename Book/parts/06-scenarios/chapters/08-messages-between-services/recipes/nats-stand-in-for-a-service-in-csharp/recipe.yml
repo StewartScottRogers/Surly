@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: nats-stand-in-for-a-service-in-csharp
+title: Standing In for a NATS Service
+protocols: [nats]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-protocols, nats-protocol]
+triplet: nats-stand-in-for-a-service
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test's stand-in subscribes to prices.get and answers price=9.99 to the reply subject of the request it receives; the app's request through Curl.Api with sku=A1 gets price=9.99.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp got: price=9\.99\n'
+
+  - id: what-was-asked
+    claim: The stand-in's own record shows what the app asked, the payload sku=A1, and the reply subject Curl.Api made for it, _INBOX. and 32 hexadecimal digits.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nthe app asked: sku=A1\nreply subject: _INBOX\.[0-9a-f]{32}\n'
+
+  - id: server-record
+    claim: With RecordExchanges the server keeps every byte each client sent; one exchange holds the app's PUB to prices.get with that reply subject and 6 bytes, and one the stand-in's PUB of 10 bytes to it.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nserver record, the app.s request: 1\nserver record, the stand-in.s reply: 1\n\Z'
+
+  - id: no-stand-in
+    claim: With no stand-in subscribed, the server tells the app at once that nobody answers prices.get, and SendAsync throws CurlException 56, RecvError.
+    program: program.cs
+    args: [none]
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp: CurlException 56 RecvError: .*no responders'
+
+  - id: silent-stand-in
+    claim: 'A stand-in that receives the request and never answers still records it, sku=A1, and the app gives up at the client''s 3-second Timeout: CurlException 28, OperationTimedOut.'
+    program: program.cs
+    args: [silent]
+    expect:
+      exit: 0
+      stdout-matches: '\Athe stand-in received: sku=A1\napp: CurlException 28 OperationTimedOut'

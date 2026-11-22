@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-test-a-sensor-to-alert-flow]]
+=== Testing a Sensor-to-Alert Flow
+
+==== Problem
+
+A sensor publishes readings over MQTT and a service mails an alert past a threshold; you want the test to publish a reading and find the alert mail.
+
+==== Solution
+
+Start one `surl` that is both the MQ Telemetry Transport (MQTT) broker the sensor publishes to and the mail server the service sends to. The test publishes a reading with `curl -d`, as the sensor would, and runs the service, here `alert.sh`, a script that stands in for yours; it needs a POSIX shell, Git Bash on Windows:
+
+include::.generated/solution.adoc[]
+
+The service:
+
+[source,shell]
+----
+include::alert.sh[]
+----
+
+Then the test reads the mailbox over the Post Office Protocol version 3 (POP3). The second `surl` command in the checked claims is the same server again, for the readings that must not raise an alert. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+One `surl` takes several listen URLs: `mqtt://` is the broker, `smtp://` takes mail over the Simple Mail Transfer Protocol (SMTP), and `pop3://` serves the mailbox the mail lands in (<<surl-readme>>). `--allow-anonymous` lets the sensor, the service and the test in with no login; every recipient then lands in one mailbox, which is all a test of one alert needs. It is not the default, because anyone who reaches the ports can publish and read mail, and `surl` warns on start while it is on.
+
+The sensor is `curl -d 81.5 mqtt://host:port/sensors/boiler/temp`, which publishes `81.5` to that topic and exits (<<mqtt311>>). A broker passes a message on to the subscribers it has at that moment and keeps nothing, and the service reads only when the test runs it, so `--topic "sensors/#;retain"` makes `surl` keep the latest message on every topic under `sensors/` as the topic{apos}s retained message. Every subscriber that comes later is sent it at once, and `surl` then ends the subscription, so `curl` without `-d` exits by itself. It writes the topic{apos}s length in two bytes, the topic and the payload, which is how the last claim reads `81.5` back.
+
+The service reads the same way and keeps what follows the topic with `tail -c`. The publish is not acknowledged, so `curl` can return before the broker has kept the reading; the service tries again a second later, five times at most, as a real service polling a sensor would. Past the limit, `81.5` against `75`, it writes an alert and sends it with `curl -T alert.eml --mail-from sensors@example.com --mail-rcpt ops@example.com smtp://host:port/`: `-T` uploads the file as the message, `--mail-from` gives the sender and `--mail-rcpt` the recipient (<<rfc5321>>, <<rfc5322>>).
+
+The test{apos}s check is the mail itself. `curl pop3://host:port/1` retrieves message 1 (<<rfc1939>>), and the message is the alert, with `Return-Path` and `Received` lines `surl` added in front. A delivery can take a moment to reach the mailbox, so the test waits for it with `--retry 10 --retry-all-errors --retry-delay 1`: while there is no message 1, POP3 answers an error, and `curl` tries again, ten times at most, `--retry-delay 1` a second apart. `--retry` alone would not retry that error; `--retry-all-errors` makes it. `pop3://host:port/` with no number lists the mailbox, one line per message, and it holds the one alert.
+
+The failure paths run on the second server, so its mailbox holds only what they send. A reading of `64.0` is under the limit and the service sends nothing; `75` is not past it either. The mailbox list is then a line end and nothing else, an empty mailbox. A sensor that never published leaves nothing to read: the subscriber writes nothing, and after five tries the service says so and exits `1`, which is the sign of a broken sensor rather than a quiet one. `-s` silences `curl`{apos}s progress meter, `-S` puts its error messages back, and `-m 5` bounds each read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-test-a-sensor-to-alert-flow-in-csharp>> for the same task in a C# test.
+* <<mqtt-test-a-sensor-to-alert-flow-from-an-agent>> for the same task from an agent.
+* <<mqtt-keep-a-retained-message>> for retained messages on their own.
+* <<smtp-check-the-mail-an-app-sent>> for checking an app{apos}s mail in more detail.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<rfc5321>>, <<rfc5322>>, <<rfc1939>>.

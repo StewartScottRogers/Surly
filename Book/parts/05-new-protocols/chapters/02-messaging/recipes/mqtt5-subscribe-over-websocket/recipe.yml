@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: mqtt5-subscribe-over-websocket
+title: Subscribing to MQTT over WebSocket
+protocols: [mqtt5+ws, mqtt5]
+tier: new-protocols
+surl-options: [--allow-anonymous, --topic, --mqtt5-disconnect-after-retained, --user, --allow-plaintext-auth]
+curl-options: [-s, -S, -d, -u, --next]
+exit-codes: [0, 22, 67]
+references: [surl-readme, curl-readme, curl-protocols, mqtt5, rfc6455]
+triplet: mqtt5-subscribe-over-websocket
+
+# main is one broker on two listen URLs, mqtt5 over TCP and mqtt5+ws over WebSocket, sharing one
+# message bus. accounts has an account and no loosening; plaintext adds --allow-plaintext-auth to it.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "dash/#;retain" --mqtt5-disconnect-after-retained mqtt5://127.0.0.1:{{port}}/ mqtt5+ws://127.0.0.1:{{port2}}/
+    ready: port
+  accounts:
+    command: surl --user ann:s3cret --topic "dash/#;retain" --mqtt5-disconnect-after-retained mqtt5+ws://127.0.0.1:{{port3}}/
+    ready: port
+  plaintext:
+    command: surl --user ann:s3cret --allow-plaintext-auth --topic "dash/#;retain" --mqtt5-disconnect-after-retained mqtt5+ws://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A message curl publishes over mqtt5:// to dash/temp is retained, and a second curl subscribing to the same topic over mqtt5+ws:// receives it, the payload alone, exit 0.
+    run: curl -sS -d 21 mqtt5://127.0.0.1:{{port}}/dash/temp --next -sS mqtt5+ws://127.0.0.1:{{port2}}/dash/temp
+    expect:
+      exit: 0
+      stdout: "21"
+
+  - id: publish-over-websocket
+    claim: 'The reverse holds: a message published over mqtt5+ws:// is retained on the same bus, and a subscriber over mqtt5:// receives it.'
+    run: curl -sS -d 22 mqtt5+ws://127.0.0.1:{{port2}}/dash/humidity --next -sS mqtt5://127.0.0.1:{{port}}/dash/humidity
+    expect:
+      exit: 0
+      stdout: "22"
+
+  - id: later-subscriber
+    claim: The message stays on the topic, so a subscriber over WebSocket that connects later receives it too.
+    run: curl -sS mqtt5+ws://127.0.0.1:{{port2}}/dash/temp
+    expect:
+      exit: 0
+      stdout: "21"
+
+  - id: wildcard
+    claim: A topic filter with the multi-level wildcard, written %23 in the URL, receives the retained messages of every topic under dash/ over WebSocket, written one after the other.
+    run: curl -sS mqtt5+ws://127.0.0.1:{{port2}}/dash/%23
+    expect:
+      exit: 0
+      stdout-matches: '\A(2122|2221)\Z'
+
+  - id: outside-the-filter
+    claim: A topic outside the --topic filter keeps nothing, because curl publishes with RETAIN 0, so a subscriber over WebSocket receives nothing and curl exits 0.
+    run: curl -sS -d 5 mqtt5+ws://127.0.0.1:{{port2}}/lab/temp --next -sS mqtt5+ws://127.0.0.1:{{port2}}/lab/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: empty-message-clears
+    claim: Publishing an empty message over WebSocket clears the topic, and a subscriber over mqtt5:// then receives nothing.
+    run: curl -sS -d "" mqtt5+ws://127.0.0.1:{{port2}}/dash/temp --next -sS mqtt5://127.0.0.1:{{port}}/dash/temp
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: plain-websocket-refused
+    claim: A WebSocket client that does not ask for the mqtt subprotocol, ws:// to the path /mqtt, has its upgrade refused with 400, and curl exits 22.
+    run: curl -sS ws://127.0.0.1:{{port2}}/mqtt
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Refused WebSocket upgrade: 400"
+
+  - id: other-path-refused
+    claim: The broker answers only on the path /mqtt; a WebSocket upgrade to any other path is refused with 404, exit 22.
+    run: curl -sS ws://127.0.0.1:{{port2}}/other
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Refused WebSocket upgrade: 404"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, a CONNECT with no user name over WebSocket is answered CONNACK reason code 0x87, not authorized, and curl exits 67.
+    run: curl -sS mqtt5+ws://127.0.0.1:{{port3}}/dash/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x87 NotAuthorized"
+
+  - id: clear-password-refused
+    claim: The right password over mqtt5+ws:// is refused unchecked with the same code, because the WebSocket is not encrypted and the password crossed the network in clear.
+    run: curl -sS -u ann:s3cret mqtt5+ws://127.0.0.1:{{port3}}/dash/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x87 NotAuthorized"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, the same password is checked and accepted, for the publish and the subscribe alike.
+    run: curl -sS -u ann:s3cret -d 21 mqtt5+ws://127.0.0.1:{{port4}}/dash/temp --next -sS -u ann:s3cret mqtt5+ws://127.0.0.1:{{port4}}/dash/temp
+    expect:
+      exit: 0
+      stdout: "21"
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused with reason code 0x86, bad user name or password, exit 67.
+    run: curl -sS -u ann:wrong mqtt5+ws://127.0.0.1:{{port4}}/dash/temp
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "CONNACK reason code 0x86 BadUserNameOrPassword"

@@ -71,7 +71,7 @@ http-lock-out-one-account (+ -in-csharp, -from-an-agent): `refuse-login;account=
 http-retry-a-flaky-endpoint, http-time-out-a-hanging-server, http-retry-until-the-server-is-up, surl-recover-when-a-port-is-taken (each + -in-csharp, -from-an-agent)
 smtp-survive-a-temporary-rcpt-failure (+ -in-csharp, -from-an-agent)
 http-stop-a-client-hammering-a-refused-login (+ -in-csharp, -from-an-agent): refuse-login and a client's retries, see `http-auth.md`
-ftp-run-out-of-space-on-upload (+ -in-csharp, -from-an-agent), ftp-resume-a-dropped-download (+ twins): out-of-space and drop on FTP, see `ftp.md`
+ftp-run-out-of-space-on-upload (+ -in-csharp, -from-an-agent), ftp-resume-a-dropped-download (+ twins): out-of-space and drop on FTP, see `ftp.md`; ftp-see-which-command-broke-a-transfer (+ twins): an error and a drop rule read back from the log and the record, see `ftp.md`
 
 ## Busy for exactly N requests (http-retry-through-a-busy-server and twins, Surl 9ad60d80c / Curl 7d167fa10a, 2026-11-20)
 - `error;scheme=http;reply=503;path=/report.txt;times=2` + `curl --retry 2 --retry-delay 1 -w "%{http_code} %{num_retries}"`: `200 2`, stderr `Retrying in 1 second. 2 retries left.` then `... 1 retry left.`; `%{time_total}` is the last attempt only, so time the whole command in a script (`date +%s`).

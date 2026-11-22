@@ -101,7 +101,7 @@ surl-mcp 1.0.0, curl-mcp 0.1.0.0, 2026-11-20, windows.
   404 path on Windows: `nothing exists at C:\surl\summary.csv`.
 
 ## Recipes
-surl-keep-the-server-log-for-a-failed-run (+ -in-csharp, -from-an-agent), http-find-failed-logins-in-the-log,
+surl-keep-the-server-log-for-a-failed-run (+ -in-csharp, -from-an-agent), ftp-find-which-account-uploaded-a-file, ftp-see-which-command-broke-a-transfer (each + twins; FTP log lines in `ftp.md`), http-find-failed-logins-in-the-log,
 http-print-the-failing-exchange, curl-check-many-urls-from-one-config, curl-write-a-test-report-with-write-out,
 curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-logs-to-test-output.
 
@@ -125,3 +125,5 @@ curl-build-test-urls-safely, curl-check-what-a-build-supports, surl-send-server-
 - `get_exchanges` chunks carry no timestamps (only `started_at` per exchange). Timing comes from `get_events` `exchange_started`/`exchange_ended` `at` (ISO 8601 with offset; `GetDateTimeOffset()` parses it). `exchange_bytes` events came back empty for HTTP here. Each curl-mcp `transfer` call is its own exchange (new connection); one `curl` tool call with several URLs is one exchange holding every request, so per-path timing needs one request per connection. `fault_applied` events name `target` and `exchange_id`. `exchange_ended` can lag the client a moment: poll until started equals ended.
 
 - Decided by Surl (2026-11-21): `get_exchanges` caps each exchange at 64 KiB (ADR-0103 decision 3) and marks it with `is_cut`, `shown_bytes` and `recorded_bytes`. Byte events are never kept, so `exchange_bytes` is empty (ADR-0143 decision 2). There will be no Unix-socket property on SurlServerOptions (ADR-0099); use AdditionalArguments.
+
+- Which listener (batch-10, http-tell-which-listener-was-used): the `opened:` line names scheme and client only, never the listen URL; the control endpoint (`--control`, `/v1/events?kind=exchange_started`) and Surl.Api/surl-mcp `listen_url` do. With `--log-file` and `--trace-ascii` both given the log file had no `opened:` line (as ADR-0033 s.6). Reasons for a 400 in the -v log: see http.md batch-10. surl-mcp has no log, so an agent shows a refusal through the recorded answer (or `read_file` for a 404).

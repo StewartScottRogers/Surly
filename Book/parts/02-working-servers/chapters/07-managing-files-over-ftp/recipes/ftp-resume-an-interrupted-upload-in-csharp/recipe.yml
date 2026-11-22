@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-resume-an-interrupted-upload-in-csharp
+title: Resuming an FTP Upload in C#
+protocols: [ftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFiles, CurlClient, CurlRequest, CurlResponse, CurlFtpOptions, CurlException, CurlCode]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959, rfc3659]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Seeded with the first 65,536 bytes of a 200,000-byte file, the server is sent only the other 134,464, as an append after a size request, and then holds the local file byte for byte.
+    program: resume-upload.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout: "resume: sent 134464, same as local: True\n"
+
+  - id: size-then-append
+    claim: The commands the server received are SIZE, answered for the size request, and then APPE, which adds to the file; there is no STOR, and the one REST is REST 0, which Curl.Api's size request sends after SIZE, not an offset.
+    program: resume-upload.cs
+    args: [commands]
+    expect:
+      exit: 0
+      stdout: "commands: sent 134464; SIZE update.iso, REST 0, APPE update.iso\n"
+
+  - id: no-remote-file
+    claim: With nothing on the server the size request throws a CurlException with code RemoteFileNotFound, 78, which the program takes as an offset of 0, and the whole 200,000 bytes are sent as an ordinary upload.
+    program: resume-upload.cs
+    args: [fresh]
+    expect:
+      exit: 0
+      stdout: "fresh: sent 200000, same as local: True\n"
+
+  - id: already-complete
+    claim: A server that already holds the whole file leaves nothing to send, so the program sends 0 bytes.
+    program: resume-upload.cs
+    args: [complete]
+    expect:
+      exit: 0
+      stdout: "complete: sent 0\n"
+
+  - id: without-append
+    claim: Without the append, and with an offset of 0, the whole 200,000 bytes go over the partial file as an ordinary upload, and the server then holds the local file.
+    program: resume-upload.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout: "restart: sent 200000, same as local: True\n"
+
+  - id: explicit-offset
+    claim: An offset given outright, 100000, sends the last 100,000 bytes as an append and asks the server for no size, so the server received APPE and no SIZE.
+    program: resume-upload.cs
+    args: [offset]
+    expect:
+      exit: 0
+      stdout: "offset: sent 100000; APPE update.iso\n"
+
+  - id: never-compares
+    claim: The offset comes from a size, not from the bytes, so a partial file of zeros the right length is resumed all the same and the result is not the local file.
+    program: resume-upload.cs
+    args: [zeros]
+    expect:
+      exit: 0
+      stdout: "zeros: sent 134464, same as local: False\n"
+
+  - id: longer-left-alone
+    claim: A server file longer than the local one leaves nothing to send; the program sends 0 bytes and the server still holds its 300,000.
+    program: resume-upload.cs
+    args: [longer]
+    expect:
+      exit: 0
+      stdout: "longer: sent 0, server holds 300000\n"
+
+  - id: uploads-off
+    claim: A server with AllowUploads left off refuses the append, so the upload throws a CurlException with code UploadFailed, 25, the code curl exits with, and the server still holds its 65,536 bytes.
+    program: resume-upload.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "uploads-off: CurlException 25 UploadFailed, server holds 65536\n"

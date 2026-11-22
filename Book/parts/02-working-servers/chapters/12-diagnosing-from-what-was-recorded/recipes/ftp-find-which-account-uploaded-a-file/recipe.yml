@@ -1,0 +1,127 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-find-which-account-uploaded-a-file
+title: Finding Who Uploaded a File
+protocols: [ftp]
+tier: working-servers
+surl-options: [-v, --log-file, --user, --allow-plaintext-auth, --allow-uploads, --max-filesize, --directory]
+curl-options: [-u, -T, -s, -S]
+exit-codes: [0, 1, 67, 70]
+references: [surl-readme, curl-readme, rfc959]
+
+# Two accounts upload export.csv: alice the right one, bob a wrong one; then alice tries one past the size limit.
+# settled.sh waits, with a bound, until the log has caught up; who-stored.sh reads it.
+fixtures:
+  site/README.txt: "Exports land here.\n"
+  good.csv: "id,total\n1,42\n"
+  bad.csv: "id,total\n1,0\n"
+  big.csv: "id,total\n1,42\n2,42\n3,42\n4,42\n5,42\n6,42\n7,42\n8,42\n9,42\n10,42\n11,42\n12,42\n13,42\n14,42\n15,42\n16,42\n17,42\n18,42\n19,42\n20,42\n"
+  settled.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # settled.sh LOG: waits until every exchange surl's log says was opened has ended, so the log holds the whole
+    # of each one. It gives up after 5 seconds, leaving the log as it is.
+    tries=0
+    while [ "$(grep -c ' opened: ' "$1")" -gt "$(grep -c ' ended; ' "$1")" ] && [ "$tries" -lt 25 ]; do
+      sleep 0.2
+      tries=$((tries + 1))
+    done
+  who-stored.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # who-stored.sh LOG NAME: reads surl's verbose log and prints, for each upload of NAME the server completed,
+    # the exchange it came in on and the account logged in there, then the account that stored it last.
+    # An upload the server refused is left out. Exit 1 when the log shows no completed upload of NAME.
+    tr -d '\r' < "$1" | awk -v name="$2" '
+      { n = substr($1, 2) }
+      $2 == "*" && $3 == "Login" && $4 == "accepted:" { who[n] = $NF }
+      $2 == "<" && $0 == "#" n " < STOR " name "\\r\\n" { asked[n] = 1 }
+      $2 == ">" && asked[n] && $3 ~ /^[2-5][0-9][0-9]$/ {
+        if ($3 ~ /^2/) { print "exchange " n ": " who[n] " stored " name; last = who[n] }
+        asked[n] = 0
+      }
+      END {
+        if (last == "") { print "no completed upload of " name " in the log"; exit 1 }
+        print "last stored by " last
+      }'
+
+# main logs every line (-v) to surl.log; quiet logs at the default level; strict does not take passwords in clear.
+servers:
+  main:
+    command: surl -v --log-file surl.log --user alice:north-7 --user bob:south-9 --allow-plaintext-auth --allow-uploads --max-filesize 100 --directory site ftp://127.0.0.1:{{port}}/
+    ready: port
+  quiet:
+    command: surl --log-file quiet.log --user bob:south-9 --allow-plaintext-auth --allow-uploads ftp://127.0.0.1:{{port2}}/
+    ready: port
+  strict:
+    command: surl --user bob:south-9 --allow-uploads ftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: alice-stores
+    claim: alice uploads the right export.csv, and the server stores it.
+    run: curl -sS -u alice:north-7 -T good.csv ftp://127.0.0.1:{{port}}/export.csv
+    expect:
+      exit: 0
+      files:
+        site/export.csv: "id,total\n1,42\n"
+
+  - id: bob-replaces
+    claim: bob uploads a wrong export.csv to the same name, and the server replaces alice's file with it, telling neither client.
+    run: curl -sS -u bob:south-9 -T bad.csv ftp://127.0.0.1:{{port}}/export.csv
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        site/export.csv: "id,total\n1,0\n"
+
+  - id: too-big-refused
+    claim: alice's next upload is past --max-filesize, so the server refuses it, curl exits 70, and bob's file stays.
+    run: curl -sS -u alice:north-7 -T big.csv ftp://127.0.0.1:{{port}}/export.csv
+    expect:
+      exit: 70
+      files:
+        site/export.csv: "id,total\n1,0\n"
+
+  - id: solution
+    role: solution
+    claim: Once the log has settled, who-stored.sh lists each completed upload of export.csv with the account logged in on that exchange, alice then bob, and names bob as the account that stored it last.
+    run: sh settled.sh surl.log && sh who-stored.sh surl.log export.csv
+    expect:
+      exit: 0
+      stdout-matches: '^exchange \d+: alice stored export\.csv\nexchange \d+: bob stored export\.csv\nlast stored by bob\n$'
+
+  - id: refused-store-in-log
+    claim: The log holds three STOR export.csv commands, the refused one included; the script leaves that one out because the server did not answer it with a 2xx reply.
+    run: sh settled.sh surl.log && grep -c -F "< STOR export.csv" surl.log
+    expect:
+      exit: 0
+      stdout: "3\n"
+
+  - id: passwords-withheld
+    claim: Each of the three logins is in the log with its password replaced by ****.
+    run: sh settled.sh surl.log && grep -c -F "< PASS ****" surl.log
+    expect:
+      exit: 0
+      stdout: "3\n"
+
+  - id: password-nowhere
+    claim: bob's password appears nowhere in the log, so the log can be kept with a failed test's other output.
+    run: sh settled.sh surl.log && grep -c south-9 surl.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: default-level-records-nothing
+    claim: At the default log level the same upload leaves no login and no command in the log, so the script finds nothing and exits 1.
+    run: curl -sS -u bob:south-9 -T bad.csv ftp://127.0.0.1:{{port2}}/export.csv && sh settled.sh quiet.log && sh who-stored.sh quiet.log export.csv
+    expect:
+      exit: 1
+      stdout: "no completed upload of export.csv in the log\n"
+
+  - id: plaintext-refused
+    claim: Without --allow-plaintext-auth the server refuses a password sent over plain FTP, and curl exits 67.
+    run: curl -sS -u bob:south-9 -T bad.csv ftp://127.0.0.1:{{port3}}/export.csv
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"

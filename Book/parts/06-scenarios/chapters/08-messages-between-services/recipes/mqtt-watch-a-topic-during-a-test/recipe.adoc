@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-watch-a-topic-during-a-test]]
+=== Watching a Topic During a Test
+
+==== Problem
+
+You want a background subscriber writing every message on a topic to a file while the test runs, then the file checked at the end.
+
+==== Solution
+
+Start `surl` with an MQ Telemetry Transport (MQTT) listener and an MQTT 5 listener on one message bus. The test, `watch.sh`, starts a `curl` subscriber in the background on the MQTT 5 listener, writing to `watched.txt`, makes sure it is subscribed, runs, and then stops it and reads the file. The script needs a POSIX shell, Git Bash on Windows:
+
+include::.generated/solution.adoc[]
+
+The script:
+
+[source,shell]
+----
+include::watch.sh[]
+----
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+Both listen URLs sit on one message bus, so a message published over `mqtt://` reaches a subscriber on `mqtt5://` (<<surl-readme>>). The watcher has to be MQTT 5 because of how `surl` answers an MQTT 3.1.1 subscriber: it sends the topic{apos}s retained messages and then ends the subscription, so `curl mqtt://host:port/line1/temp` exits `0` at once, here having written nothing, since nothing is retained (<<mqtt311>>). That suits a test that reads a topic{apos}s last value and fails a test that watches. An MQTT 5 subscriber stays subscribed and is sent each message published from then on (<<mqtt5>>). `curl` writes each payload as it comes and nothing else, so the test publishes each message with a line feed at its end, `printf 'temp=%s\n' ... | curl --data-binary @-`, where `--data-binary` publishes its data as it is and `@-` names standard input; the file then holds one message a line. `-o watched.txt` writes the output to the file as it arrives, and `&` runs the watcher in the background.
+
+A broker passes a message to the subscribers it has when the message arrives, and a watcher that is still connecting misses what comes before its subscription. So the script waits for the watcher before the test starts: it publishes a marker, `watching`, and looks for it in the file, a second apart and ten tries at most, until the watcher has written one. The file can start with more than one marker, which is why the claim says one or more. At the end the script publishes another marker, `done`, and waits for it the same way, so it does not stop the watcher before the last reading is in the file. `kill` then stops it. A watcher left alone waits until `-m` ends it, exit `28`; `-m 60` in the script is the bound on a test that never reaches `kill`.
+
+The file is the record of the run, in the order the broker passed the messages on: the markers, the three readings and `done`. The check at the end is whatever the test needs from it. Here `grep` prints the readings, and `grep -c` counts those of 30 or more, one. `-s` silences `curl`{apos}s progress meter. `--allow-anonymous` lets the watcher and the publisher in with no login, and `surl` warns on start while it is on.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-test-a-sensor-to-alert-flow>> for a test that reads a reading the broker kept.
+* <<mqtt-move-a-device-to-mqtt5>> for MQTT 3.1.1 and MQTT 5 on one bus.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt311>>, <<mqtt5>>.

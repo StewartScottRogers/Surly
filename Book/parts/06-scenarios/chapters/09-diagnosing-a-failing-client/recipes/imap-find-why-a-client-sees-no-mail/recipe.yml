@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs find-the-mail.cs, a C# program on the official MCP
+# SDK that starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: imap-find-why-a-client-sees-no-mail
+title: Finding Why a Client Sees No Mail
+protocols: [imap, smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_mailboxes, list_messages, get_events, get_exchanges, read_message]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc5321, rfc9051, rfc5322]
+
+fixtures:
+  welcome.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Welcome\r\n\r\nHello Ann.\r\n"
+
+cases:
+  - id: client-sees-none
+    claim: The app's send succeeds, curl exit 0, yet Ann's client finds no unread mail in her INBOX, an empty SEARCH.
+    program: find-the-mail.cs
+    args: [typo]
+    expect:
+      exit: 0
+      stdout-matches: '^app: sent to anne@example\.com, exit 0\nclient: \* SEARCH\n'
+
+  - id: solution
+    role: solution
+    claim: The agent finds Ann's INBOX empty, the one delivery in the postmaster's INBOX, and in the SMTP exchange the address the app gave, anne@example.com, accepted 250.
+    program: find-the-mail.cs
+    args: [typo]
+    expect:
+      exit: 0
+      stdout-matches: '\nann@example\.com INBOX: 0 messages, 0 unseen\nmail store: delivered postmaster@example\.com/INBOX/;UID=1\nsmtp: RCPT TO:<anne@example\.com> answered 250 2\.1\.5 Recipient OK\n'
+
+  - id: headers-were-right
+    claim: The caught copy still says To ann@example.com; the headers were right and only the envelope recipient was mistyped.
+    program: find-the-mail.cs
+    args: [typo]
+    expect:
+      exit: 0
+      stdout-matches: '\ncaught copy: To: ann@example\.com\n$'
+
+  - id: discarded
+    claim: Without a catch-all the mistyped address is accepted 250 all the same and the mail is discarded; the store records no change at all.
+    program: find-the-mail.cs
+    args: [discarded]
+    expect:
+      exit: 0
+      stdout-matches: '\nann@example\.com INBOX: 0 messages, 0 unseen\nmail store: no change\nsmtp: RCPT TO:<anne@example\.com> answered 250 2\.1\.5 Recipient OK\n$'
+
+  - id: already-read
+    claim: With the right address the mail is in Ann's INBOX, but another device read it first; the message is flagged Seen, so a client that lists unread mail shows none.
+    program: find-the-mail.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nclient: \* SEARCH\nann@example\.com INBOX: 1 messages, 0 unseen\n  UID 1: flags .Seen\n'
+
+  - id: read-is-a-change
+    claim: The store records the delivery and, after it, the write that set the flag when the other device read the mail.
+    program: find-the-mail.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nmail store: delivered ann@example\.com/INBOX/;UID=1, written ann@example\.com/INBOX/;UID=1\n'

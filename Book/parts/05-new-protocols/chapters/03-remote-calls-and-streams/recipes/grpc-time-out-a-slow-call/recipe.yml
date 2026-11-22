@@ -1,0 +1,81 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: grpc-time-out-a-slow-call
+title: Timing Out a Slow gRPC Call
+protocols: [grpc]
+tier: new-protocols
+surl-options: [--allow-anonymous, -v, --log-file]
+curl-options: [-s, -S, -m, -H, -d, -o, -w]
+exit-codes: [0, 22, 28]
+references: [surl-readme, curl-readme, curl-protocols, grpc-http2]
+triplet: grpc-time-out-a-slow-call
+
+fixtures: {}
+
+servers:
+  main:
+    command: surl --allow-anonymous grpc://127.0.0.1:{{port}}/
+    ready: port
+  logged:
+    command: surl -v --log-file grpc.log --allow-anonymous grpc://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A call the server holds back for 3000 milliseconds, that curl stops waiting for after one second with -m 1, ends with curl exit 28, timed out, and prints no reply; no gRPC status ever arrived.
+    run: curl -s -S -m 1 -H "grpc-timeout:" -d "{\"message\":\"x\",\"delayMilliseconds\":3000}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 28
+      stdout: ""
+      stderr-contains: "curl: (28)"
+
+  - id: within-the-limit
+    claim: A call that answers inside the limit is not affected by it; held back 200 milliseconds under -m 10, it prints its reply and exits 0.
+    run: curl -s -S -m 10 -d "{\"message\":\"x\",\"delayMilliseconds\":200}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"x\"\n}\n"
+
+  - id: gives-up-early
+    claim: curl stops at the limit and does not wait for the reply; against a 3000 millisecond hold-back with -m 1 the whole call takes about a second (curl's own clock may stop a hair under it) and under three.
+    run: curl -s -m 1 -H "grpc-timeout:" -o {{null}} -w "%{time_total}" -d "{\"message\":\"x\",\"delayMilliseconds\":3000}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo
+    expect:
+      exit: 28
+      stdout-matches: '^(?:0\.9|[12]\.)\d*$'
+
+  - id: server-deadline
+    claim: A deadline the client sends as a grpc-timeout header, 300m for 300 milliseconds, is enforced by the server, which ends the call with grpc-status 4 (DEADLINE_EXCEEDED) and the message deadline exceeded; curl exits 22, not 28, though its own -m 10 has not passed.
+    run: 'curl -s -S -m 10 -H "grpc-timeout: 300m" -d "{\"message\":\"x\",\"delayMilliseconds\":3000}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Echo'
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded"
+
+  - id: deadline-on-a-stream
+    claim: A deadline that passes part way through a stream keeps the replies sent before it; Expand with ten replies each held back 300 milliseconds under grpc-timeout 1S prints some of them, not all ten, then ends DEADLINE_EXCEEDED, exit 22.
+    run: 'curl -s -S -m 10 -H "grpc-timeout: 1S" -d "{\"message\":\"s\",\"count\":10,\"delayMilliseconds\":300}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand'
+    expect:
+      exit: 22
+      stdout-matches: '(?s)^\{\n  "message": "s"\n\}\n(?!.*"index": 9)'
+      stderr-contains: "grpc-status 4 (DEADLINE_EXCEEDED)"
+
+  - id: m-is-sent
+    claim: A call made with -m 5 on a second server, one that keeps a log, succeeds; curl sends the limit to the server as a grpc-timeout header, which the log case below shows.
+    run: curl -s -S -m 5 -o {{null}} -d "{\"message\":\"x\"}" grpc://127.0.0.1:{{port2}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+
+  - id: header-left-off
+    claim: The same call with -H "grpc-timeout:" succeeds too and leaves the header off.
+    run: curl -s -S -m 5 -H "grpc-timeout:" -o {{null}} -d "{\"message\":\"x\"}" grpc://127.0.0.1:{{port2}}/surl.test.Echo/Echo
+    expect:
+      exit: 0
+
+  - id: log-names-the-header
+    claim: Of the two calls just made, the server's log names a grpc-timeout header in the metadata of two lines, the first call's reflection lookup and its method, and in none of the second call's.
+    run: 'grep -c "metadata: grpc-timeout" grpc.log'
+    expect:
+      exit: 0
+      stdout-matches: '^2\s*$'

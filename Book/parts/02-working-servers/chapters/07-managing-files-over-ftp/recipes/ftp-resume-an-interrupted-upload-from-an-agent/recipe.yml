@@ -1,0 +1,97 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs resume-upload.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-resume-an-interrupted-upload-from-an-agent
+title: Resuming an FTP Upload from an Agent
+protocols: [ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, read_file, get_exchanges]
+exit-codes: [0, 25]
+references: [surl-readme, curl-readme, rfc959, rfc3659]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl -C - -T through curl-mcp, against a server holding the first 65,536 bytes of a 200,000-byte file, sends only the other 134,464 and exits 0, and read_file then shows the server holds the local file.
+    program: resume-upload.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout: "resume: curl exit 0, sent 134464, same as local: True\n"
+
+  - id: reads-size-first
+    claim: Before the resume, curl -I reports the size the server holds, Content-Length 65536, which is how an agent learns how much of the upload is left.
+    program: resume-upload.cs
+    args: [size]
+    expect:
+      exit: 0
+      stdout: "size: 65536\n"
+
+  - id: size-then-append
+    claim: get_exchanges shows the server received SIZE and then APPE, which adds to the file; there is no STOR and no REST.
+    program: resume-upload.cs
+    args: [commands]
+    expect:
+      exit: 0
+      stdout: "commands: sent 134464; SIZE update.iso, APPE update.iso\n"
+
+  - id: no-remote-file
+    claim: With nothing on the server there is nothing to resume, and the same command line sends the whole 200,000 bytes as an ordinary upload; exit 0.
+    program: resume-upload.cs
+    args: [fresh]
+    expect:
+      exit: 0
+      stdout: "fresh: curl exit 0, sent 200000, same as local: True\n"
+
+  - id: already-complete
+    claim: Run on a server that already holds the whole file, curl sends 0 bytes, so the command is safe to repeat.
+    program: resume-upload.cs
+    args: [complete]
+    expect:
+      exit: 0
+      stdout: "complete: sent 0\n"
+
+  - id: without-C-starts-over
+    claim: Without -C, curl sends all 200,000 bytes from byte 0 over the partial file, and the server then holds the local file.
+    program: resume-upload.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout: "restart: curl exit 0, sent 200000, same as local: True\n"
+
+  - id: explicit-offset
+    claim: -C 100000 sends the last 100,000 bytes as an append and asks the server for no size, so the server received APPE and no SIZE.
+    program: resume-upload.cs
+    args: [offset]
+    expect:
+      exit: 0
+      stdout: "offset: sent 100000; APPE update.iso\n"
+
+  - id: never-compares
+    claim: curl compares sizes and never bytes, so a partial file of other bytes the right length is resumed all the same, exit 0, and the server then holds something that is not the local file.
+    program: resume-upload.cs
+    args: [zeros]
+    expect:
+      exit: 0
+      stdout: "zeros: curl exit 0, sent 134464, same as local: False\n"
+
+  - id: longer-left-alone
+    claim: A server file longer than the local one leaves nothing to send; curl sends 0 bytes and the server still holds its 300,000.
+    program: resume-upload.cs
+    args: [longer]
+    expect:
+      exit: 0
+      stdout: "longer: sent 0, server holds 300000\n"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads refuses the append, so curl exits 25 and the server still holds its 65,536 bytes.
+    program: resume-upload.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "uploads-off: curl exit 25, server holds 65536\n"

@@ -1,0 +1,135 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+schema: 2
+key: ftp-see-which-command-broke-a-transfer
+title: Seeing Which FTP Command Failed
+protocols: [ftp]
+tier: scenarios
+surl-options: [-v, --log-file, --allow-anonymous, --allow-uploads, --fault, --directory]
+curl-options: [-T, -o, -s, -S]
+exit-codes: [0, 25, 56, 67]
+references: [surl-readme, curl-readme, rfc959]
+
+# job.sh is the FTP job: it uploads tonight's file to outbox/ and fetches orders.csv from inbox/. On main, two fault
+# rules make it fail now and then: its first upload is answered 451, and its first download is dropped unanswered.
+# settled.sh waits, with a bound, until the log has caught up; failed-sessions.sh reads it.
+fixtures:
+  nightly.csv: "id,total\n1,42\n"
+  site/outbox/README.txt: "Uploads land here.\n"
+  site/inbox/orders.csv: "order,qty\n7,3\n"
+  plain/outbox/README.txt: "Uploads land here.\n"
+  job.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # job.sh FTP-URL: the FTP job. It uploads nightly.csv to outbox/ under the URL (ending in /), then fetches
+    # inbox/orders.csv. A failed step is curl's exit code, and the job stops there.
+    curl -sS -T nightly.csv "${1}outbox/nightly.csv" || exit
+    curl -sS -o orders.csv "${1}inbox/orders.csv"
+  settled.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # settled.sh LOG: waits until every exchange surl's log says was opened has ended, so the log holds the whole
+    # of each one. It gives up after 5 seconds, leaving the log as it is.
+    tries=0
+    while [ "$(grep -c ' opened: ' "$1")" -gt "$(grep -c ' ended; ' "$1")" ] && [ "$tries" -lt 25 ]; do
+      sleep 0.2
+      tries=$((tries + 1))
+    done
+  failed-sessions.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # failed-sessions.sh LOG: reads surl's verbose log and prints each session (exchange) that ended on a failure:
+    # the last command the client sent before it quit or the connection closed, and the reply that ended it, a 4xx
+    # or 5xx, or "no reply". A line surl logged about that command follows, if there is one. Bytes on a data
+    # connection are not commands and are skipped. Exit 1 when no session failed.
+    tr -d '\r' < "$1" | awk '
+      { n = substr($1, 2); text = substr($0, length($1) + 4); sub(/\\r\\n$/, "", text) }
+      $2 == "*" && $3 == "Data" && $5 == "opened:" { data[n] = 1; next }
+      $2 == "*" && $3 == "Data" && $5 == "closed." { data[n] = 0; next }
+      $2 == "*" && $3 == "Exchange" && $5 == "ended;" {
+        if (cmd[n] != "" && (reply[n] == "" || reply[n] ~ /^[45]/)) {
+          print "exchange " n ": " cmd[n] " -> " (reply[n] == "" ? "no reply" : reply[n])
+          if (note[n] != "") print "  surl: " note[n]
+          failed = 1
+        }
+        next
+      }
+      quit[n] { next }
+      $2 == "*" && cmd[n] != "" && note[n] == "" { note[n] = text; next }
+      $2 == "<" && !data[n] {
+        if (text == "QUIT") { quit[n] = 1 } else { cmd[n] = text; reply[n] = ""; note[n] = "" }
+        next
+      }
+      $2 == ">" && cmd[n] != "" && $3 ~ /^[1-5][0-9][0-9]$/ { reply[n] = text }
+      END { if (!failed) { print "no failed session in the log"; exit 1 } }'
+
+# main serves ./site with the two fault rules and logs every line (-v) to job.log. plain serves ./plain with no
+# fault and no uploads; locked has no anonymous login.
+servers:
+  main:
+    command: surl -v --log-file job.log --allow-anonymous --allow-uploads --fault "error;scheme=ftp;command=STOR;path=/outbox;reply=451 Local error in processing;times=1" --fault "drop;stage=command;command=RETR;path=/inbox;times=1" --directory site ftp://127.0.0.1:{{port}}/
+    ready: port
+  plain:
+    command: surl -v --log-file plain.log --allow-anonymous --directory plain ftp://127.0.0.1:{{port2}}/
+    ready: port
+  locked:
+    command: surl --allow-uploads ftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: first-run-fails-at-upload
+    claim: The job's first run fails at its upload; curl exits 25 saying the upload failed with 451.
+    run: sh job.sh ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 25
+      stderr-contains: "curl: (25) Failed FTP upload: 451"
+
+  - id: second-run-fails-at-download
+    claim: The second run uploads, then fails at its download, and curl exits 56.
+    run: sh job.sh ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 56
+      stderr-contains: "curl: (56)"
+
+  - id: third-run-passes
+    claim: The third run passes and fetches orders.csv, so the job fails now and then and not every time.
+    run: sh job.sh ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      files:
+        orders.csv: "order,qty\n7,3\n"
+
+  - id: solution
+    role: solution
+    claim: Once the log has settled, failed-sessions.sh lists the two failed sessions with the command and the reply that ended each, STOR nightly.csv answered 451 and RETR orders.csv with no reply, each followed by the line surl logged naming the fault rule.
+    run: sh settled.sh job.log && sh failed-sessions.sh job.log
+    expect:
+      exit: 0
+      stdout-matches: '^exchange \d+: STOR nightly\.csv -> 451 Local error in processing\n  surl: STOR /outbox/nightly\.csv answered by fault rule f1: 451 Local error in processing\nexchange \d+: RETR orders\.csv -> no reply\n  surl: RETR dropped the connection, unanswered, by fault rule f2\.\n$'
+
+  - id: passing-sessions-left-out
+    claim: The log holds three STOR nightly.csv commands, one per run, but only the one that failed is listed.
+    run: sh settled.sh job.log && grep -c -F "< STOR nightly.csv" job.log
+    expect:
+      exit: 0
+      stdout: "3\n"
+
+  - id: real-refusal-has-no-rule
+    claim: On a server with no fault rule and no --allow-uploads the job fails at the upload with exit 25.
+    run: sh job.sh ftp://127.0.0.1:{{port2}}/
+    expect:
+      exit: 25
+      stderr-contains: "curl: (25) Failed FTP upload: 550"
+
+  - id: real-refusal-in-log
+    claim: The script lists that session as STOR nightly.csv answered 550 Not permitted, with no line naming a fault rule, which is how a real refusal reads.
+    run: sh settled.sh plain.log && sh failed-sessions.sh plain.log
+    expect:
+      exit: 0
+      stdout-matches: '^exchange \d+: STOR nightly\.csv -> 550 Not permitted\n$'
+
+  - id: login-needed
+    claim: Without --allow-anonymous, and with no account given, the job's anonymous login is refused and it exits 67.
+    run: sh job.sh ftp://127.0.0.1:{{port3}}/
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67)"

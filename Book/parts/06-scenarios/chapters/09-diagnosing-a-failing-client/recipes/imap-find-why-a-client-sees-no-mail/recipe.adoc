@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-find-why-a-client-sees-no-mail]]
+=== Finding Why a Client Sees No Mail
+
+==== Problem
+
+An app sends Ann a welcome mail and says it was sent, but Ann's mail client shows no new mail. You want an artificial intelligence (AI) agent to look in the server's mail store and record and find where the mail actually went.
+
+==== Solution
+
+Write the agent's side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK): it starts `surl-mcp` and `curl-mcp`, starts a mail server with `start_server`, lets the app send and the client look with the `curl` tool, waits with `wait_for_event` for the send to end, then reads Ann's mailboxes with `list_mailboxes` and `list_messages`, the store's changes with `get_events`, and the recipient the app gave with `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a Simple Mail Transfer Protocol (SMTP) listener and an Internet Message Access Protocol (IMAP) one over one mail store. Its `arguments` are `surl`{apos}s options: `--mail-domain example.com` is the domain the server keeps mail for, each `--mailbox` a mailbox and an account named by the whole address, and in the first scenario `--mail-catch-all example.com=postmaster@example.com` sends mail for any unknown address of the domain to the postmaster (<<surl-readme>>). Every client logs in, as the server is surly by default; over plain SMTP and IMAP `curl` uses CRAM-MD5, so no option loosens it (<<curl-readme>>).
+
+The app is one call of `curl-mcp`{apos}s `curl` tool: `-u` logs in as the app, `--mail-from` and `--mail-rcpt` are the envelope, `-T welcome.eml` the message, and `-s` keeps `curl` quiet (<<rfc5321>>). The app was given `anne@example.com`. `curl` exits `0`, so the app reports the mail sent. Ann's client asks for her unread mail with `INBOX?UNSEEN` and gets an empty `* SEARCH` (<<rfc9051>>). Before the agent reads anything it calls `wait_for_event` for an `exchange_ended` event with `scheme` `smtp`, for at most 10 seconds: once the SMTP exchange has ended, the server has done all it will with the mail. A wait that runs out answers `timed_out`, and the agent stops there.
+
+The agent works from the mailbox outwards. `list_mailboxes` for `ann@example.com` answers each mailbox with `message_count` and `unseen_count`: her `INBOX` is empty, so the client is not hiding anything. `get_events` with `kinds` `store_changed` and `store` `mail` answers one event per mailbox a delivery reached, `change` `delivered` and `name` `owner/INBOX/;UID=n`: the one delivery went to `postmaster@example.com`. `get_exchanges` with `scheme` `smtp` answers what the app sent, chunk by chunk, and the `RCPT TO:<anne@example.com>` chunk, answered `250 2.1.5 Recipient OK`, names the address it gave. `read_message` of the caught copy shows `To: ann@example.com` (<<rfc5322>>): the app's headers were right and only its envelope recipient was mistyped, which is why the mail looked addressed to Ann to anyone who saw it.
+
+Without the catch-all the same mistake leaves no trace in the store. The server accepts any address of its domain with `250`, so that a sender cannot learn which addresses exist (<<surl-readme>>), and discards mail for one that has no mailbox. `get_events` then finds no change at all, and the `RCPT` in `get_exchanges` is the only record of where the mail was sent. The third scenario has the right address and a different cause: Ann's phone read the mail first. `list_mailboxes` shows one message and none unseen, `list_messages` shows it flagged `\Seen`, and `get_events` shows the delivery and then a `written` change to the same message, when the phone's fetch set the flag. A client that lists only unread mail shows nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-mail-for-unknown-addresses>> for the catch-all on its own.
+* <<imap-check-unread-counts>> for unread counts and the `\Seen` flag.
+* <<smtp-check-the-mail-an-app-sent-from-an-agent>> for checking an app's mail from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<rfc5321>>, <<rfc9051>>, <<rfc5322>>.

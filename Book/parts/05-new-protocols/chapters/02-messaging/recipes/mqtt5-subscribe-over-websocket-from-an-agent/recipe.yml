@@ -1,0 +1,126 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: mqtt5-subscribe-over-websocket-from-an-agent
+title: MQTT over WebSocket from an Agent
+protocols: [mqtt5+ws, mqtt5]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, wait_for_event, curl]
+curl-options: [-s, -S, -u, -d]
+exit-codes: [0, 22, 67]
+references: [surl-readme, curl-readme, curl-protocols, mqtt5, rfc6455, mcp-spec]
+triplet: mqtt5-subscribe-over-websocket
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A message the curl tool publishes over mqtt5:// to dash/temp is retained, and a second call subscribing to the same topic over mqtt5+ws:// reads it, the payload alone.
+    program: program.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dashboard reads 21\n"
+
+  - id: publish-over-websocket
+    claim: 'The reverse holds: a message published over mqtt5+ws:// is retained on the same bus, and a subscriber over mqtt5:// reads it.'
+    program: program.cs
+    args: [to-tcp]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "device reads 22\n"
+
+  - id: later-subscriber
+    claim: The message stays on the topic, so a second client that subscribes over WebSocket later reads it too.
+    program: program.cs
+    args: [later]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "first reads 21\nsecond reads 21\n"
+
+  - id: wildcard
+    claim: A filter with the multi-level wildcard, written %23 in the URL, reads the retained messages of both topics under dash/ over WebSocket.
+    program: program.cs
+    args: [wildcard]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dashboard reads 2122\n"
+
+  - id: outside-the-filter
+    claim: A topic outside the --topic filter keeps nothing, so a subscription over WebSocket reads nothing and the tool answers exit code 0.
+    program: program.cs
+    args: [outside]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "dashboard reads nothing\n"
+
+  - id: empty-message-clears
+    claim: An empty publish over WebSocket clears the topic, and a subscriber over mqtt5:// then reads nothing.
+    program: program.cs
+    args: [clear]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "device reads nothing\n"
+
+  - id: plain-websocket-refused
+    claim: A WebSocket client that does not ask for the mqtt subprotocol has its upgrade to /mqtt refused with 400, and the curl tool answers exit code 22.
+    program: program.cs
+    args: [plain]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "mqtt-less client refused: exit 22, curl: (22) Refused WebSocket upgrade: 400\n"
+
+  - id: other-path-refused
+    claim: A WebSocket upgrade to any other path is refused with 404, exit code 22.
+    program: program.cs
+    args: [other-path]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "other path refused: exit 22, curl: (22) Refused WebSocket upgrade: 404\n"
+
+  - id: no-login-refused
+    claim: On a broker with an account and no --allow-anonymous, a client that sends no login over WebSocket is refused with CONNACK reason code 0x87, curl exit code 67.
+    program: program.cs
+    args: [no-login]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "anonymous refused: exit 67, curl: (67) MQTT 5 CONNACK reason code 0x87 NotAuthorized\n"
+
+  - id: clear-password-refused
+    claim: The right password over mqtt5+ws:// is refused unchecked with 0x87, because the WebSocket is not encrypted.
+    program: program.cs
+    args: [clear-text]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann refused: exit 67, curl: (67) MQTT 5 CONNACK reason code 0x87 NotAuthorized\n"
+
+  - id: clear-password-allowed
+    claim: With --allow-plaintext-auth, the same password is checked and accepted, for the publish and the subscribe alike.
+    program: program.cs
+    args: [allowed]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann reads 21\n"
+
+  - id: wrong-password-refused
+    claim: With --allow-plaintext-auth, a wrong password is checked and refused with reason code 0x86, bad user name or password, exit code 67.
+    program: program.cs
+    args: [wrong]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "ann refused: exit 67, curl: (67) MQTT 5 CONNACK reason code 0x86 BadUserNameOrPassword\n"

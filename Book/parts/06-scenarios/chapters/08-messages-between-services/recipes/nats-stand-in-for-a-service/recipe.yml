@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: nats-stand-in-for-a-service
+title: Standing In for a NATS Service
+protocols: [nats]
+tier: scenarios
+surl-options: [--allow-anonymous, -v, --log-file, --fault]
+curl-options: [-s, -S, -m, -d, -T, -Z, --next]
+exit-codes: [0, 28, 56]
+references: [surl-readme, curl-readme, curl-protocols, nats-protocol]
+triplet: nats-stand-in-for-a-service
+
+# The app is curl with ?request: it publishes to prices.get with a reply subject of its own and waits for one
+# reply. The stand-in is a NATS session the script writes to curl -T - over telnet://, line by line: it
+# subscribes to prices.get, waits (at most ten seconds) for the request, and publishes its answer to the
+# request's reply subject. The script needs a POSIX shell.
+fixtures:
+  standin.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Stands in for the price service on prices.get, runs the app's request, and prints what the app got,
+    # what it asked and what the server logged.
+    # Usage: sh standin.sh <nats port>
+    nats=127.0.0.1:$1
+    rm -f standin.out
+    {
+      printf 'CONNECT {"verbose":false}\r\nSUB prices.get 1\r\nPING\r\n'
+      for try in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        grep -q '^MSG prices.get ' standin.out 2>/dev/null && break
+        sleep 0.5
+      done
+      inbox=$(grep '^MSG prices.get ' standin.out | awk '{ print $4 }')
+      printf 'PUB %s 10\r\nprice=9.99\r\n' "$inbox"
+      sleep 2
+    } 2>/dev/null | curl -s -m 30 -T - "telnet://$nats/" > standin.out &
+    standin=$!
+    # The server answers the PING once it has the SUB: wait for the PONG, at most five seconds.
+    for try in 1 2 3 4 5 6 7 8 9 10; do
+      grep -q '^PONG' standin.out 2>/dev/null && break
+      sleep 0.5
+    done
+    echo "app got: $(curl -sS -m 10 -d sku=A1 "nats://$nats/prices.get?request")"
+    kill $standin 2>/dev/null
+    tr -d '\r' < standin.out | grep -A 1 '^MSG prices.get ' > asked.txt
+    inbox=$(awk 'NR == 1 { print $4 }' asked.txt)
+    echo "the app asked: $(sed -n 2p asked.txt)"
+    echo "reply subject: $inbox"
+    # The server's log is written as it works: look for the two PUB lines, at most five seconds.
+    for try in 1 2 3 4 5 6 7 8 9 10; do
+      [ "$(grep -c -e "< PUB prices.get $inbox 6" -e "< PUB $inbox 10" nats.log)" = 2 ] && break
+      sleep 0.5
+    done
+    echo "server log, the app's request: $(grep -c "< PUB prices.get $inbox 6" nats.log)"
+    echo "server log, the stand-in's reply: $(grep -c "< PUB $inbox 10" nats.log)"
+
+# main is the recipe, logging every line it receives to nats.log. held holds each PUB for a second, so a
+# subscriber started at the same time is in place before the request arrives.
+servers:
+  main:
+    command: surl -v --log-file nats.log --allow-anonymous nats://127.0.0.1:{{port}}/
+    ready: port
+  held:
+    command: surl --allow-anonymous --fault "delay;ms=1000;stage=command;command=PUB" nats://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The stand-in subscribes to prices.get and answers price=9.99 to the reply subject of the request it receives; the app's request with sku=A1 gets price=9.99, exit 0.
+    run: sh standin.sh {{port}}
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp got: price=9\.99\n'
+
+  - id: what-was-asked
+    claim: The stand-in's own record shows what the app asked, the payload sku=A1, and the reply subject curl made for it, _INBOX. and 32 hexadecimal digits.
+    run: sh standin.sh {{port}}
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\nthe app asked: sku=A1\nreply subject: _INBOX\.[0-9a-f]{32}\n'
+
+  - id: server-log
+    claim: The server's log, with -v, holds both sides once each, the app's PUB to prices.get with that reply subject and 6 bytes, and the stand-in's PUB of 10 bytes to it.
+    run: sh standin.sh {{port}}
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '\nserver log, the app.s request: 1\nserver log, the stand-in.s reply: 1\n\Z'
+
+  - id: no-stand-in
+    claim: With no stand-in subscribed, the server tells the app at once that nobody answers prices.get, and curl exits 56 with no output.
+    run: curl -sS -m 10 -d sku=A1 "nats://127.0.0.1:{{port}}/prices.get?request"
+    expect:
+      exit: 56
+      stdout: ""
+      stderr-contains: "no responders"
+
+  - id: silent-stand-in
+    claim: 'A stand-in that subscribes but never answers still records the request: the subscriber writes sku=A1, the app waits until -m 3 and exits 28, and so does the command.'
+    run: curl -Z -s "nats://127.0.0.1:{{port2}}/prices.get?count=1" --next -sS -m 3 -d sku=A1 "nats://127.0.0.1:{{port2}}/prices.get?request"
+    expect:
+      exit: 28
+      stdout: "sku=A1\n"
+      stderr-contains: "curl: (28)"

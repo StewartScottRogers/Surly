@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-make-and-remove-folders-in-csharp
+title: Making and Removing FTP Folders in C#
+protocols: [ftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFiles, SurlFolderPage, SurlFolderEntry, CurlClient, CurlRequest, CurlResponse, CurlFtpOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc959]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "MKD reports makes the folder: the server answers 257 with the path it made, and its store holds reports beside hello.txt."
+    program: folders.cs
+    args: [make]
+    expect:
+      exit: 0
+      stdout: "make: ok; 257 \"/reports\" created; store: hello.txt reports/\n"
+
+  - id: inside
+    claim: "MKD with a path makes the folder inside one that is there, so reports/2026 is made under reports."
+    program: folders.cs
+    args: [inside]
+    expect:
+      exit: 0
+      stdout: "inside: ok; 257 \"/reports/2026\" created; store: hello.txt reports/ reports/2026/\n"
+
+  - id: exists
+    claim: "MKD for a folder that is already there is answered 550 Already exists, and the request throws a CurlException with code QuoteError, 21, the code curl exits with."
+    program: folders.cs
+    args: [exists]
+    expect:
+      exit: 0
+      stdout: "exists: CurlException 21 QuoteError; 550 Already exists; store: hello.txt reports/\n"
+
+  - id: missing-parent
+    claim: "MKD whose parent is not there is answered 550 No such directory, throws QuoteError, and makes nothing."
+    program: folders.cs
+    args: [missing-parent]
+    expect:
+      exit: 0
+      stdout: "missing-parent: CurlException 21 QuoteError; 550 No such directory; store: hello.txt\n"
+
+  - id: remove
+    claim: "RMD removes an empty folder, answered 250 Directory removed, and the store no longer holds it."
+    program: folders.cs
+    args: [remove]
+    expect:
+      exit: 0
+      stdout: "remove: ok; 250 Directory removed; store: hello.txt\n"
+
+  - id: not-empty
+    claim: "RMD for a folder that still holds a file is answered 550 Directory not empty, throws QuoteError, and leaves the folder and its file."
+    program: folders.cs
+    args: [not-empty]
+    expect:
+      exit: 0
+      stdout: "not-empty: CurlException 21 QuoteError; 550 Directory not empty; store: hello.txt reports/ reports/note.txt\n"
+
+  - id: delete-first
+    claim: "With the folder emptied first, in the same request, RMD of the inner folder, DELE of the file and RMD of reports remove everything, and the store holds only hello.txt."
+    program: folders.cs
+    args: [delete-first]
+    expect:
+      exit: 0
+      stdout: "delete-first: ok; 250 Directory removed | 250 Directory removed; store: hello.txt\n"
+
+  - id: missing
+    claim: "RMD of a name that is a file, not a folder, is answered 550 No such directory, throws QuoteError, and leaves the file."
+    program: folders.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "missing: CurlException 21 QuoteError; 550 No such directory; store: hello.txt\n"
+
+  - id: uploads-off
+    claim: "A server with AllowUploads left off answers MKD 550 Not permitted, so the request throws QuoteError and no folder is made."
+    program: folders.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "uploads-off: CurlException 21 QuoteError; 550 Not permitted; store: hello.txt\n"
+
+  - id: uploads-off-rmd
+    claim: "RMD is refused there too, 550 Not permitted, and not Directory not empty, so the folder and its file stay."
+    program: folders.cs
+    args: [uploads-off-rmd]
+    expect:
+      exit: 0
+      stdout: "uploads-off-rmd: CurlException 21 QuoteError; 550 Not permitted; store: hello.txt reports/ reports/note.txt\n"
+
+  - id: no-login
+    claim: "Without AllowAnonymous the server refuses the anonymous login before the command is sent, and the request throws a CurlException with code LoginDenied, 67."
+    program: folders.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "no-login: CurlException 67 LoginDenied; 530 Login needs TLS first: send AUTH TLS; store: hello.txt\n"
+

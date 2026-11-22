@@ -1,0 +1,50 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[redis-test-a-session-that-expires]]
+=== Testing a Session That Expires
+
+==== Problem
+
+Your app keeps sessions in Redis with a time to live; you want a short-lived session and a test that the app treats it as logged out once it expires.
+
+==== Solution
+
+Start one `surl` that serves a Redis store for the sessions and a directory over the Hypertext Transfer Protocol (HTTP) for the app{apos}s pages. The test, `session.sh`, seeds a session that lives six seconds, asks the app, here `app.sh`, a script that stands in for yours, and asks again until the session has gone. Both scripts need a POSIX shell, Git Bash on Windows:
+
+include::.generated/solution.adoc[]
+
+The test and the app:
+
+[source,shell]
+----
+include::session.sh[]
+----
+
+[source,shell]
+----
+include::app.sh[]
+----
+
+The second `surl` command in the checked claims, without `--allow-plaintext-auth`, is there for one claim. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+The `redis://` listen URL is the session store, and the `http://` one serves the folder `--directory` names, `site`, whose `account.txt` is the page a logged-in user sees (<<surl-readme>>). `--user app:s3cret` is the app{apos}s account on both, and `-u app:s3cret` its login. Both listeners are plain, so the password crosses an unencrypted connection, and `--allow-plaintext-auth` lets `surl` check it there instead of refusing it unchecked; it warns on start and is for a test on one machine. Without it, the second server answers the app{apos}s login `WRONGPASS`, and `curl` exits `67`.
+
+`curl` takes the Redis command from the URL path, so `redis://host:port/SET/session:abc/alice/EX/6` is `SET session:abc alice EX 6`: the session ID is the key, the user its value, and `EX 6` gives it six seconds to live (<<redis-resp>>, <<curl-protocols>>). That is how your app would write a session; the test writes it the same way, so the app under test finds a real one. The app looks the key up with `GET`. A missing or expired key is not an error: `curl` writes an empty line and exits `0`, and the app then answers that the user is logged out. With a user, it fetches the account page over HTTP and shows it (<<rfc9110>>). `-s` silences the progress meter and `-S` puts an error message back.
+
+The test asks the app at once, and alice is logged in. Then it waits for the expiry the way a test should wait for anything a server does on its own clock: it asks again once a second, fifteen times at most, and stops at the first answer that says logged out. A fixed `sleep` has to guess how long is enough, and its guess is wrong on some machine; asking until the answer changes takes as long as it needs and no longer, and fifteen tries bound it. Six seconds is long enough that the first answer comes before the session goes, though each `curl` start costs about a second.
+
+The test checks the store as well as the app. `TTL` answers `-2` for the expired session and `EXISTS` answers `0`: it is gone, not only hidden from the app. A session seeded with `EX 60` reports a positive time to live of at most 60 seconds. The failure this test is for is a session written with no expiry: `TTL` answers `-1`, and such a session never goes, so the app would keep the user logged in for ever and the poll would run out with the app still saying logged in. A session ID the store never held gets the same answer from the app as an expired one.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<redis-test-a-session-that-expires-in-csharp>> for the same task in a C# test.
+* <<redis-test-a-session-that-expires-from-an-agent>> for the same task from an agent.
+* <<redis-expire-a-key>> for expiry on its own.
+* <<redis-seed-a-cache-for-a-test>> for a cache that expires and an origin over HTTP.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<redis-resp>>, <<rfc9110>>.

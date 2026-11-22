@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[nats-stand-in-for-a-service]]
+=== Standing In for a NATS Service
+
+==== Problem
+
+Two services talk over NATS request and reply; you want the test to stand in for one of them and check what the other asked it.
+
+==== Solution
+
+Start `surl` as the NATS server, logging what it receives. A script plays the price service: it holds a NATS session open through `curl -T -`, subscribes to `prices.get`, waits for a request and answers it. The app is `curl` with `?request`. The script needs a POSIX shell, Git Bash on Windows, because the stand-in answers only after the request comes:
+
+include::.generated/solution.adoc[]
+
+The script:
+
+[source,shell]
+----
+include::standin.sh[]
+----
+
+The second `surl` command in the checked claims, which holds each publish for a second, is there for one claim. Stop each with kbd:[Ctrl+C].
+
+==== Discussion
+
+In NATS request and reply, the asking side subscribes to a reply subject of its own, publishes its request with that subject attached, and waits for one message on it; the answering side subscribes to the service subject and publishes its answer to whatever reply subject came with the request (<<nats-protocol>>). `surl` on a `nats` listen URL is a core NATS server that passes both on (<<surl-readme>>). The app here is the Curl port{apos}s NATS client: `-d sku=A1` with `?request` in the URL subscribes to `_INBOX.` and 32 hexadecimal digits, publishes `sku=A1` to `prices.get` with that reply subject, and writes the first reply it gets (<<curl-protocols>>). `-m 10` bounds the wait.
+
+`curl` has no NATS option that answers a request, so the stand-in speaks the protocol itself. `-T` sends a file to the server, `-` names standard input, and on a `telnet://host:port/` URL `curl` sends it as it arrives and writes what comes back, so the script writes NATS lines into it: `CONNECT`, `SUB prices.get 1` and `PING`, each ended by a carriage return and line feed. The server answers the `PING` with `PONG` once it has taken the `SUB`, and the script waits for that `PONG` before it starts the app, so the request cannot arrive before the stand-in is listening. The request reaches the stand-in as `MSG prices.get 1 <reply subject> 6` and then the payload. The script waits for that line, at most ten seconds, reads the reply subject from it and publishes `price=9.99` there with `PUB`. The app writes `price=9.99`.
+
+The test{apos}s check is what the stand-in received, kept in `standin.out`: the payload the app asked with, `sku=A1`, and the reply subject `curl` made for it. The server keeps its own account too. `-v` makes `surl` log each line a client sends, and `--log-file nats.log` writes the log to a file, so the script finds the app{apos}s `PUB prices.get` with that reply subject and 6 bytes, and the stand-in{apos}s `PUB` of 10 bytes to it, once each. The log is written as the server works, so the script looks for the two lines for at most five seconds.
+
+There are two ways the exchange can fail, and each has a sign of its own. With nobody subscribed to `prices.get`, the server says so at once and `curl` exits `56`, no responders, with no output; a test that forgot to start the stand-in fails fast. A stand-in that subscribes and never answers still receives the request. The second server holds each `PUB` for a second with `--fault`, so `-Z` can run a plain subscriber and the request at the same time, `--next` keeping their options apart, with the subscriber in place first: the subscriber writes `sku=A1` and ends after one message because of `?count=1`, and the app waits until `-m 3`, exit `28`. `--fault` makes `surl` misbehave on purpose and warns on start.
+
+`--allow-anonymous` lets both sides connect with no login; a NATS `CONNECT` with no account is otherwise refused, and `surl` warns on start while it is on (<<surl-readme>>). `-s` silences `curl`{apos}s progress meter and `-S` puts its error messages back. `kill` ends the stand-in{apos}s `curl`, which would otherwise wait for the server to close.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<nats-stand-in-for-a-service-in-csharp>> for the same task in a C# test.
+* <<nats-stand-in-for-a-service-from-an-agent>> for the same task from an agent.
+* <<nats-publish-and-subscribe>> for subjects, wildcards and the login rules.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<nats-protocol>>.

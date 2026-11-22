@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: grpc-read-a-server-stream-in-csharp
+title: Reading gRPC Streams in C#
+protocols: [grpc]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, grpc-http2]
+triplet: grpc-read-a-server-stream
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A POST of a request with a count of 3 to Expand streams three replies; the response body holds each as a JSON object, in the order sent, with index left out of the first because its value is 0.
+    program: read-a-stream.cs
+    args: [stream]
+    expect:
+      exit: 0
+      stdout: "{ \"message\": \"s\" } { \"message\": \"s\", \"index\": 1 } { \"message\": \"s\", \"index\": 2 }\n"
+
+  - id: empty-stream
+    claim: A stream with no replies is a success; a count of 0, and a request with no count, give an empty body and no exception.
+    program: read-a-stream.cs
+    args: [empty]
+    expect:
+      exit: 0
+      stdout: "count 0: []\nno count: []\n"
+
+  - id: count-limit
+    claim: A count above 1000 is refused as INVALID_ARGUMENT, request field out of range; SendAsync throws a CurlException with code 22, HttpReturnedError.
+    program: read-a-stream.cs
+    args: [limit]
+    expect:
+      exit: 0
+      stdout: "HttpReturnedError (22): grpc-status 3 (INVALID_ARGUMENT): request field out of range\n"
+
+  - id: replies-as-they-arrive
+    claim: The response body is read as the replies arrive; with each reply held back 300 milliseconds, a read cancelled after one second has seen some of the ten replies and not all of them.
+    program: read-a-stream.cs
+    args: [arrival]
+    expect:
+      exit: 0
+      stdout: "cancelled with some of 10 replies\n"
+
+  - id: fails-after-replies
+    claim: A stream that ends in a status other than OK, count 3 with statusCode 13, makes SendAsync throw a CurlException with code 22 and the status and message; unlike the console, the replies sent before the status are not handed to the program.
+    program: read-a-stream.cs
+    args: [part-way]
+    expect:
+      exit: 0
+      stdout: "HttpReturnedError (22): grpc-status 13 (INTERNAL): boom\n"

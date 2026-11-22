@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-refuse-a-publish-by-reason-code-in-csharp]]
+=== MQTT 5 Reason Codes in C#
+
+==== Problem
+
+Your MQTT 5 client must report why the broker refused it, by reason code. You want a C# test that has a broker refuse a publish and a subscribe by topic grant and shows the reason code, with the broker in the same program and the clients from `Curl.Api`.
+
+==== Solution
+
+Start a `SurlServer` with an MQTT 5 listener, an MQTT 3.1.1 listener beside it, four accounts and one grant line; publish as one account through a `CurlClient` and read as another:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+MQ Telemetry Transport (MQTT) version 5.0 answers a refusal with a reason code, a one-byte number: `0x87` is not authorized and `0x86` is bad user name or password (<<mqtt5>>). `SurlServerOptions.ListenUrls` holds `mqtt5://127.0.0.1:0`, a broker on a free port, and `mqtt://127.0.0.1:0`, a second listener for MQTT 3.1.1 on the same message bus, for a reason given below. `Accounts` takes `SurlAccount` values, the `--user` options. `TopicAccess` is `--topic-access`, and `"plant/#=ann:pubsub,bob:sub,dan:pub"` grants the filter `plant/#`, every topic under `plant/`, with a right for each account; once any grant is given, every publish and subscribe needs one, so `cy`, whom the line does not name, can log in and do nothing. `Topics` is `--topic`, and `"plant/#;retain"` keeps the last message on each topic under `plant/`, which is what a later subscriber is sent. `AdditionalArguments` carries `--mqtt5-disconnect-after-retained`, which has no property: it makes the broker end a subscription once the retained messages are sent, so a read returns instead of waiting (<<surl-readme>>). `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, a loosening for a test, since the passwords travel in clear.
+
+The reader is `CurlClient` with a `CurlRequest` for `server.BoundUrls[0]` and the topic, and a `CurlAuthenticationOptions` holding the `UserName` and `Password`. `HttpMethod.Get` subscribes, and the `CurlResponse.Body` is the retained message, the payload alone over `mqtt5://`. The refusals are exceptions: `SendAsync` throws a `CurlException`, and its `Message` is what `curl` prints, with the reason code and its name (<<curl-readme>>). A refused subscribe is the `SUBACK` carrying `0x87`, and the exception{apos}s `Code` is `8`; three accounts show it: `ann` asking for `office/desk`, which no grant covers, though she may do everything under `plant/`; `dan`, who was given `pub` and may not subscribe; and `cy`, who has no grant.
+
+The login comes before any grant. A wrong password is refused in the `CONNACK` with `0x86` and no login at all with `0x87`, and the exception{apos}s `Code` is `67`, login denied. With `AllowPlaintextAuthentication` off, the right password over `mqtt5://` is refused unchecked with `0x87`, as though no login had been sent.
+
+The publisher is a second listener because `Curl.Api` 0.2.0 does not publish over `mqtt5://`: a `POST` there sends a subscribe, and nothing is kept. Over `mqtt://`, on the same bus and the same accounts and grants, `HttpMethod.Post` with a `Body` of `CurlContent` bytes publishes. A publish with no right to it, `bob` who was given only `sub` and `cy` who has none, is dropped with no exception and no reason code, because a publish at quality of service 0 gets no answer; an MQTT 5 broker can refuse a publish with a code only in the answer to one at quality of service 1 or 2 (<<mqtt5>>). The proof is a read afterwards: `ann` still receives `21`.
+
+A publish is not acknowledged, so `SendAsync` can return before the broker has applied it or dropped it, and a read straight after can be stale: this can happen on macOS. The program does not sleep. `RecordExchanges` is on, and after each publish it calls `WaitForEventAsync` with a `SurlEventQuery` for the next `SurlEventKind.ExchangeEnded`, which the broker records once what the client sent has been dealt with, taking the last `SurlEvent`{apos}s `Sequence` as the point to wait after, and with a ten second bound that a failure alone ever reaches.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-refuse-a-publish-by-reason-code>> for the same refusals on the console.
+* <<mqtt5-refuse-a-publish-by-reason-code-from-an-agent>> for the same refusals from an agent.
+* <<mqtt-grant-topics-to-a-group-in-csharp>> for grants by group, on MQTT 3.1.1.
+* <<surl-readme>>, <<curl-readme>>, <<mqtt5>>.

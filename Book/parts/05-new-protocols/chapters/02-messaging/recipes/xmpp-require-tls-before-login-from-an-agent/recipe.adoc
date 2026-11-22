@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[xmpp-require-tls-before-login-from-an-agent]]
+=== Requiring XMPP STARTTLS from an Agent
+
+==== Problem
+
+Your chat client must upgrade with STARTTLS before it sends a password. You want your agent to show a login refused before Transport Layer Security (TLS), accepted after STARTTLS, and accepted at once over XMPPS, the Extensible Messaging and Presence Protocol with TLS from the first byte, from the tools alone.
+
+==== Solution
+
+The agent starts `surl-mcp`{apos}s `start_server` with a certificate, an account, and an `xmpp` and an `xmpps` listen URL, and has `curl-mcp`{apos}s `curl` tool log in over the first, trusting the certificate:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+An `xmpp` connection starts in clear. The client sends its stream header, the server answers with its features, and a server that wants TLS first says so with `<starttls><required/></starttls>`; the client asks for it, both sides run the TLS handshake on the same connection and start the stream again, and only then is a login offered (<<rfc6120>>, <<rfc8446>>). `start_server` takes `listen_urls`, here `xmpp://127.0.0.1:0` and `xmpps://127.0.0.1:0`, each on a free port, and `arguments`, the options of `surl`: `--cert` and `--key` name the certificate and its private key, made by `openssl` in the recipe{apos}s `setup` and under the folder the host is confined to, and `--user` adds an account (<<surl-readme>>). The answer carries `server_id`, which later calls name, and `bound_urls`, in the order asked.
+
+The `curl` tool runs `curl` with the arguments the agent gives it, `-s` and `-S` to keep the progress meter out and the error message in, `--cacert` to trust the certificate, which is its own authority, and `-u` for the login, and answers `exitCode`, `standardOutput` and `standardError`, each a `content` (<<curl-readme>>, <<curl-protocols>>). Given an `xmpp://` URL whose path is the server{apos}s domain, `curl` upgrades with STARTTLS, logs in and prints the server{apos}s answer to a discovery question, which is a proof that the login worked; over `xmpps://` the handshake comes first and the answer is the same. A refusal is an `exitCode` and a message, not a tool error. Without `--cacert`, `curl` does not trust the certificate and ends the upgrade before it sends a password: exit `60`, and the wording is the TLS library{apos}s, so the agent reads the code alone. A wrong password, once TLS is up, is `not-authorized`, and no `-u` leaves nothing to log in with, so the server offers no anonymous login; both are exit `67`, login denied.
+
+The refusal before TLS is shown by a client that does nothing for the agent. `-T` uploads a file, and over `telnet://`, which leaves the bytes as they are, it is a raw client: `open.xml` is a stream header and nothing else, and the answer is the server{apos}s own header and one feature, STARTTLS, marked required, with no login mechanism. `login.xml` is the header followed by a SASL PLAIN login with the right password, the account name and the password after a NUL byte each, in base64 (<<rfc4616>>), and the answer is the failure `encryption-required`. A telnet connection stays open, so `-m 3` ends the wait for more, with exit `28`, a timeout; the output is what the server had sent by then.
+
+The server keeps its own record of both. `get_exchanges` takes the `server_id` and answers each exchange as a list of `chunks`, each with a `direction` and its `data`, in order and decrypted, so what came before the upgrade and what came after are in one place: STARTTLS offered and required, the client asking for it, the server{apos}s `proceed`, the mechanisms, the login and its acceptance. The record of the early login shows it arriving with the stream header, STARTTLS offered, and the login refused, and no `proceed`. The exchange ends a moment after the client has gone, so the agent waits first: `wait_for_event` with `kinds` of `exchange_ended` and a `timeout_ms` of ten seconds, a bound and not a sleep.
+
+`start_server` does not serve `xmpp` without TLS unless it is told to. With no `--cert` and no `--self-signed`, it is a tool error, `exit_code` `58`, `CertificateProblem`, and its text says the listen URL needs a certificate, so a login never has to be refused in clear: there is no server to send it to. `--allow-plaintext-auth` is the loosening for a test. It lets `xmpp` run with no certificate; the server then offers its mechanisms at once, PLAIN among them and no STARTTLS, accepts the PLAIN login that was refused above, with a `success`, and checks the password for `curl` as well, so a wrong one is `not-authorized`. Anyone who can watch the network reads the password as it is sent.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<xmpp-require-tls-before-login>> for the same checks on the console.
+* <<xmpp-require-tls-before-login-in-csharp>> for the same checks from a C# test.
+* <<xmpp-ask-what-a-server-offers-from-an-agent>> for the discovery question the Solution asks.
+* <<surl-readme>>, <<curl-readme>>, <<curl-protocols>>, <<rfc6120>>, <<rfc4616>>, <<rfc8446>>, <<mcp-spec>>.

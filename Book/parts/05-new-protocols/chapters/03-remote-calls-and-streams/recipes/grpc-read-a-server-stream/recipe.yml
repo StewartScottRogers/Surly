@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: grpc-read-a-server-stream
+title: Reading a gRPC Server Stream
+protocols: [grpc]
+tier: new-protocols
+surl-options: [--allow-anonymous]
+curl-options: [-s, -S, -d, -m, -H, --next]
+exit-codes: [0, 22, 28]
+references: [surl-readme, curl-readme, curl-protocols, grpc-http2]
+triplet: grpc-read-a-server-stream
+
+fixtures: {}
+
+servers:
+  main:
+    command: surl --allow-anonymous grpc://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Expand with a count of 3 streams three replies; curl prints each as a JSON object, in the order sent, with index left out of the first because its value is 0.
+    run: curl -s -S -d "{\"message\":\"s\",\"count\":3}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 0
+      stdout: "{\n  \"message\": \"s\"\n}\n{\n  \"message\": \"s\",\n  \"index\": 1\n}\n{\n  \"message\": \"s\",\n  \"index\": 2\n}\n"
+
+  - id: empty-stream
+    claim: A stream with no replies is a success; count 0 prints nothing and exits 0, and so does a request with no count.
+    run: curl -s -S -d "{\"message\":\"s\",\"count\":0}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand --next -s -S -d "{\"message\":\"s\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: count-limit
+    claim: A count above 1000 is refused as INVALID_ARGUMENT, request field out of range, with no replies, exit 22.
+    run: curl -s -S -d "{\"message\":\"s\",\"count\":1001}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "grpc-status 3 (INVALID_ARGUMENT): request field out of range"
+
+  - id: replies-as-they-arrive
+    claim: Replies are printed as they arrive, not when the stream ends; with each reply held back 300 milliseconds, a client that stops after one second has printed some of the ten replies and not all of them, and exits 28.
+    run: curl -s -S -m 1 -H "grpc-timeout:" -d "{\"message\":\"s\",\"count\":10,\"delayMilliseconds\":300}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 28
+      stdout-matches: '(?s)^\{\n  "message": "s"\n\}\n(?!.*"index": 9)'
+      stderr-contains: "curl: (28)"
+
+  - id: fails-after-replies
+    claim: A stream that ends in a status other than OK keeps what arrived first; with count 3 and statusCode 13, curl prints the three replies, then writes the status and exits 22.
+    run: curl -s -S -d "{\"message\":\"s\",\"count\":3,\"statusCode\":13,\"statusMessage\":\"boom\"}" grpc://127.0.0.1:{{port}}/surl.test.Echo/Expand
+    expect:
+      exit: 22
+      stdout: "{\n  \"message\": \"s\"\n}\n{\n  \"message\": \"s\",\n  \"index\": 1\n}\n{\n  \"message\": \"s\",\n  \"index\": 2\n}\n"
+      stderr-contains: "grpc-status 13 (INTERNAL): boom"

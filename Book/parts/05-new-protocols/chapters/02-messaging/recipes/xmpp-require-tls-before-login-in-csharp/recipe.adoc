@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[xmpp-require-tls-before-login-in-csharp]]
+=== Requiring XMPP STARTTLS in C#
+
+==== Problem
+
+Your chat client must upgrade with STARTTLS before it sends a password. You want a C# test that shows a login refused before Transport Layer Security (TLS), accepted after STARTTLS, and accepted at once over XMPPS, the Extensible Messaging and Presence Protocol with TLS from the first byte, with the server in the same program.
+
+==== Solution
+
+Start a `SurlServer` with a certificate, an account, and an `xmpp` and an `xmpps` listen URL, and have a `CurlClient` that trusts the certificate log in over the first:
+
+include::.generated/solution.adoc[]
+
+The program also opens a plain socket to the server, because `Curl.Api`, like `curl`, always upgrades and so cannot show what a client that does not would see.
+
+==== Discussion
+
+An `xmpp` connection starts in clear. The client sends its stream header, the server answers with its features, and a server that wants TLS first says so with `<starttls><required/></starttls>`; the client asks for it, both sides run the TLS handshake on the same connection and start the stream again, and only then is a login offered (<<rfc6120>>, <<rfc8446>>). `SurlServerOptions.ListenUrls` holds `xmpp://127.0.0.1:0` and `xmpps://127.0.0.1:0`, each on a free port, and `server.BoundUrls` gives them back in that order. `CertificateFile` and `KeyFile` are `--cert` and `--key`, the files `openssl` made in the recipe{apos}s `setup`, and `Accounts` takes `SurlAccount` values, the `--user` options. With a certificate, the server offers STARTTLS and requires it (<<surl-readme>>).
+
+The client is a `CurlClient` made with `CurlClientOptions`, whose `Tls` is a `CurlTlsOptions`, and its `Origin`, a `CurlTlsPeerOptions`, has a `CertificateAuthorityFile` of `server.pem`: a self-signed certificate is its own authority (<<curl-readme>>). A `CurlRequest` for `GET` of `xmpp://127.0.0.1:port/127.0.0.1`, the path being the server{apos}s domain, with a `CurlAuthenticationOptions` holding the `UserName` and `Password`, makes `Curl.Api` upgrade, log in and ask the server what it is; the `CurlResponse.Body` is the answer, which proves the login worked. Over `xmpps://` the handshake comes first and the answer is the same. A client with no `CertificateAuthorityFile` does not trust the certificate and ends the upgrade before it sends a password, and `SendAsync` throws a `CurlException` with `Code` `60`; the message is the TLS library{apos}s, so the program prints the code alone. A wrong password, once TLS is up, is `not-authorized`, and no login leaves nothing to log in with, so the server offers no anonymous login: both are a `CurlException` of `Code` `67`, login denied.
+
+The refusal before TLS is shown by a client written by hand, a `TcpClient` that sends and reads the XML as it is. Its stream header is answered with one feature, STARTTLS, marked required, and no login mechanism. A SASL PLAIN login sent before the upgrade, the account name and the password after a NUL byte each, in base64 (<<rfc4616>>), is answered with the failure `encryption-required`. And the same client can do what `Curl.Api` does: it sends `<starttls/>`, reads `<proceed/>`, wraps its stream in an `SslStream` that accepts only this certificate, sends the stream header again, is offered the mechanisms, PLAIN among them, and its login is accepted with a `success`. Every read has a ten second bound, so a server that never answers fails the read and not the run.
+
+`SurlServer.StartAsync` does not serve `xmpp` without TLS unless it is told to. With no `CertificateFile` and no `SelfSigned`, it throws a `SurlServerStartException`, whose `ExitCode` is `58` and whose `Message` says the listen URL needs a certificate, so a login never has to be refused in clear: there is no server to send it to. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, the loosening for a test. It lets `xmpp` run with no certificate; the server then offers its mechanisms at once, PLAIN among them and no STARTTLS, accepts the PLAIN login that was refused above, and checks the password for `Curl.Api` as well, which needs no TLS options, so a wrong one is `not-authorized`, a `CurlException` of `Code` `67`. Anyone who can watch the network reads the password as it is sent.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<xmpp-require-tls-before-login>> for the same checks on the console.
+* <<xmpp-require-tls-before-login-from-an-agent>> for the same checks from an agent.
+* <<xmpp-ask-what-a-server-offers-in-csharp>> for the discovery question the Solution asks.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6120>>, <<rfc4616>>, <<rfc8446>>.

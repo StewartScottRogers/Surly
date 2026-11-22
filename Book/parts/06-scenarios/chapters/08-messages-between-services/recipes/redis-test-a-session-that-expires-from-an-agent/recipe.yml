@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs program.cs, a C# program on the official MCP SDK that
+# starts both hosts from PATH; its argument picks the scenario.
+schema: 2
+key: redis-test-a-session-that-expires-from-an-agent
+title: Testing a Session That Expires
+protocols: [redis, http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, set_key, read_key, curl]
+curl-options: [-s, -S, -u]
+exit-codes: [0, 67]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, rfc9110]
+triplet: redis-test-a-session-that-expires
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent seeds session abc for alice with set_key and expire_ms 6000; the app shows her account page at once, and once the session has expired the app says she is logged out.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\Aat once: logged in as alice: your orders and settings\nlater: logged out: sign in again\n'
+
+  - id: gone-from-the-store
+    claim: The expired session is gone from the store, not only from the app's view; read_key answers a tool error, No such key.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nstore: tool error, No such key\.\n\Z'
+
+  - id: time-to-live
+    claim: A session seeded with expire_ms 60000 has an expires_at at most 60 seconds away.
+    program: program.cs
+    args: [lifetimes]
+    expect:
+      exit: 0
+      stdout-matches: '\Awith a minute: bob, expires within 60 s\n'
+
+  - id: no-time-to-live
+    claim: 'A session set with no expire_ms, the bug this test is for, never goes: read_key answers no expires_at at all.'
+    program: program.cs
+    args: [lifetimes]
+    expect:
+      exit: 0
+      stdout-matches: '\nwith no expiry: carol, no expiry\n'
+
+  - id: unknown-session
+    claim: A session ID the store never held gets the same answer as an expired one; the app says the user is logged out.
+    program: program.cs
+    args: [lifetimes]
+    expect:
+      exit: 0
+      stdout-matches: '\nnever seeded: logged out: sign in again\n\Z'
+
+  - id: plaintext-refused
+    claim: On a server started without --allow-plaintext-auth the app's password over redis:// is refused, and the curl tool answers exit 67 with WRONGPASS.
+    program: program.cs
+    args: [strict]
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp: exit 67, curl: \(67\) .*WRONGPASS'

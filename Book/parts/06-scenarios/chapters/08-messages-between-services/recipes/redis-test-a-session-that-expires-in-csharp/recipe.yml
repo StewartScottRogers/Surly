@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+schema: 2
+key: redis-test-a-session-that-expires-in-csharp
+title: Testing a Session That Expires in C#
+protocols: [redis, http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerKeys, SurlKeyContents, SurlNotFoundException, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-protocols, redis-resp, rfc9110]
+triplet: redis-test-a-session-that-expires
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test seeds session abc for alice with a life of six seconds; the app shows her account page at once, and once the session has expired the app says she is logged out.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\Aat once: logged in as alice: your orders and settings\nlater: logged out: sign in again\n'
+
+  - id: gone-from-the-store
+    claim: The expired session is gone from the store, not only from the app's view; Keys.GetAsync throws SurlNotFoundException.
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout-matches: '\nstore: no such key\n\Z'
+
+  - id: time-to-live
+    claim: A session seeded with a minute to live has an ExpiresAt at most 60 seconds away.
+    program: program.cs
+    args: [lifetimes]
+    expect:
+      exit: 0
+      stdout-matches: '\Awith EX 60: bob, expires within 60 s\n'
+
+  - id: no-time-to-live
+    claim: 'A session set with no expiry, the bug this test is for, never goes: its ExpiresAt is null.'
+    program: program.cs
+    args: [lifetimes]
+    expect:
+      exit: 0
+      stdout-matches: '\nwith no expiry: carol, no expiry\n'
+
+  - id: unknown-session
+    claim: A session ID the store never held gets the same answer as an expired one; the app says the user is logged out.
+    program: program.cs
+    args: [lifetimes]
+    expect:
+      exit: 0
+      stdout-matches: '\nnever seeded: logged out: sign in again\n\Z'
+
+  - id: plaintext-refused
+    claim: Without AllowPlaintextAuthentication the app's password over redis:// is refused, and SendAsync throws CurlException 67 with WRONGPASS.
+    program: program.cs
+    args: [strict]
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp: CurlException 67 LoginDenied: .*WRONGPASS'

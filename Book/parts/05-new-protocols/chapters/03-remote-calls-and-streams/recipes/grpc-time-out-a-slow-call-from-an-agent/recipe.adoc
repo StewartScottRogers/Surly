@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-time-out-a-slow-call-from-an-agent]]
+=== Timing Out gRPC Calls from an Agent
+
+==== Problem
+
+Your client sets a deadline on every call. You want a gRPC (gRPC Remote Procedure Calls) call made slow on purpose and the client giving up at its time limit, with an agent driving `surl-mcp` and `curl-mcp`.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, has `surl-mcp` host a server that can hold a reply back and `curl-mcp` call it with a limit. Its first argument picks what it does, one claim each:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server and answers its `bound_urls`; `listen_urls` of `grpc://127.0.0.1:0` takes a free port and `arguments` of `--allow-anonymous` lets a call with no credentials in. The built-in `surl.test.Echo` service answers after `delayMilliseconds` milliseconds, which makes a call slow on purpose.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers JSON: `exitCode`, the reply in `standardOutput` and the error text in `standardError`. `-s` keeps `curl` quiet, `-S` still shows an error and `-d` gives the request as JSON. A call held back 3000 milliseconds that `-m 1` stops after a second is exit code `28`, a tool error, with no output; no gRPC status arrived to name, so it is a timeout and not a failed call. The tool call returns at the limit and not at the hold-back: between one and three seconds, a range, after one untimed call so the first is not measured. A call that answers inside the limit is exit code `0` and not a tool error.
+
+`curl` also sends `-m` to the server, as the `grpc-timeout` header, and `surl` enforces a `grpc-timeout` it is sent. With `-m 1` and nothing else, two timers end the call at about the same moment, so the tool answers exit code `28` or, when the server is first, exit code `22` with `DEADLINE_EXCEEDED`; the case accepts either, and a test that must not depend on the race adds `-H` `grpc-timeout:`, a header with nothing after the colon, as the first claim does. `surl-mcp` writes the server{apos}s log to its own standard error and refuses `--log-file`, so unlike the console and C# recipes this one cannot read the header from a log; the console recipe has that claim (<<grpc-time-out-a-slow-call>>).
+
+The header can be sent on its own. `-H` `grpc-timeout: 300m` is a deadline of 300 milliseconds, and the server ends the call with `grpc-status 4 (DEADLINE_EXCEEDED): deadline exceeded`: exit code `22`, a tool error, not `28`, though `-m 10` has not passed. A server deadline is a status the agent has to handle, a client timeout is not. A deadline that passes part way through a stream keeps the replies sent before it: ten replies each held back 300 milliseconds under `grpc-timeout: 1S` answer some of the ten in the output, not all, and `DEADLINE_EXCEEDED` in the error, exit code `22`, so an agent reads both.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-time-out-a-slow-call>> for the same task on the console.
+* <<grpc-time-out-a-slow-call-in-csharp>> for the same task in a C# test.
+* <<grpc-read-a-server-stream-from-an-agent>> for reading a stream.
+* <<grpc-http2>>, <<surl-readme>>, <<curl-readme>>.

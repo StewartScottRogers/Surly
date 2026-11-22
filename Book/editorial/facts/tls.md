@@ -60,3 +60,5 @@ https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a
 - surl-mcp start refusal: structured `exit_code` 58, `exit_code_name` `CertificateProblem`; curl-mcp `curl` tool nonzero exit (60) is a tool error; `transfer` cannot skip revocation checking.
 
 - Do not use Curl.Api `UseSsl.All` (or Try/Control) in a recipe until Curl BL-5640 lands: on `ftp://` it sends USER and PASS in clear with no AUTH TLS, and on `imap://` the STARTTLS login fails 67. Use the implicit-TLS scheme (`ftps://`, `imaps://`, `pop3s://`, `smtps://`) instead (Curl session, 2026-11-20).
+
+- natss (2026-11-22, windows): `curl --cacert server.pem` alone against `natss://` is exit 35 SEC_E_ILLEGAL_MESSAGE; `--ssl-no-revoke` fixes it (mqtts, mqtt5s and xmpps need no such option). See nats.md.

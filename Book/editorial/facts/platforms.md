@@ -108,3 +108,5 @@ http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it, htt
 - Telnet through Curl.Api, server closing after `line too long`: the close comes 5-50 ms after the text on Windows and in a Linux container on one CPU, but a 1 s silence window missed it once on a loaded ubuntu runner. A program that tells "closed" from "went quiet" waits 5 s of silence (`telnet-hold-a-line-session-in-csharp`).
 
 - Unix sockets on macOS (diagnosed 2026-11-21, fixed in Surl 5da5b3eaf): see "Unix domain sockets" above; no `platforms:` needed any more.
+- natss on Windows (2026-11-22, Curl c84035f797): `--cacert` needs `--ssl-no-revoke` too (exit 35 without), with a single self-signed certificate; the nats-log-in-with-a-token recipes pass `--ssl-no-revoke` everywhere. Linux and macOS not probed.
+- `telnet://` as a raw XML client (xmpp-require-tls-before-login): `curl -m 3 -T file telnet://127.0.0.1:P` ends with exit 28 on Windows once -m passes; not yet seen on Linux or macOS.
