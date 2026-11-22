@@ -50,3 +50,5 @@ in the path does not work, use `?type=`). Type defaults to A.
 
 ## Recipes
 dns-read-answers-as-json, dns-transfer-a-whole-zone (and twins)
+
+- Decided by Surl (2026-11-22): `--allow-zone-transfer` writes no warning; it is a deployment choice like `--list-directories` (Surl ADR-0092; ADR-0046 d.5 warns only for test-only loosenings).

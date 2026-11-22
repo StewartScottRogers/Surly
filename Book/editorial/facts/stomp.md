@@ -24,3 +24,5 @@ Checked against: surl 1.0.0 (Surl 5da5b3eaf), curl (Curl c84035f797), 2026-11-22
 
 ## Recipes
 stomp-send-to-a-queue, stomp-send-and-read-over-mqtt (and C# and agent twins).
+
+- Decided by Surl (2026-11-22): retained messages are MQTT's alone to read (ADR-0100 d.3.3, ADR-0118): STOMP, AMQP, NATS and Redis subscribers never get one. A STOMP subscribe with no time limit waits for ever on an empty queue, or on a message held by another live ack:client subscription; bound every subscribe.
