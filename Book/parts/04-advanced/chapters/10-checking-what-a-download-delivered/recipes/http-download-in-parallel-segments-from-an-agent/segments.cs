@@ -52,7 +52,9 @@ if (which == "past-the-end")
 byte[][] parts;
 if (which == "curl")
 {
-    // curl: one command line, a transfer per range separated by --next, run side by side.
+    // curl: one command line, a transfer per range separated by --next, run side by side. curl may
+    // reuse a finished connection for a later range; Connection: close gives each range its own, so
+    // each request head is the first thing in its own exchange of the server's record.
     var line = new List<string> { "--parallel", "--parallel-immediate" };
     for (int i = 0; i < ranges.Length; i++)
     {
@@ -61,7 +63,7 @@ if (which == "curl")
             line.Add("--next");
         }
 
-        line.AddRange(["-s", "-f", "-r", ranges[i], "-o", $"segment{i}", url]);
+        line.AddRange(["-s", "-f", "-H", "Connection: close", "-r", ranges[i], "-o", $"segment{i}", url]);
     }
 
     CallToolResult fetched = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = line.ToArray() });
@@ -86,8 +88,9 @@ byte[] joined = parts.SelectMany(p => p).ToArray();
 bool same = SHA256.HashData(joined).SequenceEqual(SHA256.HashData(original));
 Console.WriteLine($"joined: {joined.Length} bytes, {(same ? "identical" : "differs")}");
 
-// The server's side: get_exchanges holds each request head it received. The record can trail the
-// client by a moment, so ask again until all four ranges are there, for up to 10 s.
+// The server's side: get_exchanges holds each request head it received, up to 64 KiB per exchange
+// (so one request per connection). The record can trail the client by a moment, so ask again until
+// all four ranges are there, for up to 10 s.
 List<string> received = [];
 for (var waited = System.Diagnostics.Stopwatch.StartNew(); received.Count < 4 && waited.Elapsed.TotalSeconds < 10; await Task.Delay(100))
 {

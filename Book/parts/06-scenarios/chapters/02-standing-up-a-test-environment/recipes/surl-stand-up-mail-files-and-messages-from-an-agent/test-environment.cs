@@ -54,6 +54,14 @@ Console.WriteLine($"app mailed ann: curl exit {await Curl("--crlf", "-u", "app@e
 Console.WriteLine($"app uploaded the invoice: curl exit {await Curl("--digest", "-u", "app@example.com:apppass", "-T", "invoice-7.txt", bound[2] + "invoice-7.txt")}");
 Console.WriteLine($"app published on {topic}: curl exit {await Curl("-u", "app@example.com:apppass", "-d", "shipped", bound[3] + topic)}");
 
+// A QoS 0 publish is not acknowledged, so curl can return before the broker keeps it. The broker's
+// record of the MQTT connection ending comes after what it sent is applied, refused or not: wait for it.
+JsonElement ended = await Tool("wait_for_event", new() { ["kinds"] = new[] { "exchange_ended" }, ["scheme"] = "mqtt", ["timeout_ms"] = 10000 });
+if (!(ended.TryGetProperty("event", out JsonElement inner) ? inner : ended).TryGetProperty("sequence", out _))
+{
+    throw new TimeoutException("the broker did not end curl's connection in 10 s");
+}
+
 // The test: each store read back through surl-mcp, with no client.
 JsonElement messages = (await Tool("list_messages", new() { ["owner"] = "ann@example.com", ["mailbox"] = "INBOX" })).GetProperty("messages");
 string subject = "(none)";
