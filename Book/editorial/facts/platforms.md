@@ -125,3 +125,5 @@ http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it, htt
 - A refused client certificate's curl exit code depends on TLS version and library (55/35/56 seen on Windows): claim only that it failed.
 - TLS-SRP: no client on any platform (curl 8.22.0 dropped it; Curl ADR-0480). openssl s_client SRP fails on this Windows machine (MSYS2 3.5.9 segfault, Git for Windows 3.5.7 stall); Linux s_client unprobed.
 - Recipes (batch 12): https-require-a-client-certificate (and twins), https-log-in-with-tls-srp (and twins).
+
+- .NET server TLS refusal text differs by OS: a rejected client certificate logs "The remote certificate was rejected" on Windows and macOS, but "Authentication failed, see inner exception." on Linux (batch 12 CI). Claim the handshake failure on all platforms; mark the wording [windows, macos].

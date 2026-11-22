@@ -115,3 +115,5 @@ http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http
 ## Which methods a server lets a client use (http-try-every-login-method-in-turn, 2026-11-22, windows)
 - `--user app:s3cret --user :tok`, http:// default: no login 401 offers Digest only; `--basic` 403, `--digest` 200, `--oauth2-bearer` 403; events: one `Digest app` accepted. `--allow-plaintext-auth --auth digest,bearer`: offers Digest, Bearer; Basic 401 (not offered) with NO login_judged event; Digest and Bearer 200. Wrong password there: Digest 401 recorded refused (one event), Basic 401 no event. https:// `--auth basic`: offers Basic; Basic 200, Digest 401, Bearer 401.
 - surl-mcp: after each curl-mcp call, `wait_for_event(kinds:["exchange_ended"], after_sequence: last)` then `get_events`.
+
+- A Bearer-token account (empty user name) cannot be added, rotated or removed through the control endpoint or surl-mcp yet (BL-1601..1604 open). Surl.Api already accepts the empty name: rotate a token with Accounts.SetPassword or Add with an empty name.
