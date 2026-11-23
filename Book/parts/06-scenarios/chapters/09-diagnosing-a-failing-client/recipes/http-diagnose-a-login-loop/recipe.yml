@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs why-401.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-diagnose-a-login-loop
+title: Diagnosing a Login Loop
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges]
+curl-options: [-s, -S, -m, -f, --retry, --retry-all-errors, --retry-delay, --digest, --ntlm, -u, -o]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110, rfc7616]
+
+fixtures: {}
+
+cases:
+  - id: the-loop
+    claim: The client with a wrong password tries three times over three connections, each ending 401, and curl exits 22.
+    program: why-401.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^wrong password: curl exit 22\n  3 connection\(s\), each ending 401\n'
+
+  - id: solution
+    role: solution
+    claim: Its judged logins are three refusals of app, an account the server has, by Digest, so the password is what is wrong.
+    program: why-401.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^wrong password: [^\n]*\n[^\n]*\n  judged: app, Digest, refused x3; app is an account: the password is wrong\n'
+
+  - id: wrong-user
+    claim: A client whose user name is mistyped, ap, is refused the same way, but under a name the server has no account for, so the user name is what is wrong.
+    program: why-401.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong user: curl exit 22\n[^\n]*\n  judged: ap, Digest, refused x3; ap is not an account: the user name is wrong\n'
+
+  - id: wrong-method
+    claim: A client that logs in with NTLM has no login judged at all; it sent Authorization NTLM while the server offered only Digest, so the method is what is wrong.
+    program: why-401.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nwrong method: curl exit 22\n  3 connection\(s\), each ending 401\n  judged: none; client sent Authorization NTLM; server offered Digest: the method is wrong\n'
+
+  - id: no-login
+    claim: A client with no -u sends no Authorization at all, which reads the same in the events but not in the exchanges.
+    program: why-401.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nno login: curl exit 22\n[^\n]*\n  judged: none; client sent no Authorization; server offered Digest: the client sends no login\n'
+
+  - id: fixed
+    claim: With the right password the same client logs in at its first try over one connection, 200, and its login is judged accepted.
+    program: why-401.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nfixed: curl exit 0\n  1 connection\(s\), each ending 200\n  judged: app, Digest, accepted x1; app is an account: logged in\n$'

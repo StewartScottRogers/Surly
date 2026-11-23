@@ -119,3 +119,7 @@ http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http
 - A Bearer-token account (empty user name) cannot be added, rotated or removed through the control endpoint or surl-mcp yet (BL-1601..1604 open). Surl.Api already accepts the empty name: rotate a token with Accounts.SetPassword or Add with an empty name.
 
 - Decided by Surl (2026-11-22, ADR-0132 amendment 2; Surl master PR #138, after v0.1.5): a Bearer-token account is changed at run time through dedicated routes, control `PUT|DELETE /v1/bearer-token` and matching surl-mcp tools; Surl.Api's account views rotate it. An empty `user` in /v1/accounts, add_account and remove_account stays refused. Not in the pinned v0.1.5 build.
+
+## Telling method, user and password apart (http-diagnose-a-login-loop, Surl v0.1.5 d64faa4bb / Curl 2145a49eae, 2026-11-22, windows)
+- `curl -f --retry 2 --retry-all-errors --retry-delay 1 --digest -u app:wrong`: three connections, each ending 401, three refused login_judged events (account app, Digest), exit 22. A mistyped user (`ap`) gives the same events under the claimed name: only the server's account list tells them apart.
+- `--ntlm -u app:s3cret` against a default server: 401 with `WWW-Authenticate: Digest` x3 and NO login_judged; the record holds `Authorization: NTLM ...` (the -v log shows `Authorization: NTLM ****`). No `-u`: no Authorization at all, no event. `--basic` over http: 403 (not a 401 loop).

@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-serve-two-mail-domains-in-csharp
+title: Serving Two Mail Domains in C#
+protocols: [smtp, imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, StoreChangedEvent, SurlMessagePage, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Each brand's welcome to Ann in its own domain is answered 250; after the two delivery events, ann@one.test holds one message, One's welcome, and ann@two.test one, Two's.
+    program: serve-brands.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "SMTP 250\nSMTP 250\ndelivered: ann@one.test/INBOX/;UID=1, ann@two.test/INBOX/;UID=1\nann@one.test holds 1: Subject: Welcome to One\nann@two.test holds 1: Subject: Welcome to Two\n"
+
+  - id: own-password
+    claim: Each address is its own account with its own password; an IMAP login as ann@two.test with ann@one.test's password throws a CurlException, LoginDenied, 67.
+    program: serve-brands.cs
+    args: [own-password]
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67 LoginDenied\n"
+
+  - id: no-bare-name
+    claim: The local part alone is no account; an IMAP login as ann with ann@one.test's password throws LoginDenied, 67.
+    program: serve-brands.cs
+    args: [bare-name]
+    expect:
+      exit: 0
+      stdout: "refused: curl error 67 LoginDenied\n"
+
+  - id: third-domain
+    claim: Mail for a third domain is refused at RCPT with 550, a CurlException with code 55, SendError, and the server's log gives the reason, outside every --mail-domain.
+    program: serve-brands.cs
+    args: [third]
+    expect:
+      exit: 0
+      stdout: "refused: curl error 55 SendError: RCPT failed: 550\n* RCPT ann@three.test refused: outside every --mail-domain\n"
+
+  - id: subdomain-refused
+    claim: A subdomain is a domain of its own; mail for ann@mail.one.test is refused with 550 like any other.
+    program: serve-brands.cs
+    args: [subdomain]
+    expect:
+      exit: 0
+      stdout: "refused: curl error 55 SendError: RCPT failed: 550\n"
+
+  - id: unknown-in-domain
+    claim: An address of a served domain with no mailbox is answered 250, and the server's log says it was discarded, no such account.
+    program: serve-brands.cs
+    args: [unknown]
+    expect:
+      exit: 0
+      stdout: "SMTP 250\n* Mail for cy@two.test discarded: no such account\n"
+
+  - id: both-at-once
+    claim: One message can name addresses in both domains; Bo's mailbox in each gets its own copy.
+    program: serve-brands.cs
+    args: [both]
+    expect:
+      exit: 0
+      stdout: "SMTP 250\ndelivered: bo@one.test/INBOX/;UID=1, bo@two.test/INBOX/;UID=1\nbo@one.test holds 1: Subject: Welcome to One\nbo@two.test holds 1: Subject: Welcome to One\n"

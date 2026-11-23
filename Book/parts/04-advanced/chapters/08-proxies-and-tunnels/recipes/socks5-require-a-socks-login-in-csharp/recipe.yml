@@ -1,0 +1,120 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: socks5-require-a-socks-login-in-csharp
+title: Requiring a SOCKS5 Login in C#
+protocols: [socks5h, http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, CurlClient, CurlClientOptions, CurlProxyOptions, CurlAuthenticationOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [rfc1928, rfc1929, surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A SOCKS5 server with an account and AllowPlaintextAuthentication accepts the right login, CurlAuthenticationOptions.ProxyUserPassword, and relays the request, 200.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '^200, hello from surl\n'
+
+  - id: no-login
+    claim: With an account set, the server offers only the username and password method, so a client with no login gets CurlException 97, Proxy, No authentication method was acceptable.
+    program: socks-login.cs
+    args: [open, none]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: No authentication method was acceptable\.\n'
+
+  - id: no-method-in-log
+    claim: Log records that refusal at the greeting, no method offered acceptable, answered 05 FF.
+    program: socks-login.cs
+    args: [open, none]
+    expect:
+      exit: 0
+      stdout-matches: '\n#\d+ \* No SOCKS5 method offered is acceptable; answered 05 FF\.\n'
+
+  - id: refused-in-clear
+    claim: Without AllowPlaintextAuthentication even the right password is refused, CurlException 97, User was rejected by the SOCKS5 server.
+    program: socks-login.cs
+    args: [strict, right]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: User was rejected by the SOCKS5 server \(1 1\)\.\n'
+
+  - id: strict-log-says-why
+    claim: The strict server's Log says the password was refused because it was sent in clear without --allow-plaintext-auth, unchecked.
+    program: socks-login.cs
+    args: [strict, right]
+    expect:
+      exit: 0
+      stdout-matches: '\n#\d+ \* SOCKS5 password refused: sent in clear without --allow-plaintext-auth\n'
+
+  - id: strict-log-reason
+    claim: The strict server's answer is 01 01, the login RefusedPlaintext.
+    program: socks-login.cs
+    args: [strict, right]
+    expect:
+      exit: 0
+      stdout-matches: '\n#\d+ \* Answered 01 01: the login is RefusedPlaintext\.\n'
+
+  - id: plaintext-warning
+    claim: With AllowPlaintextAuthentication the server's Log starts with the warning that passwords are accepted over unencrypted connections.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '\nsurl: warning: --allow-plaintext-auth: passwords and tokens are accepted over unencrypted connections\n'
+
+  - id: wrong-password
+    claim: A wrong password on the open server gets the same exception the strict one gave the right one, CurlException 97, User was rejected by the SOCKS5 server.
+    program: socks-login.cs
+    args: [open, wrong]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: User was rejected by the SOCKS5 server \(1 1\)\.\n'
+
+  - id: log-tells-them-apart
+    claim: The open server's Log tells a wrong password apart, 01 01 with the login RefusedCredentials.
+    program: socks-login.cs
+    args: [open, wrong]
+    expect:
+      exit: 0
+      stdout-matches: '\n#\d+ \* Answered 01 01: the login is RefusedCredentials\.\n'
+
+  - id: unknown-user
+    claim: An unknown user name is refused the same way as a wrong password; the Log names the user it refused.
+    program: socks-login.cs
+    args: [open, unknown]
+    expect:
+      exit: 0
+      stdout-matches: '^CurlException 97 Proxy: User was rejected by the SOCKS5 server \(1 1\)\.\n(.*\n)*#\d+ \* Login refused: socks5h bob\n'
+
+  - id: log-accepts
+    claim: The open server's Log records the accepted login by scheme and user name.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '\n#\d+ \* Login accepted: socks5h app\n'
+
+  - id: password-masked
+    claim: The Log never holds the password itself, socks-pw.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '\nsocks-pw in the log: no\n$'
+
+  - id: split-login
+    claim: ProxyUserName and ProxyPassword send the same login as ProxyUserPassword, and the request is relayed.
+    program: socks-login.cs
+    args: [open, split]
+    expect:
+      exit: 0
+      stdout-matches: '^200, hello from surl\n'

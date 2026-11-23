@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-mail-with-an-attachment]]
+=== Sending Mail with an Attachment
+
+==== Problem
+
+You want to send a message with a text body and a file attached, built by `curl -F` rather than written by hand, and read it back over Internet Message Access Protocol (IMAP) to see its Multipurpose Internet Mail Extensions (MIME) parts.
+
+==== Solution
+
+Give `curl` one `-F` for the text and one for the file, with its type and `encoder=base64`, and the headers with `-H`. The command sends the message, fetches the attachment back once it has arrived, decodes it and compares it with the file:
+
+include::.generated/solution.adoc[]
+
+The decoding half needs `tr`, `base64` and `cmp`, which Git Bash brings on Windows.
+
+==== Discussion
+
+The server is `surl` with an `smtp://` and an `imap://` listen URL over one mail store (<<surl-readme>>). `--mail-domain example.com` is the domain it takes mail for, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address.
+
+On the sending side, `-u` is the app{apos}s login and `--mail-from` and `--mail-rcpt` the envelope (<<rfc5321>>). Over Simple Mail Transfer Protocol (SMTP), `-F` does not make a web form: each `-F` with no name before its `=` is one part of a MIME message, and `curl` writes the whole message itself (<<curl-manual>>). `-F "=The nightly build report is attached."` is a part holding that text; `-F "=@report.csv;type=text/csv;encoder=base64"` is a part read from the file, `@` naming it, `type=` its content type and `encoder=base64` the transfer encoding. `-H` adds a header to the top of the message, here `Subject`, `From` and `To`. `-o` throws away a body, `-w "%{response_code}"` prints the last reply, `250`, and `-s` and `-S` keep `curl` quiet but for an error.
+
+Delivery is asynchronous, so the fetch of part 2 retries until the message exists, `--retry 10` more tries, `--retry-all-errors` to retry the error a missing message gives, `--retry-delay 1` a second apart. `INBOX;UID=1;SECTION=2` is part 2{apos}s body as stored, still in base64 with carriage returns at its line ends; `tr -d` drops those, `base64 -d` decodes, and `cmp` finds the bytes the same as `report.csv`.
+
+`FETCH 1 BODYSTRUCTURE`, sent with `-X`, gives the server{apos}s view of the parts (<<rfc9051>>): `multipart/mixed`, part 1 `text/plain` in `7BIT`, part 2 `text/csv` in `BASE64` with the disposition `attachment` and the filename `report.csv`, and the boundary `curl` chose between them. The message{apos}s own header has the three `-H` lines and two `curl` added, `Mime-Version: 1.0` and `Content-Type: multipart/mixed` with that boundary (<<rfc2045>>). `SECTION=1` is the text, and the part has no header of its own, so it is plain text in US-ASCII by default; `SECTION=2.MIME` is part 2{apos}s header, `Content-Disposition: attachment; filename="report.csv"`, `Content-Type: text/csv` and `Content-Transfer-Encoding: base64`.
+
+`type=` and `encoder=` matter. Without them `curl` sends the file as it is: `application/octet-stream`, `8bit`, its bytes unencoded, bare line feeds and all, though mail is meant to end its lines with a carriage return and line feed (<<rfc5321>>). A file that is not there stops `curl` before it sends anything, exit `26`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-mail-with-an-attachment-in-csharp>> for the same task in C#.
+* <<smtp-send-mail-with-an-attachment-from-an-agent>> for the same task run by an agent.
+* <<smtp-check-a-mail-attachment>> for testing the attachment an app built itself.
+* <<smtp-send-and-read-it-over-imap>> for one plain message.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc2045>>, <<rfc9051>>.

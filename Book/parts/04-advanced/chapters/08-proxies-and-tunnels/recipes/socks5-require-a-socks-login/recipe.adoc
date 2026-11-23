@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-require-a-socks-login]]
+=== Requiring a SOCKS5 Login
+
+==== Problem
+
+Your SOCKS5 proxy needs a user name and password, and SOCKS5 sends them in clear. You want a test proxy that refuses the login until clear-text passwords are allowed, and then tells a wrong password apart from the right one.
+
+==== Solution
+
+Start an origin and a SOCKS5 server with one account, `-U app:socks-pw`, that accepts passwords in clear, and fetch through it with the login in the proxy URL:
+
+include::.generated/solution.adoc[]
+
+Stop the servers with kbd:[Ctrl+C].
+
+==== Discussion
+
+The origin serves `--directory site` on `localhost:8080`. A `socks5h://` listen URL makes `surl` a SOCKS5 server (<<rfc1928>>), and `-U app:socks-pw` gives it one account. `-U` names the proxy's accounts, on every proxy listener `surl` has; an origin's own accounts are `--user`. `-x socks5h://app:socks-pw@127.0.0.1:8082` tells `curl` to go through that server, send the origin's name for the server to resolve (the `h`), and log in with the user name and password in the URL. `--proxy-user app:socks-pw` sends the same login and keeps it out of the URL. `--max-time 20` stops a check that would otherwise hang; `-s` silences the progress meter and `-S` keeps the error line.
+
+The login is the username and password method of <<rfc1929>>: one message with both, in clear, before the server will relay anything. With an account set, the server offers that method and no other, so a client that has no login is turned away at the greeting, which the log records as `answered 05 FF`, and `curl` exits `97`, `No authentication method was acceptable.`
+
+`surl` will not take a password that anyone on the path could read, so by default it refuses every SOCKS5 login, the right one included, without checking it. That is the server called `strict` here: `curl` exits `97`, `User was rejected by the SOCKS5 server (1 1).`, and the `-v` log, which `--log-file` sends to `strict.log`, says why, `SOCKS5 password refused: sent in clear without --allow-plaintext-auth`, then `Answered 01 01: the login is RefusedPlaintext.` `--allow-plaintext-auth` is the loosening that lets the password through, and `surl` writes a warning about it at start, the first line of `open.log`. With it, the server called `open` checks the password and relays the request.
+
+A wrong password on `open` gets exactly what `strict` gave the right one: `01 01`, and the same exit and message from `curl`. RFC 1929 has one failure status, so a client cannot tell the two apart; the server's log can. `open.log` says `Answered 01 01: the login is RefusedCredentials.` for the wrong password and `Login accepted: socks5h app` for the right one. A user name that has no account is refused like a wrong password, so the answer does not say which accounts exist; the log names the user it refused, `Login refused: socks5h bob`. The log never writes the password itself: `grep -c socks-pw` finds it nowhere and exits `1`.
+
+Keep `--allow-plaintext-auth` for a test on loopback; outside one, carry SOCKS5 inside a channel that is already encrypted.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-require-a-socks-login-in-csharp>> for the same login from a C# test.
+* <<socks5-require-a-socks-login-from-an-agent>> for the same login driven by an agent.
+* <<socks5-relay-through-a-socks-proxy>> for the relay itself and the refusals before any login.
+* <<rfc1928>>, <<rfc1929>>, <<surl-readme>>, <<curl-manual>>.

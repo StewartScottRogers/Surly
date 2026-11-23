@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs check-the-head.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-diagnose-a-client-from-its-exchanges
+title: Diagnosing a Client from Its Exchanges
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges]
+curl-options: [-s, -m, -H]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: clients-see-little
+    claim: Three of the four users' clients get 400 Bad Request with that one line as the body, and every one of them exits 0.
+    program: check-the-head.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^ann''s client: curl exit 0, body "400 Bad Request\\n"\n.*\nbob''s client: curl exit 0, body "400 Bad Request\\n"\n.*\ncy''s client: curl exit 0, body "400 Bad Request\\n"\n.*\ndee''s client: curl exit 0, body "id,total\\n1,42\\n"\n'
+
+  - id: solution
+    role: solution
+    claim: In the head surl-mcp recorded for Ann's request, the agent finds X-Request ID, a field name with a space in it, which is not a token.
+    program: check-the-head.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^ann''s client: [^\n]*\n  server answered: HTTP/1\.1 400 Bad Request; wrong: "X-Request ID: 7" has a name that is not a token \('' ''\)\n'
+
+  - id: length-not-a-number
+    claim: In Bob's it finds a Content-Length that is not a number, ten.
+    program: check-the-head.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nbob''s client: [^\n]*\n  server answered: HTTP/1\.1 400 Bad Request; wrong: "Content-Length: ten" is not a number of bytes\n'
+
+  - id: two-lengths
+    claim: In Cy's it finds Content-Length given twice with different values, 5 and 6, each well formed on its own.
+    program: check-the-head.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ncy''s client: [^\n]*\n  server answered: HTTP/1\.1 400 Bad Request; wrong: Content-Length is given 2 times with different values \(5, 6\)\n'
+
+  - id: well-formed
+    claim: Dee's request, with the header spelled X-Request-Id, passes the same check and is answered 200 OK.
+    program: check-the-head.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ndee''s client: [^\n]*\n  server answered: HTTP/1\.1 200 OK; every header is well formed\n$'

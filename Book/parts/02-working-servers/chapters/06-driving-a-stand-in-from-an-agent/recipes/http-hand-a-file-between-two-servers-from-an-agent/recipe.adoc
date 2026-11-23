@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-hand-a-file-between-two-servers-from-an-agent]]
+=== Handing a File Between Two Servers
+
+==== Problem
+
+An app uploads a file to one stand-in server, and the next stage of the test fetches it from another, over Hypertext Transfer Protocol (HTTP) or File Transfer Protocol (FTP). You want your artificial intelligence (AI) agent to carry the file from the first server to the second as soon as it arrives.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts two servers with `start_server`, lets `curl` upload a file to the first, waits for it with `wait_for_event`, reads it with `read_file`, puts it into the second with `put_file`, and fetches it from there with `transfer`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument picks the scenario. `start_server` answers the `server_id` that every other `surl-mcp` tool takes, and `bound_urls`, the addresses with the ports the system chose, in the order they were asked for. The first server listens over HTTP, with an `in` folder to write into, and takes uploads: `--allow-uploads` lets a client write, and `--allow-anonymous` lets it do so without logging in. The second listens over HTTP and FTP, and `--allow-anonymous` lets an FTP client in without an account.
+
+The app is the `curl` tool of `curl-mcp`. `-T report.txt` uploads a file of the program{apos}s folder with a `PUT`, `-s` keeps it quiet, `-o reply.txt` keeps the reply{apos}s body out of standard output, and `-w "%{http_code}"` prints the status, `201 Created` (<<rfc9110>>).
+
+The agent does not poll. `wait_for_event` answers the first event of the server that matches its filters, or waits up to `timeout_ms` milliseconds and answers `timed_out` true. A matching event kept before the call is answered too, so it does not matter whether the upload or the wait comes first. `store` `content` keeps only changes to the files, `name` `/in` only changes at that path or under it, and the answer is a `store_changed`: `change` `written`, the `name`, and its `byte_count`, 10.
+
+`read_file` answers the file from the first server{apos}s store: `text` when its bytes are text, or `base64` when they are not, and its `byte_count`. The program puts the file into the second server exactly as it was read: `put_file` takes a `path` and either `text` or `base64`, and the folder it names is made. Before that, `transfer` answers `404 Not Found` from the second server, which has never held the file. Afterwards it answers `200` over HTTP, and over FTP `226`, the code of a finished transfer (<<rfc959>>), the same bytes both times. A file that is not text, 300 bytes here, takes the same path through `base64`, and `transfer` answers such a body as base64 too, so the program compares the bytes, not their text.
+
+The second server keeps its own record of the hand-over: `get_events` with `kinds` `store_changed` answers two events of change `seeded`, one for the folder `/handed` and one for `/handed/report.txt`, because `put_file` writes as the test and not as a client. The first server{apos}s record holds one change, the app{apos}s write.
+
+A second `put_file` over a path that is there replaces the file, so the next fetch answers the second version. `put_file` given both `text` and `base64` is a tool error, `give exactly one of text and base64`. A `wait_for_event` sent before the upload answers the same write when it happens.
+
+When the app uploaded nothing, the wait times out, and `timed_out` true is the agent{apos}s cue to say the upload did not happen. `read_file` of the path is then a tool error, with the text `No file at /in/report.txt.`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-upload-and-fetch-over-http-from-an-agent>> for one server answering both protocols from one store.
+* <<http-wait-for-an-event-from-an-agent>> for waiting on a server{apos}s events.
+* <<http-seed-binary-files-from-an-agent>> for putting files that are not text into a server.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>, <<rfc959>>.

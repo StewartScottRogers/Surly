@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-abort-from-a-progress-callback
+title: Aborting from a Progress Callback
+protocols: [ftp]
+tier: advanced
+surface: csharp
+surl-options: [--allow-anonymous, --directory, --fault]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlEasy, CurlOption, WriteCallback, TransferInfoCallback, CurlCode, CurlErrorText]
+exit-codes: [0, 42, 78]
+references: [surl-readme, libcurl-api, rfc959]
+
+fixtures: {}
+
+# Two copies of one 1,000,000-byte file: the server holds every download of slow.bin 3 s before it
+# sends a byte, and sends fast.bin at once.
+setup:
+  - mkdir -p site
+  - head -c 1000000 /dev/urandom > site/slow.bin
+  - cp site/slow.bin site/fast.bin
+
+# The program is only the client.
+servers:
+  main:
+    command: surl --allow-anonymous --directory site --fault "delay;stage=command;command=RETR;path=/slow.bin;ms=3000" ftp://127.0.0.1:{{port}}/
+    ready: port
+
+# Elapsed seconds are claimed as 3 or more: a loaded runner is slow, never fast.
+cases:
+  - id: solution
+    role: solution
+    claim: With a limit of 1 s, the download of slow.bin is still unfinished when the limit has passed; the progress callback returns 1, curl_easy_perform answers CURLE_ABORTED_BY_CALLBACK, 42, with curl_easy_strerror's text Operation was aborted by an application callback, and the program exits 42 having received part of the file.
+    program: fetch.cs
+    args: ["ftp://127.0.0.1:{{port}}/slow.bin", "1"]
+    expect:
+      exit: 42
+      stdout-matches: '\Agiving up after (?:[3-9]|[1-9]\d) s with \d+ of 1000000 bytes\nprogress callback called\n\Z'
+      stderr-contains: "curl_easy_perform() failed: Operation was aborted by an application callback"
+
+  - id: fast-file-not-aborted
+    claim: The same limit on fast.bin, which the server sends at once, lets the download finish; the callback is called, returns 0 each time, and all 1,000,000 bytes arrive, exit 0.
+    program: fetch.cs
+    args: ["ftp://127.0.0.1:{{port}}/fast.bin", "1"]
+    expect:
+      exit: 0
+      stdout: "received 1000000 bytes\nprogress callback called\n"
+
+  - id: limit-not-reached
+    claim: With a limit of 10 s, longer than the server's 3 s hold, slow.bin arrives whole, exit 0.
+    program: fetch.cs
+    args: ["ftp://127.0.0.1:{{port}}/slow.bin", "10"]
+    expect:
+      exit: 0
+      stdout: "received 1000000 bytes\nprogress callback called\n"
+
+  - id: noprogress-left-on
+    claim: Without CURLOPT_NOPROGRESS set to 0 the progress callback is never called, so nothing gives up; slow.bin arrives whole after the hold, exit 0.
+    program: fetch.cs
+    args: ["ftp://127.0.0.1:{{port}}/slow.bin", "1", "quiet"]
+    expect:
+      exit: 0
+      stdout: "received 1000000 bytes\nprogress callback never called\n"
+
+  - id: first-call-with-data
+    claim: In this port the callback is not called while the server holds the download, only when bytes arrive, so the program notices the limit at the first block of data, after the 3 s hold, with some bytes already received.
+    program: fetch.cs
+    args: ["ftp://127.0.0.1:{{port}}/slow.bin", "1"]
+    expect:
+      exit: 42
+      stdout-matches: '\Agiving up after (?:[3-9]|[1-9]\d) s with [1-9]\d* of 1000000 bytes\n'
+
+  - id: missing-file
+    claim: A file the server does not have is CURLE_REMOTE_FILE_NOT_FOUND, 78, not an abort; the program reports curl_easy_strerror's text and exits 78.
+    program: fetch.cs
+    args: ["ftp://127.0.0.1:{{port}}/nosuch.bin", "1"]
+    expect:
+      exit: 78
+      stderr-contains: "curl_easy_perform() failed: Remote file not found"

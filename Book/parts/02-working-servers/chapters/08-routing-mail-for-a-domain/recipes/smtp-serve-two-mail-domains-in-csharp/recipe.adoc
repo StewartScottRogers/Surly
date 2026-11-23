@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-serve-two-mail-domains-in-csharp]]
+=== Serving Two Mail Domains in C#
+
+==== Problem
+
+Your C# app serves two brands, each with its own mail domain. You want one test server for both, and a test that each brand{apos}s mailboxes get only their own mail.
+
+==== Solution
+
+Give a `SurlServer` both domains in `MailDomains` and a mailbox for each address, let each brand send with `Curl.Api`, wait for the deliveries, and read each mailbox from the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds an `smtp://` and an `imap://` URL on port 0, and `BoundUrls` lists them in that order once bound. `MailDomains` is `--mail-domain`, one entry per domain, `one.test` and `two.test`; `Mailboxes` is `--mailbox`, one address and password per entry. A mailbox and the account that logs in to it are named by the whole address, so `ann@one.test` and `ann@two.test` are two mailboxes with two passwords. Each brand has a `noreply` mailbox to send as. `Log` and `LogLevel.Verbose` are `-v` with the log in a `StringWriter`.
+
+Each brand is a `CurlClient` of its own, since each logs in as itself, and a `CurlRequest` with `HttpMethod.Put` on the bound `smtp://` URL; `CurlMailOptions` is the envelope (<<rfc5321>>), `CurlAuthenticationOptions` the brand{apos}s login, and `CurlResponse.StatusCode` the last reply, `250`. Delivery is asynchronous, so the test waits: `OnEvent` with a `SurlEventQuery` of kind `StoreChanged` in the mail store calls back with a `StoreChangedEvent` per delivery, whose `Name` is the mailbox, folder and unique identifier, and the program waits, for at most ten seconds and never a fixed sleep, until both mailboxes have had one. `server.Mail.ListMessagesAsync` then returns each mailbox{apos}s `SurlMessagePage`, one message each, and `ReadMessageAsync` a `SurlMailMessage` whose `Subject:` is that brand{apos}s welcome.
+
+A login names the whole address too. Read over Internet Message Access Protocol (IMAP) with `HttpMethod.Get` on `INBOX?ALL`, `ann@two.test` with the password of `ann@one.test` throws a `CurlException` whose `Code` is `LoginDenied`, `curl`{apos}s 67, and so does `ann` with no domain. One message may name addresses in both domains: Bo has a mailbox in each, and each gets its own copy.
+
+A recipient outside every mail domain is refused at `RCPT` with `550`; `SendAsync` throws a `CurlException` whose `Code` is `SendError`, `curl`{apos}s 55, and the log gives the reason, `outside every --mail-domain`. A server that took mail for any domain would be an open relay, so the refusal is the default. A domain is matched whole: `ann@mail.one.test` is refused the same way. An address of a served domain that has no mailbox is answered `250` and the message discarded, which the log records as `discarded: no such account`, so a sender cannot use the server to learn which addresses exist. Each log read waits, at most ten seconds, for its line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-serve-two-mail-domains>> for the same task on the console.
+* <<smtp-serve-two-mail-domains-from-an-agent>> for the same task run by an agent.
+* <<smtp-catch-mail-for-unknown-addresses-in-csharp>> for keeping mail to addresses that have no mailbox.
+* <<surl-readme>>, <<rfc5321>>.

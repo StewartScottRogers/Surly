@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-share-a-folder-read-only-from-an-agent
+title: Sharing a Folder Read-only
+protocols: [http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, transfer, list_files, wait_for_event]
+surl-options: [--share, --allow-anonymous, --allow-uploads]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures:
+  docs/readme.txt: "read me\n"
+  data/.keep: ""
+
+cases:
+  - id: solution
+    role: solution
+    claim: "With docs shared read-only and data writable, curl-mcp's transfer reads /docs/readme.txt with 200, a PUT to /docs/up.txt is answered 403 and nothing is written to the docs folder, a PUT to /data/up.txt is answered 201 and the file is in the data folder, and list_files on /docs shows only readme.txt."
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "GET docs/readme.txt: 200, read me, tool error: no\nPUT docs/up.txt: 403, tool error: no\nPUT data/up.txt: 201, tool error: no\ndocs/up.txt on disk: False\ndata/up.txt on disk: True\nlist_files /docs: readme.txt\n"
+
+  - id: writable
+    claim: "The upload into the writable share is in the server's record, as a store_changed event the agent waits for, change written, name /data/up.txt."
+    program: program.cs
+    args: [writable]
+    expect:
+      exit: 0
+      stdout: "GET docs/readme.txt: 200, read me, tool error: no\nPUT docs/up.txt: 403, tool error: no\nPUT data/up.txt: 201, tool error: no\ndocs/up.txt on disk: False\ndata/up.txt on disk: True\nwait_for_event: written /data/up.txt\n"
+
+  - id: overwrite
+    claim: "The read-only share's own file cannot be replaced either: a PUT over /docs/readme.txt is answered 403, and the next read still answers the original, read me."
+    program: program.cs
+    args: [overwrite]
+    expect:
+      exit: 0
+      stdout: "PUT docs/readme.txt: 403, tool error: no\nGET docs/readme.txt: 200, read me, tool error: no\n"
+
+  - id: second-server
+    claim: "A second server started over the same two folders takes the read-only share, which holds no lock, and serves readme.txt with 200, while the writable share is refused as a tool error, (124) Directory data is in use by another surl process."
+    program: program.cs
+    args: [second-server]
+    expect:
+      exit: 0
+      stdout: "second server, docs: started, GET docs/readme.txt 200\nsecond server, data: tool error, (124) Directory data is in use by another surl process\n"
+
+  - id: uploads-off
+    claim: "Without --allow-uploads a PUT is answered 405 on both shares, the read-only one included, and nothing is written; reads still work."
+    program: program.cs
+    args: [uploads-off]
+    expect:
+      exit: 0
+      stdout: "GET docs/readme.txt: 200, read me, tool error: no\nPUT docs/up.txt: 405, tool error: no\nPUT data/up.txt: 405, tool error: no\ndocs/up.txt on disk: False\ndata/up.txt on disk: False\n"
+
+  - id: no-login
+    claim: "Without --allow-anonymous the same uploads are answered 401 on both shares, so the read-only share's 403 is reached only by a client the server lets in; reads are still answered 200."
+    program: program.cs
+    args: [no-login]
+    expect:
+      exit: 0
+      stdout: "GET docs/readme.txt: 200, read me, tool error: no\nPUT docs/up.txt: 401, tool error: no\nPUT data/up.txt: 401, tool error: no\n"

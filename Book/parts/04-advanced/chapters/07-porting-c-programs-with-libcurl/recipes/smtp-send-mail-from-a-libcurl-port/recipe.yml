@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-send-mail-from-a-libcurl-port
+title: Sending Mail from a Libcurl Port
+protocols: [smtp, pop3]
+tier: advanced
+surface: csharp
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-s, -u, --retry, --retry-all-errors, --retry-delay]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlEasy, CurlOption, CurlSlist, ReadCallback, CurlInfo, CurlCode, CurlErrorText]
+exit-codes: [0, 55, 67]
+references: [surl-readme, libcurl-api, rfc5321, rfc5322, rfc1939]
+
+fixtures: {}
+
+# The program is only the client. One surl is the mail server for example.com: app@example.com is
+# the account the program logs in as, ann@example.com the mailbox it sends to, and POP3 is how the
+# test reads that mailbox.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:s3cret --mailbox app@example.com:apppass smtp://127.0.0.1:{{port}}/ pop3://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The program logs in as app@example.com, gives app@example.com as CURLOPT_MAIL_FROM and ann@example.com as the one CURLOPT_MAIL_RCPT, and its read callback hands libcurl the 126-byte message in 5 calls, a line each; the server's last reply is 250 and the program exits 0.
+    program: sendmail.cs
+    args: ["smtp://127.0.0.1:{{port}}/reports.example.com", "app@example.com:apppass", "app@example.com", "ann@example.com"]
+    expect:
+      exit: 0
+      stdout: "sent 126 bytes in 5 reads, last reply 250\n"
+
+  - id: in-the-mailbox
+    claim: The test reads message 1 of ann's mailbox over POP3, waiting for it for at most ten tries a second apart; it is the message the callback sent, behind the Return-Path line naming the envelope sender and the Received line surl adds, which names the EHLO name from the URL's path and ESMTPA for a logged-in sender.
+    run: curl -s --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:s3cret pop3://127.0.0.1:{{port2}}/1
+    expect:
+      exit: 0
+      stdout-matches: '\AReturn-Path: <app@example\.com>\r?\nReceived: from reports\.example\.com \(\[127\.0\.0\.1\]\) by surl with ESMTPA; [^\r?\n]+\r?\nTo: <ann@example\.com>\r?\nFrom: <app@example\.com>\r?\nSubject: Nightly report\r?\n\r?\nThe nightly run finished: 42 files, no errors\.\r?\n\Z'
+
+  - id: one-message
+    claim: The mailbox holds that one message and no other.
+    run: curl -s -u ann@example.com:s3cret pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A1 \d+\r?\n\Z'
+
+  - id: recipient-outside-the-domain
+    claim: A recipient outside example.com is refused, and the program reports CURLE_SEND_ERROR, 55, Failed sending data to the peer, and exits 55.
+    program: sendmail.cs
+    args: ["smtp://127.0.0.1:{{port}}/reports.example.com", "app@example.com:apppass", "app@example.com", "zed@elsewhere.org"]
+    expect:
+      exit: 55
+      stderr-contains: "curl_easy_perform() failed: Failed sending data to the peer"
+
+  - id: wrong-password
+    claim: A wrong password for app@example.com is CURLE_LOGIN_DENIED, 67, Login denied.
+    program: sendmail.cs
+    args: ["smtp://127.0.0.1:{{port}}/reports.example.com", "app@example.com:wrong", "app@example.com", "ann@example.com"]
+    expect:
+      exit: 67
+      stderr-contains: "curl_easy_perform() failed: Login denied"
+
+  - id: still-one-message
+    claim: The refused login delivered nothing; ann's mailbox still holds the one message.
+    run: curl -s -u ann@example.com:s3cret pop3://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout-matches: '\A1 \d+\r?\n\Z'

@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-run-old-and-new-clients-side-by-side]]
+=== Running Old and New Clients Together
+
+==== Problem
+
+You are moving a client from `HttpClient` to `Curl.Api`, and you want proof that the new one makes the same calls. You want both clients to run the same requests against a stand-in server, and the requests each one sent, as the server recorded them, compared.
+
+==== Solution
+
+Start two `SurlServer` instances with the same options, one for each client, so each record holds one client{apos}s calls and no other's. Send a `GET` and a `PUT` with each client, wait for the servers to record that the connections ended, and compare the request lines, headers and bodies they recorded. The program takes the case to run as its argument; the first case, with none, is the comparison:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `http://` listen URL on port `0`, a file in `Files`, `AllowUploads` and `AllowAnonymous` for the `PUT`, and `RecordExchanges`, which makes the server keep what each client sent. `AllowAnonymous` is a loosening option: without it both clients{apos} `PUT` is refused `401`, and each server still records the two requests, which a test of a refusal compares in the same way. The old client is a `System.Net.Http.HttpClient`: a `GET` and a `PUT` with a `StringContent` body and an `X-Trace` header. The new client is a `CurlClient`: the same two calls as `CurlRequest` values whose `CurlResponse` is read to its end, with a byte `Body` and `Headers` for the header and the content type. The program gives both the same `Content-Type`, since the body{apos}s type is a thing the test chooses and not a default being compared.
+
+`SurlServer.Exchanges` is the server{apos}s record: a snapshot of each connection, a `SurlExchangeRecord` whose `Received` holds the bytes the client sent. The test waits, with `WaitForEventAsync` for at most thirty seconds, for a `SurlEventQuery` with `Kind` `SurlEventKind.ExchangeEnded`, after it has disposed both clients, so the record is complete and a missing one fails the test instead of hanging it. It splits the bytes into requests by their `Content-Length` and compares the request line, the header lines with the port of `Host` left out, and the body (<<rfc9110>>).
+
+The two clients send the same request lines and the same bodies. The header lines differ in one way: `CurlClient` sends `Accept: */*` on both requests and `HttpClient` sends no `Accept`. Both send `Host`, `X-Trace`, `Content-Type` and `Content-Length` on the `PUT`. That is a difference in the defaults, not a fault in either client, and the test decides whether it matters to the server being called. When it does, one line aligns them: with `Accept: */*` added to `HttpClient`{apos}s default headers the two records match header for header. The test also reads what each server holds, with `Files.ReadAsync`, a `SurlServerFiles` call that returns a `SurlFileContents`: both hold `hello`, five bytes, as `/up.txt`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-check-a-ported-client-matches>> for checking a ported client against the old one.
+* <<http-serve-and-fetch-in-process>> for the in-process pair in its smallest form.
+* <<surl-readme>>, <<rfc9110>>.

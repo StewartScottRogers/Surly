@@ -446,3 +446,38 @@ imap-check-the-flags-an-app-left, imap-enforce-a-mailbox-quota, imap-fetch-only-
 smtp-check-an-app-sent-the-right-mail, smtp-fail-a-test-on-mail-to-another-domain, smtp-load-mailboxes-from-a-csv-file, pop3-limit-a-mailbox-to-imap (all with twins).
 - Re-pin 3 (Surl d64faa4bb): surl-mcp `list_messages`/`read_message` take `owner: ""`, the `--allow-anonymous` mailbox owner (supersedes the earlier lines saying they refuse it, Surl BL-1593). `list_messages` answers `messages[0].uid` 1 after one delivery.
 - Re-pin 3 (Curl 2145a49eae, BL-5753): a Curl.Api `PUT` with `CurlContent.FromStream(stream, length)` to `imap://h:p/Shared/team` APPENDs (empty body, no exception); was curl 25 `Cannot APPEND with unknown input file size`.
+
+## Traces, refused recipients, -F attachments, two domains (batch-13, Surl v0.1.5 d64faa4bb / Curl 2145a49eae, 2026-11-22, windows)
+- `surl --trace-ascii f` over SMTP: `#N * Exchange N opened: smtp on smtp://h:p/ from ...`, then blocks `#N <= Recv data, n bytes` (client to server) /
+  `#N => Send data, ...` (server to client), each followed by `0000: <line>` data lines (a DATA block holds the whole message, one data line per
+  message line, offsets in hex). The CRAM-MD5 answer is `0000: ****`; `Message stored: N bytes for 1 recipients` sits before the 250; the exchange
+  ends `#N * Exchange N ended; closing the connection.`. A reading script (`dialogue.sh` in smtp-see-exactly-what-an-app-sent) waits for `ended` and turns
+  the blocks into `C:`/`S:` lines; `tr -d '\r'` first. The trace is the wire, not the store: the stored copy adds Return-Path and Received.
+- Surl.Api `SurlExchangeRecord.Chunks` and MCP `get_exchanges` keep the CRAM-MD5 answer raw (base64 of `user hexdigest`), while `-v`/trace/`Log` write
+  `****`. A Curl.Api DATA chunk holds every message line in one chunk; split on CRLF. Read the record after `ExchangeEnded` (dispose the CurlClient
+  first: it holds the connection, QUIT comes at dispose).
+- Recipient replies: `RCPT TO:<x>` -> `250 2.1.5 Recipient OK` or `550 5.7.1 Relaying denied`; `MAIL FROM` -> `250 2.1.0 Sender OK`; DATA -> `354 End data
+  with <CR><LF>.<CR><LF>`, then `250 2.0.0 Message accepted`; QUIT -> `221 2.0.0 Bye`. curl CLI's MAIL FROM has `SIZE=<file bytes>` (117 for a 117-byte CRLF
+  file, 112 for a 108-byte LF file sent with --crlf); Curl.Api sends SIZE for a CurlMultipartContent body, none for a byte body.
+- `--mail-rcpt-allowfails`, one of four refused: exit 0, `-sS` prints NOTHING (stdout and stderr empty), `-w %{response_code}` 250; `curl -v 2>&1 | grep -E
+  "^> RCPT|^< 250 2.1.5|^< 550" | tr -d "\r"` lists each RCPT with its reply. All recipients refused even with allowfails: exit 55 `curl: (55) RCPT failed:
+  550 (last error)`. Curl.Api has no per-recipient answer (no debug callback in 0.2.0): with `MailRecipientAllowFails` the response is 250 and names
+  nobody; one request per recipient gives each its own `CurlException` (`SendError`, `RCPT failed: 550`). A CurlClient reused after a refused RCPT carries on.
+- `curl -F` over SMTP (no field name: `-F "=text"`, `-F "=@report.csv;type=text/csv;encoder=base64"`, headers by `-H "Subject: ..."`): curl writes
+  `Content-Type: multipart/mixed; boundary=------------------------<22 random>`, `Mime-Version: 1.0`, then the -H lines; the text part has NO header
+  (BODYSTRUCTURE `("TEXT" "PLAIN" ("CHARSET" "US-ASCII") NIL NIL "7BIT" 37 1 ...)`); the file part `Content-Disposition: attachment; filename="report.csv"`,
+  `Content-Type: text/csv`, `Content-Transfer-Encoding: base64`. Without type=/encoder=: `application/octet-stream`, `8bit`, bytes raw (bare LFs kept).
+  Missing file: exit 26 before connecting. Curl.Api: `Body = new CurlMultipartContent([CurlMimePart.Text(null, "..."), CurlMimePart.Bytes(null, bytes) with
+  { FileName = "report.csv", ContentType = "text/csv", Encoder = "base64" }])`, `Headers = [new("Subject", "...")]`, POST: the same message. A Bytes part with
+  no ContentType/Encoder has ONLY Content-Disposition (no Content-Type, no encoding). `CurlMimePart.File(null, "nosuch.csv")`: CurlException 26 `ReadError`.
+  curl-mcp reads `-F @file` from CURL_MCP_ROOT.
+- Two domains (`--mail-domain one.test --mail-domain two.test`, `--mailbox ann@one.test:..`, `--mailbox ann@two.test:..`): separate mailboxes and accounts;
+  ann@two.test with ann@one.test's password and bare `ann` both curl 67 (Curl.Api LoginDenied). One message to bo@one.test and bo@two.test: a copy each.
+  ann@three.test and ann@mail.one.test: 550. cy@two.test (no mailbox): 250, log `* Mail for cy@two.test discarded: no such account` then `Message stored: ...
+  for 0 recipients`; no store_changed event; MCP `list_mailboxes cy@two.test` tool error `No mailboxes for cy@two.test.`.
+- Two senders with different logins: smtp-serve-two-mail-domains-in-csharp gives each its own CurlClient, as a precaution (a reused connection keeps its login for IMAP; not probed for SMTP).
+smtp-see-exactly-what-an-app-sent, smtp-send-despite-a-bad-recipient, smtp-send-mail-with-an-attachment, smtp-serve-two-mail-domains (all with twins).
+
+## Size limit and mail that never arrives (smtp-explain-why-mail-never-arrived, Surl v0.1.5 d64faa4bb / Curl 2145a49eae, 2026-11-22, windows)
+- `--max-filesize 2k` applies to SMTP: EHLO offers `250-SIZE 2048`; curl declares `MAIL FROM:<a> SIZE=<file bytes>` and a message over the limit is refused there, `552 5.3.4 Message size exceeds the size limit`, before DATA; curl exit 55 `MAIL failed: 552` (same with --mail-rcpt-allowfails). Nothing stored, no event.
+- `--mail-rcpt-allowfails` with one recipient outside the domain: exit 0, `RCPT TO:<bob@example.org>` 550 5.7.1 in the record, the other delivered. An in-domain address with no mailbox: 250 throughout, no store_changed within a 5 s wait_for_event (timed_out), `list_mailboxes` tool error `No mailboxes for carol@example.com.`.

@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: tftp-check-a-device-fetched-its-config-in-csharp
+title: Checking a Config Fetch in C#
+protocols: [tftp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlEventKind, SurlExchangeRecord, SurlExchangeDirection, CurlClient, CurlRequest, CurlResponse, CurlTftpOptions, CurlException]
+exit-codes: [0, 1, 68]
+references: [surl-readme, curl-readme, rfc1350, rfc2347, rfc2348]
+triplet: tftp-check-a-device-fetched-its-config
+
+fixtures: {}
+
+# Each case starts its own in-process server holding four 27-byte configs, so no case sees another's reads.
+# Curl.Api stands in for the device's boot loader.
+cases:
+  - id: solution
+    role: solution
+    claim: A device that fetches r1.cfg asking for 1,024-byte blocks leaves a finished TFTP exchange that FindExchanges finds by its read request; its packets show the 27 bytes in one data block, acknowledged, and the option acknowledgement that agreed blksize 1024.
+    program: check-fetch.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "r1.cfg: read, 27 bytes in 1 data block, all acknowledged\nagreed: blksize 1024\n"
+
+  - id: device-got-the-file
+    claim: What the device received is byte for byte the served config.
+    program: check-fetch.cs
+    args: [got-the-file]
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: default-block-size
+    claim: A device whose CurlRequest has no CurlTftpOptions asks for blksize 512, and the record shows that agreed.
+    program: check-fetch.cs
+    args: [default]
+    expect:
+      exit: 0
+      stdout: "r2.cfg: read, 27 bytes in 1 data block, all acknowledged\nagreed: blksize 512\n"
+
+  - id: no-options
+    claim: A device whose CurlTftpOptions has NoOptions set sends no options, so the record holds no option acknowledgement and the read uses 512-byte blocks, the size RFC 1350 fixed.
+    program: check-fetch.cs
+    args: [no-options]
+    expect:
+      exit: 0
+      stdout: "r3.cfg: read, 27 bytes in 1 data block, all acknowledged\nagreed: no options, 512 by default\n"
+
+  - id: config-missing
+    claim: When the device asks for a config the server does not have, the record holds the error packet the server sent, TFTP error 1, and the check fails with exit 1.
+    program: check-fetch.cs
+    args: [missing]
+    expect:
+      exit: 1
+      stdout: "r9.cfg: asked for, not on the server (error 1)\n"
+
+  - id: device-sees-not-found
+    claim: The device itself is answered with file not found; SendAsync throws a CurlException with code TftpNotFound, 68.
+    program: check-fetch.cs
+    args: [device-missing]
+    expect:
+      exit: 68
+      stdout: "device: curl code 68 TftpNotFound\n"
+
+  - id: never-fetched
+    claim: A config no device read, r5.cfg, fails the check after ten seconds of looking, exit 1.
+    program: check-fetch.cs
+    args: [never]
+    expect:
+      exit: 1
+      stdout: "r5.cfg: never read\n"

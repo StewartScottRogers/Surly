@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-check-a-device-fetched-its-config-from-an-agent]]
+=== Checking a Config Fetch from an Agent
+
+==== Problem
+
+You want an agent to confirm, from what the server recorded, that a device fetched the right config file over the Trivial File Transfer Protocol (TFTP), all of it, and at which block size.
+
+==== Solution
+
+Start the stand-in server with `surl-mcp`, let the device fetch its config, and have the agent wait for the exchange to end and read its packets with `get_exchanges`. Here `curl-mcp`{apos}s `curl` tool stands in for the device{apos}s boot loader, and the program is the agent{apos}s side of the conversation over the Model Context Protocol (MCP):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). `start_server` with `listen_urls` `tftp://127.0.0.1:0` serves the four configs given in `files` from memory, on a free port; the answer{apos}s `bound_urls` names it. TFTP has no login: anything that reaches the port can read every file the server holds (<<surl-readme>>).
+
+The device is the `curl` tool with `-o got.cfg`, which writes what it reads to `got.cfg` in the shared folder, `-s -S` to keep only error messages, and `-m 10` as a ceiling. `--tftp-blksize 1024` asks for 1,024-byte blocks; with no option `curl` asks for 512, and `--tftp-no-options` asks for nothing at all (<<curl-readme>>).
+
+The server{apos}s record can trail the device by a moment, so the agent does not read it straight away. `wait_for_event` with `kinds` `exchange_ended` and `scheme` `tftp` answers the first exchange to end after `after_sequence`, at once if one already has, or `timed_out` when `timeout_ms` runs out; the agent passes the `sequence` of each event it has seen, so each call asks only for the next, and gives the calls ten seconds in all. Each event carries the `exchange_id`, and `get_exchanges` with `after_exchange_id` one less and `max_exchanges` 1 returns that exchange{apos}s `chunks`: one datagram each, `direction` `received` or `sent`, the bytes in base64 since TFTP is binary.
+
+The datagrams say the rest (<<rfc1350>>). The first one received is the read request, opcode 1, with the file name; an exchange that read another file is not the one the agent is after, and it waits for the next. The data packets, opcode 3, carry the file, 27 bytes in one block here, and the device{apos}s acknowledgement, opcode 4, of the last block means it has all of it. When the device asked for options, the server{apos}s first packet is an option acknowledgement, opcode 6, with names and values separated by zero bytes; `blksize 1024` is the size agreed (<<rfc2347>>, <<rfc2348>>). With no options there is no acknowledgement of them, and the read uses the 512 bytes RFC 1350 fixed.
+
+The check fails in the two ways a test needs. A device that asks for a config the server does not have is sent an error packet, opcode 5, TFTP error 1, which the record keeps, and the agent reports that the file was asked for and is not there; the `curl` tool itself answers `exitCode` 68 with `curl: (68) TFTP: File Not Found` in `standardError`. A config nothing read, here `r5.cfg`, has no exchange, `wait_for_event` answers `timed_out`, and the agent says it was never read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-check-a-device-fetched-its-config>> for the same check on the console, from `surl`{apos}s log.
+* <<tftp-check-a-device-fetched-its-config-in-csharp>> for the same check in a C# test.
+* <<tftp-choose-a-block-size-from-an-agent>> for the block size from the client{apos}s side.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<rfc1350>>, <<rfc2347>>, <<rfc2348>>.

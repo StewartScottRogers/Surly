@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs find-the-client.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-find-which-client-sent-bad-requests
+title: Finding Which Client Sent Bad Requests
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges]
+curl-options: [-s, -m, -o, -H]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: nobody-complains
+    claim: Every request of the three clients' runs ends with curl exit 0, so no client reports a failure.
+    program: find-the-client.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^curl exits: billing 0 0 0; search 0 0 0 0; reports 0 0 0\n'
+
+  - id: solution
+    role: solution
+    claim: Grouped by the endpoint they arrived on, only the search client's exchanges hold 400 answers, two of its four.
+    program: find-the-client.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttp://127\.0\.0\.1:\d+/ \(search\): 4 requests, 200 x2, 400 x2\n'
+
+  - id: a-404-is-not-bad
+    claim: The billing client's 404 is a well-formed request for a file the server lacks, so the agent does not count it as a bad request.
+    program: find-the-client.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nhttp://127\.0\.0\.1:\d+/ \(billing\): 3 requests, 200 x2, 404 x1\n.*\nbad requests: 2, all from search\n'
+
+  - id: what-they-carry
+    claim: The two bad requests are search's queries, each carrying an X-Request ID header, a field name with a space in it.
+    program: find-the-client.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n  GET /index\.csv\?q=a HTTP/1\.1, with X-Request ID: 7\n  GET /index\.csv\?q=b HTTP/1\.1, with X-Request ID: 8\n'
+
+  - id: one-endpoint
+    claim: get_exchanges with that listen_url gives the search client's exchanges alone, four, two answered 400.
+    program: find-the-client.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlisten_url http://127\.0\.0\.1:\d+/: 4 exchanges, 2 answered 400\n'
+
+  - id: address-says-nothing
+    claim: The client address is no help on one machine, 127.0.0.1 with a port that changes from one connection to the next.
+    program: find-the-client.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nclient addresses of search''s 4 connections: [2-4] different, all 127\.0\.0\.1: True\n$'

@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-reproduce-a-bug-report-as-a-test]]
+=== Reproducing a Bug Report as a Test
+
+==== Problem
+
+A bug report gives a `curl` command and says the server stored the uploaded report as one line. You want an agent to reproduce that against a stand-in, as a test that fails while the bug is there, and keep the server{apos}s record of the exchange as evidence.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, runs the reported command through the `curl` tool, waits for the exchange to end, writes the exchange from `get_exchanges` to a file, and compares what `read_file` finds stored with the file that was sent:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; the program writes `report.csv`, three lines, there. The stand-in must accept what the reporter{apos}s server accepts. `start_server` takes one `http://` listen URL on port 0, a `reports` folder in `files`, and in `arguments` the account the command logs in with, `--user app:s3cret`, and `--allow-uploads`, which lets a client write files (<<surl-readme>>).
+
+The report{apos}s command is `--digest`, `-u` with the account, `-X` `PUT`, `-d @report.csv` and the report{apos}s URL. The program runs it through the `curl` tool unchanged but for the stand-in{apos}s address and four options of its own: `-s` and `-S` keep it quiet but for errors, `-m` 10 bounds it, and `-w` prints the status. It exits `0` and is answered `201 Created`: nothing on the client{apos}s side says anything went wrong. `wait_for_event` with `kinds` `exchange_ended` and `timeout_ms` 10000 waits for the server to end the exchange, and `get_exchanges` with `after_exchange_id` and `max_exchanges` 1 answers it: its `chunks`, each with `direction`, `data` and `at`. The program writes them to `evidence/reported-exchange-1.txt`, the command first, then a line per chunk, the Digest challenge and the `201` included, a file to attach to the report.
+
+The test compares the stored copy, from `read_file` with the `path` `/reports/today.csv`, with `report.csv`. The copy has no line feeds where the file has three, so the report is reproduced and the test exits `1`. The evidence says where they went. The body of the last `PUT` in the exchange, `id,total1,422,7`, is already the stored copy, so the line feeds were dropped before the request left the client, not by the server. That is `-d` doing what it is documented to do: with `@` it reads the file and strips carriage returns and line feeds, as a form field would want (<<curl-manual>>). The recorded head labels the body `application/x-www-form-urlencoded`, a form (<<rfc9110>>).
+
+The fix is in the command. With `--data-binary` in place of `-d` the body is the file byte for byte, the stored copy equals `report.csv`, and the test passes, exit `0`; kept beside the report, it is the check that the bug stays fixed. Against a stand-in started without `--allow-uploads` the same command is answered `405` and nothing is stored, so the test can neither reproduce the report nor pass, and it says so with exit `2` rather than passing by mistake.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-replay-a-request-from-a-trace>> for sending a recorded request again byte for byte.
+* <<http-diagnose-a-client-from-its-exchanges>> for reading a refused request from the record.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

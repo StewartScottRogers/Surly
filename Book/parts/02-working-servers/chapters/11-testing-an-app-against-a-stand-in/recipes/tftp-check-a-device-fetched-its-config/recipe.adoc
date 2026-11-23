@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-check-a-device-fetched-its-config]]
+=== Checking a Device Fetched Its Config
+
+==== Problem
+
+Your device should fetch its config file over the Trivial File Transfer Protocol (TFTP) when it boots, and you want the test to show from the server{apos}s log that it read the file, all of it, and which block size the two sides agreed.
+
+==== Solution
+
+Serve the config with a `surl` that logs every packet to a file, boot the device against it, and run a check on the log. Here `curl` stands in for the device{apos}s boot loader, and the check is `check.sh`, which needs a POSIX shell (Git Bash on Windows):
+
+include::.generated/solution.adoc[]
+
+The check:
+
+[source,shell]
+----
+include::check.sh[]
+----
+
+Stop the server with kbd:[Ctrl+C].
+
+==== Discussion
+
+`surl` serves the folder `site` over TFTP with `--directory site` (<<surl-readme>>). TFTP has no login: anything that can reach the port can read every file in the folder. `-v` logs every event and every packet, and `--log-file surl.log` appends the log to that file, so the test can read it while the server runs.
+
+For each read request `surl` logs one line that names the file and the block size it will send in, `#1 * Read of "r1.cfg" (octet): 27 bytes of ... in blocks of 1024`, and when the last block has been acknowledged, a second line, `#1 * All 27 bytes of ... were acknowledged in 1 blocks.` The `#1` is the exchange, the same on every line of one read, which is how the check ties the two together. A read with no second line is a device that started and did not finish, and the check does not count it. Between them the log has the packets themselves, with each byte that is not printable written as `\x` and two hex digits: the request, and, when the device asked for options, the option acknowledgement with opcode 6, `\x00\x06`, carrying the values the server agreed to (<<rfc2347>>).
+
+The log is written a moment after the packets cross, so the check does not read it once: it looks every second, ten times at most, until the read is there and finished. A test that read straight after the device and found nothing would fail for no reason; a test that waited without a bound would hang on a device that never asked.
+
+The device is `curl -s -o got.cfg tftp://host:port/r1.cfg`, which reads the file and, with `-o got.cfg`, writes it to `got.cfg`, the same bytes that are served; `-s` keeps the progress meter out. A device asks for its block size in the request (<<rfc2348>>). With `--tftp-blksize 1024` curl asks for 1,024-byte blocks and `surl` agrees to them; with no option it asks for 512. With `--tftp-no-options` it asks for nothing, `surl` sends no acknowledgement of options, and the transfer uses the 512 bytes that RFC 1350 fixed (<<rfc1350>>). The check tells the two cases apart (<<curl-readme>>).
+
+The check fails in the two ways a test needs. A device that asks for a config the server does not have is answered with TFTP error 1, file not found, `curl` exits `68`, and the log{apos}s read line says `no file at` the path and `answered with ERROR 1`; the check reports that the file was asked for and is not there, and exits `1`. A config nothing read, here `r5.cfg`, leaves no line at all, and after ten tries the check says so and exits `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-check-a-device-fetched-its-config-in-csharp>> for the same check in a C# test.
+* <<tftp-check-a-device-fetched-its-config-from-an-agent>> for the same check from an agent.
+* <<tftp-choose-a-block-size>> for the block size from the client{apos}s side.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>, <<rfc2347>>, <<rfc2348>>.

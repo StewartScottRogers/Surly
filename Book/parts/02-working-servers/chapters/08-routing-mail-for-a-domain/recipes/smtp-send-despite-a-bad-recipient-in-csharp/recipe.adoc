@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-despite-a-bad-recipient-in-csharp]]
+=== Sending Despite One Bad Recipient in C#
+
+==== Problem
+
+Your C# app mails a list over Simple Mail Transfer Protocol (SMTP), and one address on it may be refused. You want the app to deliver to the rest and report the refused one from the server{apos}s answer.
+
+==== Solution
+
+Send with `Curl.Api`, one `CurlRequest` per recipient on one `CurlClient`, so each answer belongs to one address: a refusal is a `CurlException` for that address alone, and the others are delivered. A `SurlServer` serves one domain, and the program waits for the deliveries it announces:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `smtp://` URL on port 0, so the system picks a free port; `MailDomains` is `--mail-domain`, here `example.com` alone, and `Mailboxes` is `--mailbox`, one address and password per entry. `RecordExchanges = true` keeps every exchange in `server.Exchanges` and lets the program wait on events; `Log` and `LogLevel.Verbose` are `-v` with the log in a `StringWriter`. A recipient outside every mail domain is answered `550 5.7.1 Relaying denied`, even for a sender that has logged in: a server that took mail for any domain would be an open relay (<<rfc5321>>). That refusal is the default and stays; what to do about it is the app{apos}s choice.
+
+The app is a `CurlClient` and a `CurlRequest` with `HttpMethod.Put` on the bound URL. `CurlMailOptions` is the envelope, `MailFrom` and `MailRecipients`, and `CurlAuthenticationOptions` the app{apos}s login; the body is the message{apos}s bytes. `CurlResponse.StatusCode` is the server{apos}s last reply. A refused recipient makes `SendAsync` throw a `CurlException` whose `Code` is `SendError`, `curl`{apos}s 55, and whose message is `RCPT failed: 550`. Sent one request per address, that exception names its address by being the one the app was sending to: Carol{apos}s request fails and the app reports her, while Ann, Bob and Cy are answered `250`. The price is one message per recipient rather than one for all.
+
+Delivery is asynchronous, so the program does not look in the store when the `250` comes. `OnEvent` with a `SurlEventQuery` of kind `StoreChanged` in the mail store calls back with a `StoreChangedEvent` per delivery, whose `Name` is the mailbox, the folder and the unique identifier, such as `ann@example.com/INBOX/;UID=1`; the program waits for Cy{apos}s, with a bound of ten seconds and never a fixed sleep.
+
+One request for the whole list behaves as `curl` does. By default one refusal abandons the message: `SendAsync` throws, and Dee, accepted before Carol was refused, holds nothing. `MailRecipientAllowFails = true` is `--mail-rcpt-allowfails`: the message goes to those accepted, the server logs Carol{apos}s refusal with its reason, `outside every --mail-domain`, and stores the message once for three recipients, and the answer is `250`. That `250` is the whole of what the app hears; nothing in the `CurlResponse` names Carol. The server{apos}s record does: in the last `SurlExchangeRecord`, read after the client is disposed, which sends `QUIT`, and after `WaitForEventAsync` has seen the exchange end, each `RCPT TO` is followed by its answer, `550 5.7.1 Relaying denied` for Carol. The copies do not say either: `ReadMessageAsync` returns a `SurlMailMessage` whose `To:` still names all four. When every recipient is refused there is no one to send to, and `SendAsync` throws `SendError` even with `MailRecipientAllowFails`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-despite-a-bad-recipient>> for the same task on the console.
+* <<smtp-send-despite-a-bad-recipient-from-an-agent>> for the same task run by an agent.
+* <<smtp-send-to-several-recipients-in-csharp>> for one message to several recipients, all accepted.
+* <<surl-readme>>, <<rfc5321>>.

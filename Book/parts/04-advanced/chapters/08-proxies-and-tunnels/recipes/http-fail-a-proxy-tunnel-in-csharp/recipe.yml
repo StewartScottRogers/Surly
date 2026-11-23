@@ -1,0 +1,68 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-fail-a-proxy-tunnel-in-csharp
+title: Failing a Proxy Tunnel in C#
+protocols: [http, https]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlExchangeRecord, CurlClient, CurlClientOptions, CurlProxyOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-readme]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: An https:// URL through the proxy needs a CONNECT tunnel; the proxy's fault rule answers 503, and SendAsync throws CurlException 7, CouldntConnect, CONNECT tunnel failed, response 503.
+    program: tunnel-refused.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "CurlException 7 CouldntConnect: CONNECT tunnel failed, response 503\n"
+
+  - id: forwarding-still-works
+    claim: An http:// URL through the same proxy is forwarded, not tunnelled, and comes back 200 with the file.
+    program: tunnel-refused.cs
+    args: [forward]
+    expect:
+      exit: 0
+      stdout: "200, hello from surl\n"
+
+  - id: origin-503-reads-differently
+    claim: A 503 from the origin itself, forwarded by the proxy, is a CurlResponse with StatusCode 503, not an exception.
+    program: tunnel-refused.cs
+    args: [busy]
+    expect:
+      exit: 0
+      stdout: "503, 503 Service Unavailable\n"
+
+  - id: forced-tunnel-fails-too
+    claim: With HttpProxyTunnel the client tunnels an http:// URL as well, and the same proxy refuses it the same way, CurlException 7.
+    program: tunnel-refused.cs
+    args: [forced]
+    expect:
+      exit: 0
+      stdout: "CurlException 7 CouldntConnect: CONNECT tunnel failed, response 503\n"
+
+  - id: log-names-the-rule
+    claim: Log at LogLevel.Verbose says the proxy answered the CONNECT 503 by fault rule f1, naming the origin's address and port.
+    program: tunnel-refused.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\n#\d+ \* CONNECT 127\.0\.0\.1:\d+: answered 503 Service Unavailable by fault rule f1\.\n'
+
+  - id: origin-never-reached
+    claim: The record holds no exchange at the https origin, since no tunnel ever reached it.
+    program: tunnel-refused.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nexchanges at the https origin: 0\n$'

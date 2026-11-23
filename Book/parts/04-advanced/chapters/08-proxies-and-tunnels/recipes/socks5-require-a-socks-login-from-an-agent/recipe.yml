@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: socks5-require-a-socks-login-from-an-agent
+title: Requiring a SOCKS5 Login from an Agent
+protocols: [socks5h, http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, get_events, get_exchanges, transfer]
+exit-codes: [0]
+references: [rfc1928, rfc1929, surl-readme, curl-readme, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: A SOCKS5 server started with -U and --allow-plaintext-auth accepts the right login, given in transfer's proxy URL, and relays the request, 200.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '\ntransfer: statusCode 200, hello from surl\n'
+
+  - id: no-login
+    claim: With an account set, the server offers only the username and password method, so a transfer with no login is a tool error, exitCode 97, No authentication method was acceptable.
+    program: socks-login.cs
+    args: [open, none]
+    expect:
+      exit: 0
+      stdout-matches: '\ntransfer: exitCode 97, No authentication method was acceptable\., tool error: yes\n'
+
+  - id: no-method-in-record
+    claim: get_exchanges shows the server's only reply to that greeting, 05 FF, no acceptable method.
+    program: socks-login.cs
+    args: [open, none]
+    expect:
+      exit: 0
+      stdout-matches: '\nreplies: 05FF\n'
+
+  - id: refused-in-clear
+    claim: Without --allow-plaintext-auth even the right password is refused, exitCode 97, User was rejected by the SOCKS5 server.
+    program: socks-login.cs
+    args: [strict, right]
+    expect:
+      exit: 0
+      stdout-matches: '^transfer: exitCode 97, User was rejected by the SOCKS5 server \(1 1\)\., tool error: yes\n'
+
+  - id: strict-never-judged
+    claim: The strict server refuses the password unchecked, so get_events holds no login_judged event for it.
+    program: socks-login.cs
+    args: [strict, right]
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin_judged: none\n'
+
+  - id: strict-reply
+    claim: get_exchanges shows the strict server choosing the password method, 05 02, then answering the login 01 01, refused.
+    program: socks-login.cs
+    args: [strict, right]
+    expect:
+      exit: 0
+      stdout-matches: '\nreplies: 0502 0101\n'
+
+  - id: plaintext-warning
+    claim: start_server's log_lines carry the warning that --allow-plaintext-auth accepts passwords over unencrypted connections.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '^log_lines: surl: warning: --allow-plaintext-auth: passwords and tokens are accepted over unencrypted connections\n'
+
+  - id: wrong-password
+    claim: A wrong password on the open server gets the same answer the strict one gave the right one, exitCode 97, User was rejected by the SOCKS5 server.
+    program: socks-login.cs
+    args: [open, wrong]
+    expect:
+      exit: 0
+      stdout-matches: '\ntransfer: exitCode 97, User was rejected by the SOCKS5 server \(1 1\)\., tool error: yes\n'
+
+  - id: events-tell-them-apart
+    claim: get_events tells the wrong password apart, a login_judged event for app with is_accepted false.
+    program: socks-login.cs
+    args: [open, wrong]
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin_judged: account app, mechanism password, is_accepted false\n'
+
+  - id: unknown-user
+    claim: An unknown user name is refused the same way as a wrong password; the login_judged event names the user it refused.
+    program: socks-login.cs
+    args: [open, unknown]
+    expect:
+      exit: 0
+      stdout-matches: 'transfer: exitCode 97, User was rejected by the SOCKS5 server \(1 1\)\., tool error: yes\nlogin_judged: account bob, mechanism password, is_accepted false\n'
+
+  - id: events-accept
+    claim: The right login is a login_judged event for app with mechanism password and is_accepted true.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '\nlogin_judged: account app, mechanism password, is_accepted true\n'
+
+  - id: password-in-the-record
+    claim: Unlike the verbose log, which writes asterisks, get_exchanges keeps the login message as the client sent it, password included.
+    program: socks-login.cs
+    args: [open, right]
+    expect:
+      exit: 0
+      stdout-matches: '\nsocks-pw in the record: yes\n$'
+
+  - id: proxy-user-field
+    claim: transfer's proxyUser field sends the same login as the proxy URL's user:password@, and the request is relayed.
+    program: socks-login.cs
+    args: [open, field]
+    expect:
+      exit: 0
+      stdout-matches: '\ntransfer: statusCode 200, hello from surl\n'

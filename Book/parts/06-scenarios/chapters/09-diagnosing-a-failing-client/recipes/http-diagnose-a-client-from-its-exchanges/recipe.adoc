@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-diagnose-a-client-from-its-exchanges]]
+=== Diagnosing a Client from Its Exchanges
+
+==== Problem
+
+Users report that their client, each set up a little differently, gets `400 Bad Request` from a Hypertext Transfer Protocol (HTTP) service, and you have no working request to compare with. You want an agent to run each client against a server, read the request as the server recorded it, and say which header is wrong.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, runs each user{apos}s client through the `curl` tool, waits with `wait_for_event` for its exchange to end, and checks every header line of the head `get_exchanges` recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes one `http://` listen URL on port 0 and `files`, the report in memory.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in JavaScript Object Notation (JSON), with `exitCode` and `standardOutput`. Each user{apos}s client is `-s`, quiet, `-m 10`, a bound in case the server never answers, and the headers that user{apos}s settings add with `-H`, which `curl` sends as typed (<<curl-manual>>). The `transfer` tool would not do here: it refuses such a header before sending anything (see <<http-compare-a-good-and-a-bad-request-from-an-agent>>), and a client that sends it anyway is the one to diagnose. Three of the four clients get `400 Bad Request`, one line, and every one exits `0`, since to `curl` a `400` is an answer. That line is all a user can report.
+
+Each `curl` tool call is its own connection, so each request is its own exchange in the record, and no exchange grows past what `get_exchanges` shows of one. After each call the program waits, `wait_for_event` with `kinds` `exchange_ended`, `after_sequence` the last event{apos}s `sequence` and `timeout_ms` 10000, so it never reads half a record. `get_exchanges` with `after_exchange_id` one less than the event{apos}s `exchange_id` and `max_exchanges` 1 answers that exchange{apos}s `chunks`; the `received` ones joined are the request as the server read it, and the first line `sent` is the status line.
+
+The check is HTTP{apos}s own rules for a field, applied to each line of the head after the request line (<<rfc9110>>). A field name is a token, letters, digits and a few marks, with no space in it, and the colon comes straight after it. A `Content-Length` is a number of bytes, in digits, and given more than once it must say the same each time. Ann{apos}s settings add `X-Request ID: 7`, a name with a space. Bob{apos}s add `Content-Length: ten`. Cy{apos}s add two `Content-Length` fields, `5` and `6`, each well formed on its own but together contradictory. Dee{apos}s add `X-Request-Id: 7`, which passes and is answered `200 OK`, the control that shows the check does not flag every head. `surl`{apos}s own log gives its reason for each refusal, but `surl-mcp` writes no log an agent can read (<<surl-readme>>), so the agent reads the bytes and names the rule instead.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-compare-a-good-and-a-bad-request-from-an-agent>> for finding the header by comparing with a request that works.
+* <<http-find-which-client-sent-bad-requests>> for finding which of several clients sends such requests.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

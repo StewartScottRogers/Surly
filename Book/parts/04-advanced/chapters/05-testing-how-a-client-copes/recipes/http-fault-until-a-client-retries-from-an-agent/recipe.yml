@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-fault-until-a-client-retries-from-an-agent
+title: Faulting Until a Client Retries
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, transfer, wait_for_event, get_events, remove_fault, list_faults]
+curl-options: [-s, -f, --retry, --retry-delay, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "With a 503 rule on /report.txt that has no times, the agent starts curl with -f --retry 5 --retry-delay 1 without awaiting it, wait_for_event answers a fault_applied event for rule f1 and target /report.txt, and once remove_fault takes the rule away curl retries, exits 0 with status 200 and the file written, having retried at least once; the rule acted between one and five times and list_faults shows no rules."
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\nwait_for_event: fault_applied f1 /report.txt\nremove_fault: f1\ncurl: exit 0, status 200, retried at least once: True\ngot.txt: report ready\nfault_applied: at least once, at most five: True\nlist_faults: 0 rules\n"
+
+  - id: kept
+    claim: "If the agent never removes the rule, curl with -f --retry 2 meets it on all three requests, exits 22 with status 503, and the server's record has three fault_applied events while the rule is still listed."
+    program: program.cs
+    args: [kept]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ncurl: exit 22, status 503, retried at least once: True\nfault_applied: 3\nlist_faults: 1 rules\n"
+
+  - id: scoped
+    claim: "A rule scoped to /report.txt leaves other paths alone: curl fetching /health.txt exits 0 with status 200 and no retry, the rule acts no time and is still listed."
+    program: program.cs
+    args: [scoped]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ncurl: exit 0, status 200, retried at least once: False\ngot.txt: up\nfault_applied: 0\nlist_faults: 1 rules\n"
+
+  - id: not-met
+    claim: "When the client asks for a file the rule is not for, the agent's wait_for_event for fault_applied answers timed_out true after its timeout_ms, which is the agent's cue that the client never met the fault."
+    program: program.cs
+    args: [not-met]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\nwait_for_event: timed_out true\ncurl: exit 0, status 200, retried at least once: False\ngot.txt: up\nfault_applied: 0\nlist_faults: 1 rules\n"
+
+  - id: removed
+    claim: "One request at a time with transfer, the rule answers 503, and after remove_fault the same request is served with 200, no retry needed."
+    program: program.cs
+    args: [removed]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\ntransfer before remove_fault: 503\ntransfer after remove_fault: 200\n"
+
+  - id: unknown-id
+    claim: "remove_fault with an ID the server never gave is a tool error, with the text server s1 has no fault rule f9."
+    program: program.cs
+    args: [unknown-id]
+    expect:
+      exit: 0
+      stdout: "add_fault: f1\nremove_fault f9: tool error yes, server s1 has no fault rule f9\n"

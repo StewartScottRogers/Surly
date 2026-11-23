@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs why-missed.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: mqtt-find-why-a-subscriber-missed-a-message
+title: Finding a Subscriber's Missed Message
+protocols: [mqtt]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, get_events, read_retained_message]
+curl-options: [-s, -S, -m, -u, -d]
+exit-codes: [0]
+references: [surl-readme, curl-manual, mqtt311]
+
+fixtures: {}
+
+cases:
+  - id: control
+    claim: The dashboard subscribing to plant/line1/temp gets the retained reading, 22 bytes, the topic's length, the topic and 21.5.
+    program: why-missed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^dash on plant/line1/temp: curl exit 0, 22 bytes\n  SUBSCRIBE plant/line1/temp, SUBACK 0x00\n  retained on plant/line1/temp: 21\.5\n  why: nothing missed\n'
+
+  - id: solution
+    role: solution
+    claim: On plant/line2/temp the dashboard gets nothing, though its subscribe was granted; nothing is retained there, the bus recorded no event for the topic, yet the broker received a PUBLISH on it from sensor1, so the broker dropped it, sensor1 having no right to publish there.
+    program: why-missed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ndash on plant/line2/temp: curl exit 0, 0 bytes\n  SUBSCRIBE plant/line2/temp, SUBACK 0x00\n  retained on plant/line2/temp: nothing\n  bus events for plant/line2/temp: none\n  PUBLISH on plant/line2/temp from: sensor1\n  why: the broker dropped the publish; sensor1 may not publish on plant/line2/temp\n'
+
+  - id: not-retained
+    claim: On plant/line1/humidity, outside the retain filter, the bus recorded the publish as published but never written, so the broker took it and kept nothing for a later subscriber.
+    program: why-missed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ndash on plant/line1/humidity: curl exit 0, 0 bytes\n[^\n]*\n  retained on plant/line1/humidity: nothing\n  bus events for plant/line1/humidity: published\n  PUBLISH on plant/line1/humidity from: sensor1\n  why: the broker accepted the publish but did not retain it, so a subscriber that comes later gets nothing\n'
+
+  - id: subscribe-refused
+    claim: A subscriber with no right to the topic is refused in the SUBACK, return code 0x80, and curl says only Weird server reply, exit 8.
+    program: why-missed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nguest on plant/line1/temp: curl exit 8, 0 bytes, curl: \(8\) Weird server reply\n  SUBSCRIBE plant/line1/temp, SUBACK 0x80\n  why: the subscribe was refused; guest may not subscribe to plant/line1/temp\n'
+
+  - id: wrong-filter
+    claim: A dashboard that subscribed to plant/line1/tmp, a typo, is granted and gets nothing, while the reading it wanted is kept on plant/line1/temp.
+    program: why-missed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ndash on plant/line1/tmp: curl exit 0, 0 bytes\n  SUBSCRIBE plant/line1/tmp, SUBACK 0x00\n  retained on plant/line1/temp: 21\.5\n  why: it subscribed to plant/line1/tmp, not plant/line1/temp\n$'
+
+  - id: password-in-clear
+    claim: Without --allow-plaintext-auth the broker refuses the sensor's password over mqtt:// unchecked, CONNACK return code 5, and curl exits 8.
+    program: why-missed.cs
+    args: [no-plaintext]
+    expect:
+      exit: 0
+      stdout: "sensor1 publishing: curl exit 8, curl: (8) Expected 0000 but got 0005; CONNACK return code 5\n"

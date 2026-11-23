@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-list-a-folder-page-by-page-in-process
+title: Listing a Folder Page by Page
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFiles, SurlFolderPage, SurlFolderEntry, SurlReadRefusedException, SurlNotFoundException]
+exit-codes: [0]
+references: [surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; no client is needed.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Paging through a folder of 250 files with a limit of 100 and the last name seen as afterName gives pages of 100, 100 and 50 entries, with HasMore true, true and false, and 250 different names in ordinal order."
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "page 1: 100 entries, log-001.txt to log-100.txt, more: True\npage 2: 100 entries, log-101.txt to log-200.txt, more: True\npage 3: 50 entries, log-201.txt to log-250.txt, more: False\n250 names, 250 different, in order: True\n"
+
+  - id: exact-multiple
+    claim: "When the folder holds exactly two pages, 200 files, the second page already says HasMore false, so the loop makes no third call for an empty page."
+    program: program.cs
+    args: [exact]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "page 1: 100 entries, log-001.txt to log-100.txt, more: True\npage 2: 100 entries, log-101.txt to log-200.txt, more: False\n200 names, 200 different, in order: True\n"
+
+  - id: ordinal
+    claim: "Names come in ordinal order, by code unit and not by language: digits, then capitals, then lower case, with 10.txt before 2.txt."
+    program: program.cs
+    args: [order]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "10.txt 2.txt A.txt B.txt a.txt b.txt\n"
+
+  - id: folders
+    claim: "A subfolder is an entry among the files, with IsFolder true and no size; a file's ByteCount is its size."
+    program: program.cs
+    args: [folders]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "about.html: file, 13 bytes\ncss: folder\nindex.html: file, 10 bytes\n"
+
+  - id: cursor
+    claim: "afterName is a position and not a count: a file added before it, a.txt, does not appear in the next page, and one added after it, e.txt, does."
+    program: program.cs
+    args: [cursor]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "first: b.txt d.txt, more: True\nsecond: e.txt f.txt h.txt, more: False\n"
+
+  - id: limits
+    claim: "A limit of 0 or 1001 is refused with SurlReadRefusedException, 1000 is accepted, and a folder that is not there throws SurlNotFoundException."
+    program: program.cs
+    args: [limits]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "limit 0: The limit must be 1 to 1000.\nlimit 1001: The limit must be 1 to 1000.\nlimit 1000: 1 entries\n/nowhere: SurlNotFoundException, No folder at /nowhere.\n"

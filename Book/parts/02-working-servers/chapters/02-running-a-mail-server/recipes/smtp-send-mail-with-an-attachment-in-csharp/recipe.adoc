@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-mail-with-an-attachment-in-csharp]]
+=== Sending Mail with an Attachment in C#
+
+==== Problem
+
+Your C# app mails a report as an attachment over Simple Mail Transfer Protocol (SMTP). You want a test that reads the delivered bytes with `Mail.ReadMessageAsync` and finds the attachment intact.
+
+==== Solution
+
+Build the message as a `CurlMultipartContent`, a text part and the report, and send it with `Curl.Api` to a `SurlServer`; wait for the delivery, read the stored message, find the part marked as an attachment, decode it and compare it with the report:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `smtp://` URL on port 0, so the system picks a free port; `MailDomains` is `--mail-domain` and `Mailboxes` is `--mailbox`, one address and password per entry. `RecordExchanges = true` lets the program wait on the server{apos}s events.
+
+The app is a `CurlClient` and a `CurlRequest` with `HttpMethod.Post` on the bound URL; `CurlMailOptions` is the envelope and `CurlAuthenticationOptions` the login (<<rfc5321>>). Its `Body` is a `CurlMultipartContent`, the spelling of `curl -F`: over SMTP it is not a web form but a Multipurpose Internet Mail Extensions (MIME) message that `curl` writes itself. Each `CurlMimePart` is one part, with no field name. `CurlMimePart.Text` is the line of text; `CurlMimePart.Bytes` holds the report, and a `with` expression sets its `FileName`, its `ContentType`, `text/csv`, and its `Encoder`, `base64`. `Headers` go at the top of the message: `Subject`, `From` and `To`. `CurlResponse.StatusCode` is `250`.
+
+Delivery is asynchronous, so the test waits for it: `WaitForEventAsync` with a `SurlEventQuery` of kind `StoreChanged`, in the mail store, named `ann@example.com`, bounded at ten seconds, answers a `StoreChangedEvent` whose `Name` is `ann@example.com/INBOX/;UID=1`. `server.Mail.ReadMessageAsync` then returns a `SurlMailMessage` whose `Bytes` are the message as stored, with no client in between and no flag set.
+
+The test reads the MIME structure as a mail reader would (<<rfc2045>>). The message{apos}s own header has the three request headers and two `curl` added, `Mime-Version: 1.0` and `Content-Type: multipart/mixed` with the boundary `curl` chose; the body is split at that boundary. Part 1 has no header of its own, so it is plain text, and its body is the text. Part 2{apos}s header is `Content-Disposition: attachment; filename="report.csv"`, `Content-Type: text/csv` and `Content-Transfer-Encoding: base64`. The test picks the part marked `attachment`, decodes it with `Convert.FromBase64String`, which skips the line breaks, and finds the 69 bytes of the report.
+
+`ContentType` and `Encoder` matter. Without them a `CurlMimePart.Bytes` part has a `Content-Disposition` and nothing else: no type, so a reader takes it as plain text, and no encoding, so its bytes go as they are, bare line feeds and all. `CurlMimePart.File` reads a file when the request is sent; a file that is not there fails the send with a `CurlException` whose `Code` is `ReadError`, `curl`{apos}s 26.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-mail-with-an-attachment>> for the same task on the console.
+* <<smtp-send-mail-with-an-attachment-from-an-agent>> for the same task run by an agent.
+* <<smtp-check-a-mail-attachment-in-csharp>> for testing an attachment an app built itself.
+* <<surl-readme>>, <<rfc5321>>, <<rfc2045>>.

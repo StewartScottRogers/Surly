@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-assert-a-clients-back-off-schedule
+title: Asserting a Client's Back-off Schedule
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlExchangeRecord, SurlEventQuery, SurlEventKind, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A client that waits 250, 500 and 1000 ms between four attempts shows in the server's record gaps between attempt starts that are none shorter than their design (allowing 50 ms), each under its design plus 5 seconds, and a last gap longer than the first."
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "attempts: 503 503 503 200\ngaps below their design: none\nlast gap longer than the first: True\nevery gap under its design plus 5 s: True\n"
+
+  - id: flat-client
+    claim: "A client that waits 250 ms every time is caught by the same check: the second and third gaps are below their design."
+    program: program.cs
+    args: [flat]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "attempts: 503 503 503 200\ngaps below their design: 2 3\n"
+
+  - id: record
+    claim: "The record holds one exchange for each of the four attempts after the warm-up, and their start times increase."
+    program: program.cs
+    args: [record]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "attempts: 503 503 503 200\nexchanges after the warm-up: 4\nstart times increase: True\n"
+
+  - id: gap-ranges
+    claim: "Each gap between attempt starts is within its range: 250 ms or more and under 5.25 s, 500 ms or more and under 5.5 s, 1 s or more and under 6 s, allowing 50 ms for an early timer."
+    program: program.cs
+    args: [gaps]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "attempts: 503 503 503 200\ngaps below their design: none\ngap 1 in range: True\ngap 2 in range: True\ngap 3 in range: True\n"
+
+  - id: retries-and-final-status
+    claim: "The client made three retries after the first attempt and ended on 200, so the fourth request, the first not failed by the rule, is the one served."
+    program: program.cs
+    args: [summary]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "attempts: 503 503 503 200\nretries: 3, final status: 200\n"
+
+  - id: faults-applied
+    claim: "The server recorded three FaultApplied events, one for each failed attempt, all on /hello.txt, and the rule is spent: it has 0 uses remaining."
+    program: program.cs
+    args: [faults]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "attempts: 503 503 503 200\nfault events: 3, all on /hello.txt: True\nrule remaining: 0\n"

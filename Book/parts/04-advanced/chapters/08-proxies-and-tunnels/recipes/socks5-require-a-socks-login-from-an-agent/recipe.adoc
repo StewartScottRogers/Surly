@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-require-a-socks-login-from-an-agent]]
+=== Requiring a SOCKS5 Login from an Agent
+
+==== Problem
+
+Your agent tests clients behind a SOCKS5 proxy that needs a user name and password, which SOCKS5 sends in clear. You want it to run a proxy that refuses the login until clear-text passwords are allowed, and then to tell a wrong password apart from the right one from what the server kept.
+
+==== Solution
+
+Start an origin and a SOCKS5 server with one account through `surl-mcp`{apos}s `start_server`, log in through it with `curl-mcp`{apos}s `transfer`, and read the server's `login_judged` events and recorded exchanges:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder. `start_server` takes `listen_urls`, the origin on `localhost` and a `socks5h://` listen URL that makes the server a SOCKS5 proxy (<<rfc1928>>), `files` for the origin's `hello.txt`, and `arguments`, `surl`{apos}s own words: `-U app:socks-pw` is the account of every proxy listener, and `--allow-plaintext-auth`, given for the `open` server and not the `strict` one, lets a password sent in clear through. The answer's `log_lines` carry the warning that loosening writes at start.
+
+`transfer` makes one request through the proxy. `proxy` is the SOCKS5 server's URL with `socks5h://`, so the server resolves the origin's name, and with the login as `user:password@` before the host; the `proxyUser` field, `curl --proxy-user`, sends the same login and keeps it out of the URL. `timeoutSeconds` bounds each call. A refusal is a tool error whose `failure` has `exitCode` 97 and `curl`{apos}s message.
+
+The login is the username and password method of <<rfc1929>>, sent in clear before the server relays anything. With an account set, the server offers that method and no other, so a call with no login is refused at the greeting, `No authentication method was acceptable.`; `get_exchanges` on the SOCKS5 listen URL shows the server's only reply, `05 FF`. The program prints the replies, which `get_exchanges` gives as `base64` chunks, in hexadecimal.
+
+By default the server will not take a password anyone on the path could read, so the `strict` server refuses even the right one, `User was rejected by the SOCKS5 server (1 1).`: it chose the password method, `05 02`, and answered the login `01 01`. It never checked the password, so `get_events` with `kinds: ["login_judged"]` finds no event. The `open` server checks it. A wrong password there gets the same `97` and the same message, since RFC 1929 has a single failure status, but now there is a `login_judged` event: `account` `app`, `mechanism` `password`, `is_accepted` false. The right login is the same event with `is_accepted` true, and the file comes back. A user with no account is refused like a wrong password, and its event names the user, `bob`, so the agent sees who tried while the client learns nothing about which accounts exist.
+
+What the server records is the login as the client sent it. Unlike `surl`{apos}s verbose log, which writes asterisks for the password, `get_exchanges` keeps the whole message, `socks-pw` included. That is one more reason to keep `--allow-plaintext-auth` to a test on loopback, with throwaway passwords.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-require-a-socks-login>> for the same login on the console.
+* <<socks5-require-a-socks-login-in-csharp>> for the same login from a C# test.
+* <<socks5-relay-through-a-socks-proxy-from-an-agent>> for the relay itself.
+* <<rfc1928>>, <<rfc1929>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

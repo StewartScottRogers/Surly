@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-check-a-ported-client-matches]]
+=== Checking a Ported Client Matches
+
+==== Problem
+
+You ported a `curl` command line to a request described by fields, and you need to know that the new client sends what the old one did. You want your artificial intelligence (AI) agent to send both to one stand-in server, compare the requests it recorded, and say what the port lost.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts a server with `start_server`, sends the old command line with the `curl` tool and the port with `transfer`, and compares the two request heads in `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument picks the scenario. `start_server` answers the `server_id` that every other `surl-mcp` tool takes, and the `bound_urls` of the Hypertext Transfer Protocol (HTTP) server, which `--allow-anonymous` and `--allow-uploads` keep from refusing either client for want of a login, so that it records the old client{apos}s request and the port{apos}s alike.
+
+The old client is the `curl` tool, which runs a `curl` command line in-process. `-A nightly/2` sets the user agent, each `-H` adds a header, `-d a=1` sends a body and makes the request a `POST`, `-u deploy:secret` sends the login in an `Authorization` header (<<rfc9110>>), `-e` sets `Referer`, `--compressed` asks for a compressed answer with `Accept-Encoding`, `-s` keeps it quiet and `-o` writes the answer to a file. The port is `transfer`, which describes the request by fields: `url`, `method`, `userAgent`, `headers` and `body`. It has no field for a login, a referrer or compression; what it sends beyond the fields is what the port wrote in `headers`.
+
+The agent does not compare command lines. `get_events` with `kinds` `exchange_ended` tells it when each request has been recorded, which the program waits for, at most ten seconds, because an exchange ends a moment after the client has its answer. `get_exchanges` then answers each exchange with its `chunks`, and the `received` ones hold the head as the server read it: the request line, the headers and the body. The program compares the two heads: the request line, each header by name, and the body. `Host` is the same server and is left out.
+
+The first port sets the method, the user agent, `Accept`, `X-Api-Key` and the body, and the comparison finds three headers only the old client sent: `Authorization`, `Accept-Encoding` and `Referer`. The agent then copies those three headers, with their values, from the old client{apos}s recorded head into the port, and sends it again. The two requests match, and so do the headers neither wrote: `Content-Type` and `Content-Length` are the same, because `transfer` sends `application/x-www-form-urlencoded` for a body, as `curl -d` does.
+
+A port can match the headers and still differ in the body. One that sends `a=1` with a newline records a `Content-Length` of 4 where the old client{apos}s was 3, and the bodies differ, whatever the headers.
+
+Two more slips show in the same comparison. A port that leaves out `userAgent` sends no `User-Agent` header at all, so it joins the list of headers only the old client sent, and copying them makes the requests match. A port that gives a `body` and no `method` does not send a `POST`: the request lines differ, and copying headers does not change that, so the agent reports the request line until the port says `POST`.
+
+A port of a plain request needs none of this: a `GET` with a user agent and two headers matches the old client at the first try, since `userAgent` is `-A` and `headers` are `-H`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-run-old-and-new-clients-side-by-side>> for running both clients against one server on the console.
+* <<http-move-a-client-to-https-from-an-agent>> for moving a client to another scheme, from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

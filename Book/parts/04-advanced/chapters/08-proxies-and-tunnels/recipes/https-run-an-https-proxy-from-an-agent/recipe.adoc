@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-run-an-https-proxy-from-an-agent]]
+=== Running an HTTPS Proxy from an Agent
+
+==== Problem
+
+Your agent tests clients that talk to their proxy over Transport Layer Security (TLS), where the proxy's certificate is trusted separately from the origin's. You want it to run a Hypertext Transfer Protocol Secure (HTTPS) proxy with a certificate of its own, and to show the fetch refused when the proxy is not trusted and working when it is.
+
+==== Solution
+
+Start an `https://` proxy with the proxy's certificate and an `https://` origin with another through `surl-mcp`{apos}s `start_server`, then fetch through the proxy with `curl-mcp`{apos}s `transfer`, trusting the proxy with `proxyCaFile`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder, where `setup:` wrote two self-signed certificates with `openssl`, `proxy.pem` and `origin.pem`. The first `start_server` call has `arguments` `--proxy https://127.0.0.1:0` with `--cert proxy.pem --key proxy.key`: an `https://` proxy listener speaks TLS from the first byte with the certificate it is given. Its `listen_urls` hold a plain `http://` origin, with `hello.txt` from `files`. With no certificate, `start_server` refuses: a tool error whose structured content has `exit_code` 58, `exit_code_name` `CertificateProblem`, and `surl`{apos}s line, `needs a certificate: give --cert <file>, or --self-signed for a throwaway one`. The second call starts the `https://` origin with `origin.pem`; one server serves one certificate, so each peer has its own.
+
+`transfer` describes one request by fields. `proxy` is the `https://` proxy, as `curl -x` takes it. `proxyCaFile` is `curl --proxy-cacert`, the authority for the proxy's certificate (<<rfc8446>>), and with it the request for the `http://` origin goes to the proxy inside that TLS session: `statusCode` 200 and the file. Without it, the call is a tool error with `failure` `exitCode` 60. `caFile` is not a substitute; it is `--cacert`, the origin's authority only, and `proxy.pem` there leaves the proxy untrusted, `60` again. `timeoutSeconds` bounds each call. Both file fields must name files inside `CURL_MCP_ROOT`.
+
+What the proxy sees depends on the origin's scheme. For an `http://` origin it decrypts the request and forwards it: `get_exchanges` on the proxy's `listen_url` has the request as a `text` chunk, `GET http://127.0.0.1:<port>/hello.txt HTTP/1.1`, the absolute form a client sends to a proxy (<<rfc9110>>). TLS to the proxy hides the request from the network, not from the proxy. For an `https://` origin the client tunnels with `CONNECT` and runs a second handshake inside: `proxyCaFile` with `proxy.pem` and `caFile` with `origin.pem`, and the file comes back. Swap the two and the answer is `60`.
+
+`insecure: true` is `curl -k` and skips only the origin's check; the proxy is still checked, and with nothing trusting it the `60` stays. `transfer` has no field that skips the proxy's check, so the agent uses the `curl` tool, which runs `curl`{apos}s own words: `--proxy-insecure` with `--cacert origin.pem` gets the file, `exitCode` 0. Either loosening is for a test only; a client that skips a check cannot tell its proxy or its origin from anyone else on the path.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-run-an-https-proxy>> for the same proxy on the console.
+* <<https-run-an-https-proxy-in-csharp>> for the same proxy from a C# test.
+* <<https-tunnel-through-a-proxy-from-an-agent>> for a tunnel through a plain proxy.
+* <<rfc9110>>, <<rfc8446>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

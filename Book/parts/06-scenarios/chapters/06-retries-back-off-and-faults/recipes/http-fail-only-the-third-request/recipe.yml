@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-fail-only-the-third-request
+title: Failing Only the Third Request
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFaults, SurlFault, SurlFaultScope, FaultStage, FaultPoint, FaultAppliedEvent, SurlEventQuery, SurlEventKind, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "An override that counts the requests it is asked about and answers 503 to the third fails exactly that one: five fetches with no retry give 200, 200, 503, 200 and 200."
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "request 1: 200\nrequest 2: 200\nrequest 3: 503\nrequest 4: 200\nrequest 5: 200\n"
+
+  - id: retry-passes
+    claim: "A client that retries a 5xx up to three times needs two attempts for the third fetch and one for each of the others, because the retry is the fourth request the override counts; the override is asked six times for five fetches."
+    program: program.cs
+    args: [retry]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "fetch 1: 200 after 1 attempt(s)\nfetch 2: 200 after 1 attempt(s)\nfetch 3: 200 after 2 attempt(s)\nfetch 4: 200 after 1 attempt(s)\nfetch 5: 200 after 1 attempt(s)\nthe override was asked 6 times\n"
+
+  - id: give-up
+    claim: "A client that gives up at the first failure stops at the third fetch with 503, and the override has been asked three times, not five."
+    program: program.cs
+    args: [stop]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "fetch 1: 200\nfetch 2: 200\nfetch 3 failed with 503; stopping\nthe override was asked 3 times\n"
+
+  - id: one-event
+    claim: "The server records one FaultApplied event for the failure, an Error on /report.txt, and no more for the four requests that were served."
+    program: program.cs
+    args: [record]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nfault events: 1; Error on /report\.txt\n$'
+
+  - id: counts-its-scope
+    claim: "An override scoped to /report.txt counts only requests for that path: in a run that mixes /other.txt and /report.txt the third request for the report fails, which is the fifth request overall, and the override is asked about the three requests for the report only."
+    program: program.cs
+    args: [path]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "other.txt: 200\nreport.txt: 200\nother.txt: 200\nreport.txt: 200\nreport.txt: 503\nother.txt: 200\nthe override was asked 3 times\n"

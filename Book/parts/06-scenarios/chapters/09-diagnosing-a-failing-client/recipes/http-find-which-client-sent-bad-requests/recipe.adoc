@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-which-client-sent-bad-requests]]
+=== Finding Which Client Sent Bad Requests
+
+==== Problem
+
+Several clients share one Hypertext Transfer Protocol (HTTP) test server, and something among them sends requests the server cannot read. You want an agent to find which client it is from the endpoints the server recorded.
+
+==== Solution
+
+Give each client its own listen URL on one server. The program starts `surl-mcp` and `curl-mcp`, runs the clients{apos} requests in turns through the `curl` tool, waits until every exchange has ended, then groups what `get_exchanges` recorded by `listen_url`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes three `http://` listen URLs on port 0 and two files in `files`. It is one server with one store, listening three times: `bound_urls` gives the three real URLs in order, and each client is configured with one, billing the first, search the second, reports the third. That is the whole trick. A test server costs nothing, so an endpoint per client is cheap, and every exchange the server records carries the `listen_url` it arrived on (<<surl-readme>>).
+
+The `curl` tool runs `curl`{apos}s own arguments, `-s` quiet, `-m 10` a bound and `-o` the body into a file, one request per call, so each request is its own connection and its own exchange, small enough for `get_exchanges` to show whole. The three runs interleave, as clients sharing a server do. Two of search{apos}s requests carry `-H "X-Request ID: 7"` and `8`, a header its query code adds. Every request of every run ends with `curl` exit `0`: to `curl` a `400` is an answer, so no client reports anything (<<curl-manual>>).
+
+The program polls `get_events` with `kinds` `exchange_started` and `exchange_ended`, at most 10 seconds, until all ten exchanges have ended, then reads them all with `get_exchanges`. Each exchange has its `listen_url` and its `chunks`; the first line `sent` is the status line. Grouped by endpoint, only search{apos}s hold `400` answers, two of its four. A `400 Bad Request` means the server could not read the request as HTTP (<<rfc9110>>). The billing client{apos}s `404` does not count: it is a well-formed request for a file that is not there, a fault in what the client asked for, not in how. The `received` chunks of the two `400` exchanges show what they share, `GET /index.csv?q=a` and `?q=b`, each with an `X-Request ID` header, a field name with a space in it.
+
+`get_exchanges` with `listen_url` set gives one endpoint{apos}s exchanges alone: search{apos}s four, two answered `400`, enough for a check that runs after each test. The `client` each exchange records would not have told the clients apart: on one machine it is `127.0.0.1` and a port that changes from one connection to the next.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-diagnose-a-client-from-its-exchanges>> for saying which header of a request is wrong.
+* <<http-tell-which-listener-was-used>> for which listener a request came in on.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

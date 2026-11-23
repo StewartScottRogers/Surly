@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: sftp-upload-with-a-read-callback
+title: Uploading with a Read Callback
+protocols: [sftp]
+tier: advanced
+surface: csharp
+surl-options: [--hostkey, --user, --allow-uploads, --directory]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlEasy, CurlOption, ReadCallback, CurlInfo, CurlCode, CurlErrorText]
+exit-codes: [0, 9, 60, 67]
+references: [surl-readme, libcurl-api, rfc4251, rfc4252]
+
+fixtures:
+  # Writes a host key's SHA-256 fingerprint, the base64 that CURLOPT_SSH_HOST_PUBLIC_KEY_SHA256 takes.
+  pin.sh: |
+    #!/bin/sh
+    # Usage: sh pin.sh KEY.pub > pin.txt
+    ssh-keygen -l -f "$1" | cut -d' ' -f2 | sed 's/^SHA256://'
+
+# The server's host key and the pin the program keeps for it; other_key is another server's key.
+# report.bin is 300,000 random bytes, more than one read callback's buffer holds.
+setup:
+  - mkdir -p store
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f other_key
+  - sh pin.sh host_key.pub > pin.txt
+  - head -c 300000 /dev/urandom > report.bin
+
+# The program is only the client. main takes uploads into store; rekeyed is the same server with
+# another host key; readonly has the right key and takes no uploads.
+servers:
+  main:
+    command: surl --hostkey host_key --user alice:s3cret --allow-uploads --directory store sftp://127.0.0.1:{{port}}/
+    ready: port
+  rekeyed:
+    command: surl --hostkey other_key --user alice:s3cret --allow-uploads sftp://127.0.0.1:{{port2}}/
+    ready: port
+  readonly:
+    command: surl --hostkey host_key --user alice:s3cret sftp://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The program checks the server's host key against the pinned SHA-256 hash, logs in as alice and streams the 300,000-byte file from its read callback, which libcurl calls more than once; CURLINFO_SIZE_UPLOAD_T reports 300,000 bytes sent, exit 0.
+    program: upload.cs
+    args: ["sftp://127.0.0.1:{{port}}/report.bin", "alice:s3cret", "report.bin", "pin.txt"]
+    expect:
+      exit: 0
+      stdout: "uploaded 300000 bytes, the read callback called more than once\n"
+
+  - id: landed-intact
+    claim: The file the server stored is byte for byte the local file.
+    run: cmp report.bin store/report.bin && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: wrong-host-key
+    claim: A server whose host key does not match the pin is refused with CURLE_PEER_FAILED_VERIFICATION, 60, and curl_easy_strerror's text SSL peer certificate or SSH remote key was not OK, and the program prints no upload.
+    program: upload.cs
+    args: ["sftp://127.0.0.1:{{port2}}/report.bin", "alice:s3cret", "report.bin", "pin.txt"]
+    expect:
+      exit: 60
+      stdout: ""
+      stderr-contains: "curl_easy_perform() failed: SSL peer certificate or SSH remote key was not OK"
+
+  - id: wrong-password
+    claim: The right key and a wrong password is CURLE_LOGIN_DENIED, 67, Login denied.
+    program: upload.cs
+    args: ["sftp://127.0.0.1:{{port}}/other.bin", "alice:wrong", "report.bin", "pin.txt"]
+    expect:
+      exit: 67
+      stderr-contains: "curl_easy_perform() failed: Login denied"
+
+  - id: uploads-off
+    claim: A server started without --allow-uploads refuses the write with CURLE_REMOTE_ACCESS_DENIED, 9, Access denied to remote resource.
+    program: upload.cs
+    args: ["sftp://127.0.0.1:{{port3}}/report.bin", "alice:s3cret", "report.bin", "pin.txt"]
+    expect:
+      exit: 9
+      stderr-contains: "curl_easy_perform() failed: Access denied to remote resource"

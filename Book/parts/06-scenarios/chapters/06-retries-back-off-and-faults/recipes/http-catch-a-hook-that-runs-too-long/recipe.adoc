@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-catch-a-hook-that-runs-too-long]]
+=== Catching a Hook That Runs Too Long
+
+==== Problem
+
+Your response override sometimes runs too long, for example when it waits on a service of its own. You want the test to see the failure as an event, and the request served as normal, so a slow decision neither hangs the test nor changes the answer.
+
+==== Solution
+
+Start a `SurlServer` with a short `HookTimeLimit`, add an override whose decision waits far longer, send a request, and wait for the failure event. The program takes the case to run as its argument; the first case, with none, is a decision that waits 30 seconds under a 300 millisecond limit:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `http://` listen URL on port `0`, one in-memory file in `Files`, and `RecordExchanges` so the server keeps the events the test reads. `HookTimeLimit` is how long a decision may take, a `TimeSpan` from one millisecond to 30 seconds, and it is not a `surl` option. A value outside that range makes `StartAsync` throw `ArgumentException` with the message `HookTimeLimit must be from 1 millisecond to 30 seconds.`; 30 seconds starts a server.
+
+`Faults`, a `SurlServerFaults`, is the fault plan, and `AddOverride` adds a response override with a `SurlFaultScope`, here `Scheme` `http` at `FaultStage.Command`, and a decision that receives a `FaultPoint` and a cancellation token and returns a `SurlFault`. The decision here passes the token to `Task.Delay` and would answer `SurlFault.ProtocolError("503")`, a `503 Service Unavailable` (<<rfc9110>>), if it ever finished. It does not: at the limit the server stops waiting and serves the request as if the override were not there. The request is answered `200` with the file, after at least the limit and far less than the 30 seconds the decision wanted. The server also cancels the token it gave the decision at the limit, which the test sees when the decision{apos}s `Task.Delay` ends, so a decision that passes the token to its waits stops there.
+
+The failure is an event. A `SurlEventQuery` for `SurlEventKind.HookFailed` finds a `HookFailedEvent` whose `Failure`, a `HookFailure`, is `TimedOut` and whose `Message` states the limit, `The response override ran past its time limit of 00:00:00.3000000.` The override stays in the plan, so the next request waits the limit again and a second event follows: two requests, two events. A decision that is slow but finishes inside its limit is used. With a five second limit and a decision that waits 300 milliseconds, the request is answered `503` after at least that wait, and the server publishes no event (<<surl-readme>>).
+
+The timing claims are ranges, because a loaded machine and a slow continuous integration runner stretch a wait but do not shorten it: the request takes at least the limit, with a little allowed for the clock, and under ten seconds. One untimed request comes first and takes the process{apos}s set-up cost, several seconds on the first, out of the timed one. The test does not poll for the event: it waits with `WaitForEventAsync` for the next failure after the last one it read, by `AfterSequence`, for at most thirty seconds, so a missing event fails the test instead of hanging it. The client is a `CurlClient`: each request is a `CurlRequest`, and the `CurlResponse` carries the `StatusCode` and the body.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-catch-a-hook-that-fails>> for a decision that throws.
+* <<http-change-an-answer-per-request>> for an override that decides each request.
+* <<http-measure-timings-under-a-delay>> for timing a delay fault.
+* <<surl-readme>>, <<rfc9110>>.

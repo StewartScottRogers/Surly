@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-catch-a-hook-that-fails]]
+=== Catching a Hook That Fails
+
+==== Problem
+
+A response override in your C# test threw an exception, and the test went on as if nothing had happened. You want the request still served, so the test does not fail for the wrong reason, and the failure reported as an event you can assert on.
+
+==== Solution
+
+Add an override that throws to a `SurlServer`{apos}s fault plan, send a request, and wait for the `HookFailed` event the server publishes. The program takes the case to run as its argument; the first case, with none, is a decision that throws:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `http://` listen URL on port `0`, one in-memory file in `Files`, and `RecordExchanges` so the server keeps the events the test reads. `Faults`, a `SurlServerFaults`, is the fault plan. `AddOverride` takes a `SurlFaultScope`, here `Scheme` `http` at `FaultStage.Command`, and a decision that receives a `FaultPoint` and returns a `SurlFault` or `null`; it returns the override{apos}s identifier, `f1`. <<http-change-an-answer-per-request>> shows a decision that works.
+
+A decision that throws is a hook failure, and the server does not let it fail the request. The request is served as if the override were not there: `GET /report.txt` is answered `200` with the file. The server publishes a `HookFailedEvent` instead, and the test finds it with a `SurlEventQuery` whose `Kind` is `SurlEventKind.HookFailed`. Its `HookId` names the override, its `Failure`, a `HookFailure`, is `Threw`, and its `Message` is the exception{apos}s message. The override stays in the plan after it fails, so each later request fails it again and the server publishes one event for each: two requests, two events.
+
+The same report follows a decision that returns a fault the point cannot act on. `SurlFault.RefuseLogin()` has no meaning at the command stage, and the event says `A RefuseLogin fault cannot act at the Command stage`; `SurlFault.ProtocolError("abc")` is not a status line of the scheme, and the event carries `surl`{apos}s own message, `option --fault: key reply does not fit the http error shape` (<<surl-readme>>, <<rfc9110>>). Both give `Failure` `Threw` and a `200` for the request. A decision is read as a `--fault` rule is, so an override can choose only what a rule can. A decision that returns `null` is not a failure: the request is answered `200` and the server publishes nothing.
+
+Failure of one override does not stop the plan. A second override added after it, which answers `ProtocolError("503")`, still fails the request with `503 Service Unavailable`, and the first one{apos}s failure is reported as well.
+
+The test does not poll. It waits with `WaitForEventAsync` for the next failure after the last one it read, by `AfterSequence`, for at most thirty seconds, so a missing event fails the test instead of hanging it. One untimed request first takes the process{apos}s set-up cost off the cases that follow, and its answer is not part of what they check. The client is a `CurlClient`: each request is a `CurlRequest`, and the `CurlResponse` carries the `StatusCode` and the body.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-change-an-answer-per-request>> for an override that decides each request.
+* <<http-catch-a-hook-that-runs-too-long>> for a decision that is too slow.
+* <<smtp-collect-mail-with-an-event-callback>> for a callback on the server{apos}s events.
+* <<surl-readme>>, <<rfc9110>>.

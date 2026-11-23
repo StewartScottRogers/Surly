@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: sftp-find-why-a-key-login-failed-from-an-agent
+title: Finding a Refused Key Login
+protocols: [sftp]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, curl, get_events]
+curl-options: [-s, -S, -k, -u, --key, --pubkey]
+surl-options: [--hostkey, --authorized-keys]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc4252]
+
+fixtures: {}
+
+# The server's host key, and a key for deploy-a (authorized) and one for deploy-b (known to nothing).
+setup:
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f deploy_a
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f deploy_b
+
+cases:
+  - id: solution
+    role: solution
+    claim: "When a job offers deploy-a's authorized public key but signs with a private key that is not its pair, curl exits 67 and get_events shows deploy-a refused by publickey, then by password and keyboard-interactive; a control login by the agent with deploy-a's own key pair exits 0 and is recorded as publickey accepted, so the fault is the job's private key."
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "job: curl exit 67\n  record: deploy-a: publickey refused, password refused, keyboard-interactive refused\ncontrol: curl exit 0, hello from surl\n  control record: deploy-a: publickey accepted\n  verdict: the key was offered and refused after signing: deploy-a's public key with a private key that is not its pair\n"
+
+  - id: unauthorized-key
+    claim: "A job that offers a key pair the server was never given exits 67 and leaves no publickey login in the events, only password and keyboard-interactive refused, because the server answers curl's unsigned query for that key without judging a login."
+    program: program.cs
+    args: [unauthorized-key]
+    expect:
+      exit: 0
+      stdout: "job: curl exit 67\n  record: deploy-a: password refused, keyboard-interactive refused\n  a publickey login was judged: False\n"
+
+  - id: unknown-user
+    claim: "A job that logs in as deploy-c, a user the server has no authorized keys for, exits 67 and is recorded under the account deploy-c, which the agent compares with the users it started the server with to say the user is wrong."
+    program: program.cs
+    args: [unknown-user]
+    expect:
+      exit: 0
+      stdout: "job: curl exit 67\n  record: deploy-c: password refused, keyboard-interactive refused\n  verdict: the user is wrong: this server has authorized keys for deploy-a, not deploy-c\n"
+
+  - id: no-keys
+    claim: "A server started with a password account and no authorized keys refuses a job that offers a valid key pair, exit 67, with no publickey login judged, the same record as an unauthorized key."
+    program: program.cs
+    args: [no-keys]
+    expect:
+      exit: 0
+      stdout: "job: curl exit 67\n  record: deploy-a: password refused, keyboard-interactive refused\n  a publickey login was judged: False\n"
+
+  - id: same-record
+    claim: "A job with an unauthorized key and a job that offers only a password, which the server does not take, both exit 67 and leave the same record, password and keyboard-interactive refused for deploy-a, so the events alone cannot tell them apart."
+    program: program.cs
+    args: [same-record]
+    expect:
+      exit: 0
+      stdout: "wrong key: curl exit 67\npassword: curl exit 67\n  record: deploy-a: password refused, keyboard-interactive refused\n  record: deploy-a: password refused, keyboard-interactive refused\n  the two records are the same: True\n"

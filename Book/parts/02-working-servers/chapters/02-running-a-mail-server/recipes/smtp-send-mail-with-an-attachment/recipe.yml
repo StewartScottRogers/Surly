@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-send-mail-with-an-attachment
+title: Sending Mail with an Attachment
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox]
+curl-options: [-F, -H, -u, --mail-from, --mail-rcpt, -s, -S, -o, -w, -X, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 26]
+references: [surl-readme, curl-manual, rfc5321, rfc2045, rfc9051]
+
+# The report the mail carries, a file with bare line feeds, as files on disk usually have.
+fixtures:
+  report.csv: "date,builds,failures\n2026-11-17,44,2\n2026-11-18,41,0\n2026-11-19,42,3\n"
+
+# One surl: SMTP to send to, IMAP to read back from, one mail store. Bob's mailbox takes the case
+# that sends the file as it is.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: curl builds a two-part message from -F, a text part and report.csv as a base64 attachment, and sends it, answered 250; once Ann's UID 1 exists, its part 2 fetched over IMAP and decoded from base64 is report.csv byte for byte.
+    run: 'curl -sS -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -H "Subject: Nightly build report" -H "From: app@example.com" -H "To: ann@example.com" -F "=The nightly build report is attached." -F "=@report.csv;type=text/csv;encoder=base64" -o {{null}} -w "%{response_code}\n" smtp://127.0.0.1:{{port}}/example.com && curl -sS --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=2" | tr -d "\r" | base64 -d | cmp - report.csv && echo part 2 is report.csv'
+    expect:
+      exit: 0
+      stdout: "250\npart 2 is report.csv\n"
+
+  - id: structure
+    claim: FETCH BODYSTRUCTURE shows a multipart/mixed message whose part 1 is text/plain and part 2 text/csv in BASE64, an attachment with the filename report.csv.
+    run: curl -sS -u ann@example.com:annpass -X "FETCH 1 BODYSTRUCTURE" imap://127.0.0.1:{{port2}}/INBOX
+    expect:
+      exit: 0
+      stdout-matches: '^\* 1 FETCH \(BODYSTRUCTURE \(\("TEXT" "PLAIN" \("CHARSET" "US-ASCII"\) NIL NIL "7BIT" 37 1 NIL NIL NIL NIL\)\("TEXT" "CSV" NIL NIL NIL "BASE64" \d+ \d+ NIL \("attachment" \("FILENAME" "report\.csv"\)\) NIL NIL\) "MIXED" \("BOUNDARY" "-+[A-Za-z0-9]+"\) NIL NIL NIL\)\)\r?\n$'
+
+  - id: top-headers
+    claim: curl puts the -H headers at the top and adds its own Mime-Version and a multipart/mixed Content-Type with a boundary it chose.
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(CONTENT-TYPE%20MIME-VERSION%20SUBJECT%20FROM%20TO)"
+    expect:
+      exit: 0
+      stdout-matches: '^Content-Type: multipart/mixed; boundary=-+[A-Za-z0-9]+\r?\nMime-Version: 1\.0\r?\nSubject: Nightly build report\r?\nFrom: app@example\.com\r?\nTo: ann@example\.com\r?\n\r?\n$'
+
+  - id: text-part
+    claim: Part 1 is the text from the first -F, with no header of its own.
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=1"
+    expect:
+      exit: 0
+      stdout: "The nightly build report is attached."
+
+  - id: attachment-header
+    claim: Part 2's own header names it an attachment with the file's name, the type given with type=, and base64 from encoder=.
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=2.MIME"
+    expect:
+      exit: 0
+      stdout: "Content-Disposition: attachment; filename=\"report.csv\"\nContent-Type: text/csv\nContent-Transfer-Encoding: base64\n\n"
+
+  - id: file-as-it-is
+    claim: Without type= and encoder=, curl attaches the file as application/octet-stream and 8bit, its bytes unencoded, bare line feeds and all.
+    run: 'curl -sS -u app@example.com:apppass --mail-from app@example.com --mail-rcpt bob@example.com -H "Subject: Nightly build report" -F "=The nightly build report is attached." -F "=@report.csv" smtp://127.0.0.1:{{port}}/example.com && curl -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1" && curl -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=2.MIME"'
+    expect:
+      exit: 0
+      stdout: "Content-Disposition: attachment; filename=\"report.csv\"\nContent-Type: application/octet-stream\nContent-Transfer-Encoding: 8bit\n\n"
+
+  - id: missing-file
+    claim: A file that is not there stops curl before it sends anything; exit 26.
+    run: 'curl -sS -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -H "Subject: Nightly build report" -F "=The nightly build report is attached." -F "=@nosuch.csv;type=text/csv;encoder=base64" smtp://127.0.0.1:{{port}}/example.com'
+    expect:
+      exit: 26
+      stderr-contains: "curl: (26)"

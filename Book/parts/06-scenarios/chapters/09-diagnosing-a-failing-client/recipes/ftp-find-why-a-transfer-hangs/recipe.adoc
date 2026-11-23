@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-find-why-a-transfer-hangs]]
+=== Finding Why an FTP Transfer Hangs
+
+==== Problem
+
+A nightly File Transfer Protocol (FTP) download logs in and then hangs until the job gives up, and its error says only that time ran out. You want an agent to read the session as the server saw it and name the step that never completed.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, runs the job through the `curl` tool against a stand-in that holds one reply, waits for the session to end with `wait_for_event`, and reads it from `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes one `ftp://` listen URL on port 0, a file in memory, and `surl`{apos}s own options in `arguments`: `--allow-anonymous`, since the job logs in anonymously (without it the job fails at once, `curl: (67) Access denied: 530`, which is not this problem), and `--fault "delay;stage=command;command=EPSV;ms=30000"`, a rule that holds the server{apos}s answer to `EPSV` for up to 30 seconds (<<surl-readme>>). The rule plays the broken part of the network; the agent reads the session as it would a real server{apos}s.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in JavaScript Object Notation (JSON): `exitCode`, `standardOutput` and `standardError`. The job is the file{apos}s URL with `-s` and `-S`, quiet but for errors, `-m` 3, at most 3 seconds, and `-o` `report.csv`, the file written into the folder. It gives up with exit `28`, `Operation timed out ... with 0 bytes received`, which says how long it waited and nothing about where (<<curl-manual>>).
+
+`wait_for_event` with `kinds` `exchange_ended` and `timeout_ms` 10000 returns once `surl` has closed the session, so the record is whole; FTP keeps one exchange per control connection, and each `curl` tool call is one. `get_exchanges` with `after_exchange_id` one less than the event{apos}s `exchange_id` and `max_exchanges` 1 answers that session{apos}s `chunks`, in the order they crossed, each with a `direction`, `received` or `sent`, its `data` and `at`, when it crossed. The program pairs each command the client sent with the next reply and times the gap. `USER`, `PASS` and `PWD` were each answered within a second: the login is not the problem. Then the client sent `EPSV`, asking for a passive data connection (<<rfc2428>>), and the `229` with the data port came seconds later, as the exchange ended: the server let go of its reply only when the client hung up, so the client never had it. `RETR` was never sent and no `226` came back; the file was not even asked for. `get_events` with `kinds` `fault_applied` confirms it from the stand-in{apos}s side: rule `f1`, a `delay` at the `command` stage, on `EPSV`, in exchange 1. A real server gives no such event, which is why the program reads the timing first.
+
+The step tells you what to try. With `-P -` the job asks for an active data connection instead, `EPRT` in place of `EPSV` (<<rfc959>>), and against the same server it completes: every reply within a second, `RETR` answered and the download ended `226 Transfer complete`. Only the passive step hangs, so the job can run in active mode while whatever stands between the client and the passive ports is looked into. When the hold is on `RETR` instead, the same reading names `RETR`: `EPSV`, `TYPE` and `SIZE` were answered at once, so the data connection was offered, and the `150` that opens the transfer came only as the exchange ended.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-see-which-command-broke-a-transfer-from-an-agent>> for a transfer that fails instead of hanging.
+* <<ftp-choose-passive-or-active-mode-from-an-agent>> for the two data-connection modes.
+* <<surl-readme>>, <<curl-manual>>, <<rfc959>>, <<rfc2428>>.

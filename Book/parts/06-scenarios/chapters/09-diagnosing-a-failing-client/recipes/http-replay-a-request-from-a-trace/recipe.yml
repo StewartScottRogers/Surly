@@ -1,0 +1,113 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: http-replay-a-request-from-a-trace
+title: Replaying a Request from a Trace
+protocols: [http]
+tier: scenarios
+surl-options: [--trace, --idle-timeout, --directory, --user]
+curl-options: [-s, -T, -H, -m, --digest, -u]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9110, rfc854, rfc7616]
+
+fixtures:
+  site/report.csv: "id,total\n1,42\n"
+  reports/report.csv: "id,total\n1,42\n"
+  request-of.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Writes to standard output the bytes one exchange received, as surl's --trace dumped them:
+    # the hex columns of that exchange's "<= Recv data" blocks, turned back into bytes.
+    # WHICH is the exchange's number, or text from one of surl's own lines about it, such as
+    # MalformedHeaderField; then the last exchange with such a line is the one taken.
+    # Run: sh request-of.sh trace.txt WHICH > request.http   (needs a POSIX shell: Git Bash on Windows)
+    trace=$1
+    which=$2
+    case $which in
+      '' | *[!0-9]*) n=$(grep '^#[0-9]* \* ' "$trace" | grep -F -- "$which" | tail -n 1 | cut -d' ' -f1 | tr -d '#') ;;
+      *) n=$which ;;
+    esac
+    if [ -z "$n" ]; then echo "no exchange in $trace has a line with $which" >&2; exit 1; fi
+
+    # A data line is an offset, then up to 16 bytes as two hex digits each, then the same bytes as text.
+    LC_ALL=C awk -v n="#$n" '
+      function hex(h) { return (index("0123456789abcdef", substr(h, 1, 1)) - 1) * 16 + index("0123456789abcdef", substr(h, 2, 1)) - 1 }
+      $1 == n { received = ($2 == "<="); next }
+      /^#/ { received = 0; next }
+      received { for (i = 2; i <= 17 && $i ~ /^[0-9a-f][0-9a-f]$/; i++) printf "%c", hex($i) }
+    ' "$trace"
+
+# --trace writes every byte each exchange moved to trace.txt, as hex; --idle-timeout 2 closes a
+# connection two seconds after its last byte, so a replay that leaves it open still ends.
+servers:
+  main:
+    command: surl --trace trace.txt --idle-timeout 2 --directory site http://127.0.0.1:{{port}}/
+    ready: port
+  locked:
+    command: surl --trace locked.txt --idle-timeout 2 --user app:s3cret --directory reports http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: app-gets-400
+    claim: The app's request for the report is answered 400 Bad Request, with that one line as the body.
+    run: 'curl -s -H "X-Request ID: 7" http://127.0.0.1:{{port}}/report.csv'
+    expect:
+      exit: 0
+      stdout: "400 Bad Request\n"
+
+  - id: solution
+    role: solution
+    claim: Written out by request-of.sh from the trace and sent again as it is by curl over telnet://, which adds nothing to the bytes, the request is answered 400 Bad Request again, and surl closes the connection, so curl ends.
+    run: sh request-of.sh trace.txt MalformedHeaderField > request.http && curl -s -m 10 -T request.http telnet://127.0.0.1:{{port}}
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 400 Bad Request\n.*\nConnection: close\n\n400 Bad Request\n$'
+
+  - id: the-request
+    claim: request.http, which request-of.sh wrote out given the reason surl traced for that exchange, holds the request the app sent, its header with a space in the name included.
+    run: cat request.http
+    expect:
+      exit: 0
+      stdout-matches: '^GET /report\.csv HTTP/1\.1\nHost: 127\.0\.0\.1:\d+\nUser-Agent: curl/8\.22\.0\nAccept: \*/\*\nX-Request ID: 7\n\n$'
+
+  - id: same-bytes
+    claim: The replay's exchange in the trace received exactly the bytes of the app's, so request-of.sh writes the same file for it.
+    run: sh request-of.sh trace.txt MalformedHeaderField | cmp - request.http && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: same-reason
+    claim: surl traced the same reason for both, a malformed header field.
+    run: 'grep -c "No request head was read: MalformedHeaderField; answered 400 and closed." trace.txt'
+    expect:
+      exit: 0
+      stdout: "2\n"
+
+  - id: one-header-fixed
+    claim: With only that header's name mended to X-Request-Id, the same bytes are answered 200 with the report, and surl closes the connection once it has been idle 2 s.
+    run: sed "s/X-Request ID/X-Request-Id/" request.http > fixed.http && curl -s -m 10 -T fixed.http telnet://127.0.0.1:{{port}}
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 200 OK\n.*\nContent-Length: 14\n\nid,total\n1,42\n$'
+
+  - id: digest-app
+    claim: On the server with an account, the app's Digest login fetches the report, 200.
+    run: curl -s --digest -u app:s3cret http://127.0.0.1:{{port2}}/report.csv
+    expect:
+      exit: 0
+      stdout: "id,total\n1,42\n"
+
+  - id: digest-withheld
+    claim: The trace withholds the Digest response, so the bytes written out for that exchange carry Authorization Digest **** in its place.
+    run: 'sh request-of.sh locked.txt "Login accepted" > login.http && grep -c "^Authorization: Digest \*\*\*\*" login.http'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: digest-not-replayed
+    claim: Replayed, the exchange's two requests are both answered 401 Unauthorized, so a login cannot be replayed from the trace.
+    run: curl -s -m 10 -T login.http telnet://127.0.0.1:{{port2}}
+    expect:
+      exit: 0
+      stdout-matches: '^HTTP/1\.1 401 Unauthorized\n.*\n401 Unauthorized\nHTTP/1\.1 401 Unauthorized\n.*\n401 Unauthorized\n$'

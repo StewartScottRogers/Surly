@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-count-uploads-with-an-event-callback
+title: Counting Uploads with a Callback
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlEventKind, StoreKind, StoreChangedEvent, StoreChange, SurlServerFiles, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A callback registered with OnEvent for content store changes is called once for each of three uploads, in the order made, with the path and the size of each, and the test waits for the three calls and does not poll."
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "callback calls: 3\n  Written /reports/a.txt 6\n  Written /reports/b.txt 5\n  Written /notes.txt 6\n"
+
+  - id: folder
+    claim: "A query with Name /reports narrows the callback to that folder: of three uploads it is called for the two under /reports, and a wait of one second for a third call ends with none."
+    program: program.cs
+    args: [folder]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "a third within 1 s: False\ncallback calls: 2\n  Written /reports/a.txt 6\n  Written /reports/b.txt 5\n"
+
+  - id: refused-upload
+    claim: "An upload the server refuses does not call the callback: with MaxFileSize 10, a 28-byte upload is answered 413 and a 3-byte one 201, and the callback is called once, for the small file."
+    program: program.cs
+    args: [refused]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "too big: 413\nsmall: 201\na second within 1 s: False\ncallback calls: 1\n  Written /small.txt 3\n"
+
+  - id: overwrite
+    claim: "Uploading the same path twice calls the callback twice, each time as a Written change with the size of that upload, 6 bytes and then 15."
+    program: program.cs
+    args: [overwrite]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "callback calls: 2\n  Written /a.txt 6\n  Written /a.txt 15\n"
+
+  - id: test-put
+    claim: "A file the test puts itself with Files.PutAsync also calls the callback, but as a Seeded change and not a Written one, so a count of uploads tests Change."
+    program: program.cs
+    args: [test-put]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "callback calls: 2\n  Seeded /seed.txt 7\n  Written /a.txt 6\n"
+
+  - id: dispose
+    claim: "After the IDisposable that OnEvent returned is disposed the callback is not called: a second upload is stored, the log has its event, and the callback has been called once."
+    program: program.cs
+    args: [dispose]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "callback calls: 1\n  Written /a.txt 6\n"

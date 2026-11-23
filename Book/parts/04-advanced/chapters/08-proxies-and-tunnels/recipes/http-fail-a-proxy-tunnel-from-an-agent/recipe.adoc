@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-fail-a-proxy-tunnel-from-an-agent]]
+=== Failing a Proxy Tunnel from an Agent
+
+==== Problem
+
+Your agent tests clients that go through a proxy, and must tell a proxy that refuses to open a tunnel from an origin that fails. You want it to run a proxy that answers every `CONNECT` with `503` while it still forwards plain Hypertext Transfer Protocol (HTTP) requests, and to read which side refused.
+
+==== Solution
+
+Start an origin and a proxy with one `start_server` call to `surl-mcp`, with a fault rule for `CONNECT`, send requests through the proxy with `curl-mcp`{apos}s `transfer` and `curl` tools, and read the proxy's events back:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder, where `openssl` wrote the certificate in `setup:`. `start_server` takes `listen_urls`, the origin over plain HTTP and over HTTP Secure (HTTPS), and `arguments`, `surl`{apos}s own words: `--proxy` adds a proxy listener, `--cert` and `--key` serve the certificate, and two `--fault` rules misbehave on purpose. `error;scheme=http-proxy;command=CONNECT;reply=503` answers every `CONNECT` on a proxy listener with `503`; `error;scheme=http;reply=503;path=/busy.txt` makes one path of the origin answer `503` itself. `files` gives the origin `hello.txt`. The answer's `bound_urls` lists the two origin listeners, then the proxy.
+
+`transfer` makes one request described by fields: `proxy` is `curl -x`, `caFile` is `--cacert` for the origin's certificate, and `timeoutSeconds` bounds it. For an `https://` URL the client sends `CONNECT` and waits for a `2xx` before starting Transport Layer Security (TLS) with the origin through the tunnel (<<rfc9110>>). The proxy answers `503`, so the call is a tool error whose `failure` has `exitCode` 7 and the text `CONNECT tunnel failed, response 503`. An `http://` URL through the same proxy is forwarded, not tunnelled, and `statusCode` is `200` with the file in `body`.
+
+The `curl` tool runs `curl`{apos}s own words where `transfer` has no field. `-w "%{http_connect} %{http_code}"` prints the proxy's answer to the `CONNECT`, `503`, and the origin's, `000`, because no request reached it; `exitCode` is 7. `-p` tunnels even an `http://` URL, and the same proxy refuses it the same way, `curl: (7) CONNECT tunnel failed, response 503` in `standardError`.
+
+A `503` the origin sent reads differently: `transfer` answers `statusCode` 503 with the body `503 Service Unavailable`, `failure` is null, and the call is not a tool error. An agent that reads `failure.exitCode` 7 as "the site is down" has the wrong culprit; the site was never asked.
+
+`surl-mcp` keeps what the server did. `get_events` with `kinds: ["fault_applied"]` and the proxy's `listen_url` finds one event for the refused `CONNECT`: `rule_id` `f1`, the first rule, `fault_kind` `error`, `stage` `command`. `get_exchanges` with the `https://` origin's `listen_url` finds no exchange at all, because no tunnel reached it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fail-a-proxy-tunnel>> for the same refusal on the console.
+* <<http-fail-a-proxy-tunnel-in-csharp>> for the same refusal from a C# test.
+* <<https-tunnel-through-a-proxy-from-an-agent>> for a tunnel that opens.
+* <<rfc9110>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

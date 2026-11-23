@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-send-mail-with-an-attachment-in-csharp
+title: Sending Mail with an Attachment in C#
+protocols: [smtp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, StoreChangedEvent, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlMultipartContent, CurlMimePart, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc5321, rfc2045]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A CurlMultipartContent of a text part and the report, base64 encoded, is answered 250; once Ann's delivery event has come, the part ReadMessageAsync's bytes mark as an attachment, decoded from base64, is the 69-byte report byte for byte.
+    program: send-report.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1\nreport.csv: 69 bytes, the same as the report\n"
+
+  - id: top-headers
+    claim: The request's Headers are at the top of the message, after a Mime-Version and a multipart/mixed Content-Type with a boundary curl chose.
+    program: send-report.cs
+    args: [top]
+    expect:
+      exit: 0
+      stdout-matches: '^SMTP 250\ndelivered: [^\n]+\nContent-Type: multipart/mixed; boundary=-+[A-Za-z0-9]+\nMime-Version: 1\.0\nSubject: Nightly build report\nFrom: app@example\.com\nTo: ann@example\.com\n$'
+
+  - id: parts
+    claim: Part 1 has no header of its own; part 2's header names it an attachment with the FileName, the ContentType text/csv and base64 from the Encoder.
+    program: send-report.cs
+    args: [parts]
+    expect:
+      exit: 0
+      stdout: "SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1\npart 1: no header\npart 2: Content-Disposition: attachment; filename=\"report.csv\" | Content-Type: text/csv | Content-Transfer-Encoding: base64\n"
+
+  - id: text-part
+    claim: Part 1 is the text of CurlMimePart.Text.
+    program: send-report.cs
+    args: [text]
+    expect:
+      exit: 0
+      stdout: "SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1\nThe nightly build report is attached.\n"
+
+  - id: bytes-as-they-are
+    claim: Without ContentType and Encoder, a part made with CurlMimePart.Bytes has only its Content-Disposition; no type and no encoding, its bytes sent as they are.
+    program: send-report.cs
+    args: [as-is]
+    expect:
+      exit: 0
+      stdout: "SMTP 250\ndelivered: ann@example.com/INBOX/;UID=1\npart 1: no header\npart 2: Content-Disposition: attachment; filename=\"report.csv\"\n"
+
+  - id: missing-file
+    claim: A part made with CurlMimePart.File from a file that is not there fails the send with a CurlException, code 26, ReadError.
+    program: send-report.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "not sent: curl error 26 ReadError\n"

@@ -1,0 +1,76 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs serve-brands.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-serve-two-mail-domains-from-an-agent
+title: Serving Two Mail Domains from an Agent
+protocols: [smtp, imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_mailboxes, read_message, get_exchanges]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+# Each brand's welcome mail, in the folder both hosts are confined to.
+fixtures:
+  one.eml: "From: noreply@one.test\r\nTo: ann@one.test\r\nSubject: Welcome to One\r\n\r\nThanks for joining One.\r\n"
+  two.eml: "From: noreply@two.test\r\nTo: ann@two.test\r\nSubject: Welcome to Two\r\n\r\nThanks for joining Two.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Each brand sends its welcome to Ann in its own domain; after the two delivery events, list_mailboxes and read_message show ann@one.test's INBOX holding one message, One's welcome, and ann@two.test's one, Two's.
+    program: serve-brands.cs
+    args: [welcome]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\ncurl exit 0\nann@one.test INBOX: 1 message, UID 1 Subject: Welcome to One\nann@two.test INBOX: 1 message, UID 1 Subject: Welcome to Two\n"
+
+  - id: own-password
+    claim: Each address is its own account with its own password; an IMAP login as ann@two.test with ann@one.test's password is refused, exit 67.
+    program: serve-brands.cs
+    args: [own-password]
+    expect:
+      exit: 0
+      stdout: "curl exit 67: curl: (67) Login denied\n"
+
+  - id: no-bare-name
+    claim: The local part alone is no account; an IMAP login as ann with ann@one.test's password is refused, exit 67.
+    program: serve-brands.cs
+    args: [bare-name]
+    expect:
+      exit: 0
+      stdout: "curl exit 67: curl: (67) Login denied\n"
+
+  - id: third-domain
+    claim: Mail for a third domain is refused; the curl tool exits 55 with RCPT failed 550, and get_exchanges shows the server's answer, 550 5.7.1 Relaying denied.
+    program: serve-brands.cs
+    args: [third]
+    expect:
+      exit: 0
+      stdout: "curl exit 55: curl: (55) RCPT failed: 550\nRCPT TO:<ann@three.test> -> 550 5.7.1 Relaying denied\n"
+
+  - id: subdomain-refused
+    claim: A subdomain is a domain of its own; mail for ann@mail.one.test is refused with 550 like any other.
+    program: serve-brands.cs
+    args: [subdomain]
+    expect:
+      exit: 0
+      stdout: "curl exit 55: curl: (55) RCPT failed: 550\n"
+
+  - id: unknown-in-domain
+    claim: Mail for an address of a served domain with no mailbox is accepted, exit 0, and discarded; no delivery event comes within 2 seconds and list_mailboxes knows no such owner.
+    program: serve-brands.cs
+    args: [unknown]
+    expect:
+      exit: 0
+      stdout-matches: '^curl exit 0\nno delivery to cy@two\.test within 2 s\nlist_mailboxes cy@two\.test: [^\n]*No mailboxes for cy@two\.test\.[^\n]*\n$'
+
+  - id: both-at-once
+    claim: One message can name addresses in both domains; Bo's INBOX in each holds its own copy.
+    program: serve-brands.cs
+    args: [both]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nbo@one.test INBOX: 1 message, UID 1 Subject: Welcome to One\nbo@two.test INBOX: 1 message, UID 1 Subject: Welcome to One\n"

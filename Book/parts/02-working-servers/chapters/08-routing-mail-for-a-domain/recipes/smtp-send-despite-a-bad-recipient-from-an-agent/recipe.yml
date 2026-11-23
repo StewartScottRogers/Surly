@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs send-minutes.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-send-despite-a-bad-recipient-from-an-agent
+title: Surviving a Refused Recipient from an Agent
+protocols: [smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, list_messages, read_message]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, --mail-rcpt-allowfails, -T]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5321]
+
+# The minutes go to four people; Carol's address is at another company, outside the server's domain.
+fixtures:
+  minutes.eml: "From: app@example.com\r\nTo: ann@example.com, carol@elsewhere.org, bob@example.com, cy@example.com\r\nSubject: Minutes of Tuesday's meeting\r\n\r\nThe minutes are on the team site.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --mail-rcpt-allowfails the curl tool exits 0; get_exchanges shows Carol's RCPT TO answered 550 5.7.1 Relaying denied and the other three 250, and list_messages finds one message for each of those three.
+    program: send-minutes.cs
+    args: [allowfails]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nann@example.com: 250 2.1.5 Recipient OK, holds 1\ncarol@elsewhere.org: 550 5.7.1 Relaying denied\nbob@example.com: 250 2.1.5 Recipient OK, holds 1\ncy@example.com: 250 2.1.5 Recipient OK, holds 1\n"
+
+  - id: quiet
+    claim: The curl tool's answer says nothing of the refused recipient; exit code 0 and an empty standard error.
+    program: send-minutes.cs
+    args: [quiet]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nstandard error: 0 characters\n"
+
+  - id: sent-once
+    claim: The server saw one DATA, so the message was sent once, and announced three deliveries, one for each recipient it accepted.
+    program: send-minutes.cs
+    args: [once]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nDATA commands: 1\ndeliveries: 3\n"
+
+  - id: headers-unchanged
+    claim: The copies say nothing of the refusal; Ann's, read with read_message, still has a To header naming all four, Carol included.
+    program: send-minutes.cs
+    args: [headers]
+    expect:
+      exit: 0
+      stdout: "curl exit 0\nTo: ann@example.com, carol@elsewhere.org, bob@example.com, cy@example.com\n"
+
+  - id: without-allowfails
+    claim: Without --mail-rcpt-allowfails the one refusal abandons the whole message; the curl tool exits 55 with RCPT failed 550, and Dee, accepted first, holds nothing.
+    program: send-minutes.cs
+    args: [without]
+    expect:
+      exit: 0
+      stdout: "curl exit 55: curl: (55) RCPT failed: 550\ndee@example.com holds 0\n"
+
+  - id: all-refused
+    claim: When every recipient is refused, --mail-rcpt-allowfails does not help; the curl tool exits 55 with RCPT failed 550, noted as the last error.
+    program: send-minutes.cs
+    args: [all-refused]
+    expect:
+      exit: 0
+      stdout: "curl exit 55: curl: (55) RCPT failed: 550 (last error)\n"

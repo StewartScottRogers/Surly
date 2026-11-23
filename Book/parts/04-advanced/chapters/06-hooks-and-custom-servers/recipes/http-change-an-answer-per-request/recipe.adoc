@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-change-an-answer-per-request]]
+=== Changing an Answer per Request
+
+==== Problem
+
+Your C# test wants one path to fail only when a condition in the test holds, for example while the test says a service is down, and to answer normally the rest of the time. A fixed fault rule cannot read the test{apos}s state, so you want a response override that decides each request.
+
+==== Solution
+
+Start a `SurlServer` in the test and add an override to its fault plan. The override is a function the server calls at every request; it answers with a fault, or with nothing to leave the request alone. Here it fails `/report.txt` with `503` while the test{apos}s dictionary names that path. The program takes the case to run as its argument; the first case, with none, breaks the path and mends it again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: one `http://` listen URL on port `0`, `Files` for two in-memory files, and `RecordExchanges` so the server keeps the events the test reads. `SurlServer.StartAsync` returns once the server is bound, and `BoundUrl` is its address.
+
+`Faults`, a `SurlServerFaults`, is the server{apos}s fault plan, the in-process spelling of `--fault` rules. `AddOverride` takes a `SurlFaultScope`, which says which requests the override is asked about, and the decision. The scope here is `Scheme` `http` at `FaultStage.Command`, the point where a request has been read and not yet answered. The decision receives a `FaultPoint` and a cancellation token and returns a `SurlFault` or `null`. `SurlFault.ProtocolError("503")` is the answer in the scheme{apos}s own shape: an HTTP `503 Service Unavailable` (<<rfc9110>>), the same as `surl --fault "error;scheme=http;reply=503"`. The point tells the decision the `Command` and the `Path` of the request, so one override can serve many paths and fail some of them. It is asked once per request, and for the two requests in the last case it saw `GET /report.txt` and then `GET /other.txt`.
+
+A decision may read any state the test holds, which a fixed rule cannot. The test keeps the paths it wants to fail in a `ConcurrentDictionary`, since the server calls the decision on its own thread, and changes it between requests: the same path answers `200`, then `503`, then `200` again, and a path not in the dictionary is not affected. The answer applies to that request only; <<http-catch-a-hook-that-fails>> shows what happens when the decision answers with a fault the point cannot act on.
+
+An override is not a rule in the plan. `Faults.List()` has no entry for it, which the test shows with a count of zero while the override is failing requests. `AddOverride` returns its identifier, `f1`, and `Faults.Remove` with it takes the override away: it returns `true`, a second call returns `false`, and the path is answered `200` although the test{apos}s dictionary still names it. The server records each failure as a `FaultAppliedEvent` (<<surl-readme>>): a `SurlEventQuery` for `SurlEventKind.FaultApplied` finds one event for the one failed request, with `Kind` `Error`, `Stage` `Command`, `Target` `/report.txt` and `RuleId` equal to the identifier `AddOverride` returned. The test waits for it with `WaitForEventAsync` for at most thirty seconds, so a missing event fails the test instead of hanging it. One untimed request first takes the process{apos}s set-up cost off the cases that follow, and its answer is not part of what they check. The client is a `CurlClient`: each request is a `CurlRequest`, and the `CurlResponse` carries the `StatusCode` and the body.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-catch-a-hook-that-fails>> for a decision that throws.
+* <<smtp-collect-mail-with-an-event-callback>> for a callback on the server{apos}s events.
+* <<http-fail-only-the-third-request>> for an override that counts.
+* <<surl-readme>>, <<rfc9110>>.

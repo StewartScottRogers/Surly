@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: stomp-join-a-topic-across-two-protocols-from-an-agent
+title: Joining a Topic Across Two Protocols
+protocols: [stomp, mqtt]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_retained_message]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, mcp-spec, stomp12, mqtt5]
+triplet: stomp-join-a-topic-across-two-protocols
+
+fixtures: {}
+
+# Each case starts its own broker. curl-mcp's curl tool is both services: a STOMP send for the old one, an MQTT 5
+# subscription left running and writing got.txt for the new one.
+cases:
+  - id: solution
+    role: solution
+    claim: Two orders the old service sends over STOMP to /topic/orders/created reach the new service subscribed over MQTT 5 to orders/created, in the order sent.
+    program: join.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "order 1001\norder 1002\n"
+
+  - id: whole-file
+    claim: The new service's file holds the pings from the wait to join, one or more, then the two orders, one message a line and nothing else.
+    program: join.cs
+    args: [whole]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\A(ping\n)+order 1001\norder 1002\n\Z'
+
+  - id: broker-kept-the-last
+    claim: The broker kept the last order as the topic's retained message; read_retained_message answers the text order 1002, the agent waiting for it ten seconds at most.
+    program: join.cs
+    args: [kept]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "kept on orders/created: order 1002\n"
+
+  - id: stomp-not-sent-retained
+    claim: A STOMP subscriber to the same topic is not sent the retained message, which is MQTT's alone; surl ends the idle subscription after a second, and the curl tool answers exit code 0 with nothing written.
+    program: join.cs
+    args: [stomp-retained]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "STOMP subscriber: exit code 0, 0 characters\n"
+
+  - id: dotted-name
+    claim: The map is slash for slash; an old service that sends to /topic/orders.created, with a dot, does not reach orders/created, and after ten tries the agent reports that nothing crossed, exit 1.
+    program: join.cs
+    args: [dotted]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "nothing crossed from /topic/orders.created to orders/created\n"
+
+  - id: queue-not-topic
+    claim: An old service that sends to /queue/orders/created sends to a queue, which no MQTT topic carries; nothing crosses, exit 1.
+    program: join.cs
+    args: [queue]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "nothing crossed from /queue/orders/created to orders/created\n"

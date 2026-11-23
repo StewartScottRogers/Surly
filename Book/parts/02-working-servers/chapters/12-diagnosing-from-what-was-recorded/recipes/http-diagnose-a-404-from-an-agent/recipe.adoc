@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-diagnose-a-404-from-an-agent]]
+=== Diagnosing a 404
+
+==== Problem
+
+A client reports a `404 Not Found` from a stand-in server and you do not know why. You want your artificial intelligence (AI) agent to read which paths were asked for, compare them with the files the server holds, and say whether the file is missing or the path is wrong.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts a server with `start_server`, lets clients ask it for three files through `transfer`, reads the request lines and answers from `get_exchanges`, and walks each failing path through `list_files`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument picks the scenario. `start_server` holds two files in memory, `reports/2026/summary.txt` and `reports/readme.txt`, and answers the `server_id` that every other `surl-mcp` tool takes, with the `bound_urls` of the Hypertext Transfer Protocol (HTTP) server. The clients are `transfer` calls from `curl-mcp`, one request each. All the agent is told is that some of them were answered `404` (<<rfc9110>>).
+
+The server records an exchange{apos}s end a moment after the client has its answer. The program asks `get_events`, for `exchange_started` and `exchange_ended`, until the number of each equals the number of requests made, for at most ten seconds, and only then reads the record.
+
+`get_exchanges` answers each exchange with its `chunks`, the bytes that crossed in order, each with its `direction`. The `received` chunks hold the request lines, `GET /report/summary.txt HTTP/1.1`, and the `sent` chunks the status lines, `HTTP/1.1 404 Not Found`. The program pairs them in order and keeps the requests whose status was `404`. The one that was answered `200` is not reported.
+
+`list_files` answers what a folder of the server{apos}s files holds, as `entries`, name and kind each. The program walks a failing path from the root, a segment at a time, listing each folder and looking for the next name in it. If a folder is missing, the path is wrong, and the agent says what the folder above it does hold. `/report/summary.txt` is that: `/` holds only `reports`, and there is no `report`. If every folder is there and the last name is not in the last one, the file is missing. `/reports/2026/q3.txt` is that: `/reports/2026` holds only `summary.txt`.
+
+Names are compared as they are written, so the server tells `Reports` from `reports`. A request for `/Reports/2026/summary.txt` is a `404` although the file exists, and the walk finds `reports` in `/`, which differs from `Reports` only in case, and says so. A file can be missing because it was removed. `delete_file` deletes a file from the server{apos}s files, as the test itself and not as a client, and the program calls it between two requests for the same path. The record shows the answers in order, `200` then `404`, and the walk finds `/reports/2026` still there and empty, so the file is missing. A request for `/reports/2026`, a folder that is there, is a `404` too, since the server answers a request for a file; the walk finds every name, and the agent says the path names a folder.
+
+When every recorded request was answered with a `200`, the agent finds no `404`, and says that after counting the requests it read.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-which-listener-was-used-from-an-agent>> for reading another thing from the same record.
+* <<http-see-what-the-client-sent-from-an-agent>> for the bytes of each exchange.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

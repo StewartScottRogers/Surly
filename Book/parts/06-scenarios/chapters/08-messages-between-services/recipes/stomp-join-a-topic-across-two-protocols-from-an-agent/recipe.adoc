@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[stomp-join-a-topic-across-two-protocols-from-an-agent]]
+=== Joining a Topic Across Two Protocols
+
+==== Problem
+
+As an agent: your old service sends its messages over STOMP and the new one subscribes over MQTT; you want to know which STOMP destination reaches which MQTT topic, and a test that shows a message crossing from one to the other.
+
+==== Solution
+
+Start one broker with `surl-mcp` that speaks both protocols, run the new service and the old one with `curl-mcp`{apos}s `curl` tool, and read what the new service received and what the broker kept. The program is the agent{apos}s side of the conversation over the Model Context Protocol (MCP):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+STOMP, the Simple Text Oriented Messaging Protocol, names a destination with a path (<<stomp12>>); MQTT, the MQ Telemetry Transport, names a topic with levels split by `/` (<<mqtt5>>). The program starts `surl-mcp` and `curl-mcp` by name with `StdioClientTransport`, each confined to the folder it runs in by `SURL_MCP_ROOT` and `CURL_MCP_ROOT` (<<mcp-spec>>). `start_server` with a `stomp://` and an `mqtt5://` listen URL, each on a free port, runs both over one message bus, so the STOMP destination `/topic/orders/created` is the MQTT topic `orders/created`, level for level, with nothing to configure; `bound_urls` names the ports in the same order (<<surl-readme>>). In `arguments`, `--allow-anonymous` lets both services in without an account, `--topic "orders/#;retain"` keeps the latest message on every topic under `orders/`, and `--idle-timeout 1` ends an idle STOMP subscription after a second.
+
+The new service is the `curl` tool with `-s -m 30 -o got.txt mqtt5://host:port/orders/created`. An MQTT 5 subscription stays open and writes each message to `got.txt` in the shared folder as it arrives, so the agent starts the call and does not wait for its answer, reading the file instead; `-m 30` ends it if nothing else does. The old service is the `curl` tool with `--data-binary @-` and the message in `stdin`, so the line feed that ends each message is sent with it (<<curl-readme>>).
+
+A subscription takes a moment to be in place, so the agent does not send its orders blind: the old service sends `ping` until the new service has one, ten tries a second apart at most, and only then sends `order 1001` and `order 1002`, waiting ten seconds at most for the second. They arrive in the order sent, behind one or more pings.
+
+The broker{apos}s own record of what crossed is the topic{apos}s retained message. `read_retained_message` with `topic` `orders/created` reads it from the store without a client and answers its `text`, `order 1002`. The store can trail the subscriber by a moment, so the agent asks again every 200 milliseconds, ten seconds at most. A STOMP subscriber to the same destination, the `curl` tool with no data, is not sent the retained message: retained messages are MQTT{apos}s alone, and after the one second of `--idle-timeout` `surl` ends the subscription, the tool answering `exitCode` 0 with nothing written.
+
+The map is exact, and the agent shows two ways to miss it. A service that sends to `/topic/orders.created`, with a dot where the MQTT topic has a slash, does not reach `orders/created`. A service that sends to `/queue/orders/created` sends to a queue, and no MQTT subscriber is sent what is in it. Nothing tells the old service; only the new service{apos}s silence does, and after ten pings the agent reports that nothing crossed.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<stomp-join-a-topic-across-two-protocols>> for the same test on the console.
+* <<stomp-join-a-topic-across-two-protocols-in-csharp>> for the same test in C#.
+* <<stomp-send-and-read-over-mqtt-from-an-agent>> for retained messages sent over STOMP.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<stomp12>>, <<mqtt5>>.

@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-cut-a-download-off-halfway-in-csharp
+title: Cutting a Download Off Halfway in C#
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, SurlEventQuery, FaultAppliedEvent, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The first download is cut off with CurlException 56, RecvError; a resume with a Range request fetches the rest, and the file is byte for byte the one served.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\nwhole file: yes\n'
+
+  - id: cut-off
+    claim: The download stops part-way; the answer was 200, reading the body throws CurlException 56, RecvError, and fewer than the 4,000,000 bytes surl sent had arrived, but more than 1,000,000.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '^from the start: 200, [1-3]\d{6} bytes, then CurlException 56 RecvError\n'
+
+  - id: partial-file-kept
+    claim: What arrived is on disk, a partial file of between 1,000,000 and 3,999,999 bytes.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\npartial file: [1-3]\d{6} bytes\n'
+
+  - id: event-names-the-cut
+    claim: The server's events hold one FaultAppliedEvent, of kind Drop, for the cut connection.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\nfault events: 1, Drop\n$'
+
+  - id: resume-asks-for-the-rest
+    claim: A Range header for the bytes after the partial file's end is answered 206 Partial Content, and the rest is shorter than the cut, so it comes whole.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\nresumed: 206, \d+ bytes, complete\n'
+
+  - id: restart-never-finishes
+    claim: A client that restarts instead of resuming meets the same cut every time; three downloads from the start are all cut off.
+    program: cut-download.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout-matches: '\nrestarted 3 times: 3 cut off\n$'
+
+  - id: short-answer-passes
+    claim: The rule counts bytes on each connection, so an answer shorter than 4,000,000 bytes is served whole.
+    program: cut-download.cs
+    args: [short]
+    expect:
+      exit: 0
+      stdout: "200, hello from surl\n"

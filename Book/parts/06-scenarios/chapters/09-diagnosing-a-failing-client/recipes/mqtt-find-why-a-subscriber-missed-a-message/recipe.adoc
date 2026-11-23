@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-find-why-a-subscriber-missed-a-message]]
+=== Finding a Subscriber's Missed Message
+
+==== Problem
+
+A dashboard subscribed to a Message Queuing Telemetry Transport (MQTT) topic and never got the reading a sensor published, and neither client reported an error. You want an agent to check topic access, the retained state and the exchanges, and say why.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, plays the sensor and the dashboards through the `curl` tool, waits for each exchange to end, then reads the subscriber{apos}s exchange, `read_retained_message`, the bus events from `get_events` and the publisher{apos}s exchange, in that order:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes one `mqtt://` listen URL on port 0 and, in `arguments`, the broker as it is set up in production (<<surl-readme>>). Three accounts, `--user`, and `--allow-plaintext-auth`, without which a password over `mqtt://` is refused unchecked: then the sensor{apos}s connection is answered `CONNACK` return code 5 and `curl` exits `8`. `--topic "plant/+/temp;retain"` keeps the last message on each temperature topic. Two grants, `--topic-access`, let `sensor1` publish under `plant/line1` and `dash` subscribe to the whole plant; `guest` has none.
+
+The `curl` tool runs `curl`{apos}s own arguments: `-s` and `-S`, quiet but for errors, `-m 10` a bound, `-u` the account, and `-d` the payload, which makes it a publish; without `-d` it subscribes, and from this broker an MQTT 3.1.1 subscriber gets the retained messages, as the topic{apos}s length, the topic and the payload, and is then let go (<<curl-manual>>, <<mqtt311>>). A publish is QoS 0, unacknowledged, so after every call the program waits with `wait_for_event`, `kinds` `exchange_ended` and `after_sequence` the last one seen, before it reads anything. `sensor1` publishes three readings, then the dashboards subscribe. On `plant/line1/temp` the dashboard gets 22 bytes, `21.5`: nothing missed, the control.
+
+For a miss the agent works through four places. First the subscriber{apos}s exchange, from `get_exchanges` with `after_exchange_id` and `max_exchanges` 1: its `chunks` joined by `direction` and decoded from base64, then cut into MQTT packets, give the `SUBSCRIBE` filter and the `SUBACK` return code. Second, `read_retained_message` with the `topic` says what the broker keeps there. Third, `get_events` with `kinds` `store_changed`, `store` `bus` and the topic as `name` says what the broker did with publishes on it: `written` when it kept one, `published` when it took one. Fourth, the earlier exchanges{apos} `PUBLISH` packets say whether anyone published on the topic, and the `login_judged` event of that exchange names who.
+
+On `plant/line2/temp` the subscribe was granted and nothing is kept; there is no bus event at all, yet the broker received a `PUBLISH` there from `sensor1`. The broker dropped it: `sensor1` may not publish on line 2, and a QoS 0 publisher is never told, so its `curl` exited `0`. On `plant/line1/humidity` the bus recorded the publish as `published` and never `written`: the topic is outside the retain filter, so the broker took the reading and kept nothing for a subscriber that came later. `guest`{apos}s subscribe was refused in the `SUBACK`, return code `0x80`, which `curl` reports only as `Weird server reply`, exit `8`. And a dashboard that subscribed to `plant/line1/tmp` was granted and got nothing, while `read_retained_message` finds the reading it wanted on `plant/line1/temp`: the filter is the typo.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt-grant-a-topic>> for the grants behind the refusals.
+* <<mqtt-check-retained-state-after-a-run>> for reading what a broker keeps after a test.
+* <<surl-readme>>, <<curl-manual>>, <<mqtt311>>.

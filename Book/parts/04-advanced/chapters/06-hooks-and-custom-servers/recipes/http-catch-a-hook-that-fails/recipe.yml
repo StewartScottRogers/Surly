@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-catch-a-hook-that-fails
+title: Catching a Hook That Fails
+protocols: [http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerFaults, SurlFault, SurlFaultScope, FaultStage, FaultPoint, HookFailedEvent, HookFailure, SurlEventQuery, SurlEventKind, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "A decision that throws does not fail the request: it is answered 200 as if the override were not there, and the server publishes one HookFailed event naming the override, with Failure Threw and the exception's message."
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "GET /report.txt: 200 totals\nhook f1 is override f1: True; Threw, the price list is not loaded\n"
+
+  - id: stays
+    claim: "The override stays in the plan after it fails: a second request is also answered 200 and is followed by a second HookFailed event, so two requests give two events."
+    program: program.cs
+    args: [twice]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "GET /report.txt: 200 totals\nGET /report.txt: 200 totals\nfailure events: 2\n"
+
+  - id: refused-answers
+    claim: "A decision that answers with a fault the point cannot act on is reported the same way and the request is still served: RefuseLogin at the command stage and a reply that is not an HTTP status each give Failure Threw and a message that says why."
+    program: program.cs
+    args: [refused]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '^GET /report\.txt: 200 totals\nRefuseLogin: Threw, A RefuseLogin fault cannot act at the Command stage\.[^\n]*\nGET /report\.txt: 200 totals\nError: Threw, option --fault: key reply does not fit the http error shape[^\n]*\n$'
+
+  - id: next-override
+    claim: "After an override fails, the plan goes on to the next one: a second override that answers 503 still fails the request, and the failure of the first is reported."
+    program: program.cs
+    args: [next]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "GET /report.txt: 503 503 Service Unavailable\nThrew, boom\n"
+
+  - id: null-is-not-a-failure
+    claim: "A decision that answers null is not a failure: the request is answered 200 and the server has published no HookFailed event."
+    program: program.cs
+    args: [quiet]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "GET /report.txt: 200 totals\nfailure events: 0\n"

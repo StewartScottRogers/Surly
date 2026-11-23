@@ -1,0 +1,80 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-send-despite-a-bad-recipient
+title: Sending Despite One Bad Recipient
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [-v, --log-file, --mail-domain, --mailbox]
+curl-options: [--mail-rcpt-allowfails, --crlf, -u, --mail-from, --mail-rcpt, -T, -s, -S, -v, -o, -w, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 55]
+references: [surl-readme, curl-manual, rfc5321]
+
+# The minutes go to four people; Carol's address is at another company, outside the server's domain.
+fixtures:
+  minutes.eml: "From: app@example.com\nTo: ann@example.com, carol@elsewhere.org, bob@example.com, cy@example.com\nSubject: Minutes of Tuesday's meeting\n\nThe minutes are on the team site.\n"
+
+# SMTP for the app and IMAP for the checks, over one mail store, for example.com only. -v and
+# --log-file keep the server's verbose log in surl.log. Each send that is read back has mailboxes of its own.
+servers:
+  main:
+    command: surl -v --log-file surl.log --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox cy@example.com:cypass --mailbox dee@example.com:deepass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --mail-rcpt-allowfails the message to four recipients, one outside the domain, is sent to the other three; curl exits 0 with the last reply 250, and once Cy's copy has arrived Ann, Bob and Cy each hold it as UID 1.
+    run: 'curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt carol@elsewhere.org --mail-rcpt bob@example.com --mail-rcpt cy@example.com --mail-rcpt-allowfails -T minutes.eml -o {{null}} -w "%{response_code}\n" smtp://127.0.0.1:{{port}}/example.com --next -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u cy@example.com:cypass "imap://127.0.0.1:{{port2}}/INBOX;UID=1" --next -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX?ALL" --next -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port2}}/INBOX?ALL" --next -sS -u cy@example.com:cypass "imap://127.0.0.1:{{port2}}/INBOX?ALL"'
+    expect:
+      exit: 0
+      stdout: "250\n* SEARCH 1\n* SEARCH 1\n* SEARCH 1\n"
+
+  - id: headers-unchanged
+    claim: The copies say nothing of the refusal; Ann's still has a To header naming all four, Carol included.
+    run: curl -sS -u ann@example.com:annpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(TO)"
+    expect:
+      exit: 0
+      stdout: "To: ann@example.com, carol@elsewhere.org, bob@example.com, cy@example.com\n\n"
+
+  - id: server-log
+    claim: The server's verbose log says which recipient it refused and why, outside every --mail-domain, and that it stored the message once for three recipients.
+    run: 'grep -e "refused: outside" -e "for 3 recipients" surl.log'
+    expect:
+      exit: 0
+      stdout-matches: '^#(\d+) \* RCPT carol@elsewhere\.org refused: outside every --mail-domain\r?\n#\1 \* Message stored: \d+ bytes for 3 recipients\r?\n$'
+
+  - id: quiet
+    claim: Run as an app runs it, with -sS, curl says nothing about the refused recipient; it exits 0 and prints nothing, error output included.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt carol@elsewhere.org --mail-rcpt bob@example.com --mail-rcpt cy@example.com --mail-rcpt-allowfails -T minutes.eml smtp://127.0.0.1:{{port}}/example.com 2>&1
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: which-refused
+    claim: curl -v shows the answer to each RCPT TO in turn; Carol's is 550 5.7.1 Relaying denied, the other three 250 2.1.5 Recipient OK.
+    run: curl -v -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com --mail-rcpt carol@elsewhere.org --mail-rcpt bob@example.com --mail-rcpt cy@example.com --mail-rcpt-allowfails -T minutes.eml smtp://127.0.0.1:{{port}}/example.com 2>&1 | grep -E "^> RCPT|^< 250 2.1.5|^< 550" | tr -d "\r"
+    expect:
+      exit: 0
+      stdout: "> RCPT TO:<ann@example.com>\n< 250 2.1.5 Recipient OK\n> RCPT TO:<carol@elsewhere.org>\n< 550 5.7.1 Relaying denied\n> RCPT TO:<bob@example.com>\n< 250 2.1.5 Recipient OK\n> RCPT TO:<cy@example.com>\n< 250 2.1.5 Recipient OK\n"
+
+  - id: without-allowfails
+    claim: Without --mail-rcpt-allowfails the one refusal abandons the whole message; curl exits 55 with RCPT failed 550.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt dee@example.com --mail-rcpt carol@elsewhere.org -T minutes.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: nothing-for-dee
+    claim: Dee, accepted before Carol was refused, holds nothing; curl stopped before DATA, so no message was sent.
+    run: curl -sS -u dee@example.com:deepass "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout: "* SEARCH\n"
+
+  - id: all-refused
+    claim: When every recipient is refused, --mail-rcpt-allowfails does not help; curl exits 55 with RCPT failed 550, noted as the last error.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt carol@elsewhere.org --mail-rcpt dan@elsewhere.org --mail-rcpt-allowfails -T minutes.eml smtp://127.0.0.1:{{port}}/example.com
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550 (last error)"

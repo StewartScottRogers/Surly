@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-run-an-https-proxy-in-csharp]]
+=== Running an HTTPS Proxy in C#
+
+==== Problem
+
+Your app talks to its proxy over Transport Layer Security (TLS), so it must trust the proxy's certificate separately from the origin's. You want a C# test with a Hypertext Transfer Protocol Secure (HTTPS) proxy that has a certificate of its own, refused when the app does not trust it and working when it does.
+
+==== Solution
+
+Start one `SurlServer` with an `https://` proxy listener and the proxy's certificate, another with the origin's, and fetch through the proxy with a `CurlClient` whose `CurlTlsOptions.Proxy` trusts the proxy:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`setup:` in `recipe.yml` makes two self-signed certificates for `127.0.0.1` with `openssl`, `proxy.pem` and `origin.pem`, each with its own key. The proxy's server gets `--proxy https://127.0.0.1:0` through `AdditionalArguments`, since `SurlServerOptions` has no proxy property, and `CertificateFile` and `KeyFile` name the proxy's certificate and key. An `https://` proxy listener speaks TLS from the first byte and serves the certificate it is given; with none, `StartAsync` throws `SurlServerStartException`, `ExitCode` `CertificateProblem` (58), `needs a certificate: give --cert <file>, or --self-signed for a throwaway one`. Surl.Api wants at least one listen URL that is not a proxy, so the proxy's server also serves a plain `http://` origin from `ListenUrls`, with `hello.txt` in `Files`. The second server is the `https://` origin with `origin.pem`; one server serves one certificate on all its TLS listeners, so the two need a server each.
+
+`CurlProxyOptions.Proxy` on `CurlClientOptions` names the proxy, `https://` and all, as `curl -x` does. `CurlTlsOptions` holds two `CurlTlsPeerOptions`: `Proxy` for the proxy, which is `curl --proxy-cacert` and its relatives, and `Origin` for the origin, `curl --cacert`. With `Proxy`{apos}s `CertificateAuthorityFile` set to `proxy.pem`, the client checks the proxy's certificate (<<rfc8446>>) and sends its `CurlRequest` for the `http://` origin inside that TLS session; the `CurlResponse` is `200` with the file. With nothing in `Proxy`, `SendAsync` throws `CurlException` with `Code` `PeerFailedVerification` (60). Putting `proxy.pem` in `Origin` instead does not help: that setting is for the origin's certificate only, and the result is the same `60`. `Timeout` bounds each transfer.
+
+What the proxy sees depends on the origin's scheme. For an `http://` origin it decrypts the request and forwards it; `Log` at `LogLevel.Verbose` says `Forwarded GET to 127.0.0.1:<port>; the origin answered 200.` TLS to the proxy hides the request from the network, not from the proxy. For an `https://` origin the client sends `CONNECT` inside the proxy's TLS session and runs a second handshake with the origin inside the tunnel (<<rfc9110>>): `Proxy` with `proxy.pem` and `Origin` with `origin.pem`, and the file comes back. Swap the two files and `SendAsync` throws the `60`.
+
+`VerifyPeer = false` with `VerifyHost = false` skips a check, the first the authority and the second the name. In `Origin` they are `curl -k`: the proxy is still checked, and with nothing trusting it, the `60` stays. In `Proxy` they are `curl --proxy-insecure`: the proxy goes unchecked and, with the origin trusted, the file comes back. Either is for a test only; a client that skips a check cannot tell its proxy or its origin from anyone else on the path.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-run-an-https-proxy>> for the same proxy on the console.
+* <<https-run-an-https-proxy-from-an-agent>> for the same proxy driven by an agent.
+* <<https-tunnel-through-a-proxy-in-csharp>> for a tunnel through a plain proxy.
+* <<rfc9110>>, <<rfc8446>>, <<surl-readme>>, <<curl-readme>>.

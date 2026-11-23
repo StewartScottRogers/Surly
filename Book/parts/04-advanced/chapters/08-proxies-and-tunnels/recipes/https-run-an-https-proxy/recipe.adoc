@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-run-an-https-proxy]]
+=== Running an HTTPS Proxy
+
+==== Problem
+
+Your client talks to its proxy over Transport Layer Security (TLS), so it must trust the proxy's certificate separately from the origin's. You want a Hypertext Transfer Protocol Secure (HTTPS) proxy with a certificate of its own, refused when the client does not trust it and working when it does.
+
+==== Solution
+
+Make two certificates, one for the proxy and one for the origin. Start the origin, start a proxy on an `https://` listen URL with the proxy's certificate, and fetch through it, trusting the proxy with `--proxy-cacert`:
+
+include::.generated/solution.adoc[]
+
+Stop both servers with kbd:[Ctrl+C].
+
+==== Discussion
+
+`setup:` in `recipe.yml` runs `openssl` twice, for two self-signed certificates for `127.0.0.1`, each with its own key: `proxy.pem` and `origin.pem`. The origin serves `--directory site` over plain HTTP on 8080 and over HTTPS on 8081 with `--cert origin.pem --key origin.key`. The proxy's `surl` has one listen URL, `--proxy https://127.0.0.1:8082/`, and `--cert proxy.pem` with its key, `--key proxy.key`: an `https://` proxy listener speaks TLS from the first byte, before any request, and serves the certificate it is given. Without one, `surl` will not start it: exit `58`, `needs a certificate: give --cert <file>, or --self-signed for a throwaway one`. `-v` logs the proxy's events and wire lines, and `--log-file` sends them to `proxy.log`.
+
+`-x https://...` tells `curl` the proxy itself is reached over TLS. `curl` checks the proxy's certificate with the authority `--proxy-cacert` names (<<rfc8446>>); with it, the request for the `http://` origin goes to the proxy inside that TLS session and comes back with the file. Without it `curl` does not trust the proxy and exits `60`. `--cacert` is not a substitute: it names the authority for the origin's certificate only, so `--cacert proxy.pem` leaves the proxy untrusted, `60` again. The error text after `curl: (60)` is the TLS library's, so the checks match the code; `-s` silences the progress meter and `-S` keeps that error line.
+
+What the proxy sees depends on the origin's scheme. For an `http://` origin the proxy decrypts the request, forwards it and logs `Forwarded GET to 127.0.0.1:<port>; the origin answered 200.`: TLS to the proxy hides the request from the network, not from the proxy. For an `https://` origin `curl` sends `CONNECT` inside the proxy's TLS session and then runs a second handshake, with the origin, inside the tunnel (<<rfc9110>>). Two certificates are checked, the proxy's against `--proxy-cacert proxy.pem` and the origin's against `--cacert origin.pem`, and the file comes back. Swap the two files and neither peer is trusted: `60`.
+
+The loosening options are separate too. `-k` skips the origin's check only; the proxy's is still made, and an untrusted proxy is still `60`. `--proxy-insecure` skips the proxy's check, so with the origin trusted the file comes back. Use either only in a test: a client that skips a check cannot tell its proxy or its origin from anyone else on the path (<<curl-manual>>).
+
+The certificates live in the case folder and nowhere else; no certificate store is touched.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-run-an-https-proxy-in-csharp>> for the same proxy from a C# test.
+* <<https-run-an-https-proxy-from-an-agent>> for the same proxy driven by an agent.
+* <<https-tunnel-through-a-proxy>> for the tunnel through a plain proxy.
+* <<rfc9110>>, <<rfc8446>>, <<surl-readme>>, <<curl-manual>>.

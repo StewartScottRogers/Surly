@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: socks5-require-a-socks-login
+title: Requiring a SOCKS5 Login
+protocols: [socks5h, http]
+tier: advanced
+surl-options: [--directory, -U, --allow-plaintext-auth, -v, --log-file]
+curl-options: [-x, --proxy-user, -s, -S, --max-time]
+exit-codes: [0, 97]
+references: [rfc1928, rfc1929, surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+
+servers:
+  # The origin on localhost:8080.
+  origin:
+    command: surl --directory site http://localhost:{{port}}/
+    ready: port
+  # A SOCKS5 server with one account, as surl starts by default: clear-text passwords refused.
+  strict:
+    command: surl socks5h://127.0.0.1:{{port2}}/ -U app:socks-pw -v --log-file strict.log
+    ready: port
+  # The same account on a server that accepts a password sent in clear.
+  open:
+    command: surl socks5h://127.0.0.1:{{port3}}/ -U app:socks-pw --allow-plaintext-auth -v --log-file open.log
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A SOCKS5 server started with -U and --allow-plaintext-auth accepts the right user name and password, given in the proxy URL, and relays the request.
+    run: curl -sS --max-time 20 -x socks5h://app:socks-pw@127.0.0.1:{{port3}} http://localhost:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: no-login
+    claim: With an account set, the server offers only the username and password method, so a client with no login is told no authentication method was acceptable, exit 97.
+    run: curl -sS --max-time 20 -x socks5h://127.0.0.1:{{port3}} http://localhost:{{port}}/hello.txt
+    expect:
+      exit: 97
+      stderr-contains: "curl: (97) No authentication method was acceptable."
+
+  - id: no-method-in-log
+    claim: The log records that refusal at the greeting, no method offered acceptable, answered 05 FF.
+    run: grep -m1 "05 FF" open.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* No SOCKS5 method offered is acceptable; answered 05 FF\.\n$'
+
+  - id: refused-in-clear
+    claim: Without --allow-plaintext-auth even the right password is refused, exit 97, User was rejected by the SOCKS5 server.
+    run: curl -sS --max-time 20 -x socks5h://app:socks-pw@127.0.0.1:{{port2}} http://localhost:{{port}}/hello.txt
+    expect:
+      exit: 97
+      stderr-contains: "curl: (97) User was rejected by the SOCKS5 server (1 1)."
+
+  - id: strict-log-says-why
+    claim: The strict server's log says the password was refused because it was sent in clear without --allow-plaintext-auth, unchecked.
+    run: grep -m1 "SOCKS5 password refused" strict.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* SOCKS5 password refused: sent in clear without --allow-plaintext-auth\n$'
+
+  - id: strict-log-reason
+    claim: The strict server's answer is 01 01, the login RefusedPlaintext.
+    run: grep -m1 "Answered 01 01" strict.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* Answered 01 01: the login is RefusedPlaintext\.\n$'
+
+  - id: plaintext-warning
+    claim: surl warns at start that --allow-plaintext-auth accepts passwords over unencrypted connections.
+    run: grep -m1 "warning" open.log
+    expect:
+      exit: 0
+      stdout: "surl: warning: --allow-plaintext-auth: passwords and tokens are accepted over unencrypted connections\n"
+
+  - id: wrong-password
+    claim: A wrong password on the open server gets the same answer the client got from the strict one, exit 97, User was rejected by the SOCKS5 server.
+    run: curl -sS --max-time 20 -x socks5h://app:wrong-pw@127.0.0.1:{{port3}} http://localhost:{{port}}/hello.txt
+    expect:
+      exit: 97
+      stderr-contains: "curl: (97) User was rejected by the SOCKS5 server (1 1)."
+
+  - id: open-log-tells-them-apart
+    claim: The open server's log tells a wrong password apart, 01 01 with the login RefusedCredentials.
+    run: grep -m1 "Answered 01 01" open.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* Answered 01 01: the login is RefusedCredentials\.\n$'
+
+  - id: unknown-user
+    claim: An unknown user name is refused the same way as a wrong password, so the answer does not say which accounts exist; the log names the user it refused.
+    run: 'curl -s --max-time 20 -x socks5h://bob:socks-pw@127.0.0.1:{{port3}} http://localhost:{{port}}/hello.txt || grep -m1 "Login refused: socks5h bob" open.log'
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* Login refused: socks5h bob\n$'
+
+  - id: open-log-accepts
+    claim: The open server's log records the accepted login by scheme and user name.
+    run: grep -m1 "Login accepted" open.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* Login accepted: socks5h app\n$'
+
+  - id: password-masked
+    claim: The log writes the password received as four asterisks, never the password itself; grep for socks-pw counts 0 and exits 1.
+    run: grep -c "socks-pw" open.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: proxy-user
+    claim: --proxy-user sends the same login as the user name and password in the proxy URL, and keeps them out of the URL.
+    run: curl -sS --max-time 20 --proxy-user app:socks-pw -x socks5h://127.0.0.1:{{port3}} http://localhost:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"

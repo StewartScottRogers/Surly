@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-serve-two-mail-domains
+title: Serving Two Mail Domains
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox, -v, --log-file]
+curl-options: [--crlf, -u, --mail-from, --mail-rcpt, -T, -s, -S, -o, -w, -X, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 55, 67]
+references: [surl-readme, curl-manual, rfc5321, rfc9051]
+
+# Each brand's welcome mail. wait-log.sh waits, at most 10 s, for a line in surl's log, then prints it.
+fixtures:
+  one.eml: "From: noreply@one.test\nTo: ann@one.test\nSubject: Welcome to One\n\nThanks for joining One.\n"
+  two.eml: "From: noreply@two.test\nTo: ann@two.test\nSubject: Welcome to Two\n\nThanks for joining Two.\n"
+  wait-log.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh wait-log.sh TEXT LOG. Waits, a second at a time for at most 10, until LOG has a line
+    # holding TEXT, then prints those lines without their exchange number.
+    tries=0
+    until grep -q -e "$1" "$2"; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 10 ]; then echo "no line with $1 in $2" >&2; exit 1; fi
+      sleep 1
+    done
+    grep -e "$1" "$2" | sed 's/^#[0-9]* //' | tr -d '\r'
+
+# One surl takes mail for two domains, one.test and two.test. Each brand sends as its own noreply
+# mailbox; Ann has a mailbox in each domain, and so has Bo.
+servers:
+  main:
+    command: surl -v --log-file surl.log --mail-domain one.test --mail-domain two.test --mailbox noreply@one.test:onepass --mailbox noreply@two.test:twopass --mailbox ann@one.test:annone --mailbox ann@two.test:anntwo --mailbox bo@one.test:boone --mailbox bo@two.test:botwo smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Each brand sends its welcome mail to Ann in its own domain; once each has arrived, ann@one.test's UID 1 is One's welcome and ann@two.test's UID 1 is Two's.
+    run: curl -sS --crlf -u noreply@one.test:onepass --mail-from noreply@one.test --mail-rcpt ann@one.test -T one.eml smtp://127.0.0.1:{{port}}/one.test --next -sS --crlf -u noreply@two.test:twopass --mail-from noreply@two.test --mail-rcpt ann@two.test -T two.eml smtp://127.0.0.1:{{port}}/two.test --next -sS --retry 10 --retry-all-errors --retry-delay 1 -u ann@one.test:annone "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)" --next -sS --retry 10 --retry-all-errors --retry-delay 1 -u ann@two.test:anntwo "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)"
+    expect:
+      exit: 0
+      stdout: "Subject: Welcome to One\n\nSubject: Welcome to Two\n\n"
+
+  - id: kept-apart
+    claim: The two mailboxes are kept apart; each holds one message, its own.
+    run: curl -sS -u ann@one.test:annone -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/ --next -sS -u ann@two.test:anntwo -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n* STATUS INBOX (MESSAGES 1)\n"
+
+  - id: own-password
+    claim: Each address is its own account with its own password; ann@two.test with ann@one.test's password is refused, exit 67.
+    run: curl -sS -u ann@two.test:annone "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: no-bare-name
+    claim: The local part alone is no account; ann with ann@one.test's password is refused, exit 67.
+    run: curl -sS -u ann:annone "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 67
+      stderr-contains: "curl: (67) Login denied"
+
+  - id: third-domain
+    claim: Mail for a third domain is refused at RCPT with 550; curl exits 55.
+    run: curl -sS --crlf -u noreply@two.test:twopass --mail-from noreply@two.test --mail-rcpt ann@three.test -T two.eml smtp://127.0.0.1:{{port}}/two.test
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: third-domain-logged
+    claim: The server's log gives the reason for that refusal, outside every --mail-domain.
+    run: sh wait-log.sh "ann@three.test refused" surl.log
+    expect:
+      exit: 0
+      stdout: "* RCPT ann@three.test refused: outside every --mail-domain\n"
+
+  - id: subdomain-refused
+    claim: A subdomain is a domain of its own; ann@mail.one.test is refused with 550 like any other.
+    run: curl -sS --crlf -u noreply@one.test:onepass --mail-from noreply@one.test --mail-rcpt ann@mail.one.test -T one.eml smtp://127.0.0.1:{{port}}/one.test
+    expect:
+      exit: 55
+      stderr-contains: "curl: (55) RCPT failed: 550"
+
+  - id: unknown-in-domain
+    claim: An address of a served domain with no mailbox is answered 250, and the log says it was discarded, no such account.
+    run: curl -sS --crlf -u noreply@two.test:twopass --mail-from noreply@two.test --mail-rcpt cy@two.test -T two.eml -o {{null}} -w "%{response_code}\n" smtp://127.0.0.1:{{port}}/two.test && sh wait-log.sh "cy@two.test discarded" surl.log
+    expect:
+      exit: 0
+      stdout: "250\n* Mail for cy@two.test discarded: no such account\n"
+
+  - id: both-at-once
+    claim: One message can name addresses in both domains; Bo's mailbox in each gets its own copy.
+    run: curl -sS --crlf -u noreply@one.test:onepass --mail-from noreply@one.test --mail-rcpt bo@one.test --mail-rcpt bo@two.test -T one.eml smtp://127.0.0.1:{{port}}/one.test --next -sS --retry 10 --retry-all-errors --retry-delay 1 -o {{null}} -u bo@two.test:botwo "imap://127.0.0.1:{{port2}}/INBOX;UID=1" --next -sS -u bo@one.test:boone "imap://127.0.0.1:{{port2}}/INBOX?ALL" --next -sS -u bo@two.test:botwo "imap://127.0.0.1:{{port2}}/INBOX?ALL"
+    expect:
+      exit: 0
+      stdout: "* SEARCH 1\n* SEARCH 1\n"

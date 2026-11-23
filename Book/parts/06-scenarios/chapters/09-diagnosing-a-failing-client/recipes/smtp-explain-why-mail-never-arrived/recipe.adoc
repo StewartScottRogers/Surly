@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-explain-why-mail-never-arrived]]
+=== Explaining Why Mail Never Arrived
+
+==== Problem
+
+An app{apos}s mail went missing, and the app{apos}s log says nothing useful, or says it was sent. You want an agent to read the server{apos}s exchanges and events and name the refusal that stopped the mail, or say that nothing refused it.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, plays each of the app{apos}s sends through the `curl` tool, waits for the exchange to end, reads every reply from `get_exchanges`, then waits with `wait_for_event` for a delivery to each recipient the server accepted:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`; the program writes the app{apos}s two messages there. `start_server` takes one `smtp://` listen URL on port 0 and, in `arguments`, the mail server as the app meets it: `--mail-domain example.com`, three `--mailbox` values, and `--max-filesize 2k`, the largest message it takes (<<surl-readme>>).
+
+The `curl` tool runs the app{apos}s send: `-s` quiet, as an app runs it, `-m 10` a bound, `-u` the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, and `-T` the message (<<curl-manual>>). The nightly report with its job log attached fails with exit `55` and nothing on `standardError`, which is all the app ever knew.
+
+After each send the agent waits, `wait_for_event` with `kinds` `exchange_ended`, `scheme` `smtp`, `after_sequence` and `timeout_ms` 10000, then reads the exchange with `get_exchanges`, `after_exchange_id` and `max_exchanges` 1. It pairs each reply in the `sent` chunks with the line the client sent just before it; a reply starting `4` or `5` is a refusal (<<rfc5321>>). Here it is the first command of the mail itself: `MAIL FROM:<app@example.com> SIZE=2761`, answered `552 5.3.4 Message size exceeds the size limit`. `curl` declared the message{apos}s size because the server{apos}s reply to `EHLO` had offered `SIZE 2048`, its limit, and `surl` refused the mail on that declaration, before a byte of it was sent. The message was never accepted, so nothing was delivered anywhere, and the fix is a smaller message or a larger limit.
+
+A clean exit does not prove the mail arrived. The report to Ann and to `bob@example.org`, a typo, with `--mail-rcpt-allowfails` exits `0`, because that option lets `curl` send to the recipients that were accepted. The exchange holds the refusal, `RCPT TO:<bob@example.org>` answered `550 5.7.1 Relaying denied`, an address outside the domain. For each recipient answered `250`, the agent waits up to 5 seconds for a `store_changed` event with `store` `mail` and the address as `name`; Ann{apos}s comes, `ann@example.com/INBOX/;UID=1`.
+
+Mail can also vanish with no refusal at all. The report to `carol@example.com` is refused nowhere, its `RCPT` answered `250`, and `curl` exits `0`, but no delivery event comes within 5 seconds, and `list_mailboxes` for that owner answers `No mailboxes for carol@example.com.`: the address is inside the domain and has no mailbox, so the server accepts the mail and discards it, rather than tell a sender which addresses exist (<<surl-readme>>). There is no refusal to name, and the agent says so.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-see-why-mail-was-refused-from-an-agent>> for the other refusals: relaying, a missing login, a wrong password and a full mailbox.
+* <<imap-find-why-a-client-sees-no-mail>> for mail that arrived somewhere else.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.
