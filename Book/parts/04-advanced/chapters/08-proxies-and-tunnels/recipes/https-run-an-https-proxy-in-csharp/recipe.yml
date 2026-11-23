@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: https-run-an-https-proxy-in-csharp
+title: Running an HTTPS Proxy in C#
+protocols: [https, http]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, CurlClient, CurlClientOptions, CurlProxyOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [rfc9110, rfc8446, surl-readme, curl-readme]
+
+fixtures: {}
+
+# Two certificates for 127.0.0.1, each signed by its own key, good for 30 days; never committed.
+# proxy.pem is the proxy's, origin.pem the origin's.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout proxy.key -out proxy.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout origin.key -out origin.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A CurlClient whose CurlProxyOptions name an https:// proxy talks to it over TLS, trusts its certificate through CurlTlsOptions.Proxy, and gets the http:// origin's file, 200.
+    program: https-proxy.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "200, hello from surl\n"
+
+  - id: untrusted-proxy
+    claim: With nothing in CurlTlsOptions.Proxy the client does not trust the proxy's certificate; SendAsync throws CurlException 60, PeerFailedVerification.
+    program: https-proxy.cs
+    args: [untrusted]
+    expect:
+      exit: 0
+      stdout: "CurlException 60 PeerFailedVerification\n"
+
+  - id: origin-trust-is-the-origins
+    claim: CurlTlsOptions.Origin is the origin's trust, not the proxy's; the proxy's certificate given there leaves the proxy untrusted, CurlException 60.
+    program: https-proxy.cs
+    args: [origin-trust]
+    expect:
+      exit: 0
+      stdout: "CurlException 60 PeerFailedVerification\n"
+
+  - id: proxy-sees-the-request
+    claim: Over an https proxy with an http:// origin the proxy decrypts and forwards the request; its Log says it forwarded GET and the origin answered 200.
+    program: https-proxy.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\n#\d+ \* Forwarded GET to 127\.0\.0\.1:\d+; the origin answered 200\.\n$'
+
+  - id: two-certificates
+    claim: An https:// origin through the https proxy is two TLS sessions, one inside the other; CurlTlsOptions.Proxy trusts the proxy's certificate, CurlTlsOptions.Origin the origin's, and the file comes back.
+    program: https-proxy.cs
+    args: [both]
+    expect:
+      exit: 0
+      stdout: "200, hello from surl\n"
+
+  - id: swapped
+    claim: The two settings are not interchangeable; with the certificates swapped SendAsync throws CurlException 60.
+    program: https-proxy.cs
+    args: [swapped]
+    expect:
+      exit: 0
+      stdout: "CurlException 60 PeerFailedVerification\n"
+
+  - id: origin-check-skipped
+    claim: VerifyPeer and VerifyHost false in CurlTlsOptions.Origin skip only the origin's check; the proxy is still checked, CurlException 60.
+    program: https-proxy.cs
+    args: [origin-unchecked]
+    expect:
+      exit: 0
+      stdout: "CurlException 60 PeerFailedVerification\n"
+
+  - id: proxy-check-skipped
+    claim: The same in CurlTlsOptions.Proxy skips the proxy's check, the loosening that is curl --proxy-insecure, and with the origin trusted the file comes back.
+    program: https-proxy.cs
+    args: [proxy-unchecked]
+    expect:
+      exit: 0
+      stdout: "200, hello from surl\n"
+
+  - id: proxy-needs-a-certificate
+    claim: StartAsync refuses an https proxy listener with no certificate, SurlServerStartException with ExitCode CertificateProblem, exit 58, naming --cert and --self-signed.
+    program: https-proxy.cs
+    args: [no-certificate]
+    expect:
+      exit: 0
+      stdout-matches: '^SurlServerStartException CertificateProblem: \(58\) https://127\.0\.0\.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one'

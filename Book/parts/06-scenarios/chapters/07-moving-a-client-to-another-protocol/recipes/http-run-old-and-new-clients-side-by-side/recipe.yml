@@ -1,0 +1,63 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-run-old-and-new-clients-side-by-side
+title: Running Old and New Clients Together
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, SurlServerFiles, SurlFileContents, SurlEventQuery, SurlEventKind, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: "HttpClient and Curl.Api make the same GET and PUT, each against its own server, and the servers record the same request lines and the same body; the one difference in the headers is that Curl.Api sends Accept */* and HttpClient sends no Accept."
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "requests recorded: 2 and 2\nGET /report.txt HTTP/1.1: same line True, same body True, headers only in the old: [], only in the new: [Accept: */*]\nPUT /up.txt HTTP/1.1: same line True, same body True, headers only in the old: [], only in the new: [Accept: */*]\n"
+
+  - id: header-names
+    claim: "On the PUT, both clients send Host, X-Trace, Content-Type and Content-Length, and the new client sends Accept besides."
+    program: program.cs
+    args: [headers]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "old, PUT: Content-Length, Content-Type, Host, X-Trace\nnew, PUT: Accept, Content-Length, Content-Type, Host, X-Trace\n"
+
+  - id: aligned
+    claim: "With Accept */* added to HttpClient's default headers the two records are the same: no header is found only in the old or only in the new client's requests."
+    program: program.cs
+    args: [aligned]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "requests recorded: 2 and 2\nGET /report.txt HTTP/1.1: same line True, same body True, headers only in the old: [], only in the new: []\nPUT /up.txt HTTP/1.1: same line True, same body True, headers only in the old: [], only in the new: []\n"
+
+  - id: same-store
+    claim: "Both servers hold the same upload afterwards: /up.txt is hello, five bytes, on each."
+    program: program.cs
+    args: [stored]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "old server holds: hello (5 bytes)\nnew server holds: hello (5 bytes)\n"
+
+  - id: anonymous-refused
+    claim: "Without AllowAnonymous the PUT is refused 401 for both clients, and each server still records the two requests, so the comparison works on a refusal too."
+    program: program.cs
+    args: [refused]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "PUT answered 401 to the old client and 401 to the new one\nrequests recorded: 2 and 2\n"

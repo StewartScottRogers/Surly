@@ -1,0 +1,90 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-upload-with-a-read-callback]]
+=== Uploading with a Read Callback
+
+==== Problem
+
+Your C program streams a file to an SSH File Transfer Protocol (SFTP) server from a read callback, after checking the server{apos}s host key against a pinned hash, and you want the port to C# to do the same against a test server and fail the same way when the key is wrong.
+
+==== Solution
+
+Port the program call for call with `Libcurl`, and run it against `surl` with a host key kept in a file, whose fingerprint the program is given as its pin:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program reads its pin from a file, opens the local file and lets libcurl pull the bytes from it through a read callback:
+
+[source,c]
+----
+#include <stdio.h>
+#include <string.h>
+#include <curl/curl.h>
+
+static long reads;
+
+static size_t read_cb(char *buffer, size_t size, size_t nitems, void *userdata)
+{
+  size_t n = fread(buffer, 1, size * nitems, (FILE *)userdata);
+  if(n > 0)
+    reads++;
+  return n;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *curl;
+  CURLcode res;
+  char pin[128] = "";
+  FILE *pinfile = fopen(argv[4], "r");
+  FILE *file = fopen(argv[3], "rb");
+  curl_off_t size, sent;
+
+  fgets(pin, sizeof(pin), pinfile);
+  pin[strcspn(pin, "\r\n")] = 0;
+  fseek(file, 0, SEEK_END);
+  size = ftell(file);
+  rewind(file);
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  curl_easy_setopt(curl, CURLOPT_URL, argv[1]);
+  curl_easy_setopt(curl, CURLOPT_USERPWD, argv[2]);
+  curl_easy_setopt(curl, CURLOPT_SSH_HOST_PUBLIC_KEY_SHA256, pin);
+  curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+  curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_cb);
+  curl_easy_setopt(curl, CURLOPT_READDATA, file);
+  curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, size);
+  res = curl_easy_perform(curl);
+  if(res != CURLE_OK)
+    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+  else {
+    curl_easy_getinfo(curl, CURLINFO_SIZE_UPLOAD_T, &sent);
+    printf("uploaded %" CURL_FORMAT_CURL_OFF_T " bytes%s\n", sent,
+           reads > 1 ? ", the read callback called more than once" : "");
+  }
+  curl_easy_cleanup(curl);
+  curl_global_cleanup();
+  fclose(file);
+  return (int)res;
+}
+----
+
+The port is the same program. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, `CurlGlobalFlags` holding libcurl{apos}s flag values, and returns the `CurlLibrary` the easy handle comes from; disposing them is `curl_easy_cleanup` and `curl_global_cleanup`. `CurlEasy.SetOption` is `curl_easy_setopt` with a `CurlOption` named after its `CURLOPT_` constant: `Userpwd`, `SshHostPublicKeySha256`, `Upload`, `Readfunction` and `InfilesizeLarge`. The read callback is a `ReadCallback`: it is given a buffer to fill, a `Span<byte>` where C has a pointer and two sizes, and answers how many bytes it put there, 0 at the end of the file. The `FileStream` lives in its closure, so the port has no `CURLOPT_READDATA`. libcurl calls the callback as often as it needs data; a 300,000-byte file takes more than one call. `Perform` answers a `CurlCode`, libcurl{apos}s `CURLcode` with the same numbers, `CurlErrorText.Easy` is `curl_easy_strerror`, and `GetInfo` with `CurlInfo.SizeUploadT` is `curl_easy_getinfo` with `CURLINFO_SIZE_UPLOAD_T`, the bytes sent (<<libcurl-api>>).
+
+The pin is what makes the upload safe to send. Every SSH server proves itself with its host key (<<rfc4251>>), and `CURLOPT_SSH_HOST_PUBLIC_KEY_SHA256` holds the base64 SHA-256 hash of the one key the program will accept, the hash `ssh-keygen -l` prints after `SHA256:`, which `pin.sh` writes to `pin.txt`. A server with any other key is refused with `CURLE_PEER_FAILED_VERIFICATION`, 60, and the program prints no upload. The `rekeyed` server is the same server with `other_key`, as a server would look that was replaced or impersonated.
+
+`surl` serves SFTP from the key in `host_key` with `--hostkey host_key`, so the hash stays the same from one start to the next. `--user alice:s3cret` is the account (<<rfc4252>>): a wrong password is `CURLE_LOGIN_DENIED`, 67. `--allow-uploads` lets the account write, and `--directory store` keeps what it writes in the folder `store`, where the test compares it with the local file byte for byte (<<surl-readme>>). Uploads are off by default, because an SFTP server that takes files is a server anyone with the password can fill: the `readonly` server, the same but without `--allow-uploads`, refuses the write, and the program reports `CURLE_REMOTE_ACCESS_DENIED`, 9, `Access denied to remote resource`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-keep-a-pinned-host-key-across-restarts>> for the same pin from the `curl` command line.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<smtp-send-mail-from-a-libcurl-port>> for a read callback that sends a mail message.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc4251>>, <<rfc4252>>.

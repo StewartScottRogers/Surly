@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs read-dialogue.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-see-exactly-what-an-app-sent-from-an-agent
+title: Reading the SMTP Dialogue from an Agent
+protocols: [smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, list_messages, read_message]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, -T, -w]
+exit-codes: [0, 1]
+references: [surl-readme, rfc5321, rfc5322]
+
+# The shop app's shipping notice to Ann. The app's settings still name a test address as the envelope recipient.
+fixtures:
+  order.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Your order has shipped\r\n\r\nOrder 1042 left the warehouse today.\r\n"
+
+cases:
+  - id: app-sees-success
+    claim: The app's send, whose envelope names the test address left in its settings, exits 0 with the reply 250, so the app has nothing to report.
+    program: read-dialogue.cs
+    args: [astray]
+    expect:
+      exit: 1
+      stdout-matches: '^curl exit 0, reply 250\n'
+
+  - id: solution
+    role: solution
+    claim: No mail reaches Ann within 2 seconds; from MAIL FROM on, get_exchanges shows the envelope recipient test@example.com answered 250 and a message whose To header names Ann, and the agent reports both.
+    program: read-dialogue.cs
+    args: [astray]
+    expect:
+      exit: 1
+      stdout: "curl exit 0, reply 250\nnothing for ann@example.com within 2 s\nC: MAIL FROM:<app@example.com> SIZE=117\nS: 250 2.1.0 Sender OK\nC: RCPT TO:<test@example.com>\nS: 250 2.1.5 Recipient OK\nC: DATA\nS: 354 End data with <CR><LF>.<CR><LF>\nC: From: app@example.com\nC: To: ann@example.com\nC: Subject: Your order has shipped\nC: \nC: Order 1042 left the warehouse today.\nC: .\nS: 250 2.0.0 Message accepted\nC: QUIT\nS: 221 2.0.0 Bye\nthe envelope delivered to test@example.com; the To header says ann@example.com\n"
+
+  - id: landed-in-test
+    claim: The notice went where the envelope said; list_messages finds one message in the test mailbox and none in Ann's.
+    program: read-dialogue.cs
+    args: [landed]
+    expect:
+      exit: 1
+      stdout: "curl exit 0, reply 250\nnothing for ann@example.com within 2 s\ntest@example.com holds 1\nann@example.com holds 0\n"
+
+  - id: before-the-envelope
+    claim: Before the envelope the client sent EHLO with the name from the URL's path, AUTH CRAM-MD5, and its answer to the challenge, which get_exchanges keeps as sent, in base64.
+    program: read-dialogue.cs
+    args: [login]
+    expect:
+      exit: 1
+      stdout-matches: '^curl exit 0, reply 250\nnothing for ann@example\.com within 2 s\nbefore MAIL FROM:\nC: EHLO shop\.example\.com\nC: AUTH CRAM-MD5\nC: [A-Za-z0-9+/]{20,}=*\n$'
+
+  - id: stored-adds-headers
+    claim: The stored copy is not byte for byte what the exchange shows; read_message returns Return-Path, the envelope sender, and a Received line above the headers the app sent.
+    program: read-dialogue.cs
+    args: [stored]
+    expect:
+      exit: 1
+      stdout-matches: '^curl exit 0, reply 250\nnothing for ann@example\.com within 2 s\nstored:\nReturn-Path: <app@example\.com>\nReceived: from shop\.example\.com \(\[127\.0\.0\.1\]\) by surl with ESMTPA; [^\n]+\nFrom: app@example\.com\n$'
+
+  - id: fixed
+    claim: With the app's setting corrected Ann's mail arrives, exit 0, and the recorded RCPT TO names her.
+    program: read-dialogue.cs
+    args: [fixed]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, reply 250\nann@example.com has the notice\nC: RCPT TO:<ann@example.com>\n"

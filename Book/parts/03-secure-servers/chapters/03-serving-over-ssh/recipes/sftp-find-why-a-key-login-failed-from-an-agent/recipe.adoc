@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[sftp-find-why-a-key-login-failed-from-an-agent]]
+=== Finding a Refused Key Login
+
+==== Problem
+
+A deploy job{apos}s Secure Shell (SSH) key login to a stand-in server is refused, and all the job says is `Login denied`. You want your artificial intelligence (AI) agent to read the server{apos}s events and say whether the user or the key was wrong, and to know what the events cannot tell.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts an SSH File Transfer Protocol (SFTP) server with `start_server`, plays the job with the `curl` tool, and reads the logins the server judged with `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument picks the scenario. `start_server` takes `surl`{apos}s own options in `arguments`: `--hostkey host_key` is the server{apos}s host key, made by `ssh-keygen` in the case{apos}s set-up, and `--authorized-keys deploy-a:deploy_a.pub` gives the user deploy-a one public key to log in with (<<rfc4252>>). The server has no other user. `start_server` answers the `server_id` that every other `surl-mcp` tool takes, and the `bound_urls`.
+
+The job is the `curl` tool of `curl-mcp`, which runs a `curl` command line in-process: `-u deploy-a:` names the user with an empty password, `--key` and `--pubkey` the private and public key files to offer, `-k` skips the check of the host key, which is not what this recipe is about, `-s` keeps it quiet and `-S` lets an error through. A refused login is exit code 67, `Login denied`, and that is all the job learns.
+
+The server learns more. Each login it judges is a `login_judged` event, and `get_events` with `kinds` `exchange_ended` and `login_judged` answers them, each with the `exchange_id` of its connection, the `account`, the `mechanism` and `is_accepted`. The exchange ends a moment after the client has its answer, so the program asks until it has, for at most fifteen seconds, before it reads.
+
+A key is offered in two steps. `curl` first asks whether the server would accept the public key at all, with no signature, and only if the answer is yes signs with the private key and logs in. The server judges, and records, only the second step. So a job whose public key is authorized but whose private key is not its pair is the one case that leaves a refused `publickey` login in the record: deploy-a refused by `publickey`, then by `password` and `keyboard-interactive`, the two methods `curl` falls back to. That is the refused attempt that says the key was offered. To tell it from a fault of the user or the server, the agent holds the key pair the server was given and runs a control: the same login with `deploy_a`. It exits 0, fetches the file, and the record is `publickey` accepted for deploy-a. The user, the server and the method work, and the one thing that differs is the job{apos}s private key.
+
+A key the server was never given leaves no such line. The server answers the first step with a no and records no login for it, so the record holds only deploy-a refused by `password` and `keyboard-interactive`. A server started with a password account and no authorized keys leaves the same record for a key pair that would log in elsewhere. A job that offers no key at all, only a password the server does not take, leaves it too. The events alone cannot tell these three apart: what tells them apart is the job{apos}s own command line, which the agent has to read, or a control.
+
+A job that logs in as deploy-c is refused the same way, and its record is under the account deploy-c. The agent knows which users it started the server with, so it can say the user is wrong: the server has authorized keys for deploy-a, not for deploy-c. The account in the record is what the job asked for, not what the server knows.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-give-each-user-their-key-from-an-agent>> for one key file for each user, and a key offered as the wrong user.
+* <<sftp-log-in-with-a-public-key>> for the key login itself, on the console.
+* <<http-diagnose-a-404-from-an-agent>> for reading a server{apos}s record to say what went wrong, over HTTP.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4252>>.

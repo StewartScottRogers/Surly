@@ -1,0 +1,79 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-cut-a-download-off-halfway-from-an-agent
+title: Cutting a Download Off Halfway from an Agent
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, get_events, transfer, curl]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-readme, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (batch 13 CI; Curl report 2026-11-22T2247), so cut cases run on Windows and Linux.
+    role: solution
+    claim: The curl tool's first download is cut off, exitCode 56; the curl tool with -C - fetches the rest, and the file is byte for byte the one served.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\nwhole file: yes\n'
+
+  - id: cut-off
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (batch 13 CI; Curl report 2026-11-22T2247), so cut cases run on Windows and Linux.
+    claim: Without a resume the download stops part-way; the answer was 200, exitCode 56, and fewer than the 4,000,000 bytes surl sent had arrived, but more than 1,000,000.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '^from the start: exitCode 56, 200 [1-3]\d{6}\n'
+
+  - id: partial-file-kept
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (batch 13 CI; Curl report 2026-11-22T2247), so cut cases run on Windows and Linux.
+    claim: The curl tool leaves what arrived under CURL_MCP_ROOT, a partial file of between 1,000,000 and 3,999,999 bytes.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\npartial file: [1-3]\d{6} bytes\n'
+
+  - id: event-names-the-cut
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (batch 13 CI; Curl report 2026-11-22T2247), so cut cases run on Windows and Linux.
+    claim: get_events holds one fault_applied event, rule f1, kind drop, for the cut connection.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\nfault_applied: rule f1, kind drop\n$'
+
+  - id: resume-asks-for-the-rest
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (batch 13 CI; Curl report 2026-11-22T2247), so cut cases run on Windows and Linux.
+    claim: The curl tool with -C - asks for the bytes after the partial file's end; surl answers 206 Partial Content, and the rest is shorter than the cut, so it comes whole, exitCode 0.
+    program: cut-download.cs
+    args: [resume]
+    expect:
+      exit: 0
+      stdout-matches: '\nresumed: exitCode 0, 206\n'
+
+  - id: restart-never-finishes
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (batch 13 CI; Curl report 2026-11-22T2247), so cut cases run on Windows and Linux.
+    claim: A client that restarts instead of resuming meets the same cut every time; the curl tool with --retry 2 --retry-all-errors and no -C - retries twice and still ends with exitCode 56.
+    program: cut-download.cs
+    args: [restart]
+    expect:
+      exit: 0
+      stdout: "restarting: exitCode 56, 2 retries\n"
+
+  - id: short-answer-passes
+    claim: The rule counts bytes on each connection, so transfer of an answer shorter than 4,000,000 bytes is served whole, 200.
+    program: cut-download.cs
+    args: [short]
+    expect:
+      exit: 0
+      stdout: "transfer: statusCode 200, hello from surl\n"

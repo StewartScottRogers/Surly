@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-fail-a-proxy-tunnel]]
+=== Failing a Proxy Tunnel
+
+==== Problem
+
+Your client must report a proxy that refuses to open a tunnel, not blame the origin. You want a test proxy that answers every `CONNECT` with `503` on purpose while it still forwards plain Hypertext Transfer Protocol (HTTP) requests, and a way to tell its refusal from an error the origin sent.
+
+==== Solution
+
+Start an origin with `http://` and `https://` listeners and a proxy whose `--fault` rule answers `CONNECT` with `503`, then fetch the origin's `https://` URL through the proxy:
+
+include::.generated/solution.adoc[]
+
+Stop both servers with kbd:[Ctrl+C].
+
+==== Discussion
+
+The origin serves `--directory site` on port 8080 over plain HTTP and on 8081 over HTTP Secure (HTTPS), with the certificate `openssl` wrote, `--cert server.pem` and its key `--key server.key`. Its own `--fault` rule, `error;scheme=http;reply=503;path=/busy.txt`, makes one path answer `503 Service Unavailable`, so the checks can compare a refusal from the origin with one from the proxy. The second `surl` serves no files: `--proxy` makes its listen URL a proxy, and `--fault "error;scheme=http-proxy;command=CONNECT;reply=503"` scopes a rule to `CONNECT` requests on proxy listeners. Both log every event and wire line, `-v`, to a file of their own, `--log-file`.
+
+`-x` names the proxy. For an `https://` URL `curl` does not ask the proxy to fetch anything: it sends `CONNECT 127.0.0.1:8081 HTTP/1.1` and waits for a `2xx` answer before starting Transport Layer Security (TLS) with the origin through the tunnel (<<rfc9110>>). Here the answer is `503`, so there is no tunnel, and `curl` exits `7` with `CONNECT tunnel failed, response 503`. `curl -v` shows the `CONNECT` it sent and the proxy's `HTTP/1.1 503 Service Unavailable` before anything else. `--cacert server.pem` would have trusted the origin's certificate, but the handshake never starts.
+
+The rule touches nothing else. An `http://` URL through the same proxy is forwarded, not tunnelled: `curl` sends the whole request to the proxy, which passes it on, and the file comes back `200`. `-p` makes `curl` tunnel even an `http://` URL, and then the same proxy refuses it the same way.
+
+The two codes `-w` can print tell the two refusals apart. `%{http_connect}` is the proxy's answer to the `CONNECT`, `503`, and `%{http_code}` is the origin's, `000`, because no request reached it. A `503` the origin sent, through the proxy, reads the other way round: `000 503`, and `curl` exits `0`, because without `-f` an error status from the origin is still a completed transfer (<<curl-manual>>). A client that reports "the site is down" on exit `7` has the wrong culprit. (`-s` silences the progress meter, `-S` keeps the error line and `-o` sends the body away.)
+
+Each side's log agrees. The proxy's says `CONNECT 127.0.0.1:<port>: answered 503 Service Unavailable by fault rule f1.`, naming the rule; the origin's holds no completed TLS handshake at all, so `grep -c` counts `0` and exits `1`. Without the rule, a proxy refuses a tunnel the same way to an origin outside loopback, with `403` (<<http-run-a-test-proxy>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fail-a-proxy-tunnel-in-csharp>> for the same refusal from a C# test.
+* <<http-fail-a-proxy-tunnel-from-an-agent>> for the same refusal driven by an agent.
+* <<https-tunnel-through-a-proxy>> for a tunnel that opens.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>.

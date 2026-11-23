@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-fault-until-a-client-retries-from-an-agent]]
+=== Faulting Until a Client Retries
+
+==== Problem
+
+You want to know that a client retries, and then recovers, when its server fails for as long as it takes the client to notice. You want your artificial intelligence (AI) agent to make a Hypertext Transfer Protocol (HTTP) server fail, wait for the event that shows the client met the failure, take the failure away, and confirm that the retry succeeded.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts a server with `start_server`, adds a fault with `add_fault`, starts a client with the `curl` tool without waiting for it, waits with `wait_for_event` for the fault to act, calls `remove_fault`, and reads what happened with `get_events` and `list_faults`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument picks the scenario. `start_server` holds two files in memory and answers the `server_id` that every other `surl-mcp` tool takes, and the `bound_urls`. The first request `curl-mcp` makes has one-time set-up costs, so the program makes one with `transfer`, to a file the fault will not touch, before the test starts.
+
+`add_fault` adds one rule to the running server, written as `surl`{apos}s `--fault` takes it, and answers its ID, `f1`. `error` answers a request with the reply the rule names instead of serving it, `reply=503` is `503 Service Unavailable` (<<rfc9110>>), and `path=/report.txt` makes only that file fail. The rule has no `times`, so it acts on every request until it is removed.
+
+The client is the `curl` tool, which runs a `curl` command line in-process. `-s` keeps it quiet, `-f` makes an HTTP error status a failure, so that a `503` still there when the retries are spent is exit code 22, `--retry 5` allows five retries, `--retry-delay 1` makes each wait one second (<<curl-manual>>), `-o got.txt` writes the file into the program{apos}s folder, and `-w "%{http_code} %{num_retries}"` prints the last status and how many retries it took. The program starts the call and does not await it, so the agent is free to watch the server while the client works.
+
+`wait_for_event` answers the first event of the server that matches its filters, or waits up to `timeout_ms` milliseconds, here ten seconds, and answers `timed_out` true. With `kinds` `fault_applied` it answers when the rule has acted on the client{apos}s first request: the event names the rule, `f1`, and the `target`, `/report.txt`. That is the cue. The agent calls `remove_fault` with the rule{apos}s ID, and from the next request the server behaves again. The client{apos}s next try, a second later, is served: the call the program had not awaited answers exit code 0, status `200` and at least one retry, and `got.txt` holds `report ready`. The program claims between one and five uses of the rule, not an exact count, because how many requests the client makes before the removal depends on timing. `list_faults` then lists no rules.
+
+An agent that forgets the removal sees what the client sees. With `--retry 2` the client meets the rule on all three requests and exits 22 with status `503`; `get_events` with `kinds` `fault_applied` holds three events, and `list_faults` still lists the rule. A rule is scoped by its `path`: a client fetching `/health.txt` is served at once, with no retry, the rule has acted no time and is still listed. An agent that waits for `fault_applied` while such a client runs finds `timed_out` true after its `timeout_ms`, which is its cue that the client never met the fault.
+
+The same removal works without a retrying client. With `transfer` one request at a time, the rule answers `503`, and after `remove_fault` the same request is served with `200`. A `remove_fault` with an ID the server never gave is a tool error, `server s1 has no fault rule f9`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-retry-through-a-busy-server-from-an-agent>> for a rule that spends itself after a set number of requests, rather than one the agent removes.
+* <<http-recover-from-a-dropped-connection-from-an-agent>> for a client that recovers from a dropped connection.
+* <<http-wait-for-an-event-from-an-agent>> for waiting on a server{apos}s events.
+* <<surl-readme>>, <<curl-readme>>, <<curl-manual>>, <<rfc9110>>.

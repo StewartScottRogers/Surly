@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-run-many-transfers-with-a-multi-handle
+title: Running Transfers with a Multi Handle
+protocols: [http]
+tier: advanced
+surface: csharp
+surl-options: [--directory, --fault]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlMulti, CurlMultiCode, CurlWaitSocket, CurlMessage, CurlMultiMessageType, CurlEasy, CurlOption, WriteCallback, CurlInfo, CurlCode, CurlErrorText]
+exit-codes: [0, 1]
+references: [surl-readme, libcurl-api, rfc9110]
+
+fixtures:
+  site/a.txt: "one\n"
+  site/slow1.txt: "slow\n"
+  site/slow2.txt: "slower\n"
+  site/slow3.txt: "slow\n"
+
+# The program is only the client. The server holds each request for a slow file 3 s after reading
+# it, before it answers; a.txt is answered at once.
+servers:
+  main:
+    command: surl --directory site --fault "delay;stage=command;path=/slow1.txt;ms=3000" --fault "delay;stage=command;path=/slow2.txt;ms=3000" --fault "delay;stage=command;path=/slow3.txt;ms=3000" http://127.0.0.1:{{port}}/
+    ready: port
+
+# Times are claimed as ranges: one after the other the three holds would take 9 s or more.
+cases:
+  - id: solution
+    role: solution
+    claim: Four URLs on one multi handle, three of them held 3 s each by the server, all finish with status 200 in under 6 s, far less than the 9 s the holds take one after another; a.txt, added last, is reported first, and the three held files follow in any order, each with its own byte count from its own write callback.
+    program: multi.cs
+    args: ["http://127.0.0.1:{{port}}/slow1.txt", "http://127.0.0.1:{{port}}/slow2.txt", "http://127.0.0.1:{{port}}/slow3.txt", "http://127.0.0.1:{{port}}/a.txt"]
+    expect:
+      exit: 0
+      stdout-matches: '(?m)\A/a\.txt 200 4 bytes\n(?=[\s\S]*^/slow1\.txt 200 5 bytes$)(?=[\s\S]*^/slow2\.txt 200 7 bytes$)(?=[\s\S]*^/slow3\.txt 200 5 bytes$)(?:/slow[123]\.txt 200 [57] bytes\n){3}all done in [3-5]\.\d s, 0 failed\n\Z'
+
+  - id: one-hold
+    claim: One held file on its own takes the server's 3 s or more; that is the time each of the three spent, at the same time, in the solution.
+    program: multi.cs
+    args: ["http://127.0.0.1:{{port}}/slow1.txt"]
+    expect:
+      exit: 0
+      stdout-matches: '\A/slow1\.txt 200 5 bytes\nall done in (?:[3-9]|[1-9]\d)\.\d s, 0 failed\n\Z'
+
+  - id: not-found-is-done
+    claim: A 404 is a finished transfer, not a failed one; curl_multi_info_read reports it as CURLMSG_DONE with the result CURLE_OK, and CURLINFO_RESPONSE_CODE gives 404 with surl's 14-byte body.
+    program: multi.cs
+    args: ["http://127.0.0.1:{{port}}/a.txt", "http://127.0.0.1:{{port}}/nosuch.txt"]
+    expect:
+      exit: 0
+      stdout-matches: '(?m)\A(?=[\s\S]*^/a\.txt 200 4 bytes$)(?=[\s\S]*^/nosuch\.txt 404 14 bytes$)(?:/\w+\.txt \d{3} \d+ bytes\n){2}all done in \d+\.\d s, 0 failed\n\Z'
+
+  - id: one-fails-alone
+    claim: A URL nothing listens on fails that transfer alone with CURLE_COULDNT_CONNECT, 7, in its done message; the other transfer on the same multi handle still finishes with 200, and the program exits 1, the number that failed.
+    program: multi.cs
+    args: ["http://127.0.0.1:{{port}}/a.txt", "http://127.0.0.1:1/x.txt"]
+    expect:
+      exit: 1
+      stdout-matches: '(?m)\A(?=[\s\S]*^/a\.txt 200 4 bytes$)(?=[\s\S]*^/x\.txt failed: 7 Could not connect to server$)(?:/\w\.txt [^\n]+\n){2}all done in \d+\.\d s, 1 failed\n\Z'

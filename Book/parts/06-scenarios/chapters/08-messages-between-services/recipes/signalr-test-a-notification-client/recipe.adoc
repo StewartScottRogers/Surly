@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[signalr-test-a-notification-client]]
+=== Testing a SignalR Notification Client
+
+==== Problem
+
+Your C# client listens on a SignalR hub for notifications, and you want to test it without a real service. You want a stand-in hub in the test, and a test that checks the client receives what was sent, in order, and nothing when nothing is sent.
+
+==== Solution
+
+Start a `SurlServer` with a `signalr://` listen URL as the hub. The client under test, here a small class around `Curl.Api`, connects to it and reads notifications one at a time. The test plays the service: it sends calls to the hub{apos}s `Broadcast` method, which the hub passes to every client connected. The program takes the case to run as its argument; the first case, with none, is one notification:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: a `signalr://` listen URL on port `0`, and `AllowAnonymous`, `--allow-anonymous`, a loosening option that lets a client connect with no login (<<surl-readme>>). Without it the hub refuses the client{apos}s negotiate request: connecting throws `CurlException` with `Code` `HttpReturnedError` and the message `SignalR: The negotiate request failed with HTTP status 401.`
+
+The client under test sends a `CurlRequest` with `HttpMethod.Get` and no body to the hub{apos}s `BoundUrl` on a `CurlClient`, which only listens, as `curl` does with no `-d` (<<curl-readme>>). Each notification is a line of JSON, `["Broadcast","order 1042 has shipped"]`: the method and its arguments. The `CurlResponse` is not complete until the hub sends something, so the client makes the connection in the background and its first read waits for it. Every read has a bound: `NextAsync` returns `null` when nothing comes in time, and the test fails on that instead of hanging.
+
+The test sends with a second `CurlClient`: a `POST` whose `Body` is the call, `{"type":1,"target":"Broadcast","arguments":["..."]}`, where type 1 is an invocation. The hub calls every connected client back as `Broadcast`, so the client receives `Broadcast: order 1042 has shipped`. Three notifications sent one after another arrive in the order sent, and two clients listening at once each receive the notification. The sender is a connected client too and gets its own copy as the response, `["Broadcast","order 1042 has shipped"]`, even when no one else is listening.
+
+The hub keeps no history. A notification sent before the client connected is not replayed, and the first thing a client connecting later receives is what is sent after. The test must therefore know when the client is listening, and the connection call does not say, so it sends numbered pings until the client has one, then reads up to the last ping sent, and only then sends what it is testing. The pings are the test{apos}s, not the client{apos}s,. A client that is sent nothing receives nothing: its read ends after the 1.5 second bound with no notification.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<signalr-receive-a-message>> for the same listening on the console.
+* <<ws-test-a-chat-round-trip>> for a round trip over a WebSocket.
+* <<surl-readme>>, <<curl-readme>>.

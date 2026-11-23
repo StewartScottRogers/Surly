@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs find-the-hang.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-find-why-a-transfer-hangs
+title: Finding Why an FTP Transfer Hangs
+protocols: [ftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, get_events]
+curl-options: [-s, -S, -m, -o, -P]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc959, rfc2428]
+
+fixtures: {}
+
+cases:
+  - id: job-hangs
+    claim: The job logs in, then hangs, until curl gives up at its -m 3 with exit 28 and no byte received.
+    program: find-the-hang.cs
+    args: [passive]
+    expect:
+      exit: 0
+      stdout-matches: '^job: curl exit 28, curl: \(28\) Operation timed out after \d+ milliseconds with 0 bytes received\n'
+
+  - id: solution
+    role: solution
+    claim: Once the exchange has ended, its record shows the session stuck at EPSV, the request for a passive data connection, whose reply came only seconds later, as the exchange ended.
+    program: find-the-hang.cs
+    args: [passive]
+    expect:
+      exit: 0
+      stdout-matches: '\ncommands: USER, PASS, PWD, EPSV\nstuck at: EPSV; its reply came [2-9] s later, as the exchange ended: 229 Entering Extended Passive Mode \(\|\|\|\d+\|\)\n'
+
+  - id: login-was-fine
+    claim: Every step before it, the login included, was answered within a second, so the login is not what hangs.
+    program: find-the-hang.cs
+    args: [passive]
+    expect:
+      exit: 0
+      stdout-matches: '\nbefore it: USER, PASS, PWD, each answered within 1 s\n'
+
+  - id: never-reached-retr
+    claim: The client never sent RETR, so the file was never asked for, and no 226 was sent.
+    program: find-the-hang.cs
+    args: [passive]
+    expect:
+      exit: 0
+      stdout-matches: '\nRETR sent: no\ntransfer complete: no 226 sent\n'
+
+  - id: rule-confirms
+    claim: get_events confirms it from the stand-in's side, a fault_applied event for rule f1, a delay at the command stage on EPSV, in that exchange.
+    program: find-the-hang.cs
+    args: [passive]
+    expect:
+      exit: 0
+      stdout-matches: '\nfault_applied: f1 delay at stage command on EPSV, exchange 1\n$'
+
+  - id: active-completes
+    claim: In active mode, -P -, the same job against the same server completes and writes the file.
+    program: find-the-hang.cs
+    args: [active]
+    expect:
+      exit: 0
+      stdout-matches: '^job: curl exit 0\nreport\.csv: id,total\n1,42\n'
+
+  - id: active-record
+    claim: Its record has EPRT in place of EPSV, no step held, and the download ends 226 Transfer complete, so only the passive step hangs.
+    program: find-the-hang.cs
+    args: [active]
+    expect:
+      exit: 0
+      stdout-matches: '\ncommands: USER, PASS, PWD, EPRT, TYPE, SIZE, RETR, QUIT\nno step held: every reply came within 1 s\ntransfer complete: 226 Transfer complete\n$'
+
+  - id: held-at-retr
+    claim: When the hold is on RETR instead, the same reading names RETR, answered 150 only as the exchange ended, after EPSV and the rest had been answered at once.
+    program: find-the-hang.cs
+    args: [retr]
+    expect:
+      exit: 0
+      stdout-matches: '\nstuck at: RETR report\.csv; its reply came [2-9] s later, as the exchange ended: 150 Opening data connection for report\.csv \(14 bytes\)\nbefore it: USER, PASS, PWD, EPSV, TYPE, SIZE, each answered within 1 s\n'
+
+  - id: anonymous-refused
+    claim: Without --allow-anonymous the stand-in refuses the job's anonymous login, so it fails at once with exit 67 instead of hanging.
+    program: find-the-hang.cs
+    args: [locked]
+    expect:
+      exit: 0
+      stdout: "job: curl exit 67, curl: (67) Access denied: 530\n"

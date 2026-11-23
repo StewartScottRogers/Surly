@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[tftp-check-a-device-fetched-its-config-in-csharp]]
+=== Checking a Config Fetch in C#
+
+==== Problem
+
+Your device should fetch its config file over the Trivial File Transfer Protocol (TFTP) when it boots, and you want a C# test to assert, from what the server recorded, that it read the file whole and which block size the two sides agreed.
+
+==== Solution
+
+Serve the config from an in-process `surl` that records its exchanges, let the device fetch it, and find the read with `FindExchanges`. Here `Curl.Api` stands in for the device{apos}s boot loader:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds `tftp://127.0.0.1:0`, port 0 asking for a free port, and `Files` is an in-memory store of four configs, keyed by the name the device asks for. TFTP has no login: anything that reaches the port can read every file in the store. `RecordExchanges` makes `SurlServer` keep every exchange, packet by packet, and the events that start and end each one (<<surl-readme>>).
+
+The device is a `CurlClient` sending a `CurlRequest` for `tftp://host:port/r1.cfg` and reading the `CurlResponse` body to the end, under a 10-second ceiling. `CurlTftpOptions` is how it asks for a block size: `BlockSize = 1024` is `curl --tftp-blksize 1024`, and `NoOptions` is `--tftp-no-options` (<<curl-readme>>). With no `CurlTftpOptions` the request asks for 512.
+
+The check does not trust that the server has finished writing its record the moment the device returns. It looks every 200 milliseconds, for ten seconds at most. `FindEvents` with a `SurlEventQuery` whose `Kind` is `SurlEventKind.ExchangeEnded` and whose `Scheme` is `tftp` gives the exchanges that have ended; `FindExchanges` with the same scheme gives the records, each a `SurlExchangeRecord` holding its `Chunks`, one datagram each, marked `SurlExchangeDirection.Received` or `Sent`. The check picks the last ended exchange whose read request, opcode 1, names the file (<<rfc1350>>).
+
+The packets say the rest. Data packets, opcode 3, carry the file, 27 bytes in one block here, and the device{apos}s acknowledgement, opcode 4, of the last block number means it has all of it. When the device asked for options, the server{apos}s first packet is an option acknowledgement, opcode 6, whose fields are option names and values separated by zero bytes; `blksize 1024` is the block size agreed (<<rfc2347>>, <<rfc2348>>). A device that asks for nothing gets no option acknowledgement, and the read uses the 512 bytes RFC 1350 fixed.
+
+The check fails in the two ways a test needs. A device that asks for a config the server does not have is sent an error packet, opcode 5, with TFTP error 1, file not found, which the record keeps, and the check reports that the file was asked for and is not there. On the device{apos}s side `SendAsync` throws a `CurlException` with the code `TftpNotFound`, 68, the code `curl` exits with. A config nothing read, here `r5.cfg`, has no exchange at all, and after ten seconds the check says so and returns 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<tftp-check-a-device-fetched-its-config>> for the same check on the console, from `surl`{apos}s log.
+* <<tftp-check-a-device-fetched-its-config-from-an-agent>> for the same check from an agent.
+* <<tftp-choose-a-block-size-in-csharp>> for the block size from the client{apos}s side.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1350>>, <<rfc2347>>, <<rfc2348>>.

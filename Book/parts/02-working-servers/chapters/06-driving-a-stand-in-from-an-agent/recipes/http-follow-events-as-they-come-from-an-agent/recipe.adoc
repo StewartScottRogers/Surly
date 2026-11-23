@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-follow-events-as-they-come-from-an-agent]]
+=== Following Events as They Come
+
+==== Problem
+
+A test runs for a while, and your artificial intelligence (AI) agent wants to follow what a stand-in server records as it goes: read the events in pages, then only what is new, without missing one or reading one twice.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts a server with `start_server`, makes requests with `transfer`, and follows the server{apos}s events with `get_events` and `wait_for_event`, passing each call the sequence number of the last event it has seen:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument picks the scenario. `start_server` answers the `server_id` that every other `surl-mcp` tool takes and the `bound_urls` of the Hypertext Transfer Protocol (HTTP) server; `transfer`, from `curl-mcp`, makes one request and answers its status.
+
+Every event the server keeps has a `sequence` number, which grows with each one. That is the cursor. `get_events` answers the events kept, oldest first, from those with a `sequence` larger than `after_sequence`, at most `max_events` of them, and `has_more` says whether more are kept than it answered. The program starts at 0, reads a page of four events, keeps the last `sequence` it saw, and asks again from there. Three requests make six events, an exchange started and one ended for each, so the pages are four events and `has_more` true, then two and `has_more` false. Nothing is repeated, because each page starts after the last event of the one before, and nothing is missed, because the next event in line is always the first of the next page. The program checks that the pages together carry the same sequence numbers as one read with no cap, once each and in increasing order.
+
+The program makes each request wait until the record holds its end, polling `get_events` for at most ten seconds. The server records an exchange{apos}s end a moment after the client has its answer, so a program that reads the record at once can find the exchange open.
+
+Following means asking again later. Once the agent has read everything, a fourth request makes exactly two more events, and `get_events` with `after_sequence` set to the last one seen answers those two and no others. With no new request it answers no events and `has_more` false. `wait_for_event` takes the same `after_sequence`, and the same filters as `get_events`; instead of answering at once it waits up to `timeout_ms` milliseconds for the first event after the cursor, and answers `timed_out` true when none comes. Sent before the fourth request, it answers when the request starts, with an `exchange_started` event whose `sequence` is larger than the last one the agent had seen. The cursor works with a filter: with `kinds` `exchange_ended` the three requests give three events, and after the first of them only the other two. A page can be as small as one event: `max_events` 1 reads the six events in six pages, with `has_more` true on all but the last. An agent that wants every event, as it happens, loops: wait after the cursor, move the cursor to the event it was given, and wait again.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-wait-for-an-event-from-an-agent>> for waiting for one kind of event, an upload.
+* <<http-see-what-the-client-sent-from-an-agent>> for the bytes of each exchange rather than its events.
+* <<surl-readme>>, <<curl-readme>>.

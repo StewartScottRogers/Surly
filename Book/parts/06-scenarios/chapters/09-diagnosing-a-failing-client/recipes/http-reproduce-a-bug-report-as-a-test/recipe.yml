@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs reproduce.cs, a C# program on the official MCP SDK that starts both hosts from PATH;
+# its argument picks the command or the stand-in. The program is a test: 0 passes, 1 reproduces the
+# report, 2 means the stand-in could show neither.
+schema: 2
+key: http-reproduce-a-bug-report-as-a-test
+title: Reproducing a Bug Report as a Test
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, read_file]
+curl-options: [-s, -S, -m, -w, --digest, -u, -X, -d, --data-binary]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: nothing-fails
+    claim: The reported command, run against the stand-in, exits 0 and is answered 201 Created, so nothing on the client's side says anything went wrong.
+    program: reproduce.cs
+    args: [reported]
+    expect:
+      exit: 1
+      stdout-matches: '^curl --digest -u app:s3cret -X PUT -d @report\.csv \.\.\./reports/today\.csv: exit 0, status 201\n'
+
+  - id: solution
+    role: solution
+    claim: The test reproduces the report; the copy the server stored has no line feeds where report.csv has three, and the test exits 1.
+    program: reproduce.cs
+    args: [reported]
+    expect:
+      exit: 1
+      stdout-matches: '\nstored: "id,total1,422,7", 0 line feeds; report\.csv has 3\nREPRODUCED: the stored copy differs from report\.csv; '
+
+  - id: client-sent-it
+    claim: The recorded request's body is already the one stored, so the line feeds were dropped by the client before sending, not by the server.
+    program: reproduce.cs
+    args: [reported]
+    expect:
+      exit: 1
+      stdout-matches: '\nrequest: PUT /reports/today\.csv HTTP/1\.1; Content-Type: application/x-www-form-urlencoded; body "id,total1,422,7"\n.*the request body was already the stored copy, so the client sent it so\n$'
+
+  - id: evidence-kept
+    claim: The exchange is kept as evidence in a file, one line for each of its chunks, the Digest challenge and the 201 included.
+    program: reproduce.cs
+    args: [reported]
+    expect:
+      exit: 1
+      stdout-matches: '\nevidence: evidence/reported-exchange-1\.txt, 5 chunks\n'
+
+  - id: data-binary-passes
+    claim: With --data-binary in place of -d the body keeps its line feeds, the stored copy equals report.csv, and the test passes, exit 0.
+    program: reproduce.cs
+    args: [data-binary]
+    expect:
+      exit: 0
+      stdout-matches: '\nstored: "id,total\\n1,42\\n2,7\\n", 3 line feeds; report\.csv has 3\nPASS: the stored copy equals report\.csv\n$'
+
+  - id: stand-in-must-accept
+    claim: Against a stand-in started without --allow-uploads the upload is answered 405 and nothing is stored, so the test can neither reproduce nor pass and exits 2.
+    program: reproduce.cs
+    args: [no-uploads]
+    expect:
+      exit: 2
+      stdout-matches: '\nnot reproduced: the stand-in stored nothing \(No file at /reports/today\.csv\.\); it answered 405\n$'

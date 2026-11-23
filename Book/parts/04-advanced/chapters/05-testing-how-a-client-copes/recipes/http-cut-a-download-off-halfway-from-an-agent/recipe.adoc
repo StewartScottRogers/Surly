@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-cut-a-download-off-halfway-from-an-agent]]
+=== Cutting a Download Off Halfway from an Agent
+
+==== Problem
+
+Your agent tests downloaders that must resume, not restart, when the connection breaks part-way through a large file. You want it to run a Hypertext Transfer Protocol (HTTP) server that cuts every transfer after a set number of bytes, see the client's error for the broken transfer, and resume to finish the file.
+
+==== Solution
+
+Write a large file into the case folder, serve it with `surl-mcp`{apos}s `start_server` and a fault rule that cuts every connection after 4,000,000 bytes, download it with `curl-mcp`{apos}s `curl` tool, and resume with `-C -`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program writes `site/big.txt`, 5,000,000 random hexadecimal digits and a line end, and `site/hello.txt` into the case folder, then starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to that folder. A file this size is served from disk with `--directory site` rather than sent in `files`, which would put all of it in one MCP message. `start_server`{apos}s other `arguments` are the fault rule, `--fault drop;after-bytes=4000000`: `drop` ends the connection, and `after-bytes` lets the server send that many bytes on it first, the response head included. It has no `times`, so it cuts every connection that gets that far.
+
+The `curl` tool runs `curl`{apos}s own words in process and writes files under `CURL_MCP_ROOT`. `-o dl/big.txt` names the download; `-w "%{http_code} %{size_download}"` prints the status and how many body bytes came; `--max-time 30` bounds the call; `-sS` keeps only an error line. The first call gets `200` and then the connection is reset under it: `exitCode` 56, a failure to receive, and the call is a tool error. A `drop` aborts the connection rather than closing it, so this is not `18`, the partial-file error a clean close before the promised `Content-Length` would give.
+
+What arrived stays in `dl/big.txt`. A reset also throws away whatever had reached the client's socket and was not yet read, so the partial file is short of the 4,000,000 bytes sent by an amount that depends on timing: more than 1,000,000 bytes arrived in every run, never all of them. The server's own account is in `get_events` with `kinds: ["fault_applied"]`: one event, `rule_id` `f1`, `fault_kind` `drop`.
+
+The second call adds `-C -`, which sends `Range: bytes=<size of the partial file>-` and appends what comes back (<<rfc9110>>). The server answers `206 Partial Content` with only the rest, shorter than the cut, so it comes whole: `exitCode` 0, and the program finds the file identical to the one it wrote. `transfer` has no field for resuming into a file; the `curl` tool is the way. A client that restarts never gets there: with `--retry 2 --retry-all-errors` and no `-C -` the `curl` tool starts from byte 0 on each try, meets the same cut each time, retries twice and ends with `exitCode` 56.
+
+The rule counts bytes on each connection separately, so `transfer` of the short `hello.txt` answers `statusCode` 200 with the whole file.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-cut-a-download-off-halfway>> for the same test on the console.
+* <<http-cut-a-download-off-halfway-in-csharp>> for the same test from a C# program.
+* <<http-recover-from-a-dropped-connection-from-an-agent>> for a connection dropped before any answer.
+* <<rfc9110>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

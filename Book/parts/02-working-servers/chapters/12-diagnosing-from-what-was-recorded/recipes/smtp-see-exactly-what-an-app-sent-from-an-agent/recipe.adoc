@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-see-exactly-what-an-app-sent-from-an-agent]]
+=== Reading the SMTP Dialogue from an Agent
+
+==== Problem
+
+An app says its mail went out and the customer says nothing came. You want an agent to read the Simple Mail Transfer Protocol (SMTP) dialogue from `get_exchanges` and explain where the app{apos}s mail went.
+
+==== Solution
+
+The program starts both hosts and a mail server, lets the `curl` tool send as the app, waits a bounded time for the customer{apos}s mail, and when none comes reads the last SMTP exchange with `get_exchanges` and says whom the envelope named:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` serves the domain and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address, the app{apos}s, Ann{apos}s, and `test@example.com`, which the app{apos}s settings still name from its development. It answers a `server_id` and the `bound_urls`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The app{apos}s send is `-u` for its login, `--mail-from` and `--mail-rcpt` for the envelope (<<rfc5321>>), `-T order.eml` for the message, a fixture in the folder both hosts are confined to, `--crlf` for line ends, and `-w "%{response_code}"` for the last reply; `-s` keeps the progress meter out and `-S` keeps an error in. The URL{apos}s path, `shop.example.com`, is the name `curl` gives in `EHLO`. The answer is exit `0` and `250`: the app has nothing to report.
+
+`wait_for_event` answers the next event that matches, or `{"timed_out":true}` when its `timeout_ms` passes, which is not a tool error. The program first waits, for at most ten seconds, for the `exchange_ended` event of the `smtp` exchange, so the record is complete when it reads it; then for a `store_changed` event in the `mail` store whose `name` is `ann@example.com`, for at most two seconds. That one times out: nothing reached Ann.
+
+`get_exchanges` with `scheme` `smtp` answers the server{apos}s record of each exchange, its `chunks` in the order they crossed the wire, each with a `direction`, `received` for what the client sent and `sent` for what the server answered, and its `data`. The program prints the last exchange from `MAIL FROM` on, a line at a time, `C:` for the client and `S:` for the server, and then reads it as an agent should: each `RCPT TO` answered `250` is a mailbox the message was delivered to, here `test@example.com`, while the `To:` header after `DATA` says `ann@example.com`. The envelope decides where a message goes; the headers are only text in it (<<rfc5322>>). `list_messages` agrees: one message in the test mailbox, none in Ann{apos}s.
+
+Before the envelope the client sent `EHLO shop.example.com`, `AUTH CRAM-MD5`, and its answer to the server{apos}s challenge, which `get_exchanges` keeps as sent, a line of base64 holding the user name and a digest. The record is the raw exchange, so an agent should treat it as holding whatever a login carries; `surl`{apos}s own log and trace write such lines as `****` (<<smtp-see-exactly-what-an-app-sent>>), and `surl-mcp` has neither. The record is also the dialogue, not the message as stored: `read_message` answers the stored copy as `text`, and it starts with `Return-Path: <app@example.com>`, the envelope sender, and a `Received:` line naming `shop.example.com`, both added by the server above the app{apos}s `From:`. With the app{apos}s setting corrected Ann{apos}s mail arrives and the recorded `RCPT TO` names her.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-see-exactly-what-an-app-sent>> for the same task on the console.
+* <<smtp-see-exactly-what-an-app-sent-in-csharp>> for the same task in C#.
+* <<smtp-see-why-mail-was-refused-from-an-agent>> for a send that was refused.
+* <<surl-readme>>, <<rfc5321>>, <<rfc5322>>.

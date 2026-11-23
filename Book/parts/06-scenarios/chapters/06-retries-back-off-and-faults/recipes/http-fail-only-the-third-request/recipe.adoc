@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-fail-only-the-third-request]]
+=== Failing Only the Third Request
+
+==== Problem
+
+Your client fetches in a sequence, and you want the test to see one failure in the middle of it: the first two requests succeed, the third fails, and the rest succeed. You want a response override that counts requests and fails exactly the third, so the test checks what the client does with a single failure.
+
+==== Solution
+
+Start a `SurlServer` in the test and add an override to its fault plan that counts the requests it is asked about and answers `503` to the third. The client is a `CurlClient`, and the program takes the case to run as its argument; the first case, with none, fetches five times with no retry:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `http://` listen URL on port `0`, two in-memory files in `Files`, and `RecordExchanges` so the server keeps the events the test reads. `Faults`, a `SurlServerFaults`, is the fault plan, and `AddOverride` adds a response override to it. Its `SurlFaultScope` is `Scheme` `http` at `FaultStage.Command`, the point where a request has been read and not yet answered, so the override is asked once for each request. The decision receives a `FaultPoint` and returns a `SurlFault`, or `null` to leave the request alone. `SurlFault.ProtocolError("503")` is an HTTP `503 Service Unavailable` (<<rfc9110>>), as `surl --fault "error;scheme=http;reply=503"` would give.
+
+The count is the test{apos}s own state. The server calls the decision on its own threads, so the program increments it with `Interlocked`, and the third call is the one that answers `503`. Five fetches with no retry give `200`, `200`, `503`, `200`, `200`: one failure, in the middle, and the override does nothing before or after it.
+
+The count includes every request, so a retry is a request too. A client that tries a failed fetch again, up to three times, needs two attempts for the third fetch and one for each of the others: the retry is the fourth request the override counts, which it lets through. The override is asked six times for five fetches. A client that gives up at the first failure stops at the third fetch with `503`, and the override has been asked three times. Each fetch is a `CurlRequest` sent on one `CurlClient`. The test reads the failure from the `CurlResponse`: a `503` is an ordinary response and not an exception, and `StatusCode` is what it checks.
+
+The server also records the failure. A `SurlEventQuery` for `SurlEventKind.FaultApplied` finds one `FaultAppliedEvent` for the run, with `Kind` `Error` and `Target` `/report.txt`, and no event for the four requests that were served. The test waits for it with `WaitForEventAsync` for at most thirty seconds, so a missing event fails the test instead of hanging it.
+
+The scope decides what is counted. With `Path` set to `/report.txt` the override is asked only about requests for that path. In a run that mixes `/other.txt` and `/report.txt`, the third request for the report is the one that fails, which is the fifth request overall, and the override is asked three times. One untimed fetch of the other file comes first and takes the process{apos}s set-up cost off the cases that follow; the override is added after it, so it is not counted.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-change-an-answer-per-request>> for an override that decides from the test{apos}s state.
+* <<http-retry-a-flaky-endpoint-in-csharp>> for a fault rule that answers 503 twice and then serves the file.
+* <<http-catch-a-hook-that-fails>> for a decision that throws.
+* <<surl-readme>>, <<rfc9110>>.

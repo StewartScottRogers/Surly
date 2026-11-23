@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: stomp-join-a-topic-across-two-protocols-in-csharp
+title: Joining a Topic Across Two Protocols
+protocols: [stomp, mqtt]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlRetainedMessage, CurlClient, CurlRequest, CurlResponse, CurlContent]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, stomp12, mqtt5]
+triplet: stomp-join-a-topic-across-two-protocols
+
+fixtures: {}
+
+# Each case starts its own in-process broker. Curl.Api is both services: a STOMP POST is the old one's send, an
+# MQTT 5 GET whose body stays open is the new one's subscription.
+cases:
+  - id: solution
+    role: solution
+    claim: Two orders the old service sends over STOMP to /topic/orders/created reach the new service subscribed over MQTT 5 to orders/created, in the order sent.
+    program: join.cs
+    args: [solution]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "order 1001\norder 1002\n"
+
+  - id: whole-file
+    claim: The new service received the pings from the wait to join, one or more, then the two orders, one message a line and nothing else.
+    program: join.cs
+    args: [whole]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout-matches: '\A(ping\n)+order 1001\norder 1002\n\Z'
+
+  - id: broker-kept-the-last
+    claim: The broker kept the last order as the topic's retained message; Messages.ReadRetainedAsync reads order 1002 from the store, waiting for it ten seconds at most.
+    program: join.cs
+    args: [kept]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "kept on orders/created: order 1002\n"
+
+  - id: stomp-not-sent-retained
+    claim: A STOMP subscriber to the same topic is not sent the retained message, which is MQTT's alone; surl ends the idle subscription after a second with nothing sent.
+    program: join.cs
+    args: [stomp-retained]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "STOMP subscriber was sent 0 bytes\n"
+
+  - id: dotted-name
+    claim: The map is slash for slash; an old service that sends to /topic/orders.created, with a dot, does not reach orders/created, and after ten tries the test reports that nothing crossed, exit 1.
+    program: join.cs
+    args: [dotted]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "nothing crossed from /topic/orders.created to orders/created\n"
+
+  - id: queue-not-topic
+    claim: An old service that sends to /queue/orders/created sends to a queue, which no MQTT topic carries; nothing crosses, exit 1.
+    program: join.cs
+    args: [queue]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "nothing crossed from /queue/orders/created to orders/created\n"

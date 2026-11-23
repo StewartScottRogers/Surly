@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-despite-a-bad-recipient-from-an-agent]]
+=== Surviving a Refused Recipient from an Agent
+
+==== Problem
+
+You want an agent to send one message over Simple Mail Transfer Protocol (SMTP) to a list with one address outside the server{apos}s domain, see the `550` for that address in `get_exchanges`, and confirm the others were delivered.
+
+==== Solution
+
+The program starts both hosts and a mail server for one domain. The `curl` tool sends with `--mail-rcpt-allowfails`, `wait_for_event` waits for the deliveries, `get_exchanges` gives the answer to each recipient, and `list_messages` counts the mailboxes of those accepted:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` is the only domain served, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. A recipient outside every mail domain is answered `550 5.7.1 Relaying denied`, even for a sender that has logged in: a server that took mail for any domain would be an open relay (<<rfc5321>>). That refusal is the default and stays; the choice is the sender{apos}s.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The send is `-u` for the app{apos}s login, `--mail-from` and one `--mail-rcpt` per person, `-T minutes.eml` for the message, a fixture in the folder both hosts are confined to, and `--crlf` for line ends; `-s` keeps the progress meter out of the answer and `-S` keeps the error line in. `--mail-rcpt-allowfails` tells `curl` to carry on past a refused recipient and send to those accepted (<<curl-manual>>). Its answer is exit `0` and an empty standard error: nothing in it names Carol.
+
+Delivery is asynchronous. Every delivery is a `store_changed` event in the `mail` store, and `wait_for_event` answers the next one after `after_sequence`, with a `name` such as `ann@example.com/INBOX/;UID=1`, or `{"timed_out":true}` when its `timeout_ms` of ten seconds passes. The program asks until Cy{apos}s event has come, then waits for the `exchange_ended` event, so the server{apos}s record of the exchange is complete. `get_exchanges` with `scheme` `smtp` answers that record, its `chunks` holding what crossed the wire; the agent pairs each `RCPT TO:<...>` with the line the server sent after it. Carol{apos}s is `550 5.7.1 Relaying denied`, the other three `250 2.1.5 Recipient OK`, and `list_messages` finds one message in each of those three mailboxes. The record has a single `DATA`: the message was sent once, and the server announced three deliveries. `read_message` shows that the copies say nothing either: Ann{apos}s `To:` still names all four.
+
+Without `--mail-rcpt-allowfails` one refusal ends the send before `DATA`: the `curl` tool exits `55`, marked as a tool error, with `RCPT failed: 550`, and Dee, accepted before Carol was refused, holds nothing. When every recipient is refused there is no one to send to, and the tool exits `55` with `RCPT failed: 550 (last error)` even with `--mail-rcpt-allowfails`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-despite-a-bad-recipient>> for the same task on the console.
+* <<smtp-send-despite-a-bad-recipient-in-csharp>> for the same task in C#.
+* <<smtp-send-to-several-recipients-from-an-agent>> for one message to several recipients, all accepted.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

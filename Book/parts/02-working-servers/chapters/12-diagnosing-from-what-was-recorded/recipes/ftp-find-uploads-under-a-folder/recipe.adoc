@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-find-uploads-under-a-folder]]
+=== Finding Uploads Under a Folder
+
+==== Problem
+
+Your C# code uploads files to a File Transfer Protocol (FTP) server, some under `/uploads` and some in a folder whose name only starts the same, `/uploads2`. You want the test to find every upload under `/uploads` in what the server recorded, and not the ones in `/uploads2`, with `SurlEventQuery.Name`.
+
+==== Solution
+
+Start a `SurlServer` with an `ftp://` listener in the test, run the uploads, and ask its record for the content changes whose name is under `/uploads`. The program takes the case to run as its argument; the first case, with none, is that query:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `ftp://` listen URL on port `0`, `AllowAnonymous` for `--allow-anonymous`, `AllowUploads` for `--allow-uploads`, and `RecordExchanges`, which keeps the events the test reads (<<surl-readme>>, <<rfc959>>). The code under test is a `CurlClient`: each upload is a `CurlRequest` with `HttpMethod.Put`, a byte `Body`, and `CurlFtpOptions` with `CreateMissingDirectories` set to `FtpCreateMissingDirectories.Create`, the spelling of `--ftp-create-dirs`, so the folders are made on the way. The program uploads `/uploads/a.txt`, `/uploads/b.txt`, `/uploads/2026/c.txt` and `/uploads2/d.txt`.
+
+`FindEvents` takes a `SurlEventQuery` and returns the kept events, oldest first. The query here has `Kind` `SurlEventKind.StoreChanged`, `Store` `StoreKind.Content` and `Name` `/uploads`; the `CurlResponse` of each upload is read to its end and only its arrival matters. `Name` matches a path exactly or as a segment prefix: `/uploads` matches `/uploads/a.txt` and `/uploads/2026/c.txt`, and does not match `/uploads2/d.txt`, since `uploads2` is not the segment `uploads`. It is case-sensitive, so `/Uploads` finds nothing. A longer name narrows: `/uploads/2026` finds the one upload in that subfolder. With no `Name` the query finds all four uploads.
+
+Each result is a `StoreChangedEvent`, and its `Change`, a `StoreChange`, says what happened. A file stored is `Written`, with the file{apos}s `Name` and its `ByteCount`, and `ExchangeId` ties it to the connection that made it. The server also records a `Created` change for each folder it had to make, so the query for `/uploads` returns five events, two of them folders. A test that counts uploads keeps the `Written` ones: three under `/uploads`, and with no `Name`, four.
+
+The test does not poll. Events are kept in the order they happen, so it waits with `WaitForEventAsync` for the last upload{apos}s event, for at most thirty seconds, and the earlier ones are there when it returns; a missing event fails the test instead of hanging it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-list-and-upload-in-csharp>> for listing and uploading from C#.
+* <<http-wait-for-an-upload-in-process>> for waiting on one upload.
+* <<surl-readme>>, <<rfc959>>.

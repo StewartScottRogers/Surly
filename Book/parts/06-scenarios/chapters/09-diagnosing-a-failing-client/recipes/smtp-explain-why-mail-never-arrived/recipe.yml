@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs why-no-mail.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-explain-why-mail-never-arrived
+title: Explaining Why Mail Never Arrived
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, list_mailboxes]
+curl-options: [-s, -m, -u, -T, --mail-from, --mail-rcpt, --mail-rcpt-allowfails]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5321]
+
+fixtures: {}
+
+cases:
+  - id: fails-quietly
+    claim: The app's report with its job log attached fails with curl exit 55 and, run quietly as the app runs it, leaves standardError empty.
+    program: why-no-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^the report with its job log, to ann: curl exit 55, standardError ""\n'
+
+  - id: solution
+    role: solution
+    claim: The exchange names the refusal; MAIL FROM, carrying the message's size, was answered 552 5.3.4 Message size exceeds the size limit.
+    program: why-no-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n  refused: MAIL FROM:<app@example\.com> SIZE=2761 -> 552 5\.3\.4 Message size exceeds the size limit\n'
+
+  - id: limit-advertised
+    claim: The server had said its limit in its EHLO reply, SIZE 2048, and the message is 2761 bytes.
+    program: why-no-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n  the server''s EHLO reply said: SIZE 2048; the message is 2761 bytes\n  the message itself was never accepted, so nothing was delivered\n'
+
+  - id: exit-0-yet-missing
+    claim: A send to ann and to bob@example.org, a typo, with --mail-rcpt-allowfails exits 0, yet the exchange holds the refused RCPT TO:<bob@example.org>, 550 5.7.1 Relaying denied.
+    program: why-no-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nthe report, to ann and bob: curl exit 0, standardError ""\n  refused: RCPT TO:<bob@example\.org> -> 550 5\.7\.1 Relaying denied\n'
+
+  - id: ann-got-hers
+    claim: In that send the recipient the server accepted got the mail; its delivery event names ann@example.com/INBOX/;UID=1.
+    program: why-no-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\n  ann@example\.com: accepted, delivered to ann@example\.com/INBOX/;UID=1\n'
+
+  - id: accepted-and-discarded
+    claim: Mail to carol@example.com is refused nowhere and curl exits 0, yet no delivery event comes within 5 s, since no mailbox has that address.
+    program: why-no-mail.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nthe report, to carol: curl exit 0, standardError ""\n  refused: nothing\n  carol@example\.com: accepted with 250, delivered nowhere within 5 s; list_mailboxes: No mailboxes for carol@example\.com\.\n$'

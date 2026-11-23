@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-cut-a-download-off-halfway-in-csharp]]
+=== Cutting a Download Off Halfway in C#
+
+==== Problem
+
+Your .NET downloader must resume, not restart, when the connection breaks part-way through a large file. You want a C# test whose server cuts every transfer after a set number of bytes, the exception your code sees for the broken transfer, and a resume that finishes the file.
+
+==== Solution
+
+Start a `SurlServer` that serves a file of 5,000,000 hexadecimal digits and drops every connection after 4,000,000 bytes, download it with a `CurlClient` into a file, and when the read fails, ask for the rest with a `Range` header:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program makes `big.txt` itself, 5,000,000 random hexadecimal digits and a line end, and its `SurlServerOptions` serve it from `Files` beside `hello.txt`; `SurlServer.StartAsync` starts the server in process on a free port. `Faults` holds one `SurlFault`: `SurlFault.DropConnection()` ends the connection, and `with { AfterBytes = 4_000_000 }` lets the server send that many bytes on it first, the response head included. It is the spelling of `surl --fault "drop;after-bytes=4000000"`. The rule has no `Times`, so it cuts every connection that gets that far, and the in-process server has no readiness check to spend it on. `RecordExchanges` keeps the server's events for the end of the program.
+
+`CurlClient.Create` with `CurlClientOptions.Timeout` bounds each transfer. `SendAsync` returns the `CurlResponse` once the head has come, `200`, and the program copies its `Body` stream to `dl/big.txt`. Part-way through, a `ReadAsync` throws `CurlException` with `Code` `RecvError` (56): the connection was reset under it. A `drop` aborts the connection rather than closing it, so this is not code 18, the partial-file error, which a server closing cleanly before the promised `Content-Length` would cause. Either way, your code knows the file is incomplete because the read threw.
+
+What the copy wrote stays on disk. A reset also throws away whatever had reached the client's socket and was not yet read, so the partial file is short of the 4,000,000 bytes sent by an amount that depends on timing: never all of them, and on a loaded Linux machine under 1,000,000. The server's own count is in its events: `FindEvents` with a `SurlEventQuery` for `SurlEventKind.FaultApplied` finds one `FaultAppliedEvent`, of kind `Drop`, for each cut connection.
+
+To resume, the program sends a second `CurlRequest` with `Headers` holding `Range: bytes=<size of the partial file>-` and appends what comes (<<rfc9110>>). The server answers `206 Partial Content` with only the rest. When less than 1,000,001 bytes arrived, the rest is longer than the cut and is cut again, so the program resumes until the file is whole, up to five times; then the file matches the one served byte for byte. That is what `curl -C -` does on the console, run again after each cut. A downloader that starts from byte 0 on each try instead never gets there: three tries from the start are all cut off.
+
+The rule counts bytes on each connection separately, so a short answer, `hello.txt`, is served whole.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-cut-a-download-off-halfway>> for the same test on the console.
+* <<http-cut-a-download-off-halfway-from-an-agent>> for the same test from an agent.
+* <<http-stream-a-download-and-hash-it>> for a streamed download read as it comes.
+* <<rfc9110>>, <<surl-readme>>, <<curl-readme>>.

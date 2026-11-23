@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-mail-with-an-attachment-from-an-agent]]
+=== Sending Attachments from an Agent
+
+==== Problem
+
+You want an agent to send a message with a file attached over Simple Mail Transfer Protocol (SMTP) and use `read_message` to check the attached file survived.
+
+==== Solution
+
+The program starts both hosts and a mail server. The `curl` tool builds the message from two `-F` parts, the text and the file, and sends it; `wait_for_event` waits for the delivery, `read_message` gives the stored message, and the agent decodes the attachment and compares it with the file:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` is the domain served and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address.
+
+The `curl` tool runs `curl`{apos}s own arguments, reading files from the folder it is confined to, and answers `exitCode`, `standardOutput` and `standardError` as JSON. `-u` is the app{apos}s login and `--mail-from` and `--mail-rcpt` the envelope (<<rfc5321>>). Over SMTP, each `-F` with no name before its `=` is one part of a Multipurpose Internet Mail Extensions (MIME) message that `curl` writes itself (<<curl-manual>>): `=The nightly build report is attached.` is the text, and `=@report.csv;type=text/csv;encoder=base64` the file, `@` naming it, `type=` its content type and `encoder=base64` its transfer encoding. Each `-H` adds a header at the top. `-w "%{response_code}"` prints the last reply, `250`; `-s` keeps the progress meter out and `-S` keeps an error in.
+
+Delivery is asynchronous. `wait_for_event` with `kinds` of `store_changed`, `store` `mail` and `name` `ann@example.com` answers Ann{apos}s delivery, or `{"timed_out":true}` once its `timeout_ms` of ten seconds passes. `read_message` then answers the stored message as `text`, and sets no flag.
+
+The agent reads the MIME structure as a mail reader would (<<rfc2045>>). The message{apos}s own header has the three `-H` lines and two `curl` added, `Mime-Version: 1.0` and `Content-Type: multipart/mixed` with the boundary it chose; the body is split at that boundary. Part 1 has no header of its own, so it is plain text. Part 2{apos}s header is `Content-Disposition: attachment; filename="report.csv"`, `Content-Type: text/csv` and `Content-Transfer-Encoding: base64`. The agent takes the part marked `attachment`, decodes it from base64 and finds the 69 bytes of `report.csv`.
+
+`type=` and `encoder=` matter. Without them `curl` attaches the file as `application/octet-stream` and `8bit`, its bytes unencoded. A file that is not there stops `curl` before it sends anything: the tool answers exit `26` with `curl`{apos}s error line, and the program reads both from the answer.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-mail-with-an-attachment>> for the same task on the console.
+* <<smtp-send-mail-with-an-attachment-in-csharp>> for the same task in C#.
+* <<smtp-check-a-mail-attachment-from-an-agent>> for testing an attachment an app built itself.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc2045>>.

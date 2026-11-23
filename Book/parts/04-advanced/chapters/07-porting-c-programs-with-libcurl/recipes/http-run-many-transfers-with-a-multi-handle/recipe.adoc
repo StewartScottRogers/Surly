@@ -1,0 +1,101 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-run-many-transfers-with-a-multi-handle]]
+=== Running Transfers with a Multi Handle
+
+==== Problem
+
+Your C program downloads several URLs at once with `curl_multi_perform`, and you want the port to C# to do the same against a test server, read each transfer{apos}s result as it finishes, and show that the downloads really overlapped.
+
+==== Solution
+
+Port the program call for call with `Libcurl`, and run it against `surl` with fault rules that hold three of the files for 3 seconds each:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program puts one easy handle per URL on a multi handle, drives them all until none is running, and prints each result as libcurl reports it:
+
+[source,c]
+----
+#include <stdio.h>
+#include <curl/curl.h>
+
+static size_t count(char *data, size_t size, size_t nmemb, void *userdata)
+{
+  *(curl_off_t *)userdata += size * nmemb;
+  return size * nmemb;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *easy[16];
+  curl_off_t sizes[16] = { 0 };
+  CURLM *multi;
+  CURLMsg *msg;
+  int i, running, left, failed = 0;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  multi = curl_multi_init();
+  for(i = 1; i < argc && i < 16; i++) {
+    easy[i] = curl_easy_init();
+    curl_easy_setopt(easy[i], CURLOPT_URL, argv[i]);
+    curl_easy_setopt(easy[i], CURLOPT_WRITEFUNCTION, count);
+    curl_easy_setopt(easy[i], CURLOPT_WRITEDATA, &sizes[i]);
+    curl_easy_setopt(easy[i], CURLOPT_PRIVATE, &sizes[i]);
+    curl_multi_add_handle(multi, easy[i]);
+  }
+  do {
+    CURLMcode mc = curl_multi_perform(multi, &running);
+    if(!mc && running)
+      mc = curl_multi_poll(multi, NULL, 0, 1000, NULL);
+    if(mc) {
+      fprintf(stderr, "curl_multi failed: %s\n", curl_multi_strerror(mc));
+      return 1;
+    }
+    while((msg = curl_multi_info_read(multi, &left))) {
+      if(msg->msg == CURLMSG_DONE) {
+        CURL *e = msg->easy_handle;
+        char *url;
+        long code;
+        curl_off_t *size;
+        curl_easy_getinfo(e, CURLINFO_EFFECTIVE_URL, &url);
+        curl_easy_getinfo(e, CURLINFO_RESPONSE_CODE, &code);
+        curl_easy_getinfo(e, CURLINFO_PRIVATE, &size);
+        if(msg->data.result == CURLE_OK)
+          printf("%s %ld %" CURL_FORMAT_CURL_OFF_T " bytes\n", url, code, *size);
+        else {
+          failed++;
+          printf("%s failed: %d %s\n", url, msg->data.result,
+                 curl_easy_strerror(msg->data.result));
+        }
+        curl_multi_remove_handle(multi, e);
+        curl_easy_cleanup(e);
+      }
+    }
+  } while(running);
+  printf("all done, %d failed\n", failed);
+  curl_multi_cleanup(multi);
+  curl_global_cleanup();
+  return failed;
+}
+----
+
+The port prints each URL{apos}s path where the C prints the whole URL, so the output does not carry the port, and it adds the elapsed time to the last line, which is what shows the transfers overlapped. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, `CurlGlobalFlags` holding libcurl{apos}s flag values, and returns the `CurlLibrary` that makes both kinds of handle: `MultiInit` is `curl_multi_init` and gives a `CurlMulti`, `EasyInit` is `curl_easy_init` and gives a `CurlEasy`. `SetOption` is `curl_easy_setopt` with a `CurlOption` named after its `CURLOPT_` constant. Each easy handle has its own `WriteCallback`, which adds the bytes it is given to that handle{apos}s count and answers how many it took; its closure holds the count, so the port needs neither `CURLOPT_WRITEDATA` nor `CURLOPT_PRIVATE`, and looks the count up by the easy handle instead. `AddHandle` is `curl_multi_add_handle`.
+
+The loop is libcurl{apos}s usual one. `PerformAsync` is `curl_multi_perform`: it moves every transfer on as far as it can without waiting, and answers a `CurlMultiCode`, libcurl{apos}s `CURLMcode`, with the number of transfers still running. `PollAsync` is `curl_multi_poll`, here with no extra sockets (an empty array of `CurlWaitSocket`) and a 1,000-millisecond ceiling; it returns as soon as a transfer has something to do. `InfoRead` is `curl_multi_info_read`: it answers a `CurlMessage`, libcurl{apos}s `CURLMsg`, or null when no message waits. A message whose `Type` is `CurlMultiMessageType.Done`, `CURLMSG_DONE`, names the finished easy handle in `Easy` and its result in `Result`, a `CurlCode` with libcurl{apos}s numbers. `GetInfo` is `curl_easy_getinfo`, with `CurlInfo.EffectiveUrl` and `CurlInfo.ResponseCode` for `CURLINFO_EFFECTIVE_URL` and `CURLINFO_RESPONSE_CODE`. `RemoveHandle` and disposing the easy handle are `curl_multi_remove_handle` and `curl_easy_cleanup`; disposing the multi handle and the library is `curl_multi_cleanup` and `curl_global_cleanup`. `CurlErrorText.Easy` and `CurlErrorText.Multi` are `curl_easy_strerror` and `curl_multi_strerror` (<<libcurl-api>>).
+
+`surl` serves `site` over the Hypertext Transfer Protocol (HTTP) with `--directory site`. Each `--fault "delay;stage=command;path=/slow1.txt;ms=3000"` makes it read a request for that path and wait 3 seconds before it answers, every time (<<surl-readme>>). `--fault` loosens the server on purpose for a test, and `surl` warns on start. One held file takes 3 seconds or more. Three of them on one multi handle take not much more than that, well under 6 seconds where one after the other would need 9: the requests were all made at once, and the server held them side by side. `a.txt`, answered at once, is reported first though it was added last, because messages come in the order transfers finish. The three held files finish within moments of each other, in no fixed order, so the claim allows any.
+
+A result is about the transfer, not the answer. A `404 Not Found` is a transfer that finished: its message has the result `CURLE_OK`, and the response code says 404 (<<rfc9110>>). A URL that nothing listens on is `CURLE_COULDNT_CONNECT`, 7, in that transfer{apos}s message alone; the other transfer on the handle still finishes, and the program returns the number that failed, 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-take-timings-with-curl-easy-getinfo>> for one easy handle{apos}s timers against a delayed path.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc9110>>.

@@ -1,0 +1,96 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-abort-from-a-progress-callback]]
+=== Aborting from a Progress Callback
+
+==== Problem
+
+Your C program gives up on a slow File Transfer Protocol (FTP) download from its progress callback, and you want the port to C# to stop the same way, with the same error code, against a server that is slow on purpose.
+
+==== Solution
+
+Port the program call for call with `Libcurl`, and run it against `surl` with a fault rule that holds every download of one file for 3 seconds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program downloads the URL on its command line, counts the bytes and drops them, and gives up once the download has run longer than the number of seconds it is given:
+
+[source,c]
+----
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <curl/curl.h>
+
+static long limit;
+static time_t start;
+static curl_off_t received;
+static long calls;
+
+static size_t write_cb(char *data, size_t size, size_t nmemb, void *userdata)
+{
+  received += size * nmemb;
+  return size * nmemb;
+}
+
+static int xferinfo(void *p, curl_off_t dltotal, curl_off_t dlnow,
+                    curl_off_t ultotal, curl_off_t ulnow)
+{
+  time_t elapsed = time(NULL) - start;
+  calls++;
+  if(limit > 0 && elapsed > limit && (dltotal == 0 || dlnow < dltotal)) {
+    printf("giving up after %ld s with %" CURL_FORMAT_CURL_OFF_T " of %"
+           CURL_FORMAT_CURL_OFF_T " bytes\n", (long)elapsed, dlnow, dltotal);
+    return 1;
+  }
+  return 0;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *curl;
+  CURLcode res;
+
+  limit = atol(argv[2]);
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  curl_easy_setopt(curl, CURLOPT_URL, argv[1]);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+  curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo);
+  if(argc < 4)
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+  start = time(NULL);
+  res = curl_easy_perform(curl);
+  if(res != CURLE_OK)
+    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+  else
+    printf("received %" CURL_FORMAT_CURL_OFF_T " bytes\n", received);
+  printf(calls ? "progress callback called\n" : "progress callback never called\n");
+  curl_easy_cleanup(curl);
+  curl_global_cleanup();
+  return (int)res;
+}
+----
+
+The port keeps the C program{apos}s shape. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)` and returns the `CurlLibrary` the easy handle comes from, `CurlGlobalFlags` holding libcurl{apos}s flag values; disposing the two is `curl_easy_cleanup` and `curl_global_cleanup`. `CurlEasy.SetOption` is `curl_easy_setopt` with a `CurlOption` named after its `CURLOPT_` constant. The write callback is a `WriteCallback`, which takes the bytes and answers how many it took, and the progress callback is a `TransferInfoCallback`, `CURLOPT_XFERINFOFUNCTION`{apos}s function: it is given the bytes expected and received so far, down and up, and answers an `int`. The C program{apos}s `void *` user data has no counterpart; the callbacks keep what they need in the closure. `Perform` answers a `CurlCode`, libcurl{apos}s `CURLcode` with the same numbers, and `CurlErrorText.Easy` is `curl_easy_strerror`. The port{apos}s clock is a `Stopwatch` where the C program calls `time()`.
+
+The callback is called only when `CURLOPT_NOPROGRESS` is 0. Its default is 1, and a program that sets the function and forgets the switch has a callback that never runs: given a third argument, the program leaves the switch alone, and the slow file arrives whole after the hold, however short the limit (<<libcurl-api>>).
+
+When the callback answers anything but 0, libcurl stops the transfer and `curl_easy_perform` answers `CURLE_ABORTED_BY_CALLBACK`, 42, with the text `Operation was aborted by an application callback`. The port answers the same code and text, and the program returns the code as its exit status, as the C program does, so a script that ran the C program sees no difference.
+
+`surl` serves `site` over FTP with `--directory site` (<<rfc959>>), and `--allow-anonymous` lets the program in without an account, which is what the C program does when its URL names no user; it warns on start. `--fault "delay;stage=command;command=RETR;path=/slow.bin;ms=3000"` makes it read the `RETR` command for `/slow.bin` and wait 3 seconds before it answers, every time (<<surl-readme>>). `--fault` is for tests only, and `surl` warns on start for it too. `fast.bin`, the same million bytes, is sent at once, so the limit of 1 second never fires on it. A limit of 10 seconds is longer than the hold, and `slow.bin` arrives whole. A file the server does not have is `CURLE_REMOTE_FILE_NOT_FOUND`, 78: the transfer failed before the callback had anything to give up on.
+
+One difference from libcurl shows here. libcurl calls the progress callback about once a second while it waits for the server (<<libcurl-api>>), so a program like this one gives up about a second into the hold, with nothing received. This port calls it only when bytes move, so the program first sees the limit has passed when the data starts, after the 3 seconds, with the first block of the file already received. The exit code is the same; the time is not. A port that must give up while a server sends nothing at all has to bound the transfer another way, with `CURLOPT_TIMEOUT` for example (<<libcurl-api>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-take-timings-with-curl-easy-getinfo>> for the transfer timers and a server that delays on purpose.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<ftp-resume-a-dropped-download>> for an FTP download the server cuts short.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc959>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-serve-two-mail-domains-from-an-agent]]
+=== Serving Two Mail Domains from an Agent
+
+==== Problem
+
+You want an agent to run one mail server for two domains and show, mailbox by mailbox, where each message landed.
+
+==== Solution
+
+The program starts both hosts and one server for `one.test` and `two.test`. The `curl` tool sends each brand{apos}s welcome, `wait_for_event` waits for the deliveries, and for each owner `list_mailboxes` and `read_message` show what each mailbox holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs, an `smtp://` and an `imap://` one over one mail store, and in `arguments` `surl`{apos}s own options (<<surl-readme>>). `--mail-domain` is given once per domain, and each `--mailbox` adds a mailbox and the account that logs in to it, named by the whole address, so `ann@one.test` and `ann@two.test` are two mailboxes with two passwords. Each brand has a `noreply` mailbox to send as. The answer{apos}s `bound_urls` lists the two URLs in that order.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. A send is `-u` for the brand{apos}s login, `--mail-from` and `--mail-rcpt` for the envelope (<<rfc5321>>), `-T` for the message, a fixture in the folder both hosts are confined to, and `--crlf` for its line ends; `-s` keeps the progress meter out and `-S` keeps an error line in.
+
+Delivery is asynchronous. Every delivery is a `store_changed` event in the `mail` store; `wait_for_event` answers the next one after `after_sequence`, or `{"timed_out":true}` once its `timeout_ms` passes, and the program asks until each owner it expects has had one, ten seconds at most for each wait. Then, owner by owner, `list_mailboxes` answers the owner{apos}s mailboxes with a `message_count` for each, and `read_message` the message with unique identifier (UID) 1 as `text`, setting no flag. One{apos}s welcome is in `ann@one.test`{apos}s `INBOX` and Two{apos}s in `ann@two.test`{apos}s, one message each. One message may name addresses in both domains: Bo has a mailbox in each, and each holds its own copy.
+
+A login names the whole address too. Through the `curl` tool, an Internet Message Access Protocol (IMAP) search as `ann@two.test` with the password of `ann@one.test` exits `67`, `Login denied`, and so does `ann` with no domain.
+
+A recipient outside every `--mail-domain` is refused: the tool exits `55` with `RCPT failed: 550`. `get_exchanges`, read after the `exchange_ended` event, holds the server{apos}s side, `550 5.7.1 Relaying denied` after `RCPT TO:<ann@three.test>`. A server that took mail for any domain would be an open relay, so the refusal is the default. A domain is matched whole: `ann@mail.one.test` is refused the same way. An address of a served domain that has no mailbox is accepted and discarded, so a sender cannot use the server to learn which addresses exist: the send exits `0`, no delivery event comes within two seconds, and `list_mailboxes` answers that there are no mailboxes for `cy@two.test`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-serve-two-mail-domains>> for the same task on the console.
+* <<smtp-serve-two-mail-domains-in-csharp>> for the same task in C#.
+* <<smtp-catch-mail-for-unknown-addresses-from-an-agent>> for keeping mail to addresses that have no mailbox.
+* <<surl-readme>>, <<rfc5321>>.

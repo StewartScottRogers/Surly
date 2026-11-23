@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-diagnose-a-404-from-an-agent
+title: Diagnosing a 404
+protocols: [http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, transfer, get_events, get_exchanges, list_files, delete_file]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "Of three requests recorded, get_exchanges pairs each request line with the status the server sent; the two 404s are for /report/summary.txt, where list_files finds / holds only reports, so the path is wrong, and for /reports/2026/q3.txt, where /reports/2026 holds only summary.txt, so the file is missing; the 200 is not reported."
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "404 for /report/summary.txt\n  the path is wrong: / holds reports, no report\n404 for /reports/2026/q3.txt\n  the file is missing: /reports/2026 holds summary.txt, not q3.txt\n"
+
+  - id: case-only
+    claim: "A request for /Reports/2026/summary.txt is a 404 although the file exists: the store is case-sensitive, and the agent says the path is wrong because / holds reports, which differs from Reports only in case."
+    program: program.cs
+    args: [case-only]
+    expect:
+      exit: 0
+      stdout: "404 for /Reports/2026/summary.txt\n  the path is wrong: / holds reports, no Reports, which differs from reports only in case\n"
+
+  - id: deleted
+    claim: "A file that was served and then removed with delete_file is a 404 on the second request for the same path; the record shows the answers 200 then 404, and list_files finds /reports/2026 empty, so the file is missing."
+    program: program.cs
+    args: [deleted]
+    expect:
+      exit: 0
+      stdout: "404 for /reports/2026/summary.txt\n  the file is missing: /reports/2026 holds nothing, not summary.txt\nanswers for that path: 200 then 404\n"
+
+  - id: folder
+    claim: "A request for /reports/2026, a folder that is there, is a 404, because the server serves files; the walk finds every name and the agent says the path names a folder, not a file."
+    program: program.cs
+    args: [folder]
+    expect:
+      exit: 0
+      stdout: "404 for /reports/2026\n  the path names something that is there, a folder, which a request for a file does not take\n"
+
+  - id: no-404
+    claim: "When every recorded request was answered with a 200 the agent finds no 404 to diagnose, and says so after counting the two requests it read."
+    program: program.cs
+    args: [no-404]
+    expect:
+      exit: 0
+      stdout: "no 404 in 2 recorded requests\n"

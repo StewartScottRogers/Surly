@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-fail-a-proxy-tunnel-in-csharp]]
+=== Failing a Proxy Tunnel in C#
+
+==== Problem
+
+Your app must report a proxy that refuses to open a tunnel, not blame the origin. You want a C# test whose proxy answers every `CONNECT` with `503` on purpose while it still forwards plain Hypertext Transfer Protocol (HTTP) requests, and to see the two kinds of failure arrive differently in your code.
+
+==== Solution
+
+Start one `SurlServer` with an origin and a `--proxy` listener, give it a `SurlFault` that answers `CONNECT` with `503`, and send requests through the proxy with a `CurlClient`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`ListenUrls` holds the origin, plain HTTP and HTTP Secure (HTTPS), and `CertificateFile` and `KeyFile` give the `https://` listener the certificate `openssl` wrote in `setup:`; `Files` gives it its one file. `SurlServerOptions` has no proxy property, so `AdditionalArguments` carries `surl`{apos}s `--proxy`, and `BoundUrls` lists the origin's two listeners, then the proxy. `Faults` holds two `SurlFault` rules. `SurlFault.ProtocolError("503")` answers with that status instead of serving; `with { Scheme = "http-proxy", Command = "CONNECT" }` scopes the first to `CONNECT` on proxy listeners, and `with { Scheme = "http", Path = "/busy.txt" }` the second to one path of the origin. They are the spelling of `surl --fault "error;scheme=http-proxy;command=CONNECT;reply=503"` and `"error;scheme=http;reply=503;path=/busy.txt"`.
+
+`CurlProxyOptions.Proxy` on `CurlClientOptions` sends every request through the proxy, as `curl -x` does, and `CurlTlsOptions.Origin` trusts the origin's certificate with a `CurlTlsPeerOptions`{apos} `CertificateAuthorityFile`. For an `https://` URL the client sends `CONNECT` and waits for a `2xx` before starting Transport Layer Security (TLS) with the origin through the tunnel (<<rfc9110>>). The proxy answers `503`, so there is no tunnel and no `CurlResponse`: `SendAsync` throws `CurlException`, `Code` `CouldntConnect` (7), `CONNECT tunnel failed, response 503`. Each case sends one `CurlRequest`, a `GET`, and `Timeout` bounds it so a test cannot hang.
+
+The rule touches nothing else. An `http://` URL is forwarded, not tunnelled, and comes back `200` with the file. `HttpProxyTunnel = true` is `curl -p`: the client then tunnels the `http://` URL too, and the same proxy refuses it the same way.
+
+The two refusals reach your code by different paths, which is how an app tells them apart. A `503` the origin sent, through the proxy, is an ordinary `CurlResponse` with `StatusCode` 503 and the body `503 Service Unavailable`. The proxy's refusal never becomes a response at all; it is a `CurlException` whose code is about connecting. An app that treats both as "the site is down" has lost the difference.
+
+The server says the same from its side. `Log` with `LogLevel.Verbose` is `surl -v`; it holds `CONNECT 127.0.0.1:<port>: answered 503 Service Unavailable by fault rule f1.`, naming the rule. `RecordExchanges` keeps every exchange, and each `SurlExchangeRecord` names the `ListenUrl` that accepted it: none was accepted at the `https://` origin, because no tunnel reached it. The program reads both after `StopAsync`, when every line has been written.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fail-a-proxy-tunnel>> for the same refusal on the console.
+* <<http-fail-a-proxy-tunnel-from-an-agent>> for the same refusal driven by an agent.
+* <<https-tunnel-through-a-proxy-in-csharp>> for a tunnel that opens.
+* <<rfc9110>>, <<surl-readme>>, <<curl-readme>>.

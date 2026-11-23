@@ -1,0 +1,77 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-fail-a-proxy-tunnel-from-an-agent
+title: Failing a Proxy Tunnel from an Agent
+protocols: [http, https]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, get_events, get_exchanges, transfer, curl]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-readme, mcp-spec]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: transfer of an https:// URL through the proxy needs a CONNECT tunnel; the proxy's fault rule answers 503, and the answer is a tool error with failure exitCode 7, CONNECT tunnel failed, response 503.
+    program: tunnel-refused.cs
+    args: [refused]
+    expect:
+      exit: 0
+      stdout: "transfer: exitCode 7, CONNECT tunnel failed, response 503, tool error: yes\n"
+
+  - id: forwarding-still-works
+    claim: transfer of an http:// URL through the same proxy is forwarded, not tunnelled, and comes back 200 with the file.
+    program: tunnel-refused.cs
+    args: [forward]
+    expect:
+      exit: 0
+      stdout: "transfer: statusCode 200, hello from surl, tool error: no\n"
+
+  - id: proxy-answered-not-origin
+    claim: Through the curl tool, %{http_connect} is the proxy's answer to the CONNECT, 503, and %{http_code} the origin's, 000, since no request reached the origin; exitCode 7.
+    program: tunnel-refused.cs
+    args: [codes]
+    expect:
+      exit: 0
+      stdout: "curl tool: exitCode 7, 503 000\n"
+
+  - id: origin-503-reads-differently
+    claim: A 503 from the origin itself, forwarded by the proxy, is a transfer answer with statusCode 503 and failure null, not a tool error.
+    program: tunnel-refused.cs
+    args: [busy]
+    expect:
+      exit: 0
+      stdout: "transfer: statusCode 503, 503 Service Unavailable, tool error: no\n"
+
+  - id: forced-tunnel-fails-too
+    claim: The curl tool with -p tunnels an http:// URL as well, and the same proxy refuses it the same way, exitCode 7.
+    program: tunnel-refused.cs
+    args: [forced]
+    expect:
+      exit: 0
+      stdout: "curl tool: exitCode 7, curl: (7) CONNECT tunnel failed, response 503\n"
+
+  - id: event-names-the-rule
+    claim: get_events on the proxy's listen URL holds one fault_applied event for the refused CONNECT, rule f1, kind error, at the command stage.
+    program: tunnel-refused.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nfault_applied: rule f1, kind error, stage command\nexchanges'
+
+  - id: origin-never-reached
+    claim: get_exchanges for the https origin's listen URL finds no exchange, since no tunnel ever reached it.
+    program: tunnel-refused.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nexchanges at the https origin: 0\n$'

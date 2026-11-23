@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-follow-events-as-they-come-from-an-agent
+title: Following Events as They Come
+protocols: [http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, transfer, get_events, wait_for_event]
+exit-codes: [0]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: "After three requests, get_events with max_events 4 and after_sequence set to the last sequence number seen answers two pages, four events and has_more true, then two events and has_more false; together they are every event kept, once each and in order, the same sequence numbers as one uncapped read."
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "page 1: S E S E, has_more true\npage 2: S E, has_more false\npages together are the whole record, in order, no repeats: True\n"
+
+  - id: after
+    claim: "A fourth request after the agent has read everything makes exactly one more exchange_started and exchange_ended pair, and get_events with after_sequence set to the last sequence number seen answers only those two, each with a larger sequence number."
+    program: program.cs
+    args: [after]
+    expect:
+      exit: 0
+      stdout: "after the last event seen: S E, has_more false\nall after it: True\n"
+
+  - id: quiet
+    claim: "With nothing new, get_events after the last sequence number seen answers no events and has_more false, and wait_for_event with the same after_sequence waits out its timeout_ms and answers timed_out true."
+    program: program.cs
+    args: [quiet]
+    expect:
+      exit: 0
+      stdout: "after the last event seen: 0 events, has_more false\nwait_for_event after it: timed_out true\n"
+
+  - id: wait
+    claim: "A wait_for_event sent with after_sequence before the next request answers when the request starts, with an exchange_started event whose sequence number is larger than the one the agent had seen."
+    program: program.cs
+    args: [wait]
+    expect:
+      exit: 0
+      stdout: "wait_for_event: exchange_started, after the last event seen: True\n"
+
+  - id: kinds
+    claim: "The cursor and a kinds filter work together: with kinds exchange_ended the three requests give three events, and after the first of them only the other two."
+    program: program.cs
+    args: [kinds]
+    expect:
+      exit: 0
+      stdout: "exchange_ended from the start: E E E\nexchange_ended after the first of them: E E\n"
+
+  - id: one-at-a-time
+    claim: "With max_events 1 the six events come in six pages, has_more true on the first five and false on the last, each page starting after the one before."
+    program: program.cs
+    args: [one-at-a-time]
+    expect:
+      exit: 0
+      stdout: "pages of one event: 6, has_more true on 5 of them, false on the last: True\n"

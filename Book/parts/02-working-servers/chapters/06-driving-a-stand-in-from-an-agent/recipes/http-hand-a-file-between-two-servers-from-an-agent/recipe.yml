@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-hand-a-file-between-two-servers-from-an-agent
+title: Handing a File Between Two Servers
+protocols: [http, ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, read_file, put_file, transfer, get_events]
+surl-options: [--allow-anonymous, --allow-uploads]
+curl-options: [-s, -T, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110, rfc959]
+
+fixtures:
+  report.txt: "all green\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: "After curl uploads report.txt to server one, wait_for_event answers the write of /in/report.txt, 10 bytes; read_file answers it as text; server two answers 404 for it until put_file, then 200 over HTTP and 226 over FTP, both with the same 10 bytes."
+    program: program.cs
+    args: [solution]
+    expect:
+      exit: 0
+      stdout: "app upload: 201\nwait_for_event: written /in/report.txt 10 bytes\nread_file: text, 10 bytes\nbefore put_file, server two: 404\nfetch over http: 200, 10 bytes, same as the upload: True\nfetch over ftp: 226, 10 bytes, same as the upload: True\n"
+
+  - id: binary
+    claim: "A 300-byte file that is not text is answered by read_file as base64, and put_file with that base64 gives server two the same 300 bytes over HTTP and over FTP."
+    program: program.cs
+    args: [binary]
+    expect:
+      exit: 0
+      stdout: "app upload: 201\nwait_for_event: written /in/blob.bin 300 bytes\nread_file: base64, 300 bytes\nbefore put_file, server two: 404\nfetch over http: 200, 300 bytes, same as the upload: True\nfetch over ftp: 226, 300 bytes, same as the upload: True\n"
+
+  - id: wait-first
+    claim: "A wait_for_event sent before the upload answers the same write when it happens, so the agent need not know whether the upload or the wait comes first."
+    program: program.cs
+    args: [wait-first]
+    expect:
+      exit: 0
+      stdout: "app upload: 201\nwait_for_event: written /in/report.txt 10 bytes\nread_file: text, 10 bytes\nbefore put_file, server two: 404\nfetch over http: 200, 10 bytes, same as the upload: True\nfetch over ftp: 226, 10 bytes, same as the upload: True\n"
+
+  - id: events
+    claim: "Server two records the hand-over as two store_changed events, change seeded, for /handed and /handed/report.txt; server one recorded one change, the app's write."
+    program: program.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout: "app upload: 201\nwait_for_event: written /in/report.txt 10 bytes\nread_file: text, 10 bytes\nbefore put_file, server two: 404\nfetch over http: 200, 10 bytes, same as the upload: True\nfetch over ftp: 226, 10 bytes, same as the upload: True\nserver two store_changed: seeded /handed\nserver two store_changed: seeded /handed/report.txt\nserver one store_changed: 1\n"
+
+  - id: put-twice
+    claim: "A second put_file over the same path replaces the file on server two: the next fetch over HTTP answers 200 and the second version."
+    program: program.cs
+    args: [put-twice]
+    expect:
+      exit: 0
+      stdout: "app upload: 201\nwait_for_event: written /in/report.txt 10 bytes\nread_file: text, 10 bytes\nbefore put_file, server two: 404\nfetch over http: 200, 10 bytes, same as the upload: True\nfetch over ftp: 226, 10 bytes, same as the upload: True\nfetch after a second put_file: 200, second version\n"
+
+  - id: put-both
+    claim: "put_file given both text and base64 is a tool error, with the text give exactly one of text and base64."
+    program: program.cs
+    args: [put-both]
+    expect:
+      exit: 0
+      stdout: "app upload: 201\nwait_for_event: written /in/report.txt 10 bytes\nread_file: text, 10 bytes\nbefore put_file, server two: 404\nfetch over http: 200, 10 bytes, same as the upload: True\nfetch over ftp: 226, 10 bytes, same as the upload: True\nput_file with both: tool error yes, give exactly one of text and base64\n"
+
+  - id: missing
+    claim: "When the app uploaded nothing, wait_for_event for a change under /in answers timed_out true after its timeout, and read_file of /in/report.txt is a tool error with the text No file at /in/report.txt."
+    program: program.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "wait_for_event: timed_out True\nread_file: tool error yes, No file at /in/report.txt.\n"

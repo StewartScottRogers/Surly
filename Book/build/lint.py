@@ -136,6 +136,11 @@ def main():
             findings.append(f"{rel}: duplicate case ids")
         if len(spec["cases"]) < 2:
             findings.append(f"{rel}: only the solution is checked; the Discussion's claims need cases")
+        # \z needs Python 3.14; CI's Python refuses it and the whole shard stops. \Z means the same here.
+        for c in spec["cases"]:
+            for k, v in (c.get("expect") or {}).items():
+                if k.endswith("-matches") and isinstance(v, str) and re.search(r"(?<!\\)\\z", v):
+                    findings.append(f"{rel}: case {c['id']}: {k} uses \\z, which older Python refuses; write \\Z")
     for f in findings:
         print(f)
     print(f"{len(findings)} finding(s)")

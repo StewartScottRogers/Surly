@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: stomp-join-a-topic-across-two-protocols
+title: Joining a Topic Across Two Protocols
+protocols: [stomp, mqtt]
+tier: scenarios
+surl-options: [--allow-anonymous, --topic, --idle-timeout]
+curl-options: [-s, -m, -o, --data-binary]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, stomp12, mqtt5, mqtt311]
+triplet: stomp-join-a-topic-across-two-protocols
+
+# join.sh is the test. It starts the new service, an MQTT 5 subscriber writing each message to got.txt, has the
+# old service send over STOMP until the new one has a message (ten tries at most: the subscription takes a moment),
+# then sends two orders as the old service would and waits, ten tries at most, until the second has crossed.
+fixtures:
+  join.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh join.sh <stomp port> <mqtt5 port> <stomp destination> <mqtt topic>
+    stomp="stomp://127.0.0.1:$1$3"
+    rm -f got.txt
+    # The new service: subscribes over MQTT 5, which stays subscribed, and writes each message it is sent.
+    curl -s -m 60 "mqtt5://127.0.0.1:$2/$4" -o got.txt &
+    service=$!
+    # The old service sends over STOMP. A line feed ends each message.
+    send() {
+      printf '%s\n' "$1" | curl -s --data-binary @- "$stomp"
+    }
+    # Joined yet? The old service sends ping until the new service has one.
+    joined=""
+    for try in 1 2 3 4 5 6 7 8 9 10; do
+      send ping
+      grep -q '^ping$' got.txt 2>/dev/null && joined=yes && break
+      sleep 1
+    done
+    if [ -z "$joined" ]; then
+      kill $service
+      echo "nothing crossed from $3 to $4"
+      exit 1
+    fi
+    # The test: two orders from the old service, then wait until the last one has crossed.
+    send "order 1001"
+    send "order 1002"
+    for try in 1 2 3 4 5 6 7 8 9 10; do
+      grep -q '^order 1002$' got.txt && break
+      sleep 1
+    done
+    kill $service
+    grep '^order ' got.txt
+
+# One surl is the broker both services use: STOMP for the old one, MQTT 5 for the new, and MQTT 3.1.1 for the
+# test's last check. --topic keeps the latest message on every topic under orders/; --idle-timeout ends an idle
+# STOMP subscription after a second.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "orders/#;retain" --idle-timeout 1 stomp://127.0.0.1:{{port}}/ mqtt://127.0.0.1:{{port2}}/ mqtt5://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two orders the old service sends over STOMP to /topic/orders/created reach the new service subscribed over MQTT 5 to orders/created, in the order sent.
+    run: sh join.sh {{port}} {{port3}} /topic/orders/created orders/created
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "order 1001\norder 1002\n"
+
+  - id: whole-file
+    claim: The new service's file holds the pings from the wait to join, one or more, then the two orders, one message a line and nothing else.
+    run: cat got.txt
+    expect:
+      exit: 0
+      stdout-matches: '\A(ping\n)+order 1001\norder 1002\n\Z'
+
+  - id: broker-kept-the-last
+    claim: The broker kept the last order as the topic's retained message; an MQTT 3.1.1 subscriber is sent the topic's two-byte length, orders/created and order 1002.
+    run: curl -s -m 10 mqtt://127.0.0.1:{{port2}}/orders/created
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x0eorders/createdorder 1002\n\Z'
+
+  - id: stomp-not-sent-retained
+    claim: A STOMP subscriber to the same topic is not sent the retained message, which is MQTT's alone; surl ends the idle subscription after a second, exit 0, with nothing written.
+    run: curl -s -m 10 stomp://127.0.0.1:{{port}}/topic/orders/created
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: dotted-name
+    claim: The map is slash for slash; an old service that sends to /topic/orders.created, with a dot, does not reach orders/created, and after ten tries the test reports that nothing crossed, exit 1.
+    run: sh join.sh {{port}} {{port3}} /topic/orders.created orders/created
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "nothing crossed from /topic/orders.created to orders/created\n"
+
+  - id: queue-not-topic
+    claim: An old service that sends to /queue/orders/created sends to a queue, which no MQTT topic carries; nothing crosses, exit 1.
+    run: sh join.sh {{port}} {{port3}} /queue/orders/created orders/created
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "nothing crossed from /queue/orders/created to orders/created\n"

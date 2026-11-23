@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-share-a-folder-read-only-from-an-agent]]
+=== Sharing a Folder Read-only
+
+==== Problem
+
+A test needs a stand-in server whose reference files cannot be overwritten, beside a folder that can. You want your artificial intelligence (AI) agent to share the first one read-only and show that a client reads from it, and is refused when it uploads into it.
+
+==== Solution
+
+A C# program on the Model Context Protocol (MCP) software development kit (SDK) starts a server with `start_server` and two folders shared, one of them read-only, then has `transfer` read from and write into each and `list_files` look at the read-only one:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts `surl-mcp`, the MCP server for `surl`, and `curl-mcp`, the one for `curl`, by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. The argument picks the scenario. The folders `docs`, holding `readme.txt`, and `data` are in that folder, so the server can name them.
+
+`start_server` takes `surl`{apos}s own options in `arguments`. `--share "docs=docs;readonly"` serves the folder `docs` under the name `docs`, so `/docs/readme.txt` is its file, and `;readonly` makes the share refuse every write; `--share data=data` is the same for a folder that can be written. The folders are named relative to `SURL_MCP_ROOT`. `--allow-uploads` lets a client write at all, and `--allow-anonymous` lets one do it without logging in. Both loosen the server, which is why a test sets them on purpose. The answer holds the `server_id` and `bound_urls`, the address with the port the system chose.
+
+The client is `transfer`, from `curl-mcp`: a request described by fields, here `url`, `method` and a `body`. A read of `/docs/readme.txt` is answered `200`. A `PUT` of a file into `/docs/` is answered `403 Forbidden` (<<rfc9110>>), the same upload into `/data/` is answered `201 Created`, and neither is a tool error: a refusal is an answer, so an agent reads `statusCode`. The program looks at the disk to check what the server said. The `docs` folder holds no `up.txt`, and `data` does. `list_files` reads the server{apos}s files back and answers one level of a folder as `entries`, name and kind each; for `/docs` it names only `readme.txt`.
+
+The server keeps a record of what changed. `wait_for_event` answers the first event that matches its filters, a change kept before the call included, or waits up to `timeout_ms` milliseconds. With `kinds` `store_changed` it answers the write into `data`: `change` `written`, `name` `/data/up.txt`. The refused upload into `docs` left no event for it to find, and the folder stayed as it was.
+
+The read-only share protects its own files as well as its folder: a `PUT` over `/docs/readme.txt` is answered `403`, and the next read still answers `read me`. It also holds no lock on the folder. A second server started with `start_server` over the same two folders takes `docs=docs;readonly` and serves `readme.txt` while the first runs, but is refused `data=data`, the writable one, as a tool error, `(124) Directory data is in use by another surl process`, because two servers writing one folder would race.
+
+The refusal depends on the options around it. Without `--allow-uploads`, a `PUT` is answered `405 Method Not Allowed` on both shares, the read-only one included, because the server takes no uploads at all; reads still work. Without `--allow-anonymous`, the uploads are answered `401 Unauthorized` on both, because nobody has logged in, and the `403` is reached only by a client the server lets in. Reads are answered `200` all the same, as nothing asks for a login.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-serve-two-folders-as-shares-from-an-agent>> for the same two shares, with a second server on the same folders.
+* <<http-accept-uploads-from-an-agent>> for uploads and the options that allow them.
+* <<http-wait-for-an-event-from-an-agent>> for waiting on the server{apos}s events.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.

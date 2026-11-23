@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-send-despite-a-bad-recipient-in-csharp
+title: Sending Despite One Bad Recipient in C#
+protocols: [smtp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, StoreChangedEvent, SurlExchangeRecord, SurlMailMessage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Sent one request per recipient, Ann's, Bob's and Cy's are answered 250 and delivered, and Carol's, outside the domain, throws a CurlException with code 55, SendError, RCPT failed 550, which the app reports for her alone.
+    program: send-minutes.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ann@example.com: 250\ncarol@elsewhere.org: refused, curl error 55 SendError: RCPT failed: 550\nbob@example.com: 250\ncy@example.com: 250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1, cy@example.com/INBOX/;UID=1\n"
+
+  - id: allowfails
+    claim: One request for all four with MailRecipientAllowFails is answered 250 and delivered to Ann, Bob and Cy, though Carol was refused.
+    program: send-minutes.cs
+    args: [allowfails]
+    expect:
+      exit: 0
+      stdout: "250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1, cy@example.com/INBOX/;UID=1\n"
+
+  - id: headers-unchanged
+    claim: The copies say nothing of the refusal; Ann's still has a To header naming all four, Carol included.
+    program: send-minutes.cs
+    args: [headers]
+    expect:
+      exit: 0
+      stdout: "250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1, cy@example.com/INBOX/;UID=1\nTo: ann@example.com, carol@elsewhere.org, bob@example.com, cy@example.com\n"
+
+  - id: server-log
+    claim: The server's verbose log says which recipient it refused and why, outside every --mail-domain, and that it stored the message once for three recipients.
+    program: send-minutes.cs
+    args: [log]
+    expect:
+      exit: 0
+      stdout-matches: '^250\ndelivered: [^\n]+\nRCPT carol@elsewhere\.org refused: outside every --mail-domain\nMessage stored: \d+ bytes for 3 recipients\n$'
+
+  - id: which-refused
+    claim: The 250 says nothing of Carol; the server's recorded exchange shows the answer to each RCPT TO, 550 5.7.1 Relaying denied for Carol and 250 2.1.5 Recipient OK for the other three.
+    program: send-minutes.cs
+    args: [which]
+    expect:
+      exit: 0
+      stdout: "250\ndelivered: ann@example.com/INBOX/;UID=1, bob@example.com/INBOX/;UID=1, cy@example.com/INBOX/;UID=1\nRCPT TO:<ann@example.com> -> 250 2.1.5 Recipient OK\nRCPT TO:<carol@elsewhere.org> -> 550 5.7.1 Relaying denied\nRCPT TO:<bob@example.com> -> 250 2.1.5 Recipient OK\nRCPT TO:<cy@example.com> -> 250 2.1.5 Recipient OK\n"
+
+  - id: without-allowfails
+    claim: Without MailRecipientAllowFails one refusal abandons the whole message; SendAsync throws a CurlException with code 55, SendError, RCPT failed 550, and Dee, accepted first, holds nothing.
+    program: send-minutes.cs
+    args: [without]
+    expect:
+      exit: 0
+      stdout: "refused, curl error 55 SendError: RCPT failed: 550\ndee@example.com holds 0\n"
+
+  - id: all-refused
+    claim: When every recipient is refused, MailRecipientAllowFails does not help; SendAsync throws a CurlException with code 55, SendError.
+    program: send-minutes.cs
+    args: [all-refused]
+    expect:
+      exit: 0
+      stdout-matches: '^refused, curl error 55 SendError: RCPT failed: 550'

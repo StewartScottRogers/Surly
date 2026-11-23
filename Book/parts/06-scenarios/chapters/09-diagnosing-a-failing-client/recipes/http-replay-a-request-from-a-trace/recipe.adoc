@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-replay-a-request-from-a-trace]]
+=== Replaying a Request from a Trace
+
+==== Problem
+
+A client sent a request that the Hypertext Transfer Protocol (HTTP) server refused, and you cannot run that client again whenever you like. You want the server{apos}s trace of the request turned into something `curl` can send, byte for byte, so you can reproduce the failure and try a fix.
+
+==== Solution
+
+Run `surl` with `--trace trace.txt`, so it dumps every byte each exchange moved. The script below writes out the bytes one exchange received; it needs a POSIX shell (Git Bash on Windows). Send them with `curl -T request.http telnet://host:port`, which passes them on unchanged:
+
+[source,sh]
+----
+include::request-of.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--trace trace.txt` is `surl`{apos}s fullest log (<<surl-readme>>). Each exchange, one connection, is a run of lines numbered `#N`: event lines such as `#2 * No request head was read: MalformedHeaderField; answered 400 and closed.`, and blocks headed `#2 <= Recv data, 112 bytes` for what the client sent or `#2 => Send data` for what `surl` sent back. In a block each line holds an offset, up to 16 bytes as hex, and the same bytes as text. The text column is for reading; the hex is exact, so `request-of.sh` reads the hex.
+
+`--directory site` serves the report. The app is played by `curl -s -H "X-Request ID: 7"`: `-s` keeps `curl` quiet, and `-H` sends the header as typed. Its request is answered `400 Bad Request`. `request-of.sh trace.txt MalformedHeaderField` finds the last exchange with a line of `surl`{apos}s that holds that text, here the reason it gave, and writes out every byte of its received blocks. A number in place of the text picks the exchange by its number. `cat` shows the request the app sent: the request line, `Host`, `User-Agent`, `Accept`, and `X-Request ID: 7`, a field name with a space in it, which HTTP does not allow (<<rfc9110>>).
+
+`curl` with a `telnet://` URL opens a plain connection, sends what `-T` gives it and prints what comes back (<<rfc854>>, <<curl-manual>>). Unlike an `http://` URL, it adds no request line and no headers of its own, so the server reads exactly the app{apos}s bytes. The replay is answered `400 Bad Request` again, and since a `400` for a malformed head closes the connection, `curl` ends. `request-of.sh` on the trace afterwards takes the replay{apos}s exchange, the last with that reason, and `cmp` finds its bytes identical to `request.http`; `surl` traced the same reason twice.
+
+The bytes are now yours to edit. With only the field name mended to `X-Request-Id` by `sed`, the same request is answered `200` with the report. A request that does not fail keeps its connection open for the next one, so `--idle-timeout 2` makes `surl` close a connection 2 seconds after its last byte, and `curl` ends then; `-m 10` bounds every replay in case it does not.
+
+The trace does not hold everything. It withholds secrets, and a Digest response counts as one. The second server has an account, `--user app:s3cret`, and serves its own folder, since two servers cannot share one; there the app{apos}s login, `-u` with the account and `--digest`, fetches the report, but the bytes `request-of.sh` writes out for that exchange carry `Authorization: Digest ****`. The exchange held two requests, the first answered with a challenge and the second with the login, and replayed, both are answered `401 Unauthorized`. A Digest response is in any case bound to the server{apos}s fresh challenge, so it is not meant to be sent twice (<<rfc7616>>). Replay a request with a login by adding the login back, with an `http://` URL and `curl`{apos}s own options.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-compare-a-good-and-a-bad-request>> for comparing a refused request with a good one in `surl`{apos}s log.
+* <<http-print-the-failing-exchange>> for printing a failing exchange from a test.
+* <<http-reproduce-a-bug-report-as-a-test>> for an agent reproducing a reported failure.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>, <<rfc854>>, <<rfc7616>>.

@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: https-run-an-https-proxy-from-an-agent
+title: Running an HTTPS Proxy from an Agent
+protocols: [https, http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, get_exchanges, transfer, curl]
+exit-codes: [0]
+references: [rfc9110, rfc8446, surl-readme, curl-readme, mcp-spec]
+
+fixtures: {}
+
+# Two certificates for 127.0.0.1, each signed by its own key, good for 30 days; never committed.
+# proxy.pem is the proxy's, origin.pem the origin's.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout proxy.key -out proxy.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout origin.key -out origin.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: transfer with an https:// proxy and proxyCaFile naming the proxy's certificate talks to the proxy over TLS and gets the http:// origin's file, 200.
+    program: https-proxy.cs
+    args: [fetch]
+    expect:
+      exit: 0
+      stdout: "transfer: statusCode 200, hello from surl\n"
+
+  - id: untrusted-proxy
+    claim: Without proxyCaFile the proxy's certificate is not trusted; the answer is a tool error with failure exitCode 60.
+    program: https-proxy.cs
+    args: [untrusted]
+    expect:
+      exit: 0
+      stdout: "transfer: exitCode 60, tool error: yes\n"
+
+  - id: cafile-is-the-origins
+    claim: caFile names the origin's authority, not the proxy's; given the proxy's certificate it leaves the proxy untrusted, exitCode 60.
+    program: https-proxy.cs
+    args: [origin-trust]
+    expect:
+      exit: 0
+      stdout: "transfer: exitCode 60, tool error: yes\n"
+
+  - id: proxy-sees-the-request
+    claim: Over an https proxy with an http:// origin the proxy decrypts the request; get_exchanges on its listen URL shows the GET it received in absolute form, in clear.
+    program: https-proxy.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout-matches: '\nthe proxy received: GET http://127\.0\.0\.1:\d+/hello\.txt HTTP/1\.1\n$'
+
+  - id: two-certificates
+    claim: An https:// origin through the https proxy is two TLS sessions, one inside the other; proxyCaFile trusts the proxy, caFile the origin, and the file comes back.
+    program: https-proxy.cs
+    args: [both]
+    expect:
+      exit: 0
+      stdout: "transfer: statusCode 200, hello from surl\n"
+
+  - id: swapped
+    claim: The two fields are not interchangeable; with the certificates swapped the answer is exitCode 60.
+    program: https-proxy.cs
+    args: [swapped]
+    expect:
+      exit: 0
+      stdout: "transfer: exitCode 60, tool error: yes\n"
+
+  - id: insecure-is-the-origins
+    claim: insecure true skips only the origin's check; the proxy is still checked, exitCode 60.
+    program: https-proxy.cs
+    args: [origin-unchecked]
+    expect:
+      exit: 0
+      stdout: "transfer: exitCode 60, tool error: yes\n"
+
+  - id: proxy-insecure
+    claim: The curl tool with --proxy-insecure skips the proxy's check, a loosening transfer has no field for, and with the origin trusted the file comes back.
+    program: https-proxy.cs
+    args: [proxy-unchecked]
+    expect:
+      exit: 0
+      stdout: "curl tool: exitCode 0, hello from surl\n"
+
+  - id: proxy-needs-a-certificate
+    claim: start_server refuses an https proxy listener with no certificate, a tool error with exit_code 58, CertificateProblem, naming --cert and --self-signed.
+    program: https-proxy.cs
+    args: [no-certificate]
+    expect:
+      exit: 0
+      stdout: "tool error: yes, exit_code 58 CertificateProblem: (58) https://127.0.0.1:0/ needs a certificate: give --cert <file>, or --self-signed for a throwaway one\n"

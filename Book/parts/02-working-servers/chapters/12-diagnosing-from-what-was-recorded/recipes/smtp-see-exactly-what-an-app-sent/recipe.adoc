@@ -1,0 +1,45 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-see-exactly-what-an-app-sent]]
+=== Seeing an App's SMTP Dialogue
+
+==== Problem
+
+Your app{apos}s mail is going astray: it says the send worked, and the customer says nothing came. You want `surl`{apos}s trace of the Simple Mail Transfer Protocol (SMTP) dialogue to show the `MAIL FROM`, the `RCPT TO` and the message the app actually sent.
+
+==== Solution
+
+Run `surl` with `--trace-ascii`, let the app send, and read the last SMTP exchange out of the trace with a short script that needs a POSIX shell (Git Bash on Windows). It waits until `surl` has ended the exchange, then prints the dialogue a line at a time, `C:` for the client and `S:` for the server:
+
+[source,sh]
+----
+include::dialogue.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+The first case below is the app as its owner sees it: a send that worked.
+
+==== Discussion
+
+One `surl` serves SMTP for the app and Internet Message Access Protocol (IMAP) for looking into the mailboxes, over one mail store (<<surl-readme>>). `--mail-domain example.com` is the domain it takes mail for, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address: the app{apos}s, Ann{apos}s, and `test@example.com`, which the app{apos}s settings still name from its development. `--trace-ascii smtp.trace` writes every byte of every exchange to that file, both ways, with `surl`{apos}s log lines between them.
+
+The app is `curl` as an app runs it: `-u` its login, `--mail-from` and `--mail-rcpt` the envelope, `-T order.eml` the message, `--crlf` the line ends mail needs, `-s` and `-S` quiet but for an error, `-o` to throw the body away and `-w "%{response_code}"` to print the last reply. The path of the URL, `shop.example.com`, is the name `curl` gives in `EHLO`. The send is answered `250`; nothing tells the app that anything went wrong, because nothing did, as far as SMTP is concerned.
+
+In the trace each block starts with a line such as `#2 <= Recv data, 27 bytes`, the exchange number, the direction and the size, followed by the data, a line at a time, behind a hexadecimal offset. The script takes the number of the last `opened: smtp` line, waits for that exchange{apos}s `ended` line, a second at a time for at most ten, so it never reads a dialogue still under way, and turns `Recv data` into `C:` and `Send data` into `S:`. Given `MAIL FROM` it starts there. The envelope is plain to see: `MAIL FROM:<app@example.com>`, with the `SIZE` `curl` announces, and `RCPT TO:<test@example.com>`, both answered `250`. After `DATA` come the message{apos}s own lines, and its `To:` header names Ann. The envelope decides where a message goes and the headers are only text in it (<<rfc5321>>, <<rfc5322>>), so a mail client shows Ann as the addressee of a message that was never sent to her.
+
+The store agrees. Delivery is asynchronous, so the check first asks for message 1{apos}s flags in the test mailbox until it exists, `--retry 10` more tries, `--retry-all-errors` to retry the error a missing message gives, `--retry-delay 1` a second apart; `--next` then asks each mailbox for its count with `STATUS`, sent with `-X`: one in the test mailbox, none in Ann{apos}s.
+
+The lines before the envelope are the client{apos}s greeting and login: `EHLO shop.example.com`, `AUTH CRAM-MD5`, and the answer to the server{apos}s challenge, which the trace records as `****`, because `surl` withholds what a login carries. The trace is the dialogue as it crossed the wire, not the message as stored: the stored copy starts with `Return-Path: <app@example.com>`, the envelope sender, and a `Received:` line naming `shop.example.com` and the time, both added by `surl`. With the app{apos}s setting corrected and the notice sent again, the script, which always reads the latest exchange, shows `RCPT TO:<ann@example.com>`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-see-exactly-what-an-app-sent-in-csharp>> for the same task in C#.
+* <<smtp-see-exactly-what-an-app-sent-from-an-agent>> for the same task run by an agent.
+* <<smtp-see-why-mail-was-refused>> for a send that was refused, read from the verbose log.
+* <<http-see-both-sides-of-a-request>> for the trace of a Hypertext Transfer Protocol (HTTP) exchange.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc5322>>.

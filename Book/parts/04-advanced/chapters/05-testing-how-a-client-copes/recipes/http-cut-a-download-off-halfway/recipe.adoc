@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-cut-a-download-off-halfway]]
+=== Cutting a Download Off Halfway
+
+==== Problem
+
+Your downloader must resume, not restart, when the connection breaks part-way through a large file. You want a Hypertext Transfer Protocol (HTTP) test server that cuts every transfer after a set number of bytes, the client's error for the broken transfer, and a resume that finishes the file.
+
+==== Solution
+
+Serve a file of 5,000,000 hexadecimal digits from a `surl` whose `--fault` rule cuts every connection after 4,000,000 bytes, download it with `curl`, and when that fails, resume with `-C -`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`--fault "drop;after-bytes=4000000"` is one fault rule: `drop` ends the connection, and `after-bytes=4000000` lets surl send that many bytes on it first, the response head included. The rule has no `times`, so it cuts every connection that gets that far, and no scope, so it applies to every request. The quotes keep the semicolon from the shell, and `--directory site` serves the folder the file is in. `setup:` in `recipe.yml` makes `site/big.txt` with `openssl rand -hex`: 5,000,000 random hexadecimal digits and a line end, too long to come through in one piece.
+
+The first `curl` gets `200 OK` and starts writing the body to `dl/big.txt`, the file `-o` names, and then the connection is reset under it. `curl` exits `56`, a failure to receive, and its message is the operating system's for a reset (`Recv failure: Connection was reset` on Windows). It is not `18`, the partial-file error a client sees when a server closes cleanly before the promised `Content-Length`: surl's `drop` aborts the connection rather than closing it. Either way, a client that checks the exit code knows the file is incomplete.
+
+`curl` keeps what it wrote. A reset also throws away whatever had reached the client's socket and was not yet read, so the partial file is short of the 4,000,000 bytes surl sent by an amount that depends on timing: more than 1,000,000 bytes arrived in every run, never all of them. A test that needs an exact count should not take it from the client.
+
+`-C -` tells `curl` to resume: it sends `Range: bytes=<size of the partial file>-` and appends what comes back (<<rfc9110>>). surl answers `206 Partial Content` with only the rest, which is shorter than the cut, so it comes whole and `cmp` finds the file identical to the one served. In the Solution, `||` runs the resume only if the first `curl` failed. `-w "%{http_code} %{size_download}\n"` in the checks prints the status and how many body bytes came on that try; `-s` silences the progress meter, `-S` keeps the error line, and `--max-time 30` stops a check that would otherwise hang.
+
+A client that restarts instead never gets there. With `--retry 2 --retry-all-errors` and no `-C -`, `curl` starts from byte 0 on each try, meets the same cut each time, retries twice, a second apart (`--retry-delay 1`), and exits `56`. `--retry-all-errors` is there because `curl` does not count a reset connection as a transient failure worth retrying (<<curl-manual>>).
+
+The rule counts bytes on each connection separately, so a short answer, `hello.txt`, is served whole. To cut only one listener or one account, scope the rule with `listener=` or `account=`; `path=` cannot be used with `after-bytes`, which acts from the moment the connection is accepted (<<surl-readme>>).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-cut-a-download-off-halfway-in-csharp>> for the same test from a C# program.
+* <<http-cut-a-download-off-halfway-from-an-agent>> for the same test from an agent.
+* <<http-resume-an-interrupted-download>> for `-C -` against a partial file made by hand.
+* <<http-recover-from-a-dropped-connection>> for a connection dropped before any answer.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>.

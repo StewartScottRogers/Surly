@@ -1,0 +1,92 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-see-exactly-what-an-app-sent
+title: Seeing an App's SMTP Dialogue
+protocols: [smtp, imap]
+tier: working-servers
+surl-options: [--trace-ascii, --mail-domain, --mailbox]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, -T, -w, -o, -X, --next, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5321, rfc5322]
+
+# order.eml is the shop app's shipping notice to Ann. The app's settings still name a test address,
+# test@example.com, as the envelope recipient. dialogue.sh reads one exchange out of surl's trace.
+fixtures:
+  order.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Your order has shipped\n\nOrder 1042 left the warehouse today.\n"
+  dialogue.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh dialogue.sh TRACE [FIRST]. Finds the last SMTP exchange in surl's --trace-ascii file,
+    # waits (at most 10 s) until surl has ended it, then prints its dialogue, one line per protocol
+    # line: C: for what the client sent, S: for what surl answered. With FIRST, it starts at the
+    # first client line that begins with FIRST.
+    trace=$1
+    n=$(grep 'opened: smtp ' "$trace" | tail -n 1 | sed 's/^#\([0-9]*\) .*/\1/')
+    tries=0
+    until grep -q "^#$n \* Exchange $n ended" "$trace"; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 10 ]; then echo "exchange $n has not ended" >&2; exit 1; fi
+      sleep 1
+    done
+    tr -d '\r' < "$trace" | awk -v n="$n" -v first="$2" '
+      BEGIN { on = (first == "") }
+      index($0, "#" n " <= Recv data") == 1 { who = "C"; next }
+      index($0, "#" n " => Send data") == 1 { who = "S"; next }
+      /^#/ { who = ""; next }
+      who != "" && /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]: / {
+        line = substr($0, 7)
+        if (!on && who == "C" && index(line, first) == 1) on = 1
+        if (on) print who ": " line
+      }'
+
+# One surl: SMTP for the app, IMAP to look in the mailboxes, one mail store. --trace-ascii keeps
+# every byte of every exchange in smtp.trace, with surl's log lines between them.
+servers:
+  main:
+    command: surl --trace-ascii smtp.trace --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass --mailbox test@example.com:testpass smtp://127.0.0.1:{{port}}/ imap://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: app-sees-success
+    claim: The app sends Ann's shipping notice with the test address left in its settings; curl exits 0 and the server's last reply is 250, so the app has nothing to report.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt test@example.com -T order.eml -o {{null}} -w "%{response_code}\n" smtp://127.0.0.1:{{port}}/shop.example.com
+    expect:
+      exit: 0
+      stdout: "250\n"
+
+  - id: solution
+    role: solution
+    claim: From MAIL FROM on, the trace of that exchange shows the envelope sender app@example.com, the envelope recipient test@example.com with 250 Recipient OK, and after DATA the message itself, whose To header names Ann, then 250 Message accepted.
+    run: sh dialogue.sh smtp.trace "MAIL FROM"
+    expect:
+      exit: 0
+      stdout: "C: MAIL FROM:<app@example.com> SIZE=112\nS: 250 2.1.0 Sender OK\nC: RCPT TO:<test@example.com>\nS: 250 2.1.5 Recipient OK\nC: DATA\nS: 354 End data with <CR><LF>.<CR><LF>\nC: From: app@example.com\nC: To: ann@example.com\nC: Subject: Your order has shipped\nC: \nC: Order 1042 left the warehouse today.\nC: .\nS: 250 2.0.0 Message accepted\nC: QUIT\nS: 221 2.0.0 Bye\n"
+
+  - id: landed-in-test
+    claim: The notice went where the envelope said; once the test mailbox's message 1 exists, waited for a try a second for at most ten, the test mailbox holds one message and Ann's none.
+    run: curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u test@example.com:testpass -X "FETCH 1 FLAGS" imap://127.0.0.1:{{port2}}/INBOX --next -sS -u test@example.com:testpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/ --next -sS -u ann@example.com:annpass -X "STATUS INBOX (MESSAGES)" imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 0
+      stdout: "* STATUS INBOX (MESSAGES 1)\n* STATUS INBOX (MESSAGES 0)\n"
+
+  - id: before-the-envelope
+    claim: Before the envelope the client sent three lines, EHLO with the name from the URL's path, AUTH CRAM-MD5, and its answer to the challenge, which the trace withholds as ****.
+    run: 'sh dialogue.sh smtp.trace | grep "^C: " | head -n 3'
+    expect:
+      exit: 0
+      stdout: "C: EHLO shop.example.com\nC: AUTH CRAM-MD5\nC: ****\n"
+
+  - id: stored-adds-headers
+    claim: The stored copy is not byte for byte what the trace shows; surl puts Return-Path, the envelope sender, and a Received line above the headers the app sent.
+    run: curl -sS -u test@example.com:testpass "imap://127.0.0.1:{{port2}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(RETURN-PATH%20RECEIVED%20TO)"
+    expect:
+      exit: 0
+      stdout-matches: '^Return-Path: <app@example\.com>\r?\nReceived: from shop\.example\.com \(\[127\.0\.0\.1\]\) by surl with ESMTPA; [^\n]+\nTo: ann@example\.com\r?\n\r?\n$'
+
+  - id: fixed
+    claim: With the app's setting corrected and the notice sent again, the trace of the new exchange names Ann in RCPT TO.
+    run: curl -sS --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T order.eml smtp://127.0.0.1:{{port}}/shop.example.com && sh dialogue.sh smtp.trace | grep "RCPT TO"
+    expect:
+      exit: 0
+      stdout: "C: RCPT TO:<ann@example.com>\n"

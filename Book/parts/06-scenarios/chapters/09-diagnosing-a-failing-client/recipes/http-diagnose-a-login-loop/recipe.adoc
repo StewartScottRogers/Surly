@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-diagnose-a-login-loop]]
+=== Diagnosing a Login Loop
+
+==== Problem
+
+A client retries and retries and gets `401 Unauthorized` from a Hypertext Transfer Protocol (HTTP) service every time. You want an agent to read the logins the server judged and say whether the login method, the user name or the password is wrong.
+
+==== Solution
+
+The program starts `surl-mcp` and `curl-mcp`, runs each failing client through the `curl` tool, waits until its exchanges have ended, then reads the judged logins from `get_events` and, where there are none, the `Authorization` sent and the methods offered from `get_exchanges`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Both hosts start by name from the path, over standard input and output, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`. `start_server` takes one `http://` listen URL on port 0, the report in `files`, and two accounts in `arguments`, `--user app:s3cret` and `--user reports:r3ports`. With an account, every request needs a login, and over `http://` the server offers Digest alone (<<surl-readme>>, <<rfc7616>>). The agent keeps its own list of the account names, because it is what tells a wrong user from a wrong password.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers in JavaScript Object Notation (JSON). Each client runs as an app in a loop would: `-s` and `-S`, quiet but for errors, `-m 10` a bound, `-o` the report into the folder, and `-f` with `--retry 2`, `--retry-all-errors` and `--retry-delay 1`, so a `401` fails the transfer and is tried again, a second apart (<<curl-manual>>). The client with a wrong password, `--digest -u app:S3cret`, tries three times over three connections, each ending `401`, and gives up with exit `22`, the exit for an HTTP error under `-f`, which does not say why.
+
+After each client the program polls `get_events` with `after_sequence`, at most 10 seconds, until as many exchanges have ended as started, so the record is whole. A `login_judged` event names the `account` the client claimed, the `mechanism` and `is_accepted`. The wrong password leaves three refusals of `app` by `Digest`, and `app` is an account, so the password is what is wrong. The client whose name is mistyped, `ap`, is refused in just the same way; the server refuses an unknown name and a wrong password alike and says nothing to the client about which. Only the account list tells the agent that `ap` is no account, so the user name is wrong.
+
+A client whose method is wrong has no login judged at all, and then the exchanges say why. `get_exchanges` with `after_exchange_id` the last exchange already read answers the new ones{apos} `chunks`; the `received` lines hold the `Authorization` header the client sent, the `sent` lines the `WWW-Authenticate` challenges (<<rfc9110>>). With `--ntlm` the client sent `Authorization: NTLM` while the server offered only `Digest`: the method is wrong. With no `-u` it sent no `Authorization` at all, which the events cannot tell from the wrong method and the exchanges can. With the right password the same client logs in at its first try, one connection, `200`, and its login is judged accepted.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-failed-logins-in-the-log>> for the same logins in `surl`{apos}s log on the console.
+* <<http-stop-a-client-hammering-a-refused-login-from-an-agent>> for a server that refuses one account on purpose.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>, <<rfc7616>>.

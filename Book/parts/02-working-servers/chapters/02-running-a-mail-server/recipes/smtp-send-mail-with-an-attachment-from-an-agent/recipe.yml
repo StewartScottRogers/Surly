@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs send-report.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-send-mail-with-an-attachment-from-an-agent
+title: Sending Attachments from an Agent
+protocols: [smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, read_message]
+curl-options: [-s, -S, -u, --mail-from, --mail-rcpt, -H, -F, -w]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5321, rfc2045]
+
+# The report the mail carries, a file with bare line feeds, in the folder both hosts are confined to.
+fixtures:
+  report.csv: "date,builds,failures\n2026-11-17,44,2\n2026-11-18,41,0\n2026-11-19,42,3\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool builds a two-part message from -F, a text part and report.csv as a base64 attachment, and sends it, exit 0 and reply 250; once Ann's delivery event has come, the part of read_message's text marked as an attachment, decoded from base64, is report.csv byte for byte.
+    program: send-report.cs
+    args: [check]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, reply 250\nreport.csv: 69 bytes, the same as the file\n"
+
+  - id: top-headers
+    claim: The -H headers are at the top of the stored message, after a Mime-Version and a multipart/mixed Content-Type with a boundary curl chose.
+    program: send-report.cs
+    args: [top]
+    expect:
+      exit: 0
+      stdout-matches: '^curl exit 0, reply 250\nContent-Type: multipart/mixed; boundary=-+[A-Za-z0-9]+\nMime-Version: 1\.0\nSubject: Nightly build report\nFrom: app@example\.com\nTo: ann@example\.com\n$'
+
+  - id: parts
+    claim: Part 1, the text, has no header of its own; part 2's header names it an attachment with the file's name, the type given with type= and base64 from encoder=.
+    program: send-report.cs
+    args: [parts]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, reply 250\npart 1: no header\npart 2: Content-Disposition: attachment; filename=\"report.csv\" | Content-Type: text/csv | Content-Transfer-Encoding: base64\n"
+
+  - id: file-as-it-is
+    claim: Without type= and encoder=, curl attaches the file as application/octet-stream and 8bit, its bytes unencoded.
+    program: send-report.cs
+    args: [as-is]
+    expect:
+      exit: 0
+      stdout: "curl exit 0, reply 250\npart 1: no header\npart 2: Content-Disposition: attachment; filename=\"report.csv\" | Content-Type: application/octet-stream | Content-Transfer-Encoding: 8bit\n"
+
+  - id: missing-file
+    claim: A file that is not there stops curl before it sends anything; the curl tool exits 26.
+    program: send-report.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout-matches: '^curl exit 26: curl: \(26\)'

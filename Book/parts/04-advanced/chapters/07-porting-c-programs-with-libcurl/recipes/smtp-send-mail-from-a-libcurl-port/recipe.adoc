@@ -1,0 +1,106 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-mail-from-a-libcurl-port]]
+=== Sending Mail from a Libcurl Port
+
+==== Problem
+
+Your C program sends mail over the Simple Mail Transfer Protocol (SMTP) with `CURLOPT_MAIL_FROM`, `CURLOPT_MAIL_RCPT` and a read callback, and you want the port to C# to deliver the same message to a test server, and the test to find it in the recipient{apos}s mailbox.
+
+==== Solution
+
+Port the program call for call with `Libcurl`, run it against a `surl` that is the mail server for `example.com`, and read the mailbox back over the Post Office Protocol version 3 (POP3):
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program is libcurl{apos}s usual mail sender: the message is an array of lines, and the read callback hands libcurl one line each time it is called:
+
+[source,c]
+----
+#include <stdio.h>
+#include <string.h>
+#include <curl/curl.h>
+
+static const char *payload_text[6];
+static int lines_read;
+static long reads;
+
+static size_t payload_source(char *ptr, size_t size, size_t nmemb, void *userp)
+{
+  const char *data = payload_text[lines_read];
+  size_t len;
+  if(!data)
+    return 0;
+  len = strlen(data);
+  if(len > size * nmemb)
+    return 0;
+  memcpy(ptr, data, len);
+  lines_read++;
+  reads++;
+  return len;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *curl;
+  CURLcode res;
+  struct curl_slist *recipients = NULL;
+  char to[256], from[256], sender[256];
+  long code;
+  curl_off_t sent;
+
+  snprintf(to, sizeof(to), "To: <%s>\r\n", argv[4]);
+  snprintf(from, sizeof(from), "From: <%s>\r\n", argv[3]);
+  snprintf(sender, sizeof(sender), "<%s>", argv[3]);
+  payload_text[0] = to;
+  payload_text[1] = from;
+  payload_text[2] = "Subject: Nightly report\r\n";
+  payload_text[3] = "\r\n";
+  payload_text[4] = "The nightly run finished: 42 files, no errors.\r\n";
+  payload_text[5] = NULL;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  recipients = curl_slist_append(NULL, argv[4]);
+  curl_easy_setopt(curl, CURLOPT_URL, argv[1]);
+  curl_easy_setopt(curl, CURLOPT_USERPWD, argv[2]);
+  curl_easy_setopt(curl, CURLOPT_MAIL_FROM, sender);
+  curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
+  curl_easy_setopt(curl, CURLOPT_READFUNCTION, payload_source);
+  curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+  res = curl_easy_perform(curl);
+  curl_slist_free_all(recipients);
+  if(res != CURLE_OK)
+    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+  else {
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_getinfo(curl, CURLINFO_SIZE_UPLOAD_T, &sent);
+    printf("sent %" CURL_FORMAT_CURL_OFF_T " bytes in %ld reads, last reply %ld\n",
+           sent, reads, code);
+  }
+  curl_easy_cleanup(curl);
+  curl_global_cleanup();
+  return (int)res;
+}
+----
+
+The port follows it line for line. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, `CurlGlobalFlags` holding libcurl{apos}s flag values, and returns the `CurlLibrary` the easy handle comes from; disposing them is `curl_easy_cleanup` and `curl_global_cleanup`. `CurlEasy.SetOption` is `curl_easy_setopt` with a `CurlOption` named after its `CURLOPT_` constant. The recipient list is a `CurlSlist`, libcurl{apos}s `struct curl_slist`: `CurlSlist.Append` is `curl_slist_append` and `CurlSlist.FreeAll` is `curl_slist_free_all`. The read callback is a `ReadCallback`, given a buffer to fill and answering how many bytes it put there; answering 0 ends the message. `Perform` answers a `CurlCode` with libcurl{apos}s numbers, `CurlErrorText.Easy` is `curl_easy_strerror`, and `GetInfo` with `CurlInfo.ResponseCode` and `CurlInfo.SizeUploadT` is `curl_easy_getinfo` with `CURLINFO_RESPONSE_CODE` and `CURLINFO_SIZE_UPLOAD_T` (<<libcurl-api>>).
+
+`CURLOPT_MAIL_FROM` is the envelope sender, sent as `MAIL FROM`, and each string in `CURLOPT_MAIL_RCPT` is an envelope recipient, sent as `RCPT TO` (<<rfc5321>>). The `To:` and `From:` lines in the message are something else: header lines the message carries (<<rfc5322>>). The program writes both from the same arguments, so they agree, but a server delivers by the envelope. `CURLOPT_UPLOAD` set to 1 is what makes libcurl send a message rather than ask the server something, and the path of the URL, `reports.example.com`, is the name the program gives in `EHLO`. Five lines make five calls to the callback and 126 bytes, and the server{apos}s last reply is `250`.
+
+`surl` is the mail server for `example.com` with `--mail-domain example.com`. Each `--mailbox` makes a mailbox and the account that owns it, named by the whole address: `app@example.com` is the account the program logs in as with `CURLOPT_USERPWD`, and `ann@example.com` the mailbox it sends to (<<surl-readme>>). Without a login, `surl` takes no mail, and over a connection without Transport Layer Security (TLS) it offers only the CRAM-MD5 login, which keeps the password off the wire; libcurl, and so the port, uses it with no option to set (<<surl-readme>>). A wrong password is `CURLE_LOGIN_DENIED`, 67. A recipient outside every `--mail-domain` is refused, so `surl` relays for no one, and libcurl reports the refusal as `CURLE_SEND_ERROR`, 55, `Failed sending data to the peer`.
+
+The test{apos}s check is the mailbox. `curl -s -u ann@example.com:s3cret pop3://host:port/1` retrieves message 1 over POP3 (<<rfc1939>>): `-u` logs in as ann, and `-s` keeps the progress meter out of the output. Delivery can take a moment after the program has exited, so the test waits for it: while there is no message 1 the server answers an error, `--retry 10` tries again ten times at most, `--retry-all-errors` makes that error count as one worth retrying, and `--retry-delay 1` waits a second between tries. The message is what the callback sent, behind two lines `surl` added: `Return-Path` with the envelope sender, and `Received`, which names the `EHLO` name and `ESMTPA`, mail from a sender who logged in, with the date. `pop3://host:port/` with no number lists the mailbox: one message, and still one after the refused login.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<sftp-upload-with-a-read-callback>> for a read callback that streams a file.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<smtp-check-an-app-sent-the-right-mail>> for checking an app{apos}s mail from the server{apos}s side.
+* <<surl-readme>>, <<libcurl-api>>, <<rfc5321>>, <<rfc5322>>, <<rfc1939>>.

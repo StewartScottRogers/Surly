@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-require-a-socks-login-in-csharp]]
+=== Requiring a SOCKS5 Login in C#
+
+==== Problem
+
+Your app reaches the network through a SOCKS5 proxy that needs a user name and password, and SOCKS5 sends them in clear. You want a C# test whose proxy refuses the login until clear-text passwords are allowed, and then tells a wrong password apart from the right one.
+
+==== Solution
+
+Start one `SurlServer` with an origin, a SOCKS5 listener and one proxy account, allow passwords in clear, and fetch through it with a `CurlClient` that logs in:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`ListenUrls` holds the origin on `localhost`, which serves `hello.txt` from `Files`, and a `socks5h://` listen URL, which makes the server a SOCKS5 proxy too (<<rfc1928>>). `SurlServerOptions` has no property for proxy accounts, so `AdditionalArguments` carries `surl`{apos}s `-U app:socks-pw`, the account of every proxy listener the server has. `AllowPlaintextAuthentication` is `--allow-plaintext-auth`; the program's first argument sets it for `open` and leaves it off for `strict`. `Log` with `LogLevel.Verbose` is `surl -v`, and the program prints the lines that judge the login after `StopAsync`, when all of them have been written.
+
+The `CurlClient` is made with `CurlClientOptions`: its `CurlProxyOptions.Proxy` names the SOCKS5 server with `socks5h://`, so the server resolves the origin's name. `CurlAuthenticationOptions.ProxyUserPassword` is the login as `curl --proxy-user` takes it, `user:password`; `ProxyUserName` and `ProxyPassword` give the same login in two parts, and the request is relayed either way. Each case sends one `CurlRequest` and prints the `CurlResponse`{apos}s status and body, or the exception. `Timeout` bounds the transfer.
+
+The login is the username and password method of <<rfc1929>>, sent in clear before the server relays anything. With an account set, the server offers that method and no other, so a client with no login is turned away at the greeting: `SendAsync` throws `CurlException`, `Code` `Proxy` (97), `No authentication method was acceptable.`, and the log says `No SOCKS5 method offered is acceptable; answered 05 FF.`
+
+By default the server will not take a password anyone on the path could read, so it refuses every login, the right one included, unchecked: the `strict` server's client gets `CurlException` 97, `User was rejected by the SOCKS5 server (1 1).`, and its log says `SOCKS5 password refused: sent in clear without --allow-plaintext-auth`, then `Answered 01 01: the login is RefusedPlaintext.` `AllowPlaintextAuthentication` is the loosening that lets it through, and the log starts with a warning about it. The `open` server then checks the password and relays the request.
+
+A wrong password on `open` throws exactly what `strict` threw for the right one; RFC 1929 has a single failure status, so your app cannot tell the two apart. The log can: `Answered 01 01: the login is RefusedCredentials.` for the wrong password, `Login accepted: socks5h app` for the right one. A user with no account is refused like a wrong password, so the answer gives away no account names; the log says `Login refused: socks5h bob`. The password itself is never in the log.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-require-a-socks-login>> for the same login on the console.
+* <<socks5-require-a-socks-login-from-an-agent>> for the same login driven by an agent.
+* <<socks5-relay-through-a-socks-proxy-in-csharp>> for the relay itself.
+* <<rfc1928>>, <<rfc1929>>, <<surl-readme>>, <<curl-readme>>.

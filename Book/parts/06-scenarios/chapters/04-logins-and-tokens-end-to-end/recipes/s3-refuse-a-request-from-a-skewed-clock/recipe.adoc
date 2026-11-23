@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-refuse-a-request-from-a-skewed-clock]]
+=== Refusing a Request from a Skewed Clock
+
+==== Problem
+
+Your C# test checks how a client behaves when its signed Amazon Simple Storage Service (S3) request is refused because the two clocks disagree. You want the server{apos}s clock moved twenty minutes ahead so a correctly signed put is refused as too skewed, and then put back so the same client succeeds.
+
+==== Solution
+
+Give the in-process server a `TimeProvider` that the test can move, put with `Curl.Api` while the clock is ahead and again after it is put back, and read the server{apos}s store after each:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. The `s3://` listen URL serves over Transport Layer Security (TLS), so it takes `CertificateFile` and `KeyFile`, made in setup with a name for every bucket{apos}s host in `us-east-1`. `Accounts` holds one `SurlAccount`, `AllowUploads` lets a signed request write and `ListDirectories` lets it list. `Files` puts last quarter{apos}s report in the bucket `reports`, so the put has a bucket to write into (<<surl-readme>>).
+
+`TimeProvider` is the one clock every exchange on the server runs on. The test gives it a small subclass whose `GetUtcNow` returns the real time plus an offset, and changes the offset between requests; no wait is needed, since each request reads the clock when it arrives. A signed S3 request carries the time it was signed at. The server compares it with its own clock and, past fifteen minutes in either direction, refuses it with `403` and the code `RequestTimeTooSkewed` (<<aws-s3-api>>). Twenty minutes ahead is well past that.
+
+The client is a `CurlClient`, and each put is a `CurlRequest` with a byte `Body`. `CurlNetworkOptions.ConnectTo` sends the bucket{apos}s host name to the local port, `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is `server.pem` makes it trust the server, and `CurlAuthenticationOptions` names the access key ID and secret, which is enough for an `s3://` URL to be signed. The `CurlResponse` of a put that is accepted has `StatusCode` `200`. The client sees the refusal as `CurlException` with `Code` `HttpReturnedError` and the message `S3 returned error 403: RequestTimeTooSkewed: ...`. The test then reads the store with `ListAsync` on `SurlServerFiles`, which returns a `SurlFolderPage`: the refused put stored nothing, so the bucket still holds only the old report. With the offset back at zero the same request is answered `200`, and the bucket holds both reports. A clock 10 minutes ahead is accepted and the bucket holds the new object; one 20 minutes behind is refused like one 20 minutes ahead, with nothing stored, and the whole refusal reads `HttpReturnedError S3 returned error 403: RequestTimeTooSkewed: The difference between the request time and the server{apos}s time is too large.` The fifteen minutes are a limit on the difference, not on the sign: the test finds that 14 minutes ahead or behind is accepted and 16 minutes in either direction refused, so it never claims the exact edge, which a slow machine could cross.
+
+The refusal is not invisible to the server. With `RecordExchanges` on, the server keeps the request as one exchange, and `FindEvents` with a `SurlEventQuery` for `SurlEventKind.LoginJudged` returns one judged login, for the access key, refused. A test that looks for refused logins finds a clock refusal there as well as a wrong secret, and tells them apart by the error the client saw. The test waits for the exchange to end with `WaitForEventAsync`, for at most thirty seconds, so a missing record fails the test instead of hanging it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-sign-a-run-of-s3-requests-in-csharp>> for the same signing with a wrong secret.
+* <<s3-tell-the-refusals-apart-in-csharp>> for every S3 refusal from C#.
+* <<surl-readme>>, <<aws-s3-api>>.

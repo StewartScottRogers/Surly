@@ -1,0 +1,47 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[stomp-join-a-topic-across-two-protocols]]
+=== Joining a Topic Across Two Protocols
+
+==== Problem
+
+Your old service sends its messages over STOMP and the new one subscribes over MQTT; you want to know which STOMP destination reaches which MQTT topic, and a test that shows a message crossing from one to the other.
+
+==== Solution
+
+Start one `surl` that speaks both protocols on one message bus. The test, `join.sh`, starts the new service as an MQTT 5 subscriber, sends over STOMP as the old service does, and prints what the new service received; it needs a POSIX shell (Git Bash on Windows):
+
+include::.generated/solution.adoc[]
+
+The test:
+
+[source,shell]
+----
+include::join.sh[]
+----
+
+Stop the server with kbd:[Ctrl+C].
+
+==== Discussion
+
+STOMP, the Simple Text Oriented Messaging Protocol, names a destination with a path (<<stomp12>>); MQTT, the MQ Telemetry Transport, names a topic with levels split by `/` (<<mqtt311>>). One `surl` runs one message bus, and every listener it is given reads and writes it, so the map between the two is fixed and needs no configuration: the STOMP destination `/topic/orders/created` is the MQTT topic `orders/created`, level for level (<<surl-readme>>). `--allow-anonymous` lets both services in without an account, and `surl` warns on start; it is for a test.
+
+The new service is `curl -s -m 60 mqtt5://host:port/orders/created -o got.txt`, run in the background. An MQTT 5 subscriber stays subscribed and writes each message as it arrives, `-o got.txt` sends what it writes to that file, `-m 60` is a ceiling in case nothing stops it, and `-s` keeps the progress meter quiet (<<mqtt5>>). An MQTT 3.1.1 subscriber would not do here: `surl` sends it the topic{apos}s retained message, if any, and then ends the subscription. The old service is `curl -s --data-binary @- stomp://host:port/topic/orders/created`, which sends what it reads from standard input as one STOMP message; `--data-binary` keeps the line feed that ends each, where `-d` would drop it (<<curl-readme>>).
+
+A subscription takes a moment to be in place, so the test does not send its orders blind: the old service sends `ping` until the new service has written one, ten tries a second apart at most, and only then sends `order 1001` and `order 1002`. It waits for the second the same way, stops the new service, and prints the orders it received. They arrive in the order sent. The file holds one or more pings first; a real new service would ignore a message it did not expect, and a real test might send its marker on a topic of its own.
+
+`--topic "orders/#;retain"` makes `surl` keep the latest message on every topic under `orders/`, whichever protocol it came in on. That is the broker{apos}s own record of what crossed, and the test reads it at the end: an MQTT 3.1.1 subscriber to `orders/created` is sent the topic{apos}s length in two bytes, the topic and `order 1002`. A STOMP subscriber to the same destination is not sent it. Retained messages are MQTT{apos}s alone, so the STOMP subscription receives nothing, and `--idle-timeout 1` makes `surl` end it after a second, `curl` exiting `0` with nothing written.
+
+The map is exact, and the test shows two ways to miss it. A service that sends to `/topic/orders.created`, with a dot where the MQTT topic has a slash, does not reach `orders/created`. A service that sends to `/queue/orders/created` sends to a queue, and a queue is not a topic: no MQTT subscriber is sent what is in it. In both cases nothing tells the old service; only the new service{apos}s silence does. After ten pings the test gives up, says nothing crossed, and exits `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<stomp-join-a-topic-across-two-protocols-in-csharp>> for the same test in C#.
+* <<stomp-join-a-topic-across-two-protocols-from-an-agent>> for the same test from an agent.
+* <<stomp-send-and-read-over-mqtt>> for retained messages sent over STOMP.
+* <<mqtt-watch-a-topic-during-a-test>> for an MQTT 5 watcher on its own.
+* <<surl-readme>>, <<curl-readme>>, <<stomp12>>, <<mqtt311>>, <<mqtt5>>.

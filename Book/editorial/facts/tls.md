@@ -79,3 +79,5 @@ https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a
 - Surl.Api: no SRP property (AdditionalArguments); `server.TlsSrpAccounts` Add (dup: ArgumentException), SetPassword (unknown user: ArgumentException), Remove (true/false); on a non-SRP server every call InvalidOperationException. surl-mcp `add_tls_srp_account`/`set_tls_srp_account_password`/`remove_tls_srp_account` (server_id, user[, password]) answer `{"user":"..."}`; errors: `user device-2 cannot be added: it holds ':' or already has a TLS-SRP account`, `user nobody has no account`, `server s1 has no TLS-SRP account device`, `server s1 was not started with TLS-SRP`.
 - RFC 5054 is not in the bibliography.
 - Recipes (batch 12): https-require-a-client-certificate, https-log-in-with-tls-srp (each with -in-csharp and -from-an-agent).
+
+- HTTPS proxy with its own certificate (https-run-an-https-proxy + twins, 2026-11-22, windows): a separate self-signed proxy.pem works with `--proxy-cacert proxy.pem` and no `--ssl-no-revoke`; `--cacert` and `-k` never apply to the proxy, `--proxy-insecure` does. Details in proxy.md (batch 13).

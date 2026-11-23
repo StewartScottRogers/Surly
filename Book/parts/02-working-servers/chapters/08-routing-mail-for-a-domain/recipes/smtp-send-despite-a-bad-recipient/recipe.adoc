@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-send-despite-a-bad-recipient]]
+=== Sending Despite One Bad Recipient
+
+==== Problem
+
+Your server takes mail for one domain, and a message goes to four people, one of them at another company; the server refuses that one with `550`. You want `curl --mail-rcpt-allowfails` to send the message to the other three anyway.
+
+==== Solution
+
+Name all four with `--mail-rcpt`, add `--mail-rcpt-allowfails`, and check the three mailboxes over Internet Message Access Protocol (IMAP). The one command sends, waits until the last mailbox can be read, and searches the three:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The server is `surl` with an `smtp://` and an `imap://` listen URL over one mail store (<<surl-readme>>). `--mail-domain example.com` is the only domain it takes mail for, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. `-v` and `--log-file surl.log` keep a verbose log in a file. A recipient outside every `--mail-domain` is answered `550 5.7.1 Relaying denied`, even for a sender that has logged in: a server that took mail for any domain would be an open relay, passing on whatever a stranger gave it (<<rfc5321>>). That refusal is the default and stays; the choice is the sender{apos}s.
+
+On the `curl` side, `-u` is the app{apos}s login, `--mail-from` the envelope sender and each `--mail-rcpt` one envelope recipient, `-T minutes.eml` the message and `--crlf` the line ends mail needs. `-s` keeps `curl` quiet and `-S` lets it still print an error; `-o` throws a body away and `-w "%{response_code}"` prints the last reply. `--next` starts the next transfer, with its own options.
+
+`curl` sends one `RCPT TO` per recipient and reads each answer. By default one refusal ends the send: `curl` stops before `DATA`, exits `55` with `RCPT failed: 550`, and no message is sent at all, so Dee, accepted before Carol was refused, holds nothing. `--mail-rcpt-allowfails` tells `curl` to carry on past a refused recipient and send the message to those accepted (<<curl-manual>>). Ann, Bob and Cy each get their copy; delivery is asynchronous, so the command first fetches Cy{apos}s message until it exists, `--retry 10` more tries, `--retry-all-errors` to retry the error a missing message gives, `--retry-delay 1` a second apart, and then searches the three mailboxes. The server{apos}s log names the refused recipient and its reason, `outside every --mail-domain`, and records the message as stored once for three recipients. When every recipient is refused there is no one to send to, and `curl` exits `55` with `RCPT failed: 550 (last error)` even with `--mail-rcpt-allowfails`.
+
+The cost is silence. With `--mail-rcpt-allowfails` the send exits `0`, the last reply is `250`, and with `-sS` nothing at all is printed: an app that runs `curl` this way never learns that Carol did not get the minutes. `-v` shows each `RCPT TO` with the answer to it, so the refused one can be read there, `550 5.7.1 Relaying denied` after `RCPT TO:<carol@elsewhere.org>`; the command keeps those lines with `grep` and drops the carriage returns with `tr`. The headers do not help: every copy still says `To:` all four, Carol included, because the envelope, not the header, decides who gets a message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-send-despite-a-bad-recipient-in-csharp>> for the same task in C#.
+* <<smtp-send-despite-a-bad-recipient-from-an-agent>> for the same task run by an agent.
+* <<smtp-send-to-several-recipients>> for one message to several recipients, all accepted.
+* <<smtp-see-why-mail-was-refused>> for reading a refusal out of the server{apos}s log.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

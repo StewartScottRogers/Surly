@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-count-uploads-with-an-event-callback]]
+=== Counting Uploads with a Callback
+
+==== Problem
+
+Your C# test runs code that uploads files, and you want to count the uploads as they happen rather than query the server afterwards. You want an event callback on the server{apos}s store, so the test knows at once, and from the callback, what each upload was.
+
+==== Solution
+
+Start a `SurlServer` in the test and register a callback with `OnEvent` for changes to its content store. The server calls it for every change, and the test waits for the calls it expects. The program takes the case to run as its argument; the first case, with none, is three uploads:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `http://` listen URL on port `0`, `AllowUploads` for `--allow-uploads`, `AllowAnonymous` for `--allow-anonymous`, which lets the client upload without a login, `MaxFileSize` for `--max-filesize`, and `RecordExchanges`, which the events need (<<surl-readme>>). The file `reports/keep.txt` is in `Files` because a `PUT` needs its folder to exist.
+
+`OnEvent` takes a `SurlEventQuery` and a callback, and calls the callback for every event the query matches from then on. The `IDisposable` it returns stops it. The query has `Kind` `SurlEventKind.StoreChanged` and `Store` `StoreKind.Content`. Each event is a `StoreChangedEvent`; its `Change`, a `StoreChange`, says what happened, `Name` is the path and `ByteCount` the size. An upload is a `Written` change: three uploads call the callback three times, in the order made, with `/reports/a.txt` at 6 bytes, `/reports/b.txt` at 5 and `/notes.txt` at 6. `Name` on the query narrows it, by whole segments and case-sensitively: `/reports` calls the callback for the two uploads under that folder and not for the third.
+
+The callback runs on its own thread, one event at a time, so it does no work of its own. It records the change and releases a `SemaphoreSlim`, and the test waits on that for each call it expects, for at most thirty seconds, so a missing call fails the test instead of hanging it. A wait for a call that should not come is bounded the other way: one second, and the answer is that none came.
+
+A refused upload is not a change. With `MaxFileSize` at 10, a 28-byte upload is answered `413` and the callback is not called; the next, a 3-byte upload, is answered `201` and is the only call. The same path uploaded twice is two `Written` changes, each with its own size, 6 bytes and then 15. The test{apos}s own `Files.PutAsync`, a `SurlServerFiles` call that puts a file in without a client, also calls the callback, but as a `Seeded` change, so a callback that counts uploads tests `Change` first. After the registration is disposed the callback is not called: a second upload is stored, the test waits for its event in the log with `WaitForEventAsync`, and the callback has been called once. The client is a `CurlClient`: each upload is a `CurlRequest` with `HttpMethod.Put` and a byte `Body`, and the `CurlResponse` carries the `StatusCode`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-collect-mail-with-an-event-callback>> for the same callback on mail.
+* <<http-wait-for-an-upload-in-process>> for waiting for one upload.
+* <<surl-readme>>, <<rfc9110>>.
