@@ -5,7 +5,7 @@ title: Socket.IO Logins in C#
 protocols: [socketio, socketios]
 tier: new-protocols
 surface: csharp
-api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlContent, CurlException]
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, CurlClient, CurlClientOptions, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, CurlRequest, CurlContent, CurlResponse, CurlException]
 exit-codes: [0, 22, 60]
 references: [surl-readme, curl-readme, socketio-protocol, rfc8446]
 
@@ -15,13 +15,13 @@ setup:
 cases:
   - id: solution
     role: solution
-    claim: Over socketios the right password joins the main namespace, the session stays open until the 3 s time limit ends it with curl code 28, and the server judged the login accepted, with no loosening option.
+    claim: Over socketios the right password joins the main namespace, SendAsync returns at the first event the server sends back, whose body is the emitted event, and the server judged the login accepted, with no loosening option.
     program: program.cs
     args: ["socketios", "alice", "s3cret"]
     timeout: 60
     expect:
       exit: 0
-      stdout: "joined: curl code 28 OperationTimedOut; login accepted True\n"
+      stdout: "joined: [\"chat\",\"hi\"]; login accepted True\n"
 
   - id: wrong-password
     claim: A wrong password makes SendAsync throw CurlException with code 22 and the Not authorized refusal.
@@ -66,7 +66,7 @@ cases:
     timeout: 60
     expect:
       exit: 0
-      stdout: "joined: curl code 28 OperationTimedOut; login accepted True\n"
+      stdout: "joined: [\"chat\",\"hi\"]; login accepted True\n"
 
   - id: untrusted-certificate
     claim: With no certificate authority file the client does not trust the certificate and SendAsync throws code 60, before any login is sent.
@@ -77,10 +77,19 @@ cases:
       exit: 60
       stdout-matches: '\Arefused: curl code 60 PeerFailedVerification'
 
-  - id: token-login-refused-in-this-build
-    claim: In this build a token account refuses even the right token over socketios, with the same Not authorized; this is a known fault, BL-1589, fixed in Surl master.
+  - id: token-as-user-name-refused
+    claim: A token account (new SurlAccount("", "tok123")) refuses the token as the user name with no password, code 22, Not authorized.
     program: program.cs
     args: ["socketios", "tok123", "", "token"]
+    timeout: 60
+    expect:
+      exit: 22
+      stdout-matches: '\Arefused: curl code 22 \w+: .*Not authorized'
+
+  - id: token-as-password-refused
+    claim: It refuses an empty user name with the token as the password the same way, so no CurlAuthenticationOptions logs in to a token account.
+    program: program.cs
+    args: ["socketios", "", "tok123", "token"]
     timeout: 60
     expect:
       exit: 22

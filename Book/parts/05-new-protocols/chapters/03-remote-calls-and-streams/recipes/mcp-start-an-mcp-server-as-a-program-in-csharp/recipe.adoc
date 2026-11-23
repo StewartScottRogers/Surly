@@ -7,27 +7,25 @@ include::.generated/attributes.adoc[]
 
 ==== Problem
 
-Your Model Context Protocol client starts its server as a child process over standard input and output, and you want a .NET test to do the same with `surl`: start it with no port, list its tools and call one.
+Your Model Context Protocol client starts its server as a child process over standard input and output, and you want a .NET test to do the same with `surl`: start it with no port, call one of its tools and see it stop.
 
 ==== Solution
 
-Start `surl` with the listen URL `mcp+stdio:`, write JavaScript Object Notation Remote Procedure Call (JSON-RPC) messages to its standard input one per line, read the answers from its standard output, and close its input to stop it:
+Give `Curl.Api` an `mcp+stdio` URL that names `surl` and its arguments, with the `tools/call` as the request body; it starts `surl`, calls the tool and closes the session:
 
 include::.generated/solution.adoc[]
 
 ==== Discussion
 
-The Model Context Protocol (MCP) stdio transport is a child process and two pipes: the client writes JSON-RPC messages to the server's standard input, one per line, and reads one answer per request from its standard output (<<mcp-spec>>). `surl mcp+stdio:` is such a server. It names no host or port and serves the one session on its own pipes (<<surl-readme>>).
+The Model Context Protocol (MCP) stdio transport is a child process and two pipes: the client writes JavaScript Object Notation Remote Procedure Call (JSON-RPC) messages to the server's standard input, one per line, and reads one answer per request from its standard output (<<mcp-spec>>). `surl mcp+stdio:` is such a server. It names no host or port and serves the one session on its own pipes (<<surl-readme>>).
 
-`ProcessStartInfo` describes the program to start: `surl`, found on the `PATH`, with each argument added to `ArgumentList`, so nothing needs quoting, and all three streams redirected. `Process.Start` starts it, and the `Process` gives the program those streams. Standard error is read to its end in the background from the start: `surl` writes its log there, `Listening on mcp+stdio:`, and a pipe nobody reads would fill. Standard output holds only MCP messages.
+`Curl.Api` is the client. A `CurlRequest` for `mcp+stdio://localhost/surl?--directory&site&mcp+stdio:` makes `CurlClient` start `surl`, found on the `PATH`, with the query's items, split at `&`, as its arguments, so it runs `surl --directory site mcp+stdio:` (<<curl-protocols>>, <<curl-readme>>). It opens the session, sends the request's `Body` as the `tools/call`, here `read_file` and the path, and the `CurlResponse` body is each content item the tool returns on a line of its own: the file's own newline and the one added make two. Then it closes `surl`{apos}s input, which is how an MCP client stops the server. With no `Body`, the same request answers the tool list instead, one line per tool: name, tab, description. `surl`{apos}s log, `Listening on mcp+stdio:`, comes through on the program's standard error; standard output belongs to MCP alone.
 
-The program is the MCP client, in about twenty lines. `Ask` writes one request with a fresh `id` and reads one line back; `JsonNode.Parse` turns that line into a `JsonNode`, indexed by name. The session opens with `initialize`, whose answer names the server as `surl`, then the `notifications/initialized` notification, which gets no answer. Then the call: `tools/call` naming `read_file` and the path, answered by content items, which the program prints one to a line, as `curl` does. Closing standard input ends the session, and `surl` exits `0` without being killed.
+The session takes no login. Given `--user alice:secret` and no `--allow-anonymous`, a `surl` on a port would refuse every request without a token; over stdio the tools are listed all the same, because whoever started the program is trusted. The options that widen what a client may do still gate the tools. With `--allow-uploads`, `write_file` creates `notes.txt` in the served directory and answers how many bytes it wrote. Without it, `write_file` is not a tool of the session: the call is JSON-RPC error `-32602`, invalid parameters, and `SendAsync` throws a `CurlException` whose `Code` is `WeirdServerReply`, `8`, the exit code `curl` gives. A program that cannot be started is `CouldntConnect`, `7`, and the message names it.
 
-The session takes no login. Started with `--user alice:secret` and no `--allow-anonymous`, a `surl` on a port would refuse every request without a token; over stdio, `tools/list` answers `read_file` and `echo` all the same, because whoever started the program is trusted. The options that widen what a client may do still gate the tools. Without `--allow-uploads` there is no `write_file`: the call is JSON-RPC error `-32602`, invalid parameters, and the program exits `1`. With it, `write_file` creates `notes.txt` in the served directory and answers how many bytes it wrote.
+`Curl.Api` does not need the program's help with the pipes, but you can drive them yourself to see the protocol. `ProcessStartInfo` describes `surl` with each argument in `ArgumentList`, so nothing needs quoting, and all three streams redirected; `Process.Start` starts it. Standard error is read to its end in the background from the start, since a pipe nobody reads would fill. `Ask` writes one request with a fresh `id` and reads one line back, which `JsonNode.Parse` turns into a `JsonNode`. The `initialize` answer names the server as `surl`; the `notifications/initialized` notification gets no answer; a `ping` gets an empty result. Closing standard input ends the session, and `surl` exits `0` without being killed.
 
-`Curl.Api` can start the program itself. A `CurlRequest` for `mcp+stdio://localhost/surl?--directory&site&mcp+stdio:` makes `CurlClient` run `surl` with the query's items, split at `&`, as its arguments, and the `CurlResponse` body is the tool list, one line per tool: name, tab, description (<<curl-protocols>>, <<curl-readme>>). It goes no further: `Curl.Api` 0.2.0 does not send a request `Body` as a `tools/call`, and a request with one still answers the list. That is why this program speaks JSON-RPC itself for the call.
-
-`Surl.Api` is no help here either. `SurlServer.StartAsync` with `SurlServerOptions` listing `mcp+stdio:` throws instead of starting: an in-process server has no standard input and output of its own to serve. To test MCP inside one process, give `SurlServerOptions` an `mcp://127.0.0.1:0` listen URL instead.
+`Surl.Api` cannot host the server in your process: `SurlServer.StartAsync` with `SurlServerOptions` listing `mcp+stdio:` throws `SurlServerStartException`, whose `ExitCode` is `FailedInit`, `2`, because an in-process server has no standard input and output of its own to serve. Its message says what to do instead: give `SurlServerOptions` an `mcp://127.0.0.1:0` listen URL.
 
 include::.generated/claims.adoc[]
 

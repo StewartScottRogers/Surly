@@ -18,7 +18,7 @@ fixtures:
     #!/bin/sh
     # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
     # For each exchange: the listen URL that took it, from surl's control endpoint, beside what
-    # the trace says (the scheme, and for HTTP the Host header the client sent).
+    # the trace says (the listen URL on its Exchange opened line, and for HTTP the Host header the client sent).
     # Run: sh which-listener.sh <control URL>   (control.hdr holds the token header)
     control=$1
     count() { curl -s -H @control.hdr "${control}v1/events?kind=$1" | grep -o '"exchange_id"' | grep -c .; }
@@ -34,11 +34,11 @@ fixtures:
     curl -s -H @control.hdr "${control}v1/events?kind=exchange_started" |
       grep -o '"exchange_id":[0-9]*,"listen_url":"[^"]*"' | tr -d '"' | sed 's/exchange_id://; s/,listen_url:/ /' |
       while read -r id url; do
-        scheme=$(grep "^#$id \* Exchange $id opened: " trace.txt | sed 's/.* opened: \([a-z]*\) from .*/\1/')
+        listener=$(grep "^#$id \* Exchange $id opened: " trace.txt | sed 's/.* opened: [a-z]* on \([^ ]*\) from .*/\1/')
         host=$(awk -v mark="#$id " '
           index($0, "#") == 1 { inside = (index($0, mark "<= Recv") == 1); next }
           inside && / Host: / { sub(/.* Host: /, ""); sub(/\r$/, ""); print; exit }' trace.txt)
-        echo "exchange $id: $url  trace: $scheme${host:+, Host $host}"
+        echo "exchange $id: $url  trace: $listener${host:+, Host $host}"
       done
 
 # One surl, two HTTP listeners and an FTP one, all serving site/. --trace-ascii records every byte;
@@ -83,18 +83,18 @@ cases:
 
   - id: solution
     role: solution
-    claim: The control endpoint names the listen URL of every exchange; exchanges 1 and 3 came through the second HTTP listener and 2 through the FTP one, while the trace gives only the scheme, and for the third a Host naming the first listener.
+    claim: The control endpoint names the listen URL of every exchange, and the trace's Exchange opened line names the same one; exchanges 1 and 3 came through the second HTTP listener and 2 through the FTP one, though the third's Host named the first listener.
     run: sh which-listener.sh http://127.0.0.1:{{port4}}/
     expect:
       exit: 0
-      stdout-matches: '^exchange 1: http://127\.0\.0\.1:(\d+)/  trace: http, Host 127\.0\.0\.1:\1\nexchange 2: ftp://127\.0\.0\.1:\d+/  trace: ftp\nexchange 3: http://127\.0\.0\.1:\1/  trace: http, Host 127\.0\.0\.1:(?!\1)\d+\n$'
+      stdout-matches: '^exchange 1: (http://127\.0\.0\.1:(\d+)/)  trace: \1, Host 127\.0\.0\.1:\2\nexchange 2: (ftp://127\.0\.0\.1:\d+/)  trace: \3\nexchange 3: \1  trace: \1, Host 127\.0\.0\.1:(?!\2)\d+\n$'
 
-  - id: trace-names-the-scheme
-    claim: The trace's line for each exchange names its scheme and the client's address, not the listen URL, so the two HTTP exchanges read alike.
+  - id: trace-names-the-listener
+    claim: The trace's line for each exchange names its scheme, the listen URL that accepted it, with its bound port, and the client's address, so the two HTTP listeners can be told apart.
     run: grep "Exchange [0-9]* opened:" trace.txt
     expect:
       exit: 0
-      stdout-matches: '^#1 \* Exchange 1 opened: http from 127\.0\.0\.1:\d+\.\r?\n#2 \* Exchange 2 opened: ftp from 127\.0\.0\.1:\d+\.\r?\n#3 \* Exchange 3 opened: http from 127\.0\.0\.1:\d+\.\r?\n$'
+      stdout-matches: '^#1 \* Exchange 1 opened: http on (http://127\.0\.0\.1:\d+/) from 127\.0\.0\.1:\d+\.\r?\n#2 \* Exchange 2 opened: ftp on ftp://127\.0\.0\.1:\d+/ from 127\.0\.0\.1:\d+\.\r?\n#3 \* Exchange 3 opened: http on \1 from 127\.0\.0\.1:\d+\.\r?\n$'
 
   - id: host-names-the-first
     claim: The trace holds a request whose Host names the first listener, though no client connected to it.

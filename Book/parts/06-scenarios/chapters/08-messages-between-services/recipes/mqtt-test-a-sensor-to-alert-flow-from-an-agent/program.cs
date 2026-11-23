@@ -9,7 +9,6 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -44,18 +43,12 @@ if (scenario == "solution")
     await Publish("boiler", "81.5");
     Console.WriteLine($"service: {await Service("boiler", 75)}");
 
-    // The check: wait, at most 10 s, for the mail store to report the delivery, then read the mailbox over POP3
-    // with the curl tool: message 1 is the alert, and the list has one line per message.
+    // The check: wait, at most 10 s, for the mail store to report the delivery, list the anonymous mailbox (the
+    // empty owner), then read it over POP3 with the curl tool: message 1 is the alert, and the list has one line per message.
     JsonElement delivered = await Wait("store_changed", "mail");
     Console.WriteLine($"delivered: {delivered.GetProperty("change").GetString()} {delivered.GetProperty("name").GetString()}");
-    try
-    {
-        await Surl("list_messages", new() { ["owner"] = "", ["mailbox"] = "INBOX" });
-    }
-    catch (McpProtocolException refused)
-    {
-        Console.WriteLine($"list_messages for the empty owner: {refused.Message}");
-    }
+    JsonElement messages = (await Surl("list_messages", new() { ["owner"] = "", ["mailbox"] = "INBOX" })).GetProperty("messages");
+    Console.WriteLine($"list_messages for the empty owner: {messages.GetArrayLength()} message(s), UID {messages[0].GetProperty("uid").GetInt64()}");
 
     (_, string alert) = await Curl("-s", "-m", "10", $"{pop3}1");
     string[] lines = alert.Split("\r\n");

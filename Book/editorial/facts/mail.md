@@ -444,3 +444,5 @@ imap-check-the-flags-an-app-left, imap-enforce-a-mailbox-quota, imap-fetch-only-
   curl `-v` shows `< -ERR [AUTH] Authentication failed` (with `-s`; without it the progress meter shares the line). Curl.Api: `using Curl.Api.Codes;`
   for `CurlCode.LoginDenied` in a `when` filter. JsonElement in an interpolated string prints `False`; use `GetRawText()` for JSON `false`.
 smtp-check-an-app-sent-the-right-mail, smtp-fail-a-test-on-mail-to-another-domain, smtp-load-mailboxes-from-a-csv-file, pop3-limit-a-mailbox-to-imap (all with twins).
+- Re-pin 3 (Surl d64faa4bb): surl-mcp `list_messages`/`read_message` take `owner: ""`, the `--allow-anonymous` mailbox owner (supersedes the earlier lines saying they refuse it, Surl BL-1593). `list_messages` answers `messages[0].uid` 1 after one delivery.
+- Re-pin 3 (Curl 2145a49eae, BL-5753): a Curl.Api `PUT` with `CurlContent.FromStream(stream, length)` to `imap://h:p/Shared/team` APPENDs (empty body, no exception); was curl 25 `Cannot APPEND with unknown input file size`.

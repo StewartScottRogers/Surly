@@ -43,3 +43,7 @@ Probed on Surl 5da5b3eaf / Curl c84035f797, Surl.Api 1.0.0, Curl.Api 0.2.0, 2026
 
 ## Recipes
 nats-publish-and-subscribe, nats-log-in-with-a-token (and twins), nats-stand-in-for-a-service (and twins).
+
+## Re-pin 3 (Surl v0.1.5 d64faa4bb / Curl 2145a49eae, 2026-11-22, windows)
+- BL-1588 fixed: `--user :tok123` accepts `curl -u tok123:` (sent as `auth_token`) over `natss://` with `--cacert --ssl-no-revoke`, exit 0, and over `nats://` with `--allow-plaintext-auth`, exit 0. Wrong token still 67 `Authorization Violation`, log `RefusedCredentials`; in clear without the option still `RefusedPlaintext`. Curl.Api `CurlAuthenticationOptions { UserName = token }` and the curl-mcp `curl` tool the same. An accepted token is still masked (`auth_token":"****`) and absent from the log.
+- Curl BL-5750 (natss upgrades to TLS after the plain INFO) is in this Curl; the natss cases keep `platforms: [windows, macos]` until CI shows Linux passes.

@@ -1,17 +1,14 @@
 # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 # Executable specification for a recipe whose subject is a .NET library (ADR-0008).
 # key MUST equal the folder name and never changes once published.
-# Curl.Api 0.2.0 opens a WebTransport session but sends no data on it (see review.md), so this
-# twin checks the login gate and surl's record of the session; the console and agent twins
-# check the datagram and stream echoes.
 schema: 2
 key: webtransport-send-datagrams-and-streams-in-csharp
-title: Opening a WebTransport Session in C#
+title: Sending WebTransport Datagrams in C#
 protocols: [webtransport]
 tier: new-protocols
 surface: csharp
 api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, SurlExchangeRecord, SurlExchangeChunk, SurlEventQuery, LoginJudgedEvent, CurlClient, CurlClientOptions, CurlAuthenticationOptions, CurlTlsPeerOptions, CurlRequest, CurlException]
-exit-codes: [0, 22, 58, 60]
+exit-codes: [0, 3, 22, 55, 58, 60]
 references: [webtransport-http3, rfc9114, rfc9000, rfc8446, surl-readme, curl-readme, curl-protocols]
 
 # The certificate and its key are made here, never committed.
@@ -25,20 +22,60 @@ fixtures: {}
 cases:
   - id: solution
     role: solution
-    claim: With the account's login, Curl.Api's extended CONNECT for webtransport-h3 at /game is answered 200 and the session opens; surl records the login as player1, Basic, accepted.
+    claim: With the account's login and ?wt=datagram, Curl.Api sends the Body as one datagram on the session and answers the datagram surl echoes; surl records the extended CONNECT for webtransport-h3 at /game, its 200, and the login as player1, Basic, accepted.
     program: check-the-session-login.cs
-    args: [login]
+    args: [datagram]
     expect:
       exit: 0
-      stdout: "session opened; 0 bytes echoed\nreceived :method: CONNECT\nreceived :protocol: webtransport-h3\nreceived :path: /game\nsent :status: 200\nlogin: player1, Basic, accepted True\n"
+      stdout: "echoed: {\"player\":1,\"x\":3,\"y\":4}\nreceived :method: CONNECT\nreceived :protocol: webtransport-h3\nreceived :path: /game\nsent :status: 200\nlogin: player1, Basic, accepted True\n"
 
-  - id: no-data-yet
-    claim: Curl.Api 0.2.0 sends no data on a WebTransport session; the request's Body is not sent as a datagram, so nothing is echoed and the response body is empty.
+  - id: one-way-stream
+    claim: With ?wt=uni, Curl.Api sends the Body on a unidirectional stream, and surl echoes it on one of its own.
     program: check-the-session-login.cs
-    args: [login]
+    args: [uni]
     expect:
       exit: 0
-      stdout-matches: '^session opened; 0 bytes echoed\n'
+      stdout: "echoed: level 2 loaded\n"
+
+  - id: two-way-stream
+    claim: With no wt= mode, the Body goes on a bidirectional stream, and the echo comes back on the same stream.
+    program: check-the-session-login.cs
+    args: [bidi]
+    expect:
+      exit: 0
+      stdout: "echoed: ping\n"
+
+  - id: stream-carries-any-size
+    claim: A stream carries data of any size; 100,000 bytes on a unidirectional stream come back whole.
+    program: check-the-session-login.cs
+    args: [big]
+    expect:
+      exit: 0
+      stdout: "sent 100000 bytes, echoed 100000, the same: True\n"
+
+  - id: datagram-fits
+    claim: A datagram of 1,099 bytes, 1,100 with the one-byte quarter stream ID, is sent and echoed whole.
+    program: check-the-session-login.cs
+    args: [fits]
+    expect:
+      exit: 0
+      stdout: "sent 1099 bytes, echoed 1099, the same: True\n"
+
+  - id: datagram-too-big
+    claim: A datagram of 1,100 bytes does not fit; SendAsync throws CurlException with code SendError (55), naming the limit of 1,100 bytes with the quarter stream ID.
+    program: check-the-session-login.cs
+    args: [too-big]
+    expect:
+      exit: 55
+      stdout: "refused: SendError (55): The data does not fit in one datagram: at most 1100 bytes, quarter stream ID included\n"
+
+  - id: unknown-mode
+    claim: A wt= value other than bidi, uni or datagram is refused before anything is sent, UrlMalformat (3).
+    program: check-the-session-login.cs
+    args: [dgram]
+    expect:
+      exit: 3
+      stdout: "refused: UrlMalformat (3): Unknown WebTransport mode \"wt=dgram\": use wt=bidi, wt=uni or wt=datagram\n"
 
   - id: no-login
     claim: With no login, surl answers the CONNECT 401 and judges no login; SendAsync throws CurlException with code HttpReturnedError (22), naming the refused session.
