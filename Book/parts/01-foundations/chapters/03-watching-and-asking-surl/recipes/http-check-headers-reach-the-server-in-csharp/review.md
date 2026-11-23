@@ -6,3 +6,4 @@ Checked against local builds on 2026-11-19 (not releases): surl 1.0.0 (Surl comm
 1. Curl.Api has no client-wide default headers (CurlClientOptions has none), so 'adds headers on every request' is a helper, Build, that stands in for the code under test.
 2. The test joins every exchange's Received bytes and splits at blank lines; safe only because these requests have no body, as the Discussion says.
 3. Bounded wait before reading the server's record (CI race sweep).
+Re-pinned to Surl v0.1.5 (d64faa4bb) / Curl 2145a49eae: Curl BL-5747: an empty value in Headers now removes the header (empty-value-removes, the test fails, exit 1); CurlRequest.EmptyHeaders sends it empty (new empty-on-purpose). 5 of 5 pass on windows.

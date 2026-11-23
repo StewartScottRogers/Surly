@@ -5,14 +5,13 @@
 #:package Surly.Curl.Api@*
 
 using Curl.Api;
-using Curl.Api.Codes;
 using Curl.Api.Errors;
 using Surl.Protocol.Abstractions;
 using Surl.Api;
 
 // The scheme to listen on, socketios (TLS) or socketio (plain); the user name and password to log in
 // with, or "none" for no login; "plaintext" to loosen the server; "untrusted" to leave the certificate
-// untrusted; "token" to serve a token account (:tok123) and log in with the token alone.
+// untrusted; "token" to serve a token account (:tok123).
 string scheme = args[0];
 string user = args[1];
 string password = args[2];
@@ -36,8 +35,8 @@ if (scheme == "socketios")
 
 await using var server = await SurlServer.StartAsync(options);
 
-// The client: a login (curl -u), the certificate to trust (--cacert) and one event to emit (-d). A
-// Socket.IO session has no end of its own, so Timeout ends it after 3 s (curl -m 3).
+// The client: a login (curl -u), the certificate to trust (--cacert) and one event to emit (-d). The
+// call ends at the first event the server sends back; Timeout (curl -m 3) bounds it all the same.
 var request = new CurlRequest(HttpMethod.Post, server.BoundUrl.ToString())
 {
     Body = CurlContent.FromBytes("[\"chat\",\"hi\"]"u8.ToArray()),
@@ -51,15 +50,14 @@ await using CurlClient client = CurlClient.Create(new CurlClientOptions
 });
 try
 {
-    await client.SendAsync(request, CancellationToken.None);
-}
-catch (CurlException e) when (e.Code == CurlCode.OperationTimedOut)
-{
-    // The join was accepted: the session was still open when the time limit ended it. Ask the server
-    // what it judged.
+    CurlResponse response = await client.SendAsync(request, CancellationToken.None);
+    await using Stream body = response.Body;
+    string events = (await new StreamReader(body).ReadToEndAsync()).TrimEnd();
+
+    // The join was accepted and the event came back. Ask the server what it judged of the login.
     var judged = (LoginJudgedEvent)await server.WaitForEventAsync(
         new SurlEventQuery { Kind = SurlEventKind.LoginJudged, AfterSequence = 0 }, TimeSpan.FromSeconds(10));
-    Console.WriteLine($"joined: curl code {(int)e.Code} {e.Code}; login accepted {judged.IsAccepted}");
+    Console.WriteLine($"joined: {events}; login accepted {judged.IsAccepted}");
     return 0;
 }
 catch (CurlException e)
@@ -67,6 +65,3 @@ catch (CurlException e)
     Console.WriteLine($"refused: curl code {(int)e.Code} {e.Code}: {e.Message}");
     return (int)e.Code;
 }
-
-Console.WriteLine("the session ended on its own");
-return 1;

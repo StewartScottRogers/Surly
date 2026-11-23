@@ -2,7 +2,8 @@
 // An MCP server over TLS that lists its tools only to a client with its token, in one .NET program.
 // Run: dotnet run require-a-token.cs -- <case>
 //   token        mcps, the certificate trusted, the token sent (the default)
-//   with-body    the same, with a tools/call as the request's Body
+//   call         the same, with a tools/call as the request's Body
+//   call-none    the tools/call with no token
 //   none         no token          wrong       another token
 //   password     a user name and password instead of a token
 //   untrusted    the token, but the certificate not trusted
@@ -55,7 +56,7 @@ await using (server)
     ReadOnlyMemory<byte>? authority = File.ReadAllBytes("server.pem");
     var login = which switch
     {
-        "none" or "anonymous" => null,
+        "none" or "call-none" or "anonymous" => null,
         "wrong" => new CurlAuthenticationOptions { XOAuth2Bearer = "agent-token-2" },
         "password" => new CurlAuthenticationOptions { UserName = "alice", Password = "secret" },
         _ => new CurlAuthenticationOptions { XOAuth2Bearer = "agent-token-1" },
@@ -68,8 +69,8 @@ await using (server)
 
     try
     {
-        // A request to /mcp lists the tools, one line each. Curl.Api 0.2.0 sends no Body over MCP.
-        CurlRequest request = which == "with-body"
+        // A request to /mcp with no Body lists the tools, one line each; a Body is sent as a tools/call.
+        CurlRequest request = which is "call" or "call-none"
             ? new CurlRequest(HttpMethod.Post, $"{server.BoundUrl}mcp") { Body = "{\"name\":\"read_file\",\"arguments\":{\"path\":\"hello.txt\"}}"u8.ToArray() }
             : new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}mcp");
         CurlResponse response = await client.SendAsync(request, CancellationToken.None);

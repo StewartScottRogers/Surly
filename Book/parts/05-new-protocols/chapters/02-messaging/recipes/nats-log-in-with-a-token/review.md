@@ -13,3 +13,4 @@ Checked against local builds on 2026-11-22 (not releases): surl 1.0.0 (Surl comm
 - CI (Linux): curl's natss:// TLS handshake fails there (35, wrong version number: the port starts TLS before reading NATS's plain INFO line); the natss refusal cases are marked Windows and macOS; reported to Curl.
 - CI (Linux): token-is-masked needs a natss CONNECT, which the Linux TLS failure (Curl BL-5750) prevents; marked Windows and macOS.
 - CI (Linux): every case that needs a natss handshake (right-token-refused) is marked Windows and macOS until Curl BL-5750.
+Re-pinned to Surl v0.1.5 (d64faa4bb) / Curl 2145a49eae: BL-1588 fixed: the right token is accepted over natss (right-token-accepted, exit 0) and with --allow-plaintext-auth over nats (new loosening-accepts-the-token); the defect paragraph is gone; natss cases stay Windows/macOS, Linux for CI to confirm after Curl BL-5750. 13 of 13 pass on windows.

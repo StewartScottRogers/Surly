@@ -77,6 +77,13 @@ cases:
       stdout: ""
       stderr-contains: "Authorization Violation"
 
+  - id: loosening-accepts-the-token
+    claim: With --allow-plaintext-auth, the token the server holds is accepted over nats:// and the publish succeeds, exit 0.
+    run: 'curl -sS -u tok123: -d paid nats://127.0.0.1:{{port2}}/orders.new'
+    expect:
+      exit: 0
+      stdout: ""
+
   - id: judged-reason
     claim: The trace of that server names the reason as RefusedCredentials, not RefusedPlaintext.
     run: sh wait-for.sh loose.log RefusedCredentials
@@ -85,7 +92,7 @@ cases:
       stdout: "RefusedCredentials\n"
 
   - id: natss-wrong-token
-    claim: "On Windows and macOS (on Linux the Curl port starts TLS before reading NATS's plain INFO line; reported to Curl), over natss://, with the certificate trusted through --cacert, the token is judged with no loosening option, and a wrong one is answered Authorization Violation, exit 67."
+    claim: "On Windows and macOS (Linux, where the Curl port started TLS before reading NATS's plain INFO line until Curl BL-5750, is for CI to confirm), over natss://, with the certificate trusted through --cacert, the token is judged with no loosening option, and a wrong one is answered Authorization Violation, exit 67."
     platforms: [windows, macos]
     run: 'curl -sS --cacert server.pem --ssl-no-revoke -u wrong: -d paid natss://127.0.0.1:{{port3}}/orders.new'
     expect:
@@ -94,13 +101,21 @@ cases:
       stderr-contains: "Authorization Violation"
 
   - id: natss-no-token
-    claim: "On Windows and macOS (on Linux the Curl port starts TLS before reading NATS's plain INFO line; reported to Curl), a client that sends no token at all is refused the same way, exit 67."
+    claim: "On Windows and macOS (Linux, where the Curl port started TLS before reading NATS's plain INFO line until Curl BL-5750, is for CI to confirm), a client that sends no token at all is refused the same way, exit 67."
     platforms: [windows, macos]
     run: curl -sS --cacert server.pem --ssl-no-revoke -d paid natss://127.0.0.1:{{port3}}/orders.new
     expect:
       exit: 67
       stdout: ""
       stderr-contains: "Authorization Violation"
+
+  - id: right-token-accepted
+    claim: "On Windows and macOS (Linux, where the Curl port started TLS before reading NATS's plain INFO line until Curl BL-5750, is for CI to confirm), over natss://, with a trusted certificate and no loosening option, the token the server holds is accepted and the publish succeeds, exit 0."
+    platforms: [windows, macos]
+    run: 'curl -sS --cacert server.pem --ssl-no-revoke -u tok123: -d paid natss://127.0.0.1:{{port3}}/orders.new'
+    expect:
+      exit: 0
+      stdout: ""
 
   - id: untrusted-certificate
     claim: Without --cacert, curl does not trust the certificate, sends no token and exits 60.
@@ -118,7 +133,7 @@ cases:
       stderr-contains: "NATS server requires TLS; use natss://"
 
   - id: token-is-masked
-    claim: "On Windows and macOS (on Linux the Curl port starts TLS before reading NATS's plain INFO line, so no CONNECT reaches the server; reported to Curl), the trace of the natss server shows the CONNECT with the token masked, auth_token followed by four asterisks, and the token itself appears nowhere in it."
+    claim: "On Windows and macOS (Linux, where the Curl port started TLS before reading NATS's plain INFO line until Curl BL-5750, is for CI to confirm), the trace of the natss server shows the CONNECT with the token masked, auth_token followed by four asterisks, and the token itself appears nowhere in it."
     platforms: [windows, macos]
     run: sh wait-for.sh tls.log "auth_token.:.\*\*\*\*"
     expect:
@@ -126,17 +141,8 @@ cases:
       stdout-matches: '\A(auth_token":"\*\*\*\*\n)+\Z'
 
   - id: token-is-not-in-the-log
-    claim: The token the server holds is not in the log at all, so the log can be kept and shared.
+    claim: The token the server holds is not in the log at all, though clients sent it and it was accepted, so the log can be kept and shared.
     run: grep -c tok123 tls.log
     expect:
       exit: 1
       stdout: "0\n"
-
-  - id: right-token-refused
-    claim: "On Windows and macOS (on Linux the Curl port starts TLS before reading NATS's plain INFO line; reported to Curl, BL-5750), known defect of the build checked: over natss://, with a trusted certificate and no loosening option, the token the server holds is refused as well, answered Authorization Violation, exit 67, so no case here shows a token accepted."
-    platforms: [windows, macos]
-    run: 'curl -sS --cacert server.pem --ssl-no-revoke -u tok123: -d paid natss://127.0.0.1:{{port3}}/orders.new'
-    expect:
-      exit: 67
-      stdout: ""
-      stderr-contains: "Authorization Violation"

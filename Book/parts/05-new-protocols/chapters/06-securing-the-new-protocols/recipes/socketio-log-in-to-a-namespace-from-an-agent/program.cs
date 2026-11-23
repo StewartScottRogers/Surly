@@ -5,7 +5,7 @@
 //   socketios alice:s3cret   TLS and the right password
 //   socketios alice:wrong    TLS and a wrong password
 //   socketios none           TLS and no login
-//   socketios tok123:        a token account, started with the token option
+//   socketios tok123:        a token account, started with the token option; :tok123 too
 //   socketio alice:s3cret    no TLS, the right password; add plaintext to loosen the server
 #:package ModelContextProtocol.Core@*
 
@@ -45,7 +45,7 @@ CallToolResult started = await surl.CallToolAsync("start_server", new Dictionary
 string url = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
 
 // curl-mcp's curl tool takes curl's arguments, one list item each: -u is the login, --cacert the
-// certificate to trust, -d the event to emit, -m 3 the time limit, since a session has no end. -sS hides the progress meter and keeps the error text.
+// certificate to trust, -d the event to emit, -m 3 a bound on the call, which ends at the first event sent back. -sS hides the progress meter and keeps the error text.
 var curlArgs = new List<string> { "-sS", "-m", "3" };
 if (!untrusted) curlArgs.AddRange(["--cacert", "server.pem"]);
 if (login != "none") curlArgs.AddRange(["-u", login]);

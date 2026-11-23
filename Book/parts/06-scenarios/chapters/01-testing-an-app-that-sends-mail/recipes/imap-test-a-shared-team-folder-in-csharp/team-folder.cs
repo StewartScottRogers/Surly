@@ -5,7 +5,6 @@
 //   (no argument)  the test: append as ann, read as both, flag as bob, search as ann
 //   non-member     carol, who is not a member, tries to read the folder
 //   deliver        the test seeds mail for team@example.com through Surl.Api
-//   curl-append    the append is asked of Curl.Api, as a PUT with a stream body
 //   curl-store     the flag is asked of Curl.Api, as a request method
 #:package Surly.Surl.Api@*
 #:package Surly.Curl.Api@*
@@ -46,9 +45,6 @@ switch (mode)
         }
 
         return 1;
-    case "curl-append":
-        Console.WriteLine($"Curl.Api appends: {await Fetch("ann", "Shared/team", notice)}");
-        return 1;
     case "curl-store":
         try
         {
@@ -62,8 +58,9 @@ switch (mode)
         return 1;
 }
 
-// Ann puts the notice in the folder. Curl.Api 0.2.0 cannot APPEND, so the test speaks IMAP for it.
-Console.WriteLine($"ann appends: {await Imap.SendAsync(imap, "ann", "APPEND Shared/team", notice)}");
+// Ann puts the notice in the folder: a PUT with a body of known length is an IMAP APPEND, which answers no body.
+string appended = await Fetch("ann", "Shared/team", notice);
+Console.WriteLine($"ann appends: {(appended == "" ? "done" : appended)}");
 
 if (mode == "non-member")
 {
@@ -83,7 +80,7 @@ foreach (string who in new[] { "bob", "ann" })
     Console.WriteLine($"{who} reads: {await Fetch(who, "Shared/team;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)")}");
 }
 
-// Bob flags it; Curl.Api cannot send STORE either.
+// Bob flags it; Curl.Api cannot send STORE, so the test speaks IMAP for it.
 Console.WriteLine($"bob flags: {await Imap.SendAsync(imap, "bob", @"STORE 1 +FLAGS (\Flagged)")}");
 
 // Ann sees the flag, over IMAP and in the store.
@@ -114,11 +111,11 @@ async Task<string> Fetch(string who, string path, byte[]? body = null)
 }
 
 // One IMAP command as a member, on a connection of its own: log in with CRAM-MD5, select the
-// folder (unless appending to it), send the command and any literal, and answer the reply that
-// matters, the untagged FETCH if there is one, else the tagged OK or NO.
+// folder, send the command, and answer the reply that matters, the untagged FETCH if there is
+// one, else the tagged OK or NO.
 static class Imap
 {
-    public static async Task<string> SendAsync(Uri imap, string who, string command, byte[]? literal = null)
+    public static async Task<string> SendAsync(Uri imap, string who, string command)
     {
         using var tcp = new TcpClient(imap.Host, imap.Port);
         using var reader = new StreamReader(tcp.GetStream(), Encoding.ASCII);
@@ -129,19 +126,9 @@ static class Imap
         string digest = Convert.ToHexStringLower(HMACMD5.HashData(Encoding.ASCII.GetBytes($"{who}pass"), challenge));
         await writer.WriteLineAsync(Convert.ToBase64String(Encoding.ASCII.GetBytes($"{who}@example.com {digest}")));
         await Until(reader, "a1 ");
-        if (literal is null)
-        {
-            await writer.WriteLineAsync("a2 SELECT Shared/team");
-            await Until(reader, "a2 ");
-            await writer.WriteLineAsync($"a3 {command}");
-        }
-        else
-        {
-            await writer.WriteLineAsync($"a3 {command} {{{literal.Length}}}");
-            await reader.ReadLineAsync();                       // + Ready for literal data
-            await writer.BaseStream.WriteAsync(literal);
-            await writer.WriteLineAsync();
-        }
+        await writer.WriteLineAsync("a2 SELECT Shared/team");
+        await Until(reader, "a2 ");
+        await writer.WriteLineAsync($"a3 {command}");
 
         List<string> lines = await Until(reader, "a3 ");
         return lines.FirstOrDefault(line => line.Contains(" FETCH ")) ?? lines[^1];

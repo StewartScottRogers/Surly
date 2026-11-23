@@ -5,3 +5,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 ## Findings
 1. No test framework package: a stand-in runner keeps per-test output and prints it on failure, as xUnit/NUnit do; the adapter takes an Action<string> such as ITestOutputHelper.WriteLine.
 2. The verbose log holds request headers (secrets) in this build; the Discussion warns and points to the keep-the-log recipe. Surl BL-1417 (redaction) would change that.
+Re-pinned to Surl v0.1.5 (d64faa4bb) / Curl 2145a49eae: the Exchange opened line names the listener; solution and info-says-little match it against the Listening on URL. 2 of 2 pass on windows.

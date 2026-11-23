@@ -6,6 +6,7 @@
 //   clear-log      the log's reason for that
 //   loose          AllowPlaintextAuthentication, a wrong token: refused
 //   loose-log      the log's reason for that
+//   loose-right    AllowPlaintextAuthentication, the token the server holds: accepted
 //   tls-wrong      natss://, a wrong token
 //   tls-none       natss://, no token
 //   untrusted      natss://, no trusted certificate
@@ -45,7 +46,7 @@ else
     options.Accounts.Add(new SurlAccount("", Token));
 }
 
-options.AllowPlaintextAuthentication = which is "loose" or "loose-log";
+options.AllowPlaintextAuthentication = which is "loose" or "loose-log" or "loose-right";
 if (tls)
 {
     options.CertificateFile = "server.pem";
@@ -69,6 +70,9 @@ switch (which)
     case "loose":
     case "loose-log":
         await Publish(bare, url, "wrong");
+        break;
+    case "loose-right":
+        await Publish(bare, url, Token);
         break;
     case "tls-wrong":
         await Publish(client, url, "wrong");

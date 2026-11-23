@@ -7,11 +7,11 @@ include::.generated/attributes.adoc[]
 
 ==== Problem
 
-Your SignalR client logs in to its hub. You want the negotiate refused without a login, and accepted with one over Transport Layer Security (TLS), from a C# test with `Surl.Api` and `Curl.Api`.
+Your SignalR client logs in to its hub. You want a hub call refused without a login, and answered with one over Transport Layer Security (TLS), from a C# test with `Surl.Api` and `Curl.Api`.
 
 ==== Solution
 
-The program hosts the hub in-process and sends the first request a SignalR client sends, `negotiate`, as a client. The arguments after `--` pick the scenario: the scheme, the user name and the password, then optional words. The certificate and key come from the `openssl` line, run first:
+The program hosts the hub in-process and calls its `Echo` method as a client. The arguments after `--` pick the scenario: the scheme, the user name and the password, then optional words. The certificate and key come from the `openssl` line, run first:
 
 include::.generated/solution.adoc[]
 
@@ -19,9 +19,9 @@ include::.generated/solution.adoc[]
 
 `SurlServerOptions` takes the same choices as the `surl` command line: `Accounts` holds one `SurlAccount` for `--user alice:s3cret`, `CertificateFile` and `KeyFile` are `--cert` and `--key`, and `AllowPlaintextAuthentication` is `--allow-plaintext-auth`, which loosens security and is set in only one case (<<surl-readme>>). Port 0 takes a free port, and `BoundUrl` is the real address under the `signalrs` or `signalr` scheme.
 
-This recipe sends only the negotiate request, with a `CurlClient` made from `CurlClientOptions` whose `Tls` is a `CurlTlsOptions`, a `CurlRequest` in and a `CurlResponse` back. A SignalR client starts with it, an HTTP `POST` to `/negotiate`, and the hub judges the login there, before any hub method runs (<<signalr-hub-protocol>>); `Curl.Api` 0.2.0 does not send a hub call over a `signalr://` URL, so the program asks for the hub as `https://` or `http://`, which is what it is underneath. `CurlAuthenticationOptions` carries the login, as `-u` does, and `CertificateAuthorityFile` in `CurlTlsPeerOptions` is `--cacert` (<<curl-readme>>). The right password over `signalrs` is answered `200`, and the body holds a `connectionToken`, which the client would use to open its WebSocket (<<rfc8446>>).
+The client is a `CurlClient` made from `CurlClientOptions` whose `Tls` is a `CurlTlsOptions`, a `CurlRequest` for the `BoundUrl` in and a `CurlResponse` back. Its `Body` is one hub invocation, message type `1`, target `Echo`, arguments `["hi"]`, sent as `curl -d` sends it. `Curl.Api` does what a SignalR client does: an HTTP `POST` to `/negotiate`, where the hub judges the login before any hub method runs, then the hub connection and the call (<<signalr-hub-protocol>>). The response body is the completion's result, `"hi"`. `CurlAuthenticationOptions` carries the login, as `-u` does, and `CertificateAuthorityFile` in `CurlTlsPeerOptions` is `--cacert` (<<curl-readme>>, <<rfc8446>>). A ten-second cancellation token bounds the call.
 
-A refusal is a response here, not an exception, so the program prints the status. Over TLS a wrong password, a user name with no account and no login at all are each `401`, and the status does not say which of the three it was. Plain `signalr` answers differently: the right password is `403`, forbidden, because the server does not check a password that crosses the network readable, while a request with no login is still `401`. Setting `AllowPlaintextAuthentication` makes the same login accepted. Without a certificate authority file, the client does not trust the self-signed certificate and `SendAsync` throws `CurlException` with code `60`, `PeerFailedVerification`, before any login is sent.
+A refused negotiate makes `SendAsync` throw a `CurlException` whose `Code` is `HttpReturnedError`, `22`, the exit code `curl` gives, and whose message names the status. Over TLS a wrong password, a user name with no account and no login at all are each `401`, and the status does not say which of the three it was. Plain `signalr` answers differently: the right password is `403`, forbidden, because the server does not check a password that crosses the network readable, while a request with no login is still `401`. Setting `AllowPlaintextAuthentication` makes the same login accepted, and `Echo` answers. Without a certificate authority file, the client does not trust the self-signed certificate and `SendAsync` throws `CurlException` with code `60`, `PeerFailedVerification`, before any login is sent.
 
 include::.generated/claims.adoc[]
 

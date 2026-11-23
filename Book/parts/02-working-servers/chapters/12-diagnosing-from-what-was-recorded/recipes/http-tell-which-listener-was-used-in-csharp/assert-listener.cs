@@ -60,7 +60,7 @@ string head = Encoding.ASCII.GetString(exchange.Received);
 string host = head.Split("\r\n").FirstOrDefault(l => l.StartsWith("Host: ", StringComparison.Ordinal))?[6..] ?? "(none)";
 Console.WriteLine($"exchange {exchange.ExchangeId}: {exchange.ListenUrl}, scheme {exchange.Scheme}, Host {host}");
 
-// The log's line for it names the scheme and the client, not the listener.
+// The log's line for it names the scheme, the listener and the client.
 foreach (string line in log.ToString().Split('\n').Where(l => l.Contains(" opened: ", StringComparison.Ordinal)))
 {
     Console.WriteLine($"log: {line.TrimEnd('\r')}");

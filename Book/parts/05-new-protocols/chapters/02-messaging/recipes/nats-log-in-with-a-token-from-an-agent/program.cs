@@ -6,6 +6,7 @@
 //   clear-events  what the server judged of that
 //   loose         --allow-plaintext-auth, a wrong token: refused
 //   loose-events  what the server judged of that
+//   loose-right   --allow-plaintext-auth, the token the server holds: accepted
 //   tls-wrong     natss://, a wrong token
 //   tls-none      natss://, no token
 //   untrusted     natss://, no trusted certificate
@@ -49,7 +50,7 @@ else
     arguments.AddRange(["--user", ":" + Token]);
 }
 
-if (which is "loose" or "loose-events")
+if (which is "loose" or "loose-events" or "loose-right")
 {
     arguments.Add("--allow-plaintext-auth");
 }
@@ -82,6 +83,9 @@ switch (which)
     case "loose-events":
         await Publish(url, "wrong");
         Console.WriteLine($"logins judged: {await Judged()}");
+        break;
+    case "loose-right":
+        await Publish(url, Token);
         break;
     case "tls-wrong":
         await Publish(url, "wrong", "--cacert", cert, "--ssl-no-revoke");

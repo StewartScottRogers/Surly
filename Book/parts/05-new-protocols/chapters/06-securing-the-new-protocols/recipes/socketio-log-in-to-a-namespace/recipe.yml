@@ -6,7 +6,7 @@ protocols: [socketio, socketios]
 tier: new-protocols
 surl-options: [--cert, --key, --user, --allow-plaintext-auth]
 curl-options: [--cacert, -u, -d, -m, -s, -S]
-exit-codes: [22, 28, 60]
+exit-codes: [0, 22, 60]
 references: [surl-readme, curl-readme, socketio-protocol, rfc8446]
 
 setup:
@@ -14,7 +14,7 @@ setup:
 
 # main: socketios with one account and no loosening option. plain: the same account over socketio://.
 # plaintext: the same again with --allow-plaintext-auth. token: socketios with a token account.
-# Every run that joins ends by -m, so no case waits on the server to close.
+# curl ends an emit at the first event the server sends back; -m bounds every run all the same.
 servers:
   main:
     command: surl --cert server.pem --key server.key --user alice:s3cret socketios://127.0.0.1:{{port}}/
@@ -32,11 +32,11 @@ servers:
 cases:
   - id: solution
     role: solution
-    claim: Over socketios curl logs in as alice with -u, trusting the certificate with --cacert, joins the main namespace, emits an event and gets it back from surl, which curl writes as one JSON array; curl then waits for more until -m 3 ends the run, exit 28, with no loosening option on surl.
+    claim: Over socketios curl logs in as alice with -u, trusting the certificate with --cacert, joins the main namespace, emits an event and gets it back from surl, which curl writes as one JSON array; curl ends there, at the first event sent back, exit 0, with no loosening option on surl.
     run: curl -s -m 3 --cacert server.pem -u alice:s3cret -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port}}/
     timeout: 30
     expect:
-      exit: 28
+      exit: 0
       stdout: "[\"chat\",\"hi\"]\n"
 
   - id: wrong-password
@@ -80,7 +80,7 @@ cases:
     run: curl -s -m 3 -u alice:s3cret -d "[\"chat\",\"hi\"]" socketio://127.0.0.1:{{port3}}/
     timeout: 30
     expect:
-      exit: 28
+      exit: 0
       stdout: "[\"chat\",\"hi\"]\n"
 
   - id: untrusted-certificate
@@ -91,9 +91,18 @@ cases:
       exit: 60
       stdout: ""
 
-  - id: token-login-refused-in-this-build
-    claim: In this build a token account (--user :tok123) refuses even the right token over socketios, with the same Not authorized; this is a known fault, BL-1589, fixed in Surl master.
+  - id: token-as-user-name-refused
+    claim: A token account (--user :tok123) refuses -u tok123:, the token as the user name, with the same Not authorized, exit 22.
     run: 'curl -sS -m 3 --cacert server.pem -u tok123: -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port4}}/'
+    timeout: 30
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "Not authorized"
+
+  - id: token-as-password-refused
+    claim: It refuses -u :tok123, an empty user name and the token as the password, the same way, so no -u form logs in to a token account.
+    run: 'curl -sS -m 3 --cacert server.pem -u :tok123 -d "[\"chat\",\"hi\"]" socketios://127.0.0.1:{{port4}}/'
     timeout: 30
     expect:
       exit: 22

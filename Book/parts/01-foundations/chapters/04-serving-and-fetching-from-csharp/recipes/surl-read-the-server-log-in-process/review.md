@@ -7,3 +7,4 @@ Checked against local builds on 2026-11-20 (not releases): surl 1.0.0 (Surl comm
 2. AllowAnonymous is there to give the log a warning and let the test fetch with no login; the strict case shows no warning and 401.
 3. Observed: LogLevel.Error writes nothing, not even the start-up warning (the Accounts.Remove XML doc says warnings show 'at every log level that shows warnings'; consistent, Error is errors only).
 4. The 404 path differs by platform; the pattern matches any path ending summary.csv.
+Re-pinned to Surl v0.1.5 (d64faa4bb) / Curl 2145a49eae: the Exchange opened line names the listener; solution and info-level match it against the Listening on URL. 5 of 5 pass on windows.

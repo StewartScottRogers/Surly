@@ -32,3 +32,5 @@ stomp-send-to-a-queue, stomp-send-and-read-over-mqtt (and C# and agent twins).
 - Surl.Api: `Queues.Add("jobs")`, `RecordExchanges = true`; Curl.Api POST `queue/jobs`; wait `ExchangeEnded` then `server.Messages.BrowseQueueAsync("jobs", -1, 100, ct)` (`ReadyCount`, `Messages[].Payload`). Refusal `CurlException` 67, message ends `Authentication failed`. surl-mcp: `--queue jobs` in `arguments`, `wait_for_event(kinds:["exchange_ended"], timeout_ms)`, `browse_queue(server_id, queue)` -> `ready_count`, `messages[].text`.
 
 - Decided by Surl (2026-11-22): a STOMP SEND or SUBSCRIBE to an undeclared queue creates it (ADR-0118, as ADR-0107 for AMQP 1.0), so a producer can meet a later consumer. Seeding with EnqueueAsync still refuses an undeclared queue (BL-1605 open): declare it with --queue first.
+
+- Decided by Surl (2026-11-22, ADR-0124 amendment): seeding an undeclared queue stays refused (UnknownQueue) on Surl.Api, surl-mcp and the control endpoint; STOMP SEND still creates queues (ADR-0118). Declare with --queue before seeding.

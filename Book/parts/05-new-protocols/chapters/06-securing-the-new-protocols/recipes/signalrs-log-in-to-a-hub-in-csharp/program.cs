@@ -4,7 +4,6 @@
 #:package Surly.Surl.Api@*
 #:package Surly.Curl.Api@*
 
-using System.Text.Json;
 using Curl.Api;
 using Curl.Api.Errors;
 using Surl.Api;
@@ -32,30 +31,25 @@ if (scheme == "signalrs")
 
 await using var server = await SurlServer.StartAsync(options);
 
-// A SignalR client starts with a negotiate request, an HTTP POST, and the login is judged there. The hub
-// is HTTP under its own scheme, so the program asks for it as http or https.
-string address = server.BoundUrl.ToString().Replace(scheme + "://", scheme == "signalrs" ? "https://" : "http://");
-var request = new CurlRequest(HttpMethod.Post, $"{address}negotiate?negotiateVersion=1")
+// The Body is one hub invocation, sent as curl -d sends it: Curl.Api negotiates with the login,
+// opens the hub's WebSocket and answers the completion's result.
+var request = new CurlRequest(HttpMethod.Post, server.BoundUrl.ToString())
 {
     Authentication = user == "none" ? null : new CurlAuthenticationOptions { UserName = user, Password = password },
+    Body = """{"type":1,"target":"Echo","arguments":["hi"]}"""u8.ToArray(),
 };
 var tls = new CurlTlsPeerOptions { CertificateAuthorityFile = untrusted ? null : "server.pem" };
 await using CurlClient client = CurlClient.Create(new CurlClientOptions { Tls = new CurlTlsOptions { Origin = tls } });
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 try
 {
-    CurlResponse response = await client.SendAsync(request, CancellationToken.None);
+    CurlResponse response = await client.SendAsync(request, timeout.Token);
     await using Stream body = response.Body;
-    string text = await new StreamReader(body).ReadToEndAsync();
-    Console.WriteLine($"negotiate: {response.StatusCode}");
-    if (response.StatusCode == 200)
-    {
-        bool token = JsonDocument.Parse(text).RootElement.TryGetProperty("connectionToken", out _);
-        Console.WriteLine($"connection token: {token}");
-    }
+    Console.Write($"Echo: {await new StreamReader(body).ReadToEndAsync()}");
 }
 catch (CurlException e)
 {
-    Console.WriteLine($"refused: curl code {(int)e.Code} {e.Code}");
+    Console.WriteLine($"refused: curl code {(int)e.Code} {e.Code}: {e.Message}");
     return (int)e.Code;
 }
 

@@ -117,3 +117,5 @@ http-accept-basic-only-over-https (and its twins), http-log-in-with-digest, http
 - surl-mcp: after each curl-mcp call, `wait_for_event(kinds:["exchange_ended"], after_sequence: last)` then `get_events`.
 
 - A Bearer-token account (empty user name) cannot be added, rotated or removed through the control endpoint or surl-mcp yet (BL-1601..1604 open). Surl.Api already accepts the empty name: rotate a token with Accounts.SetPassword or Add with an empty name.
+
+- Decided by Surl (2026-11-22, ADR-0132 amendment 2; Surl master PR #138, after v0.1.5): a Bearer-token account is changed at run time through dedicated routes, control `PUT|DELETE /v1/bearer-token` and matching surl-mcp tools; Surl.Api's account views rotate it. An empty `user` in /v1/accounts, add_account and remove_account stays refused. Not in the pinned v0.1.5 build.

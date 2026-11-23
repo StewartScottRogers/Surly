@@ -33,3 +33,7 @@ Checked against: surl 1.0.0 (Surl 5da5b3eaf), curl 8.22.0 (Curl c84035f797), Sur
 
 ## Recipes
 mcp-call-a-tool, mcp-start-an-mcp-server-as-a-program (and twins), mcp-require-a-login-for-tools (and twins).
+
+## Re-pin 3: Surl v0.1.5 (d64faa4bb) / Curl 2145a49eae, Surly.Curl.Api, 2026-11-22, windows
+- Curl.Api now sends a request `Body` as the `tools/call` (BL-5758), to mcp, mcps and mcp+stdio: POST with the call's JSON answers the content items, one per line (`hello from surl` + 2 newlines for read_file), StatusCode 0. No Body still lists the tools. JSON-RPC error is `CurlException` WeirdServerReply 8, message `MCP server error -32602: Invalid params: unknown tool write_file`; a program that cannot be started is CouldntConnect 7, `Failed to start the MCP server <name>: ...` (rest of the message is .NET's, platform-specific). With the Bearer token a call goes through; without, LoginDenied 67 as for the list. Curl.Api's mcp+stdio needs no Process: it starts surl from PATH itself, surl's stderr passes to the program's stderr.
+- Surl.Api `StartAsync` with `ListenUrls { "mcp+stdio:" }` now throws `SurlServerStartException`, ExitCode FailedInit (2), message `mcp+stdio: serves the standard input and output of a surl process and cannot be started in-process; listen on mcp://127.0.0.1:0/ instead` (was UriFormatException).

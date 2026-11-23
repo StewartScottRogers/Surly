@@ -127,3 +127,5 @@ http-download-a-file-in-parallel-ranges, http-stream-a-download-and-hash-it, htt
 - Recipes (batch 12): https-require-a-client-certificate (and twins), https-log-in-with-tls-srp (and twins).
 
 - .NET server TLS refusal text differs by OS: a rejected client certificate logs "The remote certificate was rejected" on Windows and macOS, but "Authentication failed, see inner exception." on Linux (batch 12 CI). Claim the handshake failure on all platforms; mark the wording [windows, macos].
+
+- Unix sockets on macOS (Curl BL-5686, measured 2026-11-22): a .NET server bound to a Unix-socket path shorter than 14 bytes can crash on accept, because macOS reports an unbound peer as a 16-byte address and .NET sizes the buffer to the listener's own path. Surl's fix is BL-1565. Give a socket path of 14 bytes or more, e.g. an absolute one ($PWD/surl.sock), to be safe on any build.

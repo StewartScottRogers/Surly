@@ -40,3 +40,6 @@ Checked against: surl 1.0.0 (Surl 763754785), curl (Curl b9ca725077), 2026-11-19
 
 ## Recipes
 webtransport-open-a-stream, webtransport-send-datagrams-and-streams (and twins)
+
+## Re-pin 3: Surl v0.1.5 (d64faa4bb) / Curl 2145a49eae, Surly.Curl.Api, 2026-11-22, windows
+- Curl.Api now sends the `Body` on the session as `curl -d` does (BL-5758), replacing the "sends no data" note above: POST to `webtransport://h:p/game?wt=datagram` answers the echoed datagram, `?wt=uni` and no wt= (bidi) the echoed stream; 100,000 bytes on uni and a 1,099-byte datagram come back whole; 1,100 bytes is `CurlException` SendError 55 `The data does not fit in one datagram: at most 1100 bytes, quarter stream ID included`; `wt=dgram` is UrlMalformat 3 `Unknown WebTransport mode "wt=dgram": use wt=bidi, wt=uni or wt=datagram`. StatusCode 0. surl's record still shows `:path: /game` (query not in the path).

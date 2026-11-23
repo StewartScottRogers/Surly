@@ -7,56 +7,42 @@ title: Starting MCP over Stdio in C#
 protocols: [mcp+stdio]
 tier: new-protocols
 surface: csharp
-api-types: [CurlClient, CurlRequest, CurlResponse, SurlServer, SurlServerOptions, Process, ProcessStartInfo, JsonNode]
-exit-codes: [0, 1]
+api-types: [CurlClient, CurlRequest, CurlResponse, CurlException, SurlServer, SurlServerOptions, SurlServerStartException, Process, ProcessStartInfo, JsonNode]
+exit-codes: [0, 2, 7, 8]
 references: [mcp-spec, surl-readme, curl-readme, curl-protocols]
 
 fixtures:
   site/hello.txt: "hello from surl\n"
 
-# No servers: block. Each case's program starts its own surl over standard input and output.
+# No servers: block. Curl.Api starts its own surl over standard input and output in each case;
+# by-hand starts one with Process.
 
 cases:
   - id: solution
     role: solution
-    claim: The program starts surl with mcp+stdio, initializes the session, calls read_file and prints the file's text; when it closes surl's standard input, surl exits 0, and its log went to standard error.
+    claim: Curl.Api, given an mcp+stdio URL naming surl and a tools/call as the Body, starts surl with the query's items as its arguments, calls read_file and answers the file's text; surl's log comes through on standard error.
     program: start-over-stdio.cs
     args: [call]
     expect:
       exit: 0
-      stdout: "server: surl\nhello from surl\nsurl exited 0\nsurl's log: Listening on mcp+stdio:\n"
+      stdout: "hello from surl\n\n"
+      stderr-contains: "Listening on mcp+stdio:"
 
-  - id: curl-api-lists
-    claim: Curl.Api, given an mcp+stdio URL, starts surl with the query's items as its arguments and answers its tools as the body, one per line as name, tab, description.
+  - id: list-tools
+    claim: With no Body, the same request answers the tools surl offers, one per line as name, tab, description.
     program: start-over-stdio.cs
     args: [list]
     expect:
       exit: 0
       stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
 
-  - id: curl-api-sends-no-call
-    claim: Curl.Api 0.2.0 does not send a Body as a tools/call over MCP; a request with one still answers the list of tools.
-    program: start-over-stdio.cs
-    args: [curl-body]
-    expect:
-      exit: 0
-      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
-
   - id: no-login
-    claim: The session takes no login; with an account and no --allow-anonymous, tools/list still answers read_file and echo.
+    claim: The session takes no login; with an account given by --user and no --allow-anonymous, the tools are still listed.
     program: start-over-stdio.cs
     args: [no-login]
     expect:
       exit: 0
-      stdout: "server: surl\ntools: read_file, echo\nsurl exited 0\nsurl's log: Listening on mcp+stdio:\n"
-
-  - id: uploads-off
-    claim: Without --allow-uploads, write_file is not a tool of the session; tools/call answers JSON-RPC error -32602.
-    program: start-over-stdio.cs
-    args: [write]
-    expect:
-      exit: 1
-      stdout: "server: surl\nerror -32602: Invalid params: unknown tool write_file\nsurl exited 0\nsurl's log: Listening on mcp+stdio:\n"
+      stdout: "read_file\tRead one file Surl serves.\necho\tReturn the text it is given, unchanged.\n"
 
   - id: uploads-on
     claim: With --allow-uploads, write_file creates the file in the served directory and answers how many bytes it wrote.
@@ -64,14 +50,38 @@ cases:
     args: [upload]
     expect:
       exit: 0
-      stdout: "server: surl\nwrote 19 bytes to notes.txt\nsurl exited 0\nsurl's log: Listening on mcp+stdio:\n"
+      stdout: "wrote 19 bytes to notes.txt\n"
       files:
         site/notes.txt: "written over stdio\n"
 
+  - id: uploads-off
+    claim: Without --allow-uploads, write_file is not a tool of the session; the call is JSON-RPC error -32602, and SendAsync throws CurlException with code WeirdServerReply (8).
+    program: start-over-stdio.cs
+    args: [write]
+    expect:
+      exit: 8
+      stdout: "refused: WeirdServerReply (8): MCP server error -32602: Invalid params: unknown tool write_file\n"
+
+  - id: program-not-found
+    claim: A program the URL names that cannot be started is CurlException CouldntConnect (7), naming the program.
+    program: start-over-stdio.cs
+    args: [missing]
+    expect:
+      exit: 7
+      stdout-matches: '^refused: CouldntConnect \(7\): Failed to start the MCP server no-such-server'
+
+  - id: by-hand
+    claim: Started with Process, surl with mcp+stdio reads one JSON-RPC message per line from standard input and writes one answer per request on standard output, none for the notification; when its input closes it exits 0, and its log went to standard error.
+    program: start-over-stdio.cs
+    args: [by-hand]
+    expect:
+      exit: 0
+      stdout: "server: surl\nping: {}\nsurl exited 0\nsurl's log: Listening on mcp+stdio:\n"
+
   - id: not-in-process
-    claim: Surl.Api does not host an mcp+stdio listen URL in the calling process; StartAsync throws.
+    claim: Surl.Api does not host an mcp+stdio listen URL in the calling process; StartAsync throws SurlServerStartException with exit code FailedInit (2), naming mcp:// as the way to test in one process.
     program: start-over-stdio.cs
     args: [in-process]
     expect:
-      exit: 1
-      stdout: "StartAsync refused mcp+stdio: (UriFormatException)\n"
+      exit: 2
+      stdout: "start refused: FailedInit (2)\nmcp+stdio: serves the standard input and output of a surl process and cannot be started in-process; listen on mcp://127.0.0.1:0/ instead\n"
