@@ -80,13 +80,21 @@ if (which == "restart")
     return 0;
 }
 
+// A downloader that resumes until the file is whole: each cut connection is followed by a Range request
+// for the bytes after what is on disk. Five resumes are far more than a 5 MB file cut at 4 MB needs.
+int cuts = 0;
 if (!await Fetch(resume: false))
 {
+    cuts++;
     Console.WriteLine($"partial file: {new FileInfo(path).Length} bytes");
-    await Fetch(resume: true);
+    for (int resumes = 0; resumes < 5; resumes++)
+    {
+        if (await Fetch(resume: true)) break;
+        cuts++;
+    }
 }
 Console.WriteLine($"whole file: {(File.ReadAllBytes(path).AsSpan().SequenceEqual(big) ? "yes" : "no")}");
-// The server's own account: one fault_applied event, a drop, for the cut connection.
+// The server's own account: one fault_applied event, a drop, for each cut connection.
 var drops = server.FindEvents(new SurlEventQuery { Kind = SurlEventKind.FaultApplied }).OfType<FaultAppliedEvent>().ToList();
-Console.WriteLine($"fault events: {drops.Count}, {string.Join(", ", drops.Select(d => d.Kind))}");
+Console.WriteLine($"fault events: {drops.Count} for {cuts} cut connections, all Drop: {drops.All(d => d.Kind == FaultKind.Drop)}");
 return 0;
