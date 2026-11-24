@@ -5,5 +5,5 @@ set -e
 cd "$(dirname "$0")"
 surl --user alice:s3cret --trace-ascii surl-trace.txt --directory site http://127.0.0.1:8080/ &
 sleep 1
-curl -s --digest -u alice:s3cret -T notes.txt --trace-ascii curl-trace.txt -w "%{http_code}\n" http://127.0.0.1:8080/notes.txt
+curl -s --digest -u alice:s3cret -T notes.txt --trace-ascii curl-trace.txt -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/notes.txt
 kill $(jobs -p)

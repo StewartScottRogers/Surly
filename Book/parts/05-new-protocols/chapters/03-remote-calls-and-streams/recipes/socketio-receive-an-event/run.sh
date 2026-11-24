@@ -5,5 +5,5 @@ set -e
 cd "$(dirname "$0")"
 surl --allow-anonymous socketio://127.0.0.1:8080/ &
 sleep 1
-curl -s -m 3 -d "[\"greeting\",\"hello from surl\"]" socketio://127.0.0.1:8080/ || true
+curl -s -m 3 -d "[\"greeting\",\"hello from surl\"]" socketio://127.0.0.1:8080/
 kill $(jobs -p)
