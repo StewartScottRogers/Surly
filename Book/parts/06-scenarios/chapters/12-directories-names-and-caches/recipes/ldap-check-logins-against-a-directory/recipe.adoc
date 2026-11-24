@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-check-logins-against-a-directory]]
+=== Checking Logins Against a Directory
+
+==== Problem
+
+Your users live in a Lightweight Directory Access Protocol (LDAP) directory. You want the HTTP server in your test to check passwords against a seeded directory, and the test to log in as one of the directory{apos}s users.
+
+==== Solution
+
+Run one `surl` as the directory and another as the web server with `--user-ldap` pointing at it, then log in to the web server as a directory user:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The directory is a `surl` serving `ldap://` from `--directory dir`, whose `dir/.surl/ldap/directory.ldif` it reads at start: `dc=example,dc=com`, the `ou=people` branch, and an entry for each of `alice` and `bob` (<<rfc4511>>). This directory checks a bind against its accounts, not against a `userPassword` in an entry, so `-u` gives it an account for each person, and one for `svc`, the web server{apos}s service account. `--cert` and `--key` let it upgrade a connection with StartTLS; the certificate, made in setup, names `127.0.0.1`.
+
+The web server is a second `surl`, serving `site/report.txt` over HTTPS with the same certificate. `--user-ldap` is an LDAP URL (<<rfc4516>>), `ldap://<host>:<port>/<base>`, here the branch `ou=people,dc=example,dc=com`, followed by settings after semicolons. For a login it holds no account for, the web server searches under the base for the entry whose `uid` equals the login name, then binds to the directory as that entry with the password sent, and the bind{apos}s answer is the login{apos}s (<<surl-readme>>). `bind-dn` and `bind-password-file` make it search as `svc`, reading the password from the file{apos}s first line so it is never on a command line; `ca-file=server.pem` is the certificate it trusts for the directory. The quotes keep the semicolons from the shell.
+
+The test is `curl` with `-u alice:wonderland`, which sends HTTP Basic authentication (<<rfc7617>>), the one HTTP login that carries the password itself, as the bind needs; `--cacert` trusts the web server{apos}s certificate. The web server has no account for `alice`, asks the directory, and serves the report. `bob` logs in the same way. A wrong password is `401`, and so is `carol`, whom the directory does not hold, and `svc`, whose name is not under `ou=people`. In each check `-o` throws the body away, `-w "%{http_code}"` prints the status, `-s` silences the progress meter and `-S` keeps an error line.
+
+`-v` makes the web server{apos}s log verbose and `--log-file web.log` keeps it: at start it names its account source, `LDAP directory ldap://127.0.0.1:<port>`, and for each refused directory login it gives the reason, `directory: wrong password` or `directory: no such entry`. The directory{apos}s own log, `ldap.log`, shows one login from its side: a connection upgraded with StartTLS, a bind as `svc`, a search under `ou=people` that finds one entry, and a bind as `alice`. `ldap://` is always upgraded before a password is sent, and the directory{apos}s certificate must build to a system root or the `ca-file` and name the host; there is no setting that skips that check. `;plaintext` would send passwords in clear, and `surl` refuses to start with it unless `--allow-plaintext-auth` is given too, exit `2` (<<surl-readme>>).
+
+The web server has one account of its own, `ops`, judged by the web server alone. It is there for a reason the last server shows: a `surl` whose only accounts are in the directory asks no login for a `GET`, and serves the report to a request with no `-u`. With one account of its own, the web server answers a request with no login `401`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-check-logins-against-a-directory-in-csharp>> for the same task in C#.
+* <<ldap-check-logins-against-a-directory-from-an-agent>> for the same task run by an agent.
+* <<ldap-provision-a-user-and-bind-as-it>> for adding a user to the directory at run time.
+* <<surl-readme>>, <<curl-manual>>, <<rfc4511>>, <<rfc4516>>, <<rfc7617>>.

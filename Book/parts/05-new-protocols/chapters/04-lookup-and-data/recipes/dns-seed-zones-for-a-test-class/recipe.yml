@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: dns-seed-zones-for-a-test-class
+title: Seeding Zones for a Test Class
+protocols: [dns]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerZones, SurlSnapshot, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme, rfc1035]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a test adds the zone beta.example.test, whose api name answers 192.0.2.30, one RestoreAsync of the snapshot taken after the class's seed leaves example.test alone again, api.beta.example.test is NXDOMAIN in it, and the next test finds the baseline.
+    program: zone-fixture.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "baseline: zones [example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NXDOMAIN\ntest 1: zones [example.test. beta.example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NOERROR 192.0.2.30\nafter RestoreAsync: zones [example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NXDOMAIN\ntest 2 finds the baseline: True\n"
+
+  - id: no-restore
+    claim: With no restore the next test still finds the added zone and its answer, and its check against the baseline fails.
+    program: zone-fixture.cs
+    args: [no-restore]
+    expect:
+      exit: 1
+      stdout: "baseline: zones [example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NXDOMAIN\ntest 1: zones [example.test. beta.example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NOERROR 192.0.2.30\ntest 2 finds the baseline: False\n"
+
+  - id: reset-is-not-restore
+    claim: ResetAsync in place of RestoreAsync drops every zone, the class's included, so both names are REFUSED.
+    program: zone-fixture.cs
+    args: [reset]
+    expect:
+      exit: 1
+      stdout: "baseline: zones [example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NXDOMAIN\ntest 1: zones [example.test. beta.example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NOERROR 192.0.2.30\nafter ResetAsync: zones [], api.example.test REFUSED, api.beta.example.test REFUSED\n"
+
+  - id: snapshot-reused
+    claim: One snapshot serves every test; restored after each of two tests that add zones, it gives the baseline both times.
+    program: zone-fixture.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout: "baseline: zones [example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NXDOMAIN\ntest 1: zones [example.test. beta.example.test.], api.example.test NOERROR 192.0.2.10, api.beta.example.test NOERROR 192.0.2.30\ntest 2 finds the baseline: True\ntest 3 finds the baseline: True\n"

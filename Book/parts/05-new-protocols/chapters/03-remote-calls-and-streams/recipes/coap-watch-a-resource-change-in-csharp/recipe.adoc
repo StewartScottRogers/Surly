@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[coap-watch-a-resource-change-in-csharp]]
+=== Observing CoAP Resources in C#
+
+==== Problem
+
+Your gateway observes a Constrained Application Protocol (CoAP) resource and must react when it changes. You want a C# test in which the gateway{apos}s observation is sent a notification when the file behind the resource is replaced.
+
+==== Solution
+
+Host the resource in a `SurlServer`, register the gateway as an observer over a `UdpClient`, replace the file with `Curl.Api`, and wait a bounded time for the notification:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds a `coap://` and an `http://` URL on port 0, so the system picks free ports, both over one store; `Files` puts `thermostat.txt` in it, in memory. Writes need two loosenings, for a test on your own machine: `AllowUploads`, `--allow-uploads`, lets clients change the files at all, and `AllowAnonymous`, `--allow-anonymous`, lets a client with no login do it, since plain CoAP carries no login. `SurlServer.StartAsync` starts it and `BoundUrls` holds the URLs it bound, in order.
+
+Observing is RFC 7641{apos}s extension of CoAP: a `GET` with the Observe option set to `0` registers the client, and the server then sends it a notification, a new representation under the same token, each time the resource changes (<<rfc7641>>). `Curl.Api` sends a CoAP request and returns one answer, and has no way to stay registered, so the gateway is a `UdpClient` that speaks the few bytes it needs (<<rfc7252>>): a confirmable `GET` with token `7A`, option 6 (Observe) empty, which is `0`, and option 11 (Uri-Path) `thermostat.txt`. `Receive` waits at most five seconds for a datagram, acknowledges it if it is confirmable, as the server expects, and reads its code, its Observe number, its option 14 (Max-Age) and its payload.
+
+The registration is answered `2.05` with Observe `1`, Max-Age `60` and `setpoint=68`. The file is replaced by another client: a `CurlClient` sends a `CurlRequest` with `HttpMethod.Put` to the CoAP URL and a `CurlContent` body, `setpoint=70`. For a CoAP request the `CurlResponse` holds the response code as the key of its first header, here `CoAP/1.0 2.04`, Changed. Within five seconds the gateway is sent a `2.05` notification with Observe `2`, one more than the last, so the gateway can tell it is newer, and `setpoint=70`.
+
+An HTTP `PUT` to the same file is answered `204`, and the gateway is sent nothing within five seconds: `surl` notifies at once only for a change made over CoAP. Max-Age `60` is how long a representation may be taken as fresh, and once it runs out the change reaches the observer; <<coap-watch-a-resource-change>> shows it arriving within seventy-five seconds. A CoAP `DELETE`, answered `2.02`, sends the gateway a last notification, `4.04` with no Observe and no payload, which tells it the observation is over.
+
+Without `AllowUploads` the `PUT` is answered `4.05`, Method Not Allowed; without `AllowAnonymous`, `4.01`, Unauthorized, though the read is still served. Either way the file is unchanged and the gateway is sent nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<coap-watch-a-resource-change>> for the same task on the console.
+* <<coap-watch-a-resource-change-from-an-agent>> for the same task run by an agent.
+* <<rfc7641>>, <<rfc7252>>, <<surl-readme>>, <<curl-protocols>>.

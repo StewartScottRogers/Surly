@@ -1,0 +1,52 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs who-may-write.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: ftp-give-a-group-write-access-from-an-agent
+title: Granting Group Write Access from an Agent
+protocols: [ftp, http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl]
+curl-options: [-s, -S, -u, -T, -o, -w]
+exit-codes: [0, 1]
+references: [surl-readme, rfc959, rfc9110]
+
+# team/ is the folder the server shares; probe.txt is what the agent uploads to try a write.
+fixtures:
+  team/plan.txt: "plan v1\n"
+  probe.txt: "can I write here?\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Over FTP the editors Ed and Erin may read and write; Rita, a reader, may read and her write is refused, curl exit 25; Gus, in neither group, finds the share missing, exit 9; with no account the login is refused, exit 67.
+    program: who-may-write.cs
+    args: [table]
+    expect:
+      exit: 0
+      stdout: "account  read         write\ned       yes          yes\nerin     yes          yes\nrita     yes          no (exit 25)\ngus      no (exit 9)  no (exit 9)\n(none)   no (exit 67) no (exit 67)\n"
+
+  - id: http
+    claim: Over HTTP on the same server the table is the same in substance; Rita's write is 403, Gus finds the share missing, 404 and 409, and no account is asked to log in, 401.
+    program: who-may-write.cs
+    args: [http]
+    expect:
+      exit: 0
+      stdout: "account  read         write\ned       yes          yes\nerin     yes          yes\nrita     yes          no (403)\ngus      no (404)     no (409)\n(none)   no (401)     no (401)\n"
+
+  - id: anonymous
+    claim: With --allow-anonymous a caller with no account gets in and finds the share missing, exit 9, and Ed's login, accepted unchecked as anonymous, finds it missing too.
+    program: who-may-write.cs
+    args: [anonymous]
+    expect:
+      exit: 0
+      stdout: "account  read         write\n(none)   no (exit 9)  no (exit 9)\ned       no (exit 9)  no (exit 9)\n"
+
+  - id: bare-group-name
+    claim: A grant that names the group without its @ makes start_server a tool error naming the member.
+    program: who-may-write.cs
+    args: [bare]
+    expect:
+      exit: 1
+      stdout-matches: '^start_server: tool error: .*member editors names no account or group'

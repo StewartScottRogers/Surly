@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-collect-delivered-mail-with-a-callback]]
+=== Collecting Delivered Mail with a Callback
+
+==== Problem
+
+Your C# test runs an app that sends mail over Simple Mail Transfer Protocol (SMTP), and the test seeds some mail of its own. You want to collect each delivery the app makes as it happens, with an `OnEvent` callback that hears SMTP{apos}s changes to the mail store and nothing else.
+
+==== Solution
+
+Register a callback with a `SurlEventQuery` for `StoreChanged` events in the `Mail` store whose `Scheme` is `smtp`, and let it put each event in a queue:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `smtp://` URL on port 0, so the system picks a free port; `MailDomains` is `--mail-domain`, and `Mailboxes` is `--mailbox`, one address and password per entry, for the shop app, Ann and Bob. `SurlServer.StartAsync` starts it in the test{apos}s process.
+
+`server.OnEvent` runs a callback for every event that matches a `SurlEventQuery`, from the moment it is registered until the returned registration is disposed. `Kind = StoreChanged` with `Store = Mail` asks for changes to the mail store, and `Scheme = "smtp"` keeps only those that came through an `smtp://` listen URL. Each event arrives as a `StoreChangedEvent`; the callback adds it to a `ConcurrentQueue`, since it runs on the server{apos}s event stream, not the test{apos}s thread. The test then seeds a welcome message into Ann{apos}s INBOX with `server.Mail.DeliverAsync`, and the app sends three order confirmations, to Ann, Bob and Ann. The app is played by `Curl.Api`: a `CurlClient`, and for each send a `CurlRequest` with `HttpMethod.Put` on the bound URL, `CurlMailOptions` for the envelope and `CurlAuthenticationOptions` for the shop{apos}s login. Each `CurlResponse` is the server{apos}s `250`.
+
+Delivery is asynchronous, so the test waits until the queue holds the three it expects, for at most ten seconds. It holds three `Delivered` events, in the order the mail was sent. An event{apos}s `Name` is the owner, the mailbox and the unique identifier (UID), `ann@example.com/INBOX/;UID=2`: Ann{apos}s orders are UIDs 2 and 3, because the welcome message took UID 1. That seed is a `Seeded` change, not a `Delivered` one, and it did not come through SMTP, so the `Scheme` filter leaves it out. With `Scheme` left out of the query the same callback collects four events, the seed first.
+
+An event carries enough to find its message. `ByteCount` equals the size of the stored message, which `ListMessagesAsync` gives in its `SurlMessagePage` when asked for the one UID after `UID - 1`. One send to Ann and Bob is two deliveries and two events, one per mailbox, and both have the same `ExchangeId`, the SMTP connection that brought the message. Mail to `cy@example.com`, inside the domain but with no mailbox, is accepted with `250` and discarded: a server that refused unknown addresses in its own domain would tell a stranger which ones exist (<<rfc5321>>). Nothing is delivered, nothing is collected, and the test, which expected one delivery, ends its two-second wait with an empty list and exits `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-collect-mail-with-an-event-callback>> for the event{apos}s other fields and a callback that acts on a delivery.
+* <<smtp-collect-mail-as-it-arrives>> for reading each delivered message as it comes.
+* <<smtp-confirm-a-delivery-without-polling-from-an-agent>> for an agent that waits for a delivery.
+* <<surl-readme>>, <<rfc5321>>.

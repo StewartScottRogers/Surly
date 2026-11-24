@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-resume-a-ranged-download-in-csharp]]
+=== Resuming a Ranged Object Download in C#
+
+==== Problem
+
+Your C# downloader fetches big Amazon Simple Storage Service (S3) objects a byte range at a time. In a test, you want a connection dropped in the middle of a range, and the downloader to ask again for only the bytes it is missing.
+
+==== Solution
+
+Host the bucket in-process with a fault that cuts every connection after 1,500,000 bytes, and fetch each range with `Curl.Api`, sending a `Range` header that starts after the bytes already held:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). The `s3://` listen URL serves over Transport Layer Security (TLS), so it takes `CertificateFile` and `KeyFile`, made in setup with a name for `127.0.0.1` and for every bucket{apos}s host in `us-east-1`. `Accounts` holds one `SurlAccount`, the access key ID and secret each request must be signed with. `Files["media/big.bin"]` puts 4,000,000 random bytes in the bucket `media`. `Faults` holds one rule, `SurlFault.DropConnection()` with `AfterBytes` 1,500,000, the spelling of `--fault "drop;after-bytes=1500000"`: once the server has sent that many bytes on a connection, the response head included, it resets it. `RecordExchanges` keeps the server{apos}s events for the test to read.
+
+The client is one `CurlClient`, created with `CurlClientOptions` whose `Timeout` of 30 seconds bounds every try, the body included. Each try is a `CurlRequest` for `https://media.s3.us-east-1.amazonaws.com/big.bin`, the bucket{apos}s own host name: `CurlNetworkOptions.ConnectTo` sends it to the local port, `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is `server.pem` trusts the certificate, and `CurlAuthenticationOptions` with `AwsSigV4` `aws:amz:us-east-1:s3` signs it with AWS Signature Version 4 (SigV4). `Curl.Api` has no range option; the `Range` header, `bytes=<from>-<last>`, is sent as given (<<rfc9110>>), and the server answers `206 Partial Content` with those bytes (<<aws-s3-api>>).
+
+The first try at bytes 0 to 1,999,999 gets its `CurlResponse`, `StatusCode` `206`, and reading its `Body` throws `CurlException` with `Code` `RecvError`, 56, part-way. A reset throws away what had reached the client{apos}s socket and was not yet read, so how many bytes arrived depends on timing; the case checks only that the next try{apos}s `Range` starts exactly after them. The downloader keeps what it read and asks again, at most five times; the rest of the range is shorter than the cut whenever more than 500,000 bytes arrived, and then it comes whole on the next try. In the end it has fetched 2,000,000 bytes for the 2,000,000-byte range, none twice, and they match the object{apos}s first 2,000,000. Fetched the same way, the two halves join into the whole object.
+
+The server keeps its own account. `FindEvents` with a `SurlEventQuery` for `SurlEventKind.FaultApplied` returns one `FaultAppliedEvent` for each cut connection, its `Kind` `FaultKind.Drop`, as many as the cuts the downloader saw: a test can tell a cut it caused from one it did not. The rule counts bytes per connection, so a range of 1,000,000 bytes comes whole in one try.
+
+A refusal is not a cut. Over HTTPS an S3 refusal is an ordinary response: signed with a wrong secret, the try is answered `403` with no exception, and the downloader stops instead of asking again. No fault was applied.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-resume-a-ranged-download>> for the same task on the console.
+* <<s3-resume-a-ranged-download-from-an-agent>> for the same task run by an agent.
+* <<http-cut-a-download-off-halfway-in-csharp>> for the same cut on a plain HTTP download.
+* <<surl-readme>>, <<aws-s3-api>>, <<rfc9110>>.

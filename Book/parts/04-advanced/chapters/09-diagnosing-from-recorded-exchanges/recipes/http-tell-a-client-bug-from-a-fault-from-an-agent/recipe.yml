@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-tell-a-client-bug-from-a-fault-from-an-agent
+title: Telling a Bug from a Fault
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, get_events, get_exchanges, list_faults]
+curl-options: [-s, --max-time, -o, -w]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-manual, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: run-fails-three-ways
+    claim: With two fault rules set, f1 and f2, the client run of five requests fails three times; a 503, a dropped connection (exitCode 56, no status) and a 404, the other two answered 200.
+    program: bug-or-fault.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\Aadd_fault: f1\nadd_fault: f2\nclient: /report\.txt 503, exitCode 0\nclient: /report\.txt 200, exitCode 0\nclient: /status\.txt 000, exitCode 56\nclient: /reports\.txt 404, exitCode 0\nclient: /status\.txt 200, exitCode 0\n'
+
+  - id: solution
+    role: solution
+    claim: Matched by exchange_id against the fault_applied events, the 503 is fault rule f1's error and the dropped request, recorded with no answer, is rule f2's drop; the 404 for /reports.txt had no fault rule acting on it, so it is the client's own failure.
+    program: bug-or-fault.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nexchange 1: GET /report\.txt HTTP/1\.1 -> 503; fault rule f1 \(error\) acted on it: not the client\nexchange 3: GET /status\.txt HTTP/1\.1 -> no answer; fault rule f2 \(drop\) acted on it: not the client\nexchange 4: GET /reports\.txt HTTP/1\.1 -> 404; no fault rule acted on it: look at the client\n'
+
+  - id: rules-spent
+    claim: Each rule had times=1 and acted once, so list_faults shows both with 0 remaining, and the second request for each path was served.
+    program: bug-or-fault.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nlist_faults remaining: f1=0 f2=0\n\Z'

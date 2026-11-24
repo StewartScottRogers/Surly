@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-record-what-a-proxy-passed-on]]
+=== Recording What a Proxy Passed On
+
+==== Problem
+
+You want a proxy and an origin in one C# test, and the recorded exchanges to prove which requests the proxy forwarded to the origin and which it did not pass on.
+
+==== Solution
+
+Start one `SurlServer` that is both the origin and a proxy, with `RecordExchanges`; send the client{apos}s requests through the proxy; then match each request in the proxy listener{apos}s record against what the origin{apos}s record received. The program takes a free loopback port as its first argument and the case to run as its second:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` holds the origin, `http://127.0.0.1:0`; there is no proxy property, so `AdditionalArguments` adds `--proxy http://127.0.0.1:0`, which makes a second listener a Hypertext Transfer Protocol (HTTP) proxy. `BoundUrls[0]` is the origin and `BoundUrls[1]` the proxy, each with the port it got. `Files` holds two files, `RecordExchanges` keeps every byte that crosses each connection, and `Log` with `LogLevel.Verbose` is `surl -v`: the server{apos}s own account, written to a `StringWriter` (<<surl-readme>>).
+
+The client is one `CurlClient` whose `CurlClientOptions.Proxy` is a `CurlProxyOptions` naming the proxy, the spelling of `curl -x`. It sends four `CurlRequest`{apos}s: two for files on the origin, one for `192.0.2.1`, an address outside loopback, and one for a loopback port where nothing listens. Every `CurlResponse` is an answer, not an exception: `200`, `200`, `403` and `502`.
+
+`server.Exchanges` lists one `SurlExchangeRecord` per connection, and its `ListenUrl` says which listener it came through, so comparing it with `BoundUrls[1]` or `BoundUrls[0]` splits the record in two. Each record{apos}s `Chunks` are `SurlExchangeChunk`{apos}s in the order they crossed, each with a `Direction`, `SurlExchangeDirection.Received` or `Sent`, and its `Bytes`; the program pairs each received request head with the status of the next answer head sent. The proxy listener holds all four requests, each in absolute form, `GET http://127.0.0.1:<port>/orders.csv HTTP/1.1`, since a request to a proxy names its target in full (<<rfc9110>>). The origin holds two, in origin form, `GET /orders.csv HTTP/1.1`, each with `Via: 1.1 surl`, the header the proxy adds to what it forwards.
+
+That is the proof. A request the proxy answered `200` has its twin in the origin{apos}s record carrying `Via`: it was forwarded. The `403` and the `502` have none: the origin never received them. The proxy{apos}s log says why. It forwarded the two `GET`{apos}s and the origin answered `200`. `192.0.2.1` is `NotAllowed`: a test proxy reaches loopback origins only, unless `--proxy-allow-origin` widens that (<<surl-readme>>), so it refused by policy with `403 Forbidden` and never tried to connect. The empty port is `Refused`: the proxy did try, the connection was refused, and it answered `502 Bad Gateway`. Neither reached an origin, but only the first was the proxy saying no.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-prove-a-client-uses-its-proxy-in-csharp>> for proving no request bypassed the proxy.
+* <<http-see-what-went-through-a-proxy-from-an-agent>> for listing a proxy{apos}s targets from an agent.
+* <<http-run-a-test-proxy-in-csharp>> for a proxy on its own.
+* <<rfc9110>>, <<surl-readme>>.

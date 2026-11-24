@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-resume-only-if-unchanged-in-csharp
+title: Resuming Only an Unchanged File in C#
+protocols: [http]
+tier: foundations
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse, TimeProvider]
+exit-codes: [0]
+references: [rfc9110, surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The file is replaced with Files.PutAsync between the halves; the resume sends Range bytes=100- and If-Range with the first half's ETag, the server answers 200 with all 180 bytes of version 2, and the program keeps that instead of splicing.
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "first half: 206, 100 bytes, ETag kept\nsecond half: 200, 180 bytes\nresult: version 2, 180 bytes\nserver saw: Range: bytes=100-\nserver saw: If-Range: <the ETag of the first half>\n"
+
+  - id: unchanged-appends
+    claim: With the file left alone the ETag matches, the server answers 206 with the 80 missing bytes, and the two halves make version 1.
+    program: program.cs
+    args: [unchanged]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "first half: 206, 100 bytes, ETag kept\nsecond half: 206, 80 bytes\nresult: version 1, 180 bytes\nserver saw: Range: bytes=100-\nserver saw: If-Range: <the ETag of the first half>\n"
+
+  - id: without-if-range-splices
+    claim: Without If-Range the server answers 206 with version 2's last 80 bytes, and the joined file is 180 bytes of neither version.
+    program: program.cs
+    args: [no-if-range]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "first half: 206, 100 bytes, ETag kept\nsecond half: 206, 80 bytes\nresult: neither version, 180 bytes\nserver saw: Range: bytes=100-\n"
+
+  - id: date-misses-a-same-second-change
+    claim: With the server's clock stopped, the replacement keeps the first half's Last-Modified, so If-Range with the date is answered 206, a splice; its ETag differs, so If-Range with the ETag is answered 200.
+    program: program.cs
+    args: [date]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "first half: 206, 100 bytes, ETag kept\nLast-Modified unchanged: True, ETag unchanged: False\nIf-Range with the date: 206\nIf-Range with the ETag: 200\n"

@@ -35,3 +35,11 @@ An account on plain coap: `CoAP/1.0 4.01`, curl exit 0 (22 with `-f`).
 
 ## Recipes
 coap-get-a-resource, coaps-serve-over-dtls (and twins)
+
+## Observe (coap-watch-a-resource-change and twins; Surl v0.1.5 d64faa4bb / Curl 2145a49eae, 2026-11-24, windows)
+- `curl --coap-observe -m N coap://h:p/f` registers (GET Observe 0) and writes the registration answer and each notification as payload + `\n` (`-i`: a `CoAP/1.0 2.05` line first); `-o f` grows as they come. It ends by itself (exit 0) on a notification without Observe (a DELETE gives a 4.04 with empty payload: an empty line), else at `-m` (exit 28, then a GET with Observe 1 deregisters). Observing a missing file: plain 4.04 at once, exit 0. Not in `curl --help all`.
+- surl notifies at once ONLY for a CoAP PUT/POST/DELETE. An HTTP PUT, surl-mcp `put_file`, `Files.PutAsync` or an on-disk change is not notified at once; it reaches the observer when the last notification's Max-Age (60 s) lapses (seen at ~62 s). By design: Surl ADR-0097 decision 5. `--aihelp coap`'s "whichever protocol changed it" means eventually.
+- Notifications are CON with Observe 1 (registration answer), 2, 3, ..., ETag, Max-Age 60. A CoAP PUT needs `--allow-uploads` (else 4.05) and `--allow-anonymous` (else 4.01; reads still served with no account).
+- Curl.Api has no observe option (`CurlRequest` extension settings are DNS only): the C# twin observes over a raw `UdpClient` (CON GET, token, Observe option 0x60, Uri-Path 0x5D 0x01 + 14-byte name; ACK each CON notification with `60 00 mid`). Curl.Api CoAP `PUT`/`DELETE` work: `Headers.First().Key` is `CoAP/1.0 2.04` / `2.02` / `4.05` / `4.01`.
+- Agent: run the observing `curl` call as a background task; the registration is done once `get_exchanges(scheme: "coap")` shows a `sent` chunk for it. One `ready: none` console server per UDP port; `ready: port` would wait on UDP ports and fail.
+- Do not reuse another writer's scratch folder or ports near 47xxx: they are shared on this machine.

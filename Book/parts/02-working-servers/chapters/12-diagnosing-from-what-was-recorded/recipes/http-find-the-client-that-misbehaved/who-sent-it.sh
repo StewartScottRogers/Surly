@@ -1,0 +1,19 @@
+#!/bin/sh
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# For each request surl answered 400 in the trace file $1: the connection (exchange) it came on,
+# the client's address and port, surl's reason, and the request head as received.
+awk '
+  { sub(/\r$/, "") }
+  /^#[0-9]+ / { n = substr($1, 2); recv = ($2 == "<=") }
+  /^#[0-9]+ \* Exchange [0-9]+ opened: / { from[n] = $NF; sub(/\.$/, "", from[n]) }
+  recv && /^[0-9a-f]+: [A-Z]+ [^ ]+ HTTP\/1\.[01]$/ { head[n] = "" }
+  recv && /^[0-9a-f]+: ./ { head[n] = head[n] "  " substr($0, 7) "\n" }
+  /^#[0-9]+ \* .*answered 400/ {
+    why = $0; sub(/^#[0-9]+ \* /, "", why); sub(/; answered 400.*/, "", why)
+    bad[++count] = n; reason[n] = why
+  }
+  END {
+    for (i = 1; i <= count; i++) { n = bad[i]; printf "exchange %s from %s: %s\n%s", n, from[n], reason[n], head[n] }
+    if (count == 0) print "no request was answered 400"
+  }
+' "$1"

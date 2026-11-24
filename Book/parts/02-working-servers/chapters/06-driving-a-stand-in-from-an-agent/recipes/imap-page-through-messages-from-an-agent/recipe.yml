@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs walk-mailbox.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-page-through-messages-from-an-agent
+title: Paging Through Messages
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, list_messages, curl]
+curl-options: [-s, -S, -u, -X]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9051, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Walking 60 messages with list_messages, a limit of 25 and after_uid set to the last UID of the page before, gives three pages, UIDs 1 to 25, 26 to 50 and 51 to 60, with has_more true, true and false; every message is seen once, in UID order.
+    program: walk-mailbox.cs
+    args: [walk]
+    expect:
+      exit: 0
+      stdout: "page 1: 25 messages, UIDs 1 to 25, has_more true\npage 2: 25 messages, UIDs 26 to 50, has_more true\npage 3: 10 messages, UIDs 51 to 60, has_more false\n60 messages, each once, in UID order\n"
+
+  - id: exact-fit
+    claim: When the messages fill the last page exactly, 50 in pages of 25, that page already says has_more false, so the walk asks for no empty page.
+    program: walk-mailbox.cs
+    args: [exact]
+    expect:
+      exit: 0
+      stdout: "page 1: 25 messages, UIDs 1 to 25, has_more true\npage 2: 25 messages, UIDs 26 to 50, has_more false\n50 messages, each once, in UID order\n"
+
+  - id: arrives-mid-walk
+    claim: A message seeded after the first page gets the next UID, 61, and the walk finds it on its last page.
+    program: walk-mailbox.cs
+    args: [arrives]
+    expect:
+      exit: 0
+      stdout: "page 1: 25 messages, UIDs 1 to 25, has_more true\npage 2: 25 messages, UIDs 26 to 50, has_more true\npage 3: 11 messages, UIDs 51 to 61, has_more false\n61 messages, each once, in UID order\n"
+
+  - id: deleted-mid-walk
+    claim: When UID 10, already seen, is deleted over IMAP with the curl tool after the first page, the next page still starts at UID 26 and nothing is skipped, while counting by position the 26th message has become UID 27.
+    program: walk-mailbox.cs
+    args: [deleted]
+    expect:
+      exit: 0
+      stdout: "page 1: 25 messages, UIDs 1 to 25, has_more true\npage 2: 25 messages, UIDs 26 to 50, has_more true\npage 3: 10 messages, UIDs 51 to 60, has_more false\n60 messages, each once, in UID order\nby position, the 26th message is now UID 27\n"
+
+  - id: limit
+    claim: A limit of 0 is refused before the tool runs, as invalid params, arguments.limit expected at least 1.
+    program: walk-mailbox.cs
+    args: [limit]
+    expect:
+      exit: 0
+      stdout: "Request failed (remote): Invalid params: arguments.limit: expected at least 1\n"

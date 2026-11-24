@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-upload-a-large-object-in-parts-from-an-agent]]
+=== Uploading a Large Object from an Agent
+
+==== Problem
+
+Your app uploads files to Amazon Simple Storage Service (S3) that are large enough to go up in parts. You want an agent to run a bucket with a size limit, upload a file in parts so it is stored whole, and see an upload over the limit refused.
+
+==== Solution
+
+The program starts both hosts and a bucket server with `--max-filesize`, runs the multipart upload a step at a time with the `curl` tool, and asks `list_files` what the bucket holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the `s3://` listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). `--directory store` serves a folder under `SURL_MCP_ROOT`, whose folder `backups` is the bucket; the program empties it first. `--cert` and `--key` are a certificate made in setup that names `127.0.0.1` and every bucket{apos}s host in `us-east-1`, since S3 is served over Transport Layer Security (TLS). `--user` is the access key ID and secret, `--allow-uploads` lets a signed request write, and `--max-filesize 12M` caps an upload at 12 mebibytes (MiB), 12,582,912 bytes. `start_server` answers the `server_id` and the `bound_urls`, from which the program takes the port.
+
+The `curl` tool runs `curl`{apos}s own arguments under `CURL_MCP_ROOT` and answers `standardOutput` as JSON (<<curl-readme>>). Every call goes to the bucket{apos}s own host name over HTTPS: `--connect-to` sends it to the local port, `--cacert server.pem` trusts the certificate, `--aws-sigv4 aws:amz:us-east-1:s3` with `-u` signs it with AWS Signature Version 4 (SigV4), `-s` keeps the progress meter out and `--max-time 60` bounds it. `-o work/answer` keeps the answer{apos}s body in a file and `-w` prints the status.
+
+A multipart upload has three steps (<<aws-s3-api>>). `-X POST` to `?uploads` starts it, and the program reads the `UploadId` from the answer. Each part, written to a file of its own, is a put with `-T` to `?partNumber=<n>&uploadId=<id>`, and `-w "%{http_code} %header{etag}"` prints its status and the entity tag (ETag) that names it. `--data-binary @work/complete.xml` posts the `CompleteMultipartUpload` document, each part{apos}s number and ETag, to `?uploadId=<id>`, and the server joins the parts. 11,000,000 random bytes go up in three parts, two of 5 MiB and the rest, every step answered `200`. `list_files` with `path` `/backups` answers each entry{apos}s `name` and `byte_count`: `backup.tar`, 11,000,000 bytes, and the file on disk is byte for byte the data sent.
+
+With 13,000,000 bytes the first two parts, 10 MiB, are taken, and the third, which takes the upload past 12 MiB, is answered `400` with the S3 code `EntityTooLarge` in the body. The server has already dropped the upload, so the abort, `-X DELETE` to `?uploadId=<id>`, is answered `404`, and `list_files` finds the bucket empty. The limit keeps a client from filling the server{apos}s disk; raise it with a larger `--max-filesize`, or `0` for none (<<surl-readme>>).
+
+S3 has its own rule for parts: every part but the last must be at least 5 MiB. In parts of 1,000,000 bytes all eleven are taken, but the completion is answered `400` `EntityTooSmall`. That upload is still open, so the abort is answered `204`, and the bucket stays empty.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-upload-a-large-object-in-parts>> for the same task on the console.
+* <<s3-upload-a-large-object-in-parts-in-csharp>> for the same task in C#.
+* <<s3-check-what-an-upload-stored-from-an-agent>> for checking a single put from an agent.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>.

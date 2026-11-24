@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-client-that-misbehaved-in-csharp]]
+=== Finding the Client That Misbehaved in C#
+
+==== Problem
+
+Several clients in your C# test use one server at once, and one of them sends a malformed request. You want the test to find that request among the recorded exchanges and print the client endpoint it came from and its bytes.
+
+==== Solution
+
+Start a `SurlServer` with `RecordExchanges`, run the clients side by side, then walk `server.Exchanges` for the answer `400` and print the exchange{apos}s `Client` and the request before it. The program takes the three clients{apos} local ports as arguments:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `http://` listen URL on port `0`, `hello.txt` in `Files`, and `RecordExchanges`, which keeps every byte that crosses each connection (<<surl-readme>>). `SurlServer.StartAsync` starts it in process.
+
+The clients are three tasks run with `Task.WhenAll`, each with its own `CurlClient` and so its own connection. `CurlClientOptions.Network` takes a `CurlNetworkOptions`, and its `LocalPort` makes the client connect from that port, the spelling of `curl --local-port`. On one machine every client is `127.0.0.1`; the port is what tells them apart, as the address would for clients on separate machines. Billing and reports send five `CurlRequest`{apos}s each; search sends three, and the last carries `Headers = [new("X-Request ID", "7")]`, a header whose name has a space in it, which a field name may not have (<<rfc9110>>). The server answers it `400 Bad Request` and closes the connection. Every client gets a `CurlResponse` with a `StatusCode` for every request and nothing throws, so no client reports the failure itself.
+
+`server.Exchanges` lists one `SurlExchangeRecord` per connection: three here, one for each client, each with all that client{apos}s requests, since a `CurlClient` keeps its connection open between them. A record{apos}s `Client` is the client{apos}s endpoint, address and port, and `Chunks` holds the bytes in the order they crossed. Each `SurlExchangeChunk` has a `Direction`, `SurlExchangeDirection.Received` or `Sent`, and its `Bytes`; a request head arrives as one received chunk and the answer head goes out as one sent chunk. The program walks them in order, remembers the last received chunk that starts with a request line, and when a sent chunk starts with `HTTP/1.1 400` prints the exchange, its `Client` and that request.
+
+There is one: the search client{apos}s exchange, from the port it was given, and the request bytes end with the `X-Request ID: 7` line. Their count depends on how many digits the server{apos}s port has, so the test prints it rather than asserting it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-client-that-misbehaved>> for the same search on the console, from `surl`{apos}s trace.
+* <<http-find-the-client-that-misbehaved-from-an-agent>> for the same search from an agent.
+* <<http-find-the-request-that-failed-in-csharp>> for one failing request among many on one connection.
+* <<rfc9110>>, <<surl-readme>>.

@@ -1,0 +1,32 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-refuse-to-reset-a-real-directory]]
+=== Refusing to Reset a Real Directory
+
+==== Problem
+
+Your test fixture calls `ResetAsync` between tests to wipe what the last test left. Someone points the server at a real folder with `DataDirectory`, and you want to know what the reset does then: that it is refused with `InvalidOperationException`, and that no file in the folder is touched.
+
+==== Solution
+
+Serve the folder, let a test upload a file, and call `ResetAsync` as the fixture does; catch the refusal and look at the folder:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `DataDirectory` is `--directory`: the server serves the folder on disk, here `data`, which holds a team{apos}s `report.txt`. `AllowUploads` is `--allow-uploads` and `AllowAnonymous` is `--allow-anonymous`, so a `PUT` with no login may write a file; the second is a loosening for a test on one machine, and `surl` warns about it at start. The test{apos}s upload is a `CurlRequest` with `HttpMethod.Put` and a body, sent by a `CurlClient` (<<curl-readme>>); the `CurlResponse` is `201`, and `draft.txt` is now a file in the folder.
+
+`ResetAsync` puts the server{apos}s stores back as they were at start. For files served from memory that means the files `SurlServerOptions.Files` gave and no others. For a folder on disk it would mean deleting whatever is not in a copy the server never took, so the content store refuses: `ResetAsync` throws `InvalidOperationException`, and its message names the store and says why, `Content: the store could not be reset. The content store is on disk (--directory): reset, snapshot and restore are refused so a test never empties a real directory.` Nothing is deleted. `report.txt` and `draft.txt` are both still served, `200`, and both still in the folder. `SnapshotAsync` is refused the same way, with `could not be snapshotted`.
+
+The refusal is the safe default: a fixture that resets must serve from memory. With the same report given in `Files` and no `DataDirectory`, the same `ResetAsync` succeeds; the next request for `report.txt` is `200` and for `draft.txt` `404`, the test{apos}s upload gone. A fixture that has to serve a real folder catches the exception, or does not reset, and each test removes what it wrote.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-reset-by-copying-a-clean-directory>> for starting each test from a fresh copy of a folder.
+* <<surl-share-one-server-across-a-test-class>> for a fixture that resets between tests.
+* <<surl-readme>>, <<curl-readme>>.

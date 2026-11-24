@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-a-refused-seed]]
+=== Catching a Refused Seed
+
+==== Problem
+
+Your C# test seeds mail into a stand-in server before it runs, and one address has a typo the server does not know. You want the test to get `SurlSeedRefusedException` and its `Refusal`, not an empty mailbox and a puzzling failure later.
+
+==== Solution
+
+Seed with `server.Mail.DeliverAsync` inside a `try`, and catch `SurlSeedRefusedException`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `smtp://` URL on port 0, so the system picks a free port. `MailDomains` is `--mail-domain`, the domain served, and `Mailboxes` is `--mailbox`, one address and password per entry: Ann, the shop and a postmaster. `SurlServer.StartAsync` starts the server in the test{apos}s own process.
+
+`server.Mail.DeliverAsync` puts a message straight into the mail store, as Simple Mail Transfer Protocol (SMTP) would after the `RCPT TO` for that address, without a client or a login. The test{apos}s seed names `anne@example.com`, one letter too many. That address is inside the domain, but no mailbox has it, and the call throws `SurlSeedRefusedException`: `Store` is `Mail`, the store that refused, and `Refusal` is `NoSuchAccount`, the store{apos}s own word for why; the message says both. A witness callback, `server.OnEvent` with a `SurlEventQuery` for `StoreChanged` events in the `Mail` store, counts no change, and `ListMessagesAsync` returns a `SurlMessagePage` whose `Messages` are empty for Ann. Nothing was half done. A test that catches the exception can fail at once and say which address was wrong.
+
+The same mail over SMTP shows what the exception saves the test from. The program plays the app with `Curl.Api`: a `CurlClient`, and a `CurlRequest` with `HttpMethod.Put` on the bound URL, `CurlMailOptions` for the envelope sender and recipient, and `CurlAuthenticationOptions` for the shop{apos}s login. The server answers `250`, which the `CurlResponse` gives as `StatusCode`, and discards the mail: no mailbox holds it and the store does not change. A mail server that refused unknown addresses inside its own domain would tell a stranger which addresses exist, so `surl` accepts them and says nothing (<<rfc5321>>). That is right for a client and wrong for a test{apos}s own setup, which is why a seed refuses instead.
+
+The other refusals have their own words. An address outside every mail domain, `ann@example.org`, is `RelayingDenied`, the seed{apos}s form of SMTP{apos}s `550 5.7.1 Relaying denied`; a string that is not an address at all, `ann`, is `InvalidAddress`. With the typo fixed the seed throws nothing, Ann{apos}s INBOX holds the message and the store saw one change. A catch-all changes the answer: with `MailCatchAlls`, `--mail-catch-all`, set to send every unknown `example.com` address to the postmaster, the seed for `anne@example.com` is delivered there and nothing is thrown. A test that seeds through a catch-all should check the mailbox it meant, not only the absence of an exception.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-a-refused-seed-from-an-agent>> for the same task run by an agent.
+* <<imap-seed-and-read-mail-in-process>> for seeding a mailbox and reading it back.
+* <<surl-catch-a-seed-the-server-refuses>> for refused seeds in other stores.
+* <<surl-readme>>, <<rfc5321>>.

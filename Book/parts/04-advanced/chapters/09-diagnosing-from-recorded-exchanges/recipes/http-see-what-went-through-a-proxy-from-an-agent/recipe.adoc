@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-see-what-went-through-a-proxy-from-an-agent]]
+=== Seeing What Went through a Proxy
+
+==== Problem
+
+Your app should reach only one host, through a proxy. You want an agent to read the proxy{apos}s recorded exchanges and list every target the app asked for, so anything else stands out.
+
+==== Solution
+
+Start one server with `surl-mcp`{apos}s `start_server` that is the app{apos}s host, a second host and a proxy, send the app{apos}s traffic through the proxy with `curl-mcp`{apos}s `curl` tool, then read `get_exchanges` for the proxy{apos}s listen URL alone and take the target from each request line:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder. `start_server` takes two `http://127.0.0.1:0` listen URLs, the app{apos}s host and another host, and in `arguments` `--proxy http://127.0.0.1:0`, which makes a third listener a Hypertext Transfer Protocol (HTTP) proxy. `bound_urls` lists them in that order, each with the port it got. One server is enough: all three share its files, and each exchange records the listener it came through (<<surl-readme>>).
+
+The app{apos}s traffic is five calls of the `curl` tool, which runs `curl`{apos}s own words (<<curl-manual>>). `-x` names the proxy; `-p` asks it for a tunnel with `CONNECT` instead of forwarding the request; `-s`, `--max-time 30`, `-o out.txt` and `-w "%{http_code}"` keep each call quiet, bounded, written under `CURL_MCP_ROOT` and reporting its status. Two requests go to the app{apos}s host, as they should. One goes to the other host, one to `192.0.2.1`, an address outside loopback, and one tunnels to the other host. Every call ends with `exitCode` 0, and only the `192.0.2.1` request gets anything but `200`: the proxy answers it `403 Forbidden` without connecting, because a test proxy reaches loopback origins only unless `--proxy-allow-origin` widens it (<<surl-readme>>). The app, in other words, sees nothing wrong.
+
+`get_events` with `kinds` `exchange_started` and then `exchange_ended` lets the program wait, at most ten seconds, until every connection has ended. `get_exchanges` with `listen_url` set to the proxy{apos}s bound URL gives that listener{apos}s exchanges alone, each with `chunks` that have a `direction`, an `encoding` and `data`. A request to a proxy names its target in the request line (<<rfc9110>>): absolute form, `GET http://127.0.0.1:<port>/orders.csv HTTP/1.1`, for a request the proxy forwards, and `CONNECT 127.0.0.1:<port> HTTP/1.1` for a tunnel. The program takes the host and port from each, pairs it with the status of the first answer head the proxy sent, and stops reading an exchange once a tunnel is established, since what follows is the tunnel{apos}s own traffic. The list has five requests to three targets: the app{apos}s host, the other host and `192.0.2.1`.
+
+The proxy sees only host and port for a tunnel. The other host{apos}s own exchanges, from `get_exchanges` with its listen URL, show both requests for `/collect`: the forwarded one carries `Via: 1.1 surl`, which the proxy adds, and the tunnelled one does not. When the origin is not a test server, the proxy{apos}s record of a tunnel is all there is.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-prove-a-client-uses-its-proxy-from-an-agent>> for proving no request bypassed the proxy.
+* <<http-record-what-a-proxy-passed-on>> for the same record kept in a C# test.
+* <<http-run-a-test-proxy-from-an-agent>> for starting a proxy from an agent.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>, <<mcp-spec>>.

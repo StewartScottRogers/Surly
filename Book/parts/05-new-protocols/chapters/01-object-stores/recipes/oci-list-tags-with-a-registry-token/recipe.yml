@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: oci-list-tags-with-a-registry-token
+title: Listing Tags with a Token
+protocols: [oci, https]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user]
+curl-options: [--cacert, -u, --oauth2-bearer, -s, -S, -f, -D, -o, -w]
+exit-codes: [0, 1, 22]
+references: [surl-readme, curl-readme, oci-distribution, oci-image-spec, rfc6750, rfc7617, rfc8446]
+
+# store/ holds the repository demo/app as an OCI image layout on disk: one manifest (the blob
+# 267a1a...) tagged latest, 1.0 and 1.1 in index.json. tags.sh is the deploy tool's tag listing.
+fixtures:
+  store/demo/app/oci-layout: "{\"imageLayoutVersion\":\"1.0.0\"}"
+  store/demo/app/blobs/sha256/267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:33984613b0129bf0f7350dad5e7e372ccbfd585857d4cc9da2f1e333ac5b7603\",\"size\":13}]}\n"
+  store/demo/app/index.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.index.v1+json\",\"manifests\":[{\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"digest\":\"sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\",\"size\":359,\"annotations\":{\"org.opencontainers.image.ref.name\":\"latest\"}},{\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"digest\":\"sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\",\"size\":359,\"annotations\":{\"org.opencontainers.image.ref.name\":\"1.0\"}},{\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"digest\":\"sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\",\"size\":359,\"annotations\":{\"org.opencontainers.image.ref.name\":\"1.1\"}}]}"
+  tags.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Lists a repository's tags: logs in at the registry's token endpoint with Basic for a token
+    # scoped to pull the repository, then asks for the tag list with that token. Prints the status
+    # and the body, and the Link header when there is a next page.
+    # Usage: sh tags.sh REGISTRY USER:PASSWORD REPOSITORY [QUERY [SCOPE]]
+    base=$1
+    repo=$3
+    scope=${5:-repository:$repo:pull}
+    answer=$(curl -sSf --cacert server.pem -u "$2" "${base}token?service=surl&scope=$scope") || exit $?
+    token=$(printf '%s' "$answer" | sed 's/^{"token":"\([^"]*\)".*/\1/')
+    code=$(curl -s --cacert server.pem --oauth2-bearer "$token" -D tags.headers -o tags.json -w "%{http_code}" "${base}v2/$repo/tags/list${4:+?$4}")
+    echo "$code $(cat tags.json)"
+    tr -d '\r' < tags.headers | grep -i '^link:'
+    test "$code" = 200
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user alice:s3cret oci://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With a token from the token endpoint, fetched with Alice's Basic login and scoped to pull demo/app, the tag list is answered 200 with the repository's three tags in lexical order.
+    run: sh tags.sh https://127.0.0.1:{{port}}/ alice:s3cret demo/app
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "200 {\"name\":\"demo/app\",\"tags\":[\"1.0\",\"1.1\",\"latest\"]}\n"
+
+  - id: no-token
+    claim: Without a token the tag list is 401 Unauthorized, with a Bearer challenge naming the token endpoint, the service and the scope to ask for.
+    run: curl -s --cacert server.pem -D - -o {{null}} https://127.0.0.1:{{port}}/v2/demo/app/tags/list
+    expect:
+      exit: 0
+      stdout-matches: '\AHTTP/1\.1 401 Unauthorized\r?\n(.*\r?\n)*WWW-Authenticate: Bearer realm="https://127\.0\.0\.1:\d+/token",service="surl",scope="repository:demo/app:pull"\r?\n'
+
+  - id: password-is-not-a-token
+    claim: The password sent straight to the tag list with Basic is not accepted either, 401; only the token endpoint takes it.
+    run: curl -s --cacert server.pem -u alice:s3cret -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port}}/v2/demo/app/tags/list
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: token-endpoint-answer
+    claim: The token endpoint answers Alice's Basic login with JSON holding the token twice, as token and access_token, and expires_in 300.
+    run: curl -s --cacert server.pem -u alice:s3cret "https://127.0.0.1:{{port}}/token?service=surl&scope=repository:demo/app:pull"
+    expect:
+      exit: 0
+      stdout-matches: '\A\{"token":"([A-Za-z0-9_-]+)","access_token":"\1","expires_in":300,"issued_at":"[0-9TZ:-]+"\}\Z'
+
+  - id: wrong-password
+    claim: With a wrong password the token endpoint answers 401 and gives no token; the tool stops there with curl's exit 22.
+    run: sh tags.sh https://127.0.0.1:{{port}}/ alice:wrong demo/app
+    timeout: 60
+    expect:
+      exit: 22
+      stdout: ""
+      stderr-contains: "401"
+
+  - id: scope-names-the-repository
+    claim: A token scoped to another repository is refused for demo/app's tag list, 403 DENIED.
+    run: sh tags.sh https://127.0.0.1:{{port}}/ alice:s3cret demo/app "n=100" repository:other/app:pull
+    timeout: 60
+    expect:
+      exit: 1
+      stdout: "403 {\"errors\":[{\"code\":\"DENIED\",\"message\":\"requested access to the resource is denied\"}]}\n"
+
+  - id: first-page
+    claim: With n=2 the list stops after two tags, and a Link header names the next page, starting after the last tag given.
+    run: sh tags.sh https://127.0.0.1:{{port}}/ alice:s3cret demo/app "n=2"
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "200 {\"name\":\"demo/app\",\"tags\":[\"1.0\",\"1.1\"]}\nLink: </v2/demo/app/tags/list?n=2&last=1.1>; rel=\"next\"\n"
+
+  - id: next-page
+    claim: The next page, last=1.1, holds the remaining tag and no Link header.
+    run: sh tags.sh https://127.0.0.1:{{port}}/ alice:s3cret demo/app "n=2&last=1.1"
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "200 {\"name\":\"demo/app\",\"tags\":[\"latest\"]}\n"

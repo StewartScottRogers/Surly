@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-a-client-bug-from-a-fault-from-an-agent]]
+=== Telling a Bug from a Fault
+
+==== Problem
+
+A test failed while fault rules were set on the server. Before your agent blames the client, you want it to check which failures the fault rules caused and which they did not.
+
+==== Solution
+
+Read every exchange with `surl-mcp`{apos}s `get_exchanges`, keep the ones that did not end in `200`, and look each one up by its `exchange_id` in the `fault_applied` events from `get_events`. A failure with an event is the rule{apos}s; one without is the client{apos}s to explain:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder. `start_server` runs a Hypertext Transfer Protocol (HTTP) server on a free port with `report.txt` and `status.txt` in memory. `add_fault` adds one `surl --fault` item to the running server and answers with its `fault_id` (<<surl-readme>>). The first, `f1`, is `error;scheme=http;path=/report.txt;reply=503;times=1`: the first request for `/report.txt` is answered `503 Service Unavailable`. The second, `f2`, is `drop;stage=command;path=/status.txt;times=1`: the first connection that asks for `/status.txt` is dropped once the request has arrived, with no answer at all.
+
+The client run is five calls of `curl-mcp`{apos}s `curl` tool, one request each, so each request is a connection, and an exchange, of its own (<<curl-manual>>). `-s` silences the progress meter, `--max-time 30` bounds the call, `-o out.txt` writes the body under `CURL_MCP_ROOT`, and `-w "%{http_code}"` prints the status. The run fails three times. `/report.txt` is `503` the first time. `/status.txt` the first time has no status, `000`, and `exitCode` 56, `curl`{apos}s code for a connection that failed while it waited for the answer. And `/reports.txt`, a typo in the client, is `404 Not Found` (<<rfc9110>>). Taken alone, each looks like a reason to suspect the client.
+
+`get_events` with `kinds` `exchange_started` and then `exchange_ended` lets the program wait, at most ten seconds, until every connection has ended, so the record is whole. `get_exchanges` gives each exchange with its `exchange_id` and `chunks`; the first received chunk is the request head and the first sent chunk, if any, the answer head. The dropped exchange has a request and no sent chunk: it is recorded with no answer. `get_events` with `kinds` `["fault_applied"]` gives one event for each time a rule acted, with the `exchange_id` it acted on, its `rule_id` and its `fault_kind`.
+
+Matched on `exchange_id`, the `503` is rule `f1`, kind `error`, and the dropped request is rule `f2`, kind `drop`: both are the test{apos}s own doing, and the client handled them as a client should. The `404` has no event. No rule acted on that exchange, so the failure is the client{apos}s, and the request line, `GET /reports.txt`, says why. `list_faults` shows both rules with `remaining` 0: each acted its one time, which is why the second request for each path was served.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-fault-that-broke-a-run>> for the same question on the console.
+* <<surl-count-the-faults-that-fired>> for counting what each rule did.
+* <<http-find-the-malformed-request-from-an-agent>> for a failure that is the client{apos}s request.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>, <<mcp-spec>>.

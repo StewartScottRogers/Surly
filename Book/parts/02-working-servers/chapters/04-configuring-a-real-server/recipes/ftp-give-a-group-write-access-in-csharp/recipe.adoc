@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-give-a-group-write-access-in-csharp]]
+=== Giving a Group Write Access in C#
+
+==== Problem
+
+Your C# test checks per-account rights on a File Transfer Protocol (FTP) share: an upload by a member of the editors group must succeed and one by a member of the readers group must be refused.
+
+==== Solution
+
+Start a `SurlServer` whose options name the groups, the share and a grant for each group, upload as an editor and as a reader with `Curl.Api`, and look in the shared folder:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `Accounts` holds four `SurlAccount` logins. `Groups` takes what `--group` takes, a name and its members: `editors=ed,erin` and `readers=rita`; Gus is in neither. `Shares` is `--share`, here `team=` and a folder the test makes fresh with one file in it, so every run starts from the same state. `ShareAccess` is `--share-access`: `team=@editors:rw,@readers:r` grants the editors read and write and the readers read, a member written with `@` being a group. `AllowUploads` is still needed, since a grant of `rw` allows a write the server already permits and does not turn writes on. `ListenUrls` holds an FTP and a Hypertext Transfer Protocol (HTTP) URL on port 0, and `BoundUrls` gives them back with the ports chosen, in the same order.
+
+The client is a `CurlClient`. Each `CurlRequest` carries the account{apos}s user name and password in `Authentication`; an upload is `HttpMethod.Put` with the file{apos}s bytes as `Body`, made with `CurlContent.FromBytes`. Ed{apos}s upload is answered `226`, the FTP reply that closes a finished transfer (<<rfc959>>), and the file is in the folder on disk. Rita{apos}s upload throws `CurlException` with the code `UploadFailed` (`25`), the server having refused it `550`, and nothing is written. She still reads `plan.txt`. The test checks the folder itself, the place the share lives, and passes. Over HTTP the same grants apply: Rita{apos}s read works and her `PUT` is a `CurlResponse` whose `StatusCode` is `403` (<<rfc9110>>).
+
+A share with a grant is closed to every account the grant does not name, and to such an account the share is missing, not refused: for Gus the server will not change to the folder, `RemoteAccessDenied` (`9`). With `AllowAnonymous`, a caller with no login gets in and finds the share missing in the same way. `AllowAnonymous` accepts every login without checking it, and a login it accepts counts as anonymous, so Ed{apos}s login on that server finds the share missing too: a test that needs the grants keeps `AllowAnonymous` off.
+
+FTP sends the password in clear, so without `AllowPlaintextAuthentication` the server refuses it unchecked, and `Curl.Api` throws `LoginDenied` (`67`). The test turns it on, which is for a test on your own machine. A grant that names `editors` without its `@` is looked up as an account and found in neither list: `StartAsync` throws `SurlServerStartException`, whose `ExitCode` is `FailedInit` (`2`) and whose `Lines` hold `surl`{apos}s message.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-give-a-group-write-access>> for the same grants on the console.
+* <<ftp-give-a-group-write-access-from-an-agent>> for an agent that tries each account and draws up who may read and write.
+* <<ftp-offer-a-share-to-ftp-only-in-csharp>> for a share limited to one protocol.
+* <<surl-readme>>, <<rfc959>>, <<rfc9110>>.

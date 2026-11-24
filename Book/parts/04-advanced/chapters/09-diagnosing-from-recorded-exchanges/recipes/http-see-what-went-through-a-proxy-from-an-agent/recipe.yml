@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-see-what-went-through-a-proxy-from-an-agent
+title: Seeing What Went through a Proxy
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges]
+curl-options: [-s, --max-time, -o, -w, -x, -p]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-manual, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: app-sees-nothing-wrong
+    claim: Every request the app makes through the proxy ends with exitCode 0; four are answered 200 and the one to 192.0.2.1 is answered 403.
+    program: list-proxy-targets.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp: http://<app>/orders\.csv -> 200, exitCode 0\napp: http://<app>/stock\.csv -> 200, exitCode 0\napp: http://<other>/collect -> 200, exitCode 0\napp: http://192\.0\.2\.1/beacon -> 403, exitCode 0\napp: http://<other>/collect -> 200, exitCode 0\n'
+
+  - id: solution
+    role: solution
+    claim: Read from the proxy listener's exchanges, the app asked for three targets, the app's host twice, another loopback host once directly and once through a CONNECT tunnel, and 192.0.2.1, which the proxy answered 403.
+    program: list-proxy-targets.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nthrough the proxy:\n  the app''s host: GET /orders\.csv, answered 200\n  the app''s host: GET /stock\.csv, answered 200\n  another host: GET /collect, answered 200\n  192\.0\.2\.1: GET /beacon, answered 403\n  another host: CONNECT \(a tunnel: no path is seen\), answered 200\ntargets: 3; besides the app''s host: another host, 192\.0\.2\.1\n'
+
+  - id: the-tunnel-hides-the-path
+    claim: The proxy's record of the CONNECT names only host and port; the other host's own record shows both requests for /collect, the forwarded one with Via 1.1 surl and the tunnelled one without.
+    program: list-proxy-targets.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nanother host received: GET /collect HTTP/1\.1, with Via\nanother host received: GET /collect HTTP/1\.1, no Via\n\Z'

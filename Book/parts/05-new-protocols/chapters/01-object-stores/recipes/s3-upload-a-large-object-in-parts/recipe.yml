@@ -1,0 +1,119 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: s3-upload-a-large-object-in-parts
+title: Uploading a Large Object
+protocols: [s3]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --user, --allow-uploads, --max-filesize]
+curl-options: [-s, -S, -X, -T, -o, -w, -I, --data-binary, --aws-sigv4, -u, --cacert, --connect-to, --max-time]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, aws-s3-api]
+
+# upload-in-parts.sh is the app's uploader: a multipart upload with curl, one request per step.
+fixtures:
+  store/backups/.keep: ""
+  upload-in-parts.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh upload-in-parts.sh FILE URL PART-BYTES [curl options...]
+    # Uploads FILE to the object URL as an S3 multipart upload: starts the upload, puts FILE in parts of
+    # PART-BYTES (the last may be shorter), then completes it with each part's number and ETag. Prints
+    # each step's status. When a step is refused it prints the S3 error code, aborts the upload so the
+    # server drops the parts it holds, and exits 1.
+    file=$1 url=$2 size=$3
+    shift 3
+    work=$file.parts
+    rm -rf "$work" && mkdir "$work"
+    code() { sed -n 's/.*<Code>\([^<]*\)<\/Code>.*/\1/p' "$work/answer"; }
+    abort() {
+      echo "refused: $(code)"
+      echo "abort: $(curl -s "$@" -X DELETE -o /dev/null -w "%{http_code}" "$url?uploadId=$id")"
+      exit 1
+    }
+    status=$(curl -s "$@" -X POST -o "$work/answer" -w "%{http_code}" "$url?uploads")
+    echo "initiate: $status"
+    id=$(sed -n 's/.*<UploadId>\([^<]*\)<\/UploadId>.*/\1/p' "$work/answer")
+    if [ "$status" != 200 ]; then echo "refused: $(code)"; exit 1; fi
+    split -b "$size" "$file" "$work/part."
+    n=0
+    printf '<CompleteMultipartUpload>' > "$work/complete.xml"
+    for part in "$work"/part.*; do
+      n=$((n + 1))
+      got=$(curl -s "$@" -T "$part" -o "$work/answer" -w "%{http_code} %header{etag}" "$url?partNumber=$n&uploadId=$id")
+      echo "part $n: ${got%% *}"
+      case "$got" in 200*) ;; *) abort "$@" ;; esac
+      printf '<Part><PartNumber>%s</PartNumber><ETag>%s</ETag></Part>' "$n" "${got#* }" >> "$work/complete.xml"
+    done
+    printf '</CompleteMultipartUpload>' >> "$work/complete.xml"
+    status=$(curl -s "$@" --data-binary "@$work/complete.xml" -o "$work/answer" -w "%{http_code}" "$url?uploadId=$id")
+    echo "complete: $status"
+    if [ "$status" != 200 ]; then abort "$@"; fi
+
+# backup.tar: 11,000,000 random bytes; huge.tar: 13,000,000. Made fresh for each run. A certificate for
+# 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+  - openssl rand -out backup.tar 11000000
+  - openssl rand -out huge.tar 13000000
+
+# The bucket backups takes uploads of at most 12 MiB (12,582,912 bytes).
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads --max-filesize 12M s3://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The uploader starts a multipart upload of the 11,000,000-byte backup.tar, puts it in three parts of at most 5 MiB, and completes it, each step answered 200; the object is the file store/backups/backup.tar, byte for byte.
+    run: sh upload-in-parts.sh backup.tar https://backups.s3.us-east-1.amazonaws.com/backup.tar 5242880 --max-time 60 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "initiate: 200\npart 1: 200\npart 2: 200\npart 3: 200\ncomplete: 200\n"
+
+  - id: stored-whole
+    claim: The stored object is byte for byte the file uploaded.
+    run: cmp backup.tar store/backups/backup.tar
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: multipart-etag
+    claim: A HEAD of the object gives its whole length, 11000000, and an ETag that ends in -3, the number of parts it was assembled from.
+    run: curl -sS -I -o {{null}} -w "%header{content-length} %header{etag}\n" --max-time 60 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret https://backups.s3.us-east-1.amazonaws.com/backup.tar
+    expect:
+      exit: 0
+      stdout-matches: '^11000000 "[0-9a-f]{32}-3"\n$'
+
+  - id: too-large
+    claim: Uploading the 13,000,000-byte huge.tar the same way, parts 1 and 2 (10 MiB) are taken, part 3 takes the upload past 12 MiB and is refused 400 EntityTooLarge, and the server has already dropped the upload, so the uploader's abort is answered 404.
+    run: sh upload-in-parts.sh huge.tar https://backups.s3.us-east-1.amazonaws.com/huge.tar 5242880 --max-time 60 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "initiate: 200\npart 1: 200\npart 2: 200\npart 3: 400\nrefused: EntityTooLarge\nabort: 404\n"
+
+  - id: nothing-stored
+    claim: Nothing of the refused upload is stored; there is no object huge.tar.
+    run: test ! -e store/backups/huge.tar
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: single-put-too-large
+    claim: The same limit refuses huge.tar sent as one put, 400.
+    run: curl -sS -T huge.tar -o {{null}} -w "%{http_code}\n" --max-time 60 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret https://backups.s3.us-east-1.amazonaws.com/huge.tar
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "400\n"
+
+  - id: parts-too-small
+    claim: Parts must be at least 5 MiB but for the last; backup.tar in 1,000,000-byte parts has its eleven parts taken, but the completion is refused 400 EntityTooSmall, and the uploader's abort then drops the upload, 204.
+    run: sh upload-in-parts.sh backup.tar https://backups.s3.us-east-1.amazonaws.com/small-parts.tar 1000000 --max-time 60 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "initiate: 200\npart 1: 200\npart 2: 200\npart 3: 200\npart 4: 200\npart 5: 200\npart 6: 200\npart 7: 200\npart 8: 200\npart 9: 200\npart 10: 200\npart 11: 200\ncomplete: 400\nrefused: EntityTooSmall\nabort: 204\n"

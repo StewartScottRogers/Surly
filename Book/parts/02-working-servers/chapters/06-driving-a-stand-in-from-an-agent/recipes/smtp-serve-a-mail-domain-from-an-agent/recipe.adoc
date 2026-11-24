@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-serve-a-mail-domain-from-an-agent]]
+=== Serving a Mail Domain from an Agent
+
+==== Problem
+
+You want an agent to start a stand-in mail server for one domain, with named mailboxes that log in with their addresses, send mail between them, and show that mail to another domain is refused.
+
+==== Solution
+
+The program starts both hosts. `start_server` runs a Simple Mail Transfer Protocol (SMTP) and an Internet Message Access Protocol (IMAP) listener for `example.com`; the `curl` tool sends from Ann to Bob, `wait_for_event` waits for the delivery, and the `curl` tool reads it as Bob:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). Both URLs use port 0, so the system picks free ports, and the answer{apos}s `bound_urls` gives them; both serve one mail store. `--mail-domain example.com` is the domain the server takes mail for, and each `--mailbox` adds a mailbox and an account that logs in to it with the whole address and the password after the colon. A mailbox must be inside a served domain: `bob@example.org` makes `start_server` a tool error, `exit_code` `2`, with the line `option --mailbox: mailbox bob@example.org is not in any --mail-domain`.
+
+The `curl` tool runs `curl` with its own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. Every call here has `-s` to keep the progress meter out and `-S` to keep an error line in (<<curl-manual>>). The send is `-u ann@example.com:annpass`, `--mail-from`, `--mail-rcpt bob@example.com`, `-T memo.eml`, a fixture in the folder both hosts are confined to, and `-w "%{response_code}"` to print the last reply, `250`. The URL{apos}s path, `example.com`, is the name `curl` gives the server when it says hello. Delivery is asynchronous, so the agent waits with `wait_for_event` for a `store_changed` event in the `mail` store named `bob@example.com`; its name, `bob@example.com/INBOX/;UID=1`, is the owner, the mailbox and the unique identifier. Bob then reads the message over IMAP with his own login, the URL `INBOX;UID=1;SECTION=HEADER.FIELDS%20(FROM%20SUBJECT)` asking for those two header fields.
+
+The server will not relay. Mail to `carol@elsewhere.org` is refused even though Ann has logged in: the `curl` tool exits `55`, `RCPT failed: 550`, and `get_exchanges`, read after the `exchange_ended` event, shows the `RCPT TO:<carol@elsewhere.org>` answered `550 5.7.1 Relaying denied`. A server that passed on mail for any domain would be an open relay for whoever found it (<<rfc5321>>), so that refusal is the default. Serving the other domain too, with a second `--mail-domain`, is the narrow way past it; `--allow-anonymous` drops logins and domains together (<<surl-readme>>). A send with no login at all is refused earlier, at `MAIL`: exit `55`, `MAIL failed: 530`. Mail to `cy@example.com`, inside the domain with no mailbox, is answered `250` and kept nowhere, and `list_mailboxes` for it is a tool error, `No mailboxes for cy@example.com.`; refusing it would tell a stranger which addresses exist.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-serve-a-mail-domain>> for the same server on the console.
+* <<smtp-confirm-a-delivery-without-polling-from-an-agent>> for waiting on a delivery.
+* <<smtp-send-despite-a-bad-recipient-from-an-agent>> for a send with one refused recipient.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

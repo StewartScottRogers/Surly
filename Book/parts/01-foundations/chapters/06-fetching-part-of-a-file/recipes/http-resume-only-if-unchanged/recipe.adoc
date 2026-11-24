@@ -1,0 +1,44 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-resume-only-if-unchanged]]
+=== Resuming Only an Unchanged File
+
+==== Problem
+
+You resume downloads, but the file may have changed on the server in the meantime. You want the resume to carry `If-Range`, so that a changed file comes back whole with `200` instead of its tail being spliced onto stale bytes with `206`.
+
+==== Solution
+
+Save the file{apos}s `ETag` with `--etag-save` on the first download, then resume with a script that asks for the rest of the file only if the `ETag` still matches, and keeps whichever answer comes back:
+
+include::.generated/solution.adoc[]
+
+The script, `resume.sh`, needs a POSIX shell (Git Bash on Windows):
+
+include::resume.sh[]
+
+==== Discussion
+
+`surl` serves the folder `--directory` names, and every answer for a file carries an `ETag`, a quoted tag that changes whenever the file is rewritten (<<surl-readme>>). The first download here is `curl -r 0-99`, which asks for the first 100 of the 180 bytes and stands in for a download that was interrupted; `surl` answers `206 Partial Content`. `--etag-save dl/records.etag` writes the tag of the version it came from, quoted, with a line end. `-s` silences the progress meter, `-o` names the output file and `-w "%{http_code} %{size_download}\n"` prints the status and how many body bytes came.
+
+The script counts the bytes it has, 100, and asks for the rest with `-r 100-`, which sends `Range: bytes=100-`, and with `-H "If-Range: <saved tag>"`. `If-Range` makes the range conditional (<<rfc9110>>): if the tag still matches, the server sends the range; if not, it ignores the range and sends the whole current file with `200 OK`. With the file unchanged `surl` answers `206` with the 80 missing bytes, the script appends them, and `dl/records.txt` is version 1 entire.
+
+The second run starts again from a fresh 100-byte piece of version 1, and then the file on the server is replaced by version 2, the same length. The saved tag no longer matches, so `surl` answers `200` with all 180 bytes of version 2, and the script puts that in place of the piece. The status code is what tells the two apart; the script refuses anything else and leaves the piece alone.
+
+Without `If-Range` nothing checks the piece. `curl -C -` on the same 100 bytes of version 1 sends `Range: bytes=100-`, gets `206` and version 2{apos}s last 80 bytes, appends them and exits `0`: five lines of version 1, a line that starts as one version and ends as the other, and four lines of version 2. Every byte count is right and the file is wrong.
+
+`-C -` with an `If-Range` header (here read from a file with `-H @dl/old-tag.hdr`, holding a tag that no longer matches) does not help either. `surl` answers `200` with the whole file, but `curl -C -` only appends: it will not put a whole file after a partial one, writes nothing, leaves the piece as it was and exits `33`, its code for a range it could not resume (<<curl-manual>>). That is why the script fetches with `-r` and makes the choice itself, so the `200` body is not thrown away.
+
+`If-Range` may carry a `Last-Modified` date instead of a tag (<<rfc9110>>), but a date is only as fine as one second; <<http-resume-only-if-unchanged-in-csharp>> shows a same-second rewrite that a date misses and the `ETag` catches.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-resume-only-if-unchanged-in-csharp>> for the same check from a C# program.
+* <<http-resume-only-if-unchanged-from-an-agent>> for the same check from an agent.
+* <<http-resume-an-interrupted-download>> for `-C -` on its own.
+* <<http-skip-unchanged-files-with-etags>> for `--etag-save` and `--etag-compare` on whole files.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>.

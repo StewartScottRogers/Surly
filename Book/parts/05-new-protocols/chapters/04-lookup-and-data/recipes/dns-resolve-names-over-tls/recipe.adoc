@@ -1,0 +1,50 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-resolve-names-over-tls]]
+=== Resolving Names over DNS over TLS
+
+==== Problem
+
+Your client resolves host names over DNS over TLS (DoT), the Domain Name System (DNS) inside Transport Layer Security (TLS), and you want a test name to point at a local server. You want a test zone served over TLS, and an HTTP request whose host name was resolved from it.
+
+==== Solution
+
+Serve the zone, a master file at `site/.surl/dns/example.test.zone`, with `--dns-transport tls` and the service beside it:
+
+[source,text]
+----
+include::site/.surl/dns/example.test.zone[]
+----
+
+Then let a short client script, which needs a POSIX shell (Git Bash on Windows), look the name up over DoT with `curl` and call the address it got:
+
+[source,sh]
+----
+include::call-by-name.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` reads the zone from `--directory`, the master file `site/.surl/dns/example.test.zone`, named for its apex (<<surl-readme>>, <<rfc1035>>). It holds the apex{apos}s SOA and NS records and one A record, `api`, the orders service, at `127.0.0.1`; `status.txt` in the same folder is what the `http://` listener on the second port serves.
+
+`--dns-transport tls` makes the `dns://` listener DoT alone: TLS from the first byte, then each DNS message behind a two-byte length, as over TCP (<<surl-readme>>). TLS needs a certificate, `--cert server.pem` with `--key server.key`, which `openssl` made before the server started, naming `127.0.0.1`. Without one `surl` will not start, exit `58`, and tells you to give `--cert` or `--self-signed`. Plain TCP and TLS cannot share a port, since the first bytes of a connection could be either: `--dns-transport tcp,tls` on one port is refused, exit `2`.
+
+The script is the client. Its lookup is `curl`{apos}s `dns://` URL, the server and then the name, with `--dns-transport tls` to speak DoT and `--cacert server.pem` to trust the test server{apos}s certificate, which is its own authority, so verification stays on; `-s` keeps the progress meter out, `-S` keeps an error in, and `--max-time 10` bounds each call. The answer is dig-like text, `NOERROR` with the A record `api.example.test.`, TTL `300`, `127.0.0.1`, a tab between fields. The script takes the address from the one A line with five fields and calls the service with `--resolve`, which makes `curl` connect `api.example.test` on that port to that address while the URL keeps the name (<<curl-manual>>). The answer is the status file.
+
+A name under the apex that the zone does not hold, `old-api.example.test`, is answered `NXDOMAIN`; the script finds no address, says so, exits `6` as `curl` does for a name it cannot resolve, and makes no call. Without `--cacert` the lookup itself fails, exit `60`: `curl` cannot verify a certificate the test made.
+
+`curl` has a resolver of its own for DoT, `--dns-over-tls host:port`, which looks up every transfer{apos}s names on that server. With a test server it does not help yet: it checks the server{apos}s certificate against the system{apos}s trust store and not `--cacert`, so the lookup fails and `curl` exits `6`, `Could not resolve host`. Installing a test certificate in the system store is a change to the machine, not to the test, so the script does the lookup itself.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-resolve-names-over-tls-in-csharp>> for the same task in C#.
+* <<dns-resolve-names-over-tls-from-an-agent>> for the same task run by an agent.
+* <<dns-point-a-client-at-a-test-zone>> for `curl`{apos}s own lookups over DNS over HTTPS.
+* <<dns-look-up-a-name>> for plain DNS queries.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1035>>.

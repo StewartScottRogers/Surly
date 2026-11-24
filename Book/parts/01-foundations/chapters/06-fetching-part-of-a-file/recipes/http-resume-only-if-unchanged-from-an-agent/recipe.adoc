@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-resume-only-if-unchanged-from-an-agent]]
+=== Resuming Only Unchanged Files from an Agent
+
+==== Problem
+
+You want an agent to replace a served file with `put_file` in the middle of a download, and show that a resume sending `If-Range` gets the whole new file, not a corrupt splice of old and new.
+
+==== Solution
+
+Start a server with `surl-mcp`{apos}s `start_server`, fetch the first 100 bytes with `curl-mcp`{apos}s `transfer` and keep the `ETag`, replace the file with `put_file`, then ask for the rest with `Range` and `If-Range` and keep whichever answer comes back. The program takes the case to run as its argument; with none, the file is replaced:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder. `start_server` runs a Hypertext Transfer Protocol (HTTP) server on a free port holding `records.txt` in memory, 180 bytes in ten lines of `version 1 line NN`, and answers with `server_id` and `bound_urls`. Every answer for a file carries an `ETag`, a quoted tag that changes whenever the file is rewritten (<<surl-readme>>).
+
+`transfer` takes extra request `headers` as a list of `name` and `value` pairs, and answers with `statusCode`, the response `headers` and the `body` (<<curl-readme>>). The first call sends `Range: bytes=0-99`, which stands in for a download that was interrupted after 100 bytes; the answer is `206`, and the agent keeps the body and the `ETag`. Then `put_file` writes version 2, the same length, to `/records.txt` and answers with its `byte_count`, 180.
+
+The second `transfer` asks for `Range: bytes=100-` with `If-Range` set to the kept `ETag`. `If-Range` makes the range conditional (<<rfc9110>>): if the tag matches, the server sends the range; if not, it sends the whole current file with `200 OK`. After `put_file` it does not match, so the answer is `200` with all 180 bytes, and the agent puts them in place of the first half: the result is version 2. With the file left alone the answer is `206` with the 80 missing bytes, and the two halves make version 1. The status code is the whole decision: `206` means append, `200` means replace, anything else is an error.
+
+`get_exchanges` lists what the server received. Each `transfer` call is a connection of its own and so an exchange of its own; the first `received` chunk of the last one is the resume{apos}s request head, and it holds both `Range: bytes=100-` and the `If-Range` line with the first half{apos}s tag.
+
+Without `If-Range` the server has no way to know which version the first half came from. After `put_file` it answers `206` with version 2{apos}s last 80 bytes, and the joined text is 180 bytes of neither version, with nothing in the answer to say so.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-resume-only-if-unchanged>> for the same check on the console.
+* <<http-resume-only-if-unchanged-in-csharp>> for the same check from a C# program, and a date that misses a change.
+* <<http-resume-an-interrupted-download-from-an-agent>> for a resume with the `curl` tool and `-C -`.
+* <<rfc9110>>, <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>.

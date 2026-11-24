@@ -1,0 +1,100 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-resume-only-if-unchanged
+title: Resuming Only an Unchanged File
+protocols: [http]
+tier: foundations
+surl-options: [--directory]
+curl-options: [-s, -r, -H, -C, -o, -w, --etag-save]
+exit-codes: [0, 33]
+references: [rfc9110, surl-readme, curl-manual]
+
+# site/records.txt is 180 bytes, ten lines of eighteen ("version 1 line 00" ...). Cases below
+# replace it with version 2, the same length, as a publisher would while a download is paused.
+fixtures:
+  site/records.txt: "version 1 line 00\nversion 1 line 01\nversion 1 line 02\nversion 1 line 03\nversion 1 line 04\nversion 1 line 05\nversion 1 line 06\nversion 1 line 07\nversion 1 line 08\nversion 1 line 09\n"
+  dl/.keep: ""
+  resume.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Resumes dl/records.txt from the URL in $1, but only onto the version it was started from:
+    # dl/records.etag holds that version's ETag, saved by the first download.
+    have=$(wc -c < dl/records.txt | tr -d ' ')
+    code=$(curl -s -r "$have-" -H "If-Range: $(cat dl/records.etag)" -o dl/rest.part -w '%{http_code}' "$1") || exit
+    case "$code" in
+      206) cat dl/rest.part >> dl/records.txt; rm dl/rest.part; echo "206: appended the missing bytes" ;;
+      200) mv dl/rest.part dl/records.txt; echo "200: the file changed; replaced it with the whole new version" ;;
+      *) echo "$code: left dl/records.txt alone"; exit 1 ;;
+    esac
+
+servers:
+  main:
+    command: surl --directory site http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: first-part
+    claim: The first download stops after 100 of the 180 bytes (here -r 0-99 stands in for the interruption); surl answers 206 and --etag-save keeps the file's ETag.
+    run: curl -s -r 0-99 --etag-save dl/records.etag -o dl/records.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "206 100\n"
+
+  - id: etag-saved
+    claim: The saved ETag is a strong one, quoted, ending in the file's length in hexadecimal (b4, 180).
+    run: cat dl/records.etag
+    expect:
+      exit: 0
+      stdout-matches: '^"[0-9a-f]+-b4"\n$'
+
+  - id: solution
+    role: solution
+    claim: With the file unchanged, the resume sends Range bytes=100- with If-Range and the saved ETag; surl answers 206 and the script appends the 80 missing bytes, giving the whole file.
+    run: sh resume.sh http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "206: appended the missing bytes\n"
+      files:
+        dl/records.txt: "version 1 line 00\nversion 1 line 01\nversion 1 line 02\nversion 1 line 03\nversion 1 line 04\nversion 1 line 05\nversion 1 line 06\nversion 1 line 07\nversion 1 line 08\nversion 1 line 09\n"
+
+  - id: start-again
+    claim: A second download of version 1 is stopped after 100 bytes the same way, and saves its ETag again.
+    run: curl -s -r 0-99 --etag-save dl/records.etag -o dl/records.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    expect:
+      exit: 0
+      stdout: "206 100\n"
+
+  - id: changed-comes-whole
+    claim: When version 2, the same length, replaces the file before the resume, the ETag no longer matches; surl answers 200 with the whole new file, and the script replaces the partial file with it rather than splicing.
+    run: sh resume.sh http://127.0.0.1:{{port}}/records.txt
+    fixtures:
+      site/records.txt: "version 2 line 00\nversion 2 line 01\nversion 2 line 02\nversion 2 line 03\nversion 2 line 04\nversion 2 line 05\nversion 2 line 06\nversion 2 line 07\nversion 2 line 08\nversion 2 line 09\n"
+    expect:
+      exit: 0
+      stdout: "200: the file changed; replaced it with the whole new version\n"
+      files:
+        dl/records.txt: "version 2 line 00\nversion 2 line 01\nversion 2 line 02\nversion 2 line 03\nversion 2 line 04\nversion 2 line 05\nversion 2 line 06\nversion 2 line 07\nversion 2 line 08\nversion 2 line 09\n"
+
+  - id: without-if-range-splices
+    claim: Without If-Range, curl -C - on a 100-byte piece of version 1 gets 206 with version 2's last 80 bytes and exits 0, leaving a file that is neither version.
+    run: curl -s -C - -o dl/stale.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    fixtures:
+      dl/stale.txt: "version 1 line 00\nversion 1 line 01\nversion 1 line 02\nversion 1 line 03\nversion 1 line 04\nversion 1 "
+    expect:
+      exit: 0
+      stdout: "206 80\n"
+      files:
+        dl/stale.txt: "version 1 line 00\nversion 1 line 01\nversion 1 line 02\nversion 1 line 03\nversion 1 line 04\nversion 1 line 05\nversion 2 line 06\nversion 2 line 07\nversion 2 line 08\nversion 2 line 09\n"
+
+  - id: continue-at-refuses-200
+    claim: curl -C - with an If-Range ETag that no longer matches gets the 200 but will not append a whole file to a partial one; it writes nothing, leaves the piece as it was and exits 33, which is why the script fetches the range with -r and decides itself.
+    run: curl -s -C - -H @dl/old-tag.hdr -o dl/stale.txt -w "%{http_code} %{size_download}\n" http://127.0.0.1:{{port}}/records.txt
+    fixtures:
+      dl/old-tag.hdr: "If-Range: \"8df4a4f580ab67f-b4\"\n"
+      dl/stale.txt: "version 1 line 00\nversion 1 line 01\nversion 1 line 02\nversion 1 line 03\nversion 1 line 04\nversion 1 "
+    expect:
+      exit: 33
+      stdout: "200 0\n"
+      files:
+        dl/stale.txt: "version 1 line 00\nversion 1 line 01\nversion 1 line 02\nversion 1 line 03\nversion 1 line 04\nversion 1 "

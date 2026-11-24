@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-catch-a-refused-seed
+title: Catching a Refused Seed
+protocols: [smtp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlSeedRefusedException, SurlEventQuery, SurlMessagePage, CurlClient, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions]
+exit-codes: [0]
+references: [surl-readme, rfc5321]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A seed for anne@example.com, an address in the domain with no mailbox, throws SurlSeedRefusedException with Store Mail and Refusal NoSuchAccount, and the mail store is left unchanged.
+    program: catch-seed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "refused: Store Mail, Refusal NoSuchAccount\nMail: Mail for anne@example.com was refused: NoSuchAccount.\nann@example.com holds 0\npostmaster@example.com holds 0\nstore changes: 0\n"
+
+  - id: smtp-loses-it
+    claim: The same mail for anne@example.com sent over SMTP is answered 250 and discarded; no mailbox holds it and the store does not change, so the loss is silent.
+    program: catch-seed.cs
+    args: [smtp]
+    expect:
+      exit: 0
+      stdout: "SMTP 250 for anne@example.com\nann@example.com holds 0\npostmaster@example.com holds 0\nstore changes: 0\n"
+
+  - id: outside
+    claim: A seed for an address outside every mail domain is refused as RelayingDenied.
+    program: catch-seed.cs
+    args: [outside]
+    expect:
+      exit: 0
+      stdout-matches: '^refused: Store Mail, Refusal RelayingDenied\nMail: Mail for ann@example\.org was refused: RelayingDenied\.\n'
+
+  - id: malformed
+    claim: A seed for a string that is not an address is refused as InvalidAddress.
+    program: catch-seed.cs
+    args: [malformed]
+    expect:
+      exit: 0
+      stdout-matches: '^refused: Store Mail, Refusal InvalidAddress\nMail: Mail for ann was refused: InvalidAddress\.\n'
+
+  - id: right
+    claim: With the address corrected the seed throws nothing; Ann's INBOX holds the message and the store saw one change.
+    program: catch-seed.cs
+    args: [right]
+    expect:
+      exit: 0
+      stdout: "seeded for ann@example.com\nann@example.com holds 1\npostmaster@example.com holds 0\nstore changes: 1\n"
+
+  - id: catch-all
+    claim: With a catch-all mailbox for the domain, the seed for anne@example.com is not refused but delivered to the catch-all.
+    program: catch-seed.cs
+    args: [catch-all]
+    expect:
+      exit: 0
+      stdout: "seeded for anne@example.com\nann@example.com holds 0\npostmaster@example.com holds 1\nstore changes: 1\n"

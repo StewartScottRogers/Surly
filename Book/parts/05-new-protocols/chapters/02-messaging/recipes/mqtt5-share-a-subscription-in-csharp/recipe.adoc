@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-share-a-subscription-in-csharp]]
+=== Sharing MQTT Subscriptions in C#
+
+==== Problem
+
+Several workers subscribe as one shared group so each message reaches only one of them. You want a C# test that subscribes two workers to an MQTT 5 shared subscription and checks that each message went to one of them only.
+
+==== Solution
+
+Host the broker in a `SurlServer`, subscribe each worker with a `Curl.Api` `GET` of `$share/workers/jobs` (`%24share` in the URL), publish the jobs, and check what each worker holds:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+MQTT 5 is version 5.0 of the publish and subscribe protocol MQTT. A shared subscription is one subscription held by a group: its filter is `$share/`, a share name, `/`, and the topic filter, and each matching message is sent to one member of the group only (<<mqtt5>>, section 4.8.2). Which member is left to the broker, so the test checks that the workers hold every job once between them and that each holds at least one, not how they were split.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds an `mqtt5://` URL for the workers and an `mqtt://` one, MQTT 3.1.1, for the app; both are one message bus, so a message published on one reaches subscribers on the other. `AllowAnonymous` is `--allow-anonymous`, which lets clients connect with no login, a loosening for a test on your own machine; `Topics` is `--topic`, and `jobs;retain` keeps the last message on `jobs`. `SurlServer.StartAsync` starts it and `BoundUrls` holds the URLs in order.
+
+A worker is a `CurlRequest` with `HttpMethod.Get` on the `mqtt5://` URL whose path is the filter. `CurlClient.SendAsync` subscribes and returns its `CurlResponse` once the first message arrives; the response{apos}s `Body` then gives each payload as it comes, here a line each, until the token passed to `SendAsync` is cancelled (<<curl-protocols>>). The monitor is the same on `jobs`. A worker is subscribed some time after the call, so the program publishes `ping` with `server.Messages.PublishAsync`, the test{apos}s own publish, every 0.2 seconds until all three hold one: the group hands each ping to one worker, so both hold one only when both are members.
+
+The app publishes the six jobs with a `CurlRequest` with `HttpMethod.Post` to the `mqtt://` URL and a `CurlContent` body; it reaches the workers through the shared bus. Within ten seconds the workers hold `job-1` to `job-6` between them, each once, both workers have some, and the monitor, outside the group, holds all six. The test cancels the subscriptions and passes.
+
+A worker that joins the group after the run is sent nothing in three seconds: retained messages are not sent for a shared subscription (<<mqtt5>>, section 3.3.1.3), though a plain subscriber to `jobs` is sent the kept `job-6`. A filter with no topic after the share name, `$share/workers`, throws `CurlException` with code `3`, `UrlMalformat`, before anything is sent; a worker with no login on a broker without `AllowAnonymous` throws code `67`, `LoginDenied`, with the broker{apos}s reason code `0x87`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-share-a-subscription>> for the same task on the console.
+* <<mqtt5-share-a-subscription-from-an-agent>> for the same task run by an agent.
+* <<mqtt5>>, <<surl-readme>>, <<curl-protocols>>.

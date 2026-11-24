@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-give-a-group-write-access-in-csharp
+title: Giving a Group Write Access in C#
+protocols: [ftp, http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlException]
+exit-codes: [0, 2]
+references: [surl-readme, rfc959, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api and makes the shared folder
+# itself, fresh for each run.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Ed, an editor, uploads draft.txt over FTP and it lands in the shared folder; Rita, a reader, is refused her upload with UploadFailed (25) and nothing is written, but reads plan.txt; the test passes.
+    program: share-rights.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ed uploads draft.txt: 226\nrita uploads late.txt: refused, UploadFailed (25)\nrita reads plan.txt: plan v1\nin the folder: draft.txt, plan.txt\nPASS: editors write, readers only read\n"
+
+  - id: http
+    claim: The grants hold over HTTP on the same server; Rita reads the file, and her PUT is answered 403.
+    program: share-rights.cs
+    args: [http]
+    expect:
+      exit: 0
+      stdout: "rita GET plan.txt: plan v1\nrita PUT late.txt: 403\n"
+
+  - id: outsider
+    claim: Gus, a good account in neither group, is refused the share's folder, RemoteAccessDenied (9), as if it were not there.
+    program: share-rights.cs
+    args: [outsider]
+    expect:
+      exit: 0
+      stdout: "gus reads plan.txt: refused, RemoteAccessDenied (9)\n"
+
+  - id: anonymous
+    claim: With AllowAnonymous a caller with no login gets in and finds the share missing, RemoteAccessDenied (9); Ed's login is accepted unchecked as anonymous and finds it missing too.
+    program: share-rights.cs
+    args: [anonymous]
+    expect:
+      exit: 0
+      stdout: "no login reads plan.txt: refused, RemoteAccessDenied (9)\ned reads plan.txt: refused, RemoteAccessDenied (9)\n"
+
+  - id: plaintext
+    claim: Without AllowPlaintextAuthentication Ed's password over plain FTP is refused, LoginDenied (67).
+    program: share-rights.cs
+    args: [plaintext]
+    expect:
+      exit: 0
+      stdout: "ed reads plan.txt: refused, LoginDenied (67)\n"
+
+  - id: bare-group-name
+    claim: A grant that names the group without its @ is read as an account name, and StartAsync throws SurlServerStartException with exit code 2 naming the member.
+    program: share-rights.cs
+    args: [bare]
+    expect:
+      exit: 2
+      stdout: "refused: FailedInit (2) option --share-access: member editors names no account or group\n"

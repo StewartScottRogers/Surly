@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-spot-a-truncated-recording
+title: Spotting a Truncated Recording
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1]
+references: [surl-readme, curl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With room for 5 exchanges of at most 4096 bytes, a run of nine fetches keeps 5 exchanges and drops 4, oldest first, and the last, a 13000-byte export, is marked IsTruncated with at most 4096 bytes kept; the test sees both and fails instead of judging a partial record.
+    program: check-recording.cs
+    args: []
+    expect:
+      exit: 1
+      stdout: "9 fetches, 5 exchanges kept, 4 dropped, 1 truncated, 0 events dropped\ntruncated: exchange 9, GET /export.csv HTTP/1.1, at most 4096 bytes kept\nFAIL: the recording is partial; raise the limits or record a shorter run\n"
+
+  - id: roomy
+    claim: With surl's default room, 1000 exchanges of 1 MiB each, the same run keeps all nine exchanges, none dropped or truncated, and the test goes on.
+    program: check-recording.cs
+    args: [roomy]
+    expect:
+      exit: 0
+      stdout: "9 fetches, 9 exchanges kept, 0 dropped, 0 truncated, 0 events dropped\nthe recording is whole\n"
+
+  - id: events-dropped
+    claim: The events the server keeps have a limit of their own; with MaxRecordedEvents 10 every exchange is kept but DroppedEventCount is above 0, and the test fails on that too.
+    program: check-recording.cs
+    args: [events]
+    expect:
+      exit: 1
+      stdout-matches: '^9 fetches, 9 exchanges kept, 0 dropped, 0 truncated, [1-9][0-9]* events dropped\nFAIL: the recording is partial; raise the limits or record a shorter run\n$'
+
+  - id: not-recording
+    claim: With RecordExchanges off there is no record, and DroppedExchangeCount throws InvalidOperationException rather than answer 0.
+    program: check-recording.cs
+    args: [not-recording]
+    expect:
+      exit: 1
+      stdout: "no record: InvalidOperationException\n"

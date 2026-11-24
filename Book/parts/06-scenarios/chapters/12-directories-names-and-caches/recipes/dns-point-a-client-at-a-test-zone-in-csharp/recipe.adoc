@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-point-a-client-at-a-test-zone-in-csharp]]
+=== Pointing a Client at a Test Zone
+
+==== Problem
+
+The code under test looks a service name up before it calls the service, and your C# test must decide where that name leads. You want a test zone in the Domain Name System (DNS) answering the name, and the client{apos}s call to reach the test server, from the test{apos}s own process.
+
+==== Solution
+
+Start a `SurlServer` that serves the zone over DNS over HTTPS (DoH) and the service beside it, seed the zone, and give the client a `DohUrl` that names the server:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds a `dns://` and an `http://` URL on port 0, so the system picks two free ports; `BoundUrls` lists them in that order. `AdditionalArguments` carries `--dns-transport https`, which has no property of its own: the DNS listener then answers DoH, Transport Layer Security (TLS) from the first byte and one resource, `/dns-query`. `SelfSigned` is `--self-signed`, a certificate the server makes for itself, a loosening for a test on one machine. `Files` holds the status file the service answers with.
+
+`SurlServerZones.AddZoneAsync` seeds the zone as master-file text under its apex (<<rfc1035>>): the SOA and NS records and one A record, `api`, the orders service, at `127.0.0.1`.
+
+The client{apos}s settings are a `CurlClientOptions` for every request it sends (<<curl-readme>>). `CurlNetworkOptions.DohUrl`, `curl`{apos}s `--doh-url`, sends the client{apos}s name lookups to the server{apos}s `/dns-query` instead of the machine{apos}s resolver. `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is `SelfSignedCertificatePem` trusts exactly the certificate this server made, and the DoH lookup uses that trust too, so verification stays on. `Timeout` bounds each transfer at ten seconds.
+
+The code under test makes its call by name: a `CurlRequest` for `http://api.example.test` on the service{apos}s port. The client asks the zone, gets `127.0.0.1`, and the `CurlResponse` is `200` with the status file. A name the zone does not hold, `old-api.example.test`, does not resolve, and `SendAsync` throws `CurlException` with curl error `6`, `CouldntResolveHost`; no call is made, which is what the code would see with a wrong name in its configuration. Without `DohUrl` the machine{apos}s resolver is asked, knows nothing of the test zone, and the error is the same `6`.
+
+So is the error when the certificate is not trusted: with no `CertificateAuthorityBlob` the lookup cannot be made and the failure surfaces as the lookup{apos}s, `6`, not the `60` of a failed check on the request itself. A test that sees `CouldntResolveHost` with a test zone in place should check the trust first.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-point-a-client-at-a-test-zone>> for the same task on the console.
+* <<dns-point-a-client-at-a-test-zone-from-an-agent>> for the same task run by an agent.
+* <<dns-change-answers-between-tests>> for changing the zone from test to test.
+* <<dns-resolve-names-over-tls-in-csharp>> for lookups over DNS over TLS.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1035>>.

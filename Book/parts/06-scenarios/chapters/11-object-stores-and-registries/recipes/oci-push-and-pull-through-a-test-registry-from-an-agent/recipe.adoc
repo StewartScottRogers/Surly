@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[oci-push-and-pull-through-a-test-registry-from-an-agent]]
+=== Pushing and Pulling Through a Registry
+
+==== Problem
+
+Your build pushes a container image and a deploy step pulls it, and you want an artificial intelligence (AI) agent to run both against a local registry and check that the manifest the deploy pulled is the one the build pushed.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the Model Context Protocol (MCP) software development kit (SDK). It starts `surl-mcp` as an Open Container Initiative (OCI) registry, pushes and pulls through `curl-mcp`{apos}s `curl` tool, and compares three digests: the manifest file the build pushed, the tag the registry recorded, and the manifest the deploy pulled:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server that answers as `surl` with the same options would (<<surl-readme>>). `listen_urls` is `oci://127.0.0.1:0`, a registry on a free port that speaks the OCI Distribution Specification (<<oci-distribution>>), and the answer gives a `server_id` and the `bound_urls`. The listener is Transport Layer Security (TLS) from the first byte (<<rfc8446>>), so `arguments` holds `--cert server.pem` and `--key server.key`, made by the `openssl` line in the folder `SURL_MCP_ROOT` names; one account for the build and one for the deploy, with `--user`; and `--allow-uploads`, which lets a login push.
+
+The `curl` tool runs `curl`{apos}s own arguments, confined to the folder `CURL_MCP_ROOT` names, and answers JavaScript Object Notation (JSON) text with `exitCode`, `standardOutput` and `standardError`. Every call has `--cacert server.pem`, so `curl` trusts the registry{apos}s certificate, `-u` with the account it logs in with at the token endpoint, and `-s` and `-S` to keep the progress meter out and an error in. In `curl`, `oci://HOST/demo/app@sha256:DIGEST` is a blob and `oci://HOST/demo/app:1.0` a manifest (<<curl-protocols>>). The build{apos}s one call pushes, with a `-T` before each URL, the empty config, the layer and the manifest under `1.0`, blobs first, since the registry refuses a manifest that names a blob it does not hold (<<oci-check-an-image-landed>>). The deploy{apos}s call has no `-T`, so it pulls, and the manifest{apos}s text is the `standardOutput`.
+
+The agent then has three digests to compare. The first is the SHA-256 of `manifest.json`, the file the build pushed. The second is what the registry recorded: `read_file` with the `server_id` and the `path` `/demo/app/index.json` answers the repository{apos}s index from the store, in OCI image layout, as `text`, and its `manifests` list names each manifest by digest, with the tag in the annotation `org.opencontainers.image.ref.name` (<<oci-image-spec>>). The third is the SHA-256 of the manifest the deploy pulled. When all three agree, the agent pulls the config and the layer the manifest names, by digest, and checks that each hashes to its name.
+
+A tag is a name that can be moved, which is why the deploy checks. When a rebuild pushes build 42 under `1.0` first, `index.json` points `1.0` at the new manifest and keeps build 41{apos}s with no tag; the pull by the tag gets build 42, and the agent reports that it is not the image the build pushed. A pull by the manifest{apos}s digest still gets build 41, and every check passes. A tag never pushed is `curl` exit `22`, `404 MANIFEST_UNKNOWN` in `standardError`. `put_file` writes a file into the store as the test{apos}s own hand, with no login; when it puts other bytes of the same length over build 41{apos}s layer, the file no longer hashes to its name, and the registry answers as though the blob were not there: `404 BLOB_UNKNOWN`, exit `22`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<oci-push-and-pull-through-a-test-registry>> for the same build and deploy on the console.
+* <<oci-push-and-pull-through-a-test-registry-in-csharp>> for the same build and deploy in a C# test.
+* <<oci-check-an-image-landed>> for an agent that checks every blob in the store after a push.
+* <<surl-readme>>, <<curl-protocols>>, <<oci-distribution>>, <<oci-image-spec>>, <<rfc8446>>.

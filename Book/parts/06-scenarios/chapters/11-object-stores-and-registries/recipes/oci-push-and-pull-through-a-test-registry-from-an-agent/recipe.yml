@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs push-and-pull.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: oci-push-and-pull-through-a-test-registry-from-an-agent
+title: Pushing and Pulling Through a Registry
+protocols: [oci]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, read_file, put_file]
+curl-options: [-s, -S, --cacert, -u, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-protocols, oci-distribution, oci-image-spec, rfc8446]
+
+# The build's image: the empty config, one layer (app.txt, build 41) and manifest.json, whose own
+# digest is sha256:267a1a.... The rebuild, build 42, is app-42.txt and manifest-42.json.
+fixtures:
+  empty.json: "{}"
+  app.txt: "app build 41\n"
+  manifest.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:33984613b0129bf0f7350dad5e7e372ccbfd585857d4cc9da2f1e333ac5b7603\",\"size\":13}]}\n"
+  app-42.txt: "app build 42\n"
+  manifest-42.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:cdb288a305e18bfa3b50b6762520d8b133efab26e67ba430d803221c6bc976fc\",\"size\":13}]}\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: One curl call pushes build 41 under demo/app:1.0; the digest of manifest.json, the digest index.json records for the tag, and the digest of the manifest pulled by the tag are the same, and the config and the layer pulled by digest each hash to their names.
+    program: push-and-pull.cs
+    args: [tag]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "push: exit 0, manifest.json is sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nindex.json: 1.0 -> sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\npulled :1.0: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nblob sha256:44136fa355b3: 2 bytes, hash ok\nblob sha256:33984613b012: 13 bytes, hash ok\nverdict: :1.0 is the image the build pushed\n"
+
+  - id: tag-moved
+    claim: When a rebuild pushes build 42 under the same tag first, index.json points 1.0 at the new manifest, the pull by the tag gets it, and the agent reports that it is not the image the build pushed, exit 1.
+    program: push-and-pull.cs
+    args: [moved]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "push: exit 0, manifest.json is sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nrebuild push: exit 0\nindex.json: 1.0 -> sha256:0bdf1c73f543e0ac481c1db12a0608afd498c076228adca73e717ea95a7b7b7c\nindex.json: (no tag) -> sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\npulled :1.0: sha256:0bdf1c73f543e0ac481c1db12a0608afd498c076228adca73e717ea95a7b7b7c\nverdict: not the image the build pushed\n"
+
+  - id: pinned-by-digest
+    claim: index.json keeps build 41's manifest with no tag after the rebuild, and a pull by its digest still gets build 41, and every check passes.
+    program: push-and-pull.cs
+    args: [pinned]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "push: exit 0, manifest.json is sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nrebuild push: exit 0\nindex.json: 1.0 -> sha256:0bdf1c73f543e0ac481c1db12a0608afd498c076228adca73e717ea95a7b7b7c\nindex.json: (no tag) -> sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\npulled @sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nblob sha256:44136fa355b3: 2 bytes, hash ok\nblob sha256:33984613b012: 13 bytes, hash ok\nverdict: @sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275 is the image the build pushed\n"
+
+  - id: unknown-tag
+    claim: A pull of a tag never pushed is curl exit 22 with 404 MANIFEST_UNKNOWN in standardError.
+    program: push-and-pull.cs
+    args: [unknown]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "push: exit 0, manifest.json is sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nindex.json: 1.0 -> sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\npull :2.0: exit 22, curl: (22) The requested URL returned error: 404 (MANIFEST_UNKNOWN: manifest unknown)\n"
+
+  - id: changed-layer-not-served
+    claim: When put_file overwrites build 41's layer with other bytes of the same length, the registry answers 404 BLOB_UNKNOWN for it, curl exit 22, after the config has passed.
+    program: push-and-pull.cs
+    args: [changed]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "push: exit 0, manifest.json is sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nlayer overwritten with put_file\nindex.json: 1.0 -> sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\npulled @sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nblob sha256:44136fa355b3: 2 bytes, hash ok\nblob sha256:33984613b012: exit 22, curl: (22) The requested URL returned error: 404 (BLOB_UNKNOWN: blob unknown to registry)\n"

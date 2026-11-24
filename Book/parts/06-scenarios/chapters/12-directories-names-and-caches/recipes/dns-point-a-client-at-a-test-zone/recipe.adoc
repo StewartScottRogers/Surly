@@ -1,0 +1,43 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-point-a-client-at-a-test-zone]]
+=== Pointing a Client at a Test Zone
+
+==== Problem
+
+Your client looks up a service name before it calls the service. You want a test zone in the Domain Name System (DNS) that answers that name, and the client{apos}s call to land on the test server the zone names, without touching the machine{apos}s own resolver.
+
+==== Solution
+
+Serve the zone and the service from one `surl`, the zone over DNS over HTTPS (DoH), and tell `curl` to send its lookups there with `--doh-url`. The zone is a master file, `site/.surl/dns/example.test.zone`:
+
+[source,text]
+----
+include::site/.surl/dns/example.test.zone[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` reads its zones from `--directory`: each zone is a master file named for its apex under `.surl/dns/` (<<surl-readme>>, <<rfc1035>>). The fixture `site/.surl/dns/example.test.zone` holds the apex{apos}s SOA and NS records and one A record, `api`, the orders service, at `127.0.0.1`. The same folder holds `status.txt`, which the `http://` listener on the second port serves. A name under `.test` is one the machine{apos}s own resolver does not know, as a case below shows, so the test cannot reach a real host by mistake.
+
+`--dns-transport https` makes the `dns://` listener DNS over HTTPS: Transport Layer Security (TLS) from the first byte, one resource, `/dns-query`, that takes a DNS message and answers one (<<surl-readme>>). TLS needs a certificate, here `--cert server.pem` and `--key server.key`, which `openssl` made before the server started, with the address `127.0.0.1` as its subject alternative name.
+
+`--doh-url` is the `curl` option that sends a request{apos}s name lookups to a DoH server of your choosing instead of the system{apos}s resolver (<<curl-manual>>). `--cacert server.pem` trusts the test server{apos}s certificate, which is its own authority, so verification stays on. `curl` asks for `api.example.test`, gets `127.0.0.1` from the zone, connects to the second port and fetches `/status.txt`, with `-s` keeping the progress meter out and `-S` keeping an error in. With `-o` throwing the body away, `-w "%{remote_ip}"` shows the address it used was the one the zone gave. A name the zone does not hold, `old-api.example.test`, does not resolve: `curl` exits `6`, `Could not resolve host`, and no call is made, which is what the client would see if its configuration named the wrong service.
+
+Without `--doh-url` the lookup goes to the machine{apos}s resolver, which knows nothing of the test zone, and `curl` exits `6`. The option that would point plain DNS at a chosen server, `--dns-servers`, is refused by this `curl` build before any lookup, exit `2` with `the installed libcurl version does not support this`; DoH is the way to give `curl` a resolver of your own.
+
+The certificate check matters. Without `--cacert` `curl` cannot verify the DoH server, and the failure surfaces as the lookup{apos}s, exit `6`, not the `60` a failed check on the request itself would give; a client that reports only "could not resolve" may hide a trust problem this way. `--doh-insecure` turns off the check of the DoH server{apos}s certificate alone and the call then succeeds, but it is a loosening for a test on one machine, and `--cacert` with the test{apos}s own certificate does the same job with verification on.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-point-a-client-at-a-test-zone-in-csharp>> for the same task in C#.
+* <<dns-point-a-client-at-a-test-zone-from-an-agent>> for the same task run by an agent.
+* <<dns-resolve-names-over-tls>> for lookups over DNS over TLS.
+* <<dns-look-up-a-name>> for querying the zone directly.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1035>>.

@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs search-mailbox.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-search-a-mailbox-from-an-agent
+title: Searching a Mailbox from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, curl, list_messages]
+curl-options: [-s, -S, -u, -X]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Of five seeded messages, UID SEARCH SUBJECT invoice through the curl tool answers the UIDs 1, 3 and 5, matching Invoice and invoice alike, and fetching each by UID gives its Subject.
+    program: search-mailbox.cs
+    args: [search]
+    expect:
+      exit: 0
+      stdout: "UID SEARCH SUBJECT invoice: * SEARCH 1 3 5\nUID 1: Subject: Invoice 1001 for October\nUID 3: Subject: Invoice 1002 for November\nUID 5: Subject: Overdue: invoice 1001\n"
+
+  - id: phrase
+    claim: A quoted phrase is matched as one string anywhere in the subject, letter case ignored; SUBJECT "invoice 1001" answers UIDs 1 and 5.
+    program: search-mailbox.cs
+    args: [phrase]
+    expect:
+      exit: 0
+      stdout: "UID SEARCH SUBJECT \"invoice 1001\": * SEARCH 1 5\nUID 1: Subject: Invoice 1001 for October\nUID 5: Subject: Overdue: invoice 1001\n"
+
+  - id: no-match
+    claim: A search that matches nothing answers * SEARCH with no UIDs, and there is nothing to fetch.
+    program: search-mailbox.cs
+    args: [none]
+    expect:
+      exit: 0
+      stdout: "UID SEARCH SUBJECT refund: * SEARCH\n"
+
+  - id: numbers-not-uids
+    claim: After UID 2 is deleted and expunged, curl's URL query INBOX?SUBJECT invoice answers message numbers, 1 2 4, while UID SEARCH still answers the UIDs 1 3 5.
+    program: search-mailbox.cs
+    args: [numbers]
+    expect:
+      exit: 0
+      stdout: "URL query SUBJECT invoice: * SEARCH 1 2 4\nUID SEARCH SUBJECT invoice: * SEARCH 1 3 5\n"
+
+  - id: fetch-marks-seen
+    claim: curl's fetch marks each fetched message \Seen; list_messages shows the flag on UIDs 1, 3 and 5 and none on 2 and 4.
+    program: search-mailbox.cs
+    args: [seen]
+    expect:
+      exit: 0
+      stdout: "UID SEARCH SUBJECT invoice: * SEARCH 1 3 5\nUID 1: Subject: Invoice 1001 for October\nUID 3: Subject: Invoice 1002 for November\nUID 5: Subject: Overdue: invoice 1001\nUID 1: [\\Seen]\nUID 2: []\nUID 3: [\\Seen]\nUID 4: []\nUID 5: [\\Seen]\n"
+
+  - id: missing-uid
+    claim: A fetch of a UID the mailbox does not have exits 78, Remote file not found.
+    program: search-mailbox.cs
+    args: [missing]
+    expect:
+      exit: 0
+      stdout: "UID 9: curl exit 78, curl: (78) Remote file not found\n"

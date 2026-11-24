@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[coap-watch-a-resource-change-from-an-agent]]
+=== Observing CoAP Resources from an Agent
+
+==== Problem
+
+Your gateway observes a Constrained Application Protocol (CoAP) resource and must react when it changes. You want an agent to check that the observation is sent a notification when the file behind the resource is replaced.
+
+==== Solution
+
+The program starts both hosts and a CoAP server, makes one `curl` tool call that observes the resource, and while it runs replaces the file with a second call, then reads what the observer was sent:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs, here `coap` and `http` on free ports over one store, `files` to put `thermostat.txt` in it, and in `arguments` `surl`{apos}s own options (<<surl-readme>>): `--allow-uploads` lets clients change the files at all, and `--allow-anonymous` lets a client with no login do it, since plain CoAP carries no login. Both are loosenings for a test on your own machine. It answers a `server_id` and the `bound_urls`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON). Observing is RFC 7641{apos}s extension of CoAP: a `GET` carrying the Observe option registers the client, and the server then sends it a new representation each time the resource changes (<<rfc7641>>, <<rfc7252>>). `--coap-observe` makes `curl` register and keep listening, writing each payload followed by a line feed, and `-m 6` ends it after six seconds with exit `28` (<<curl-protocols>>). The tool answers when `curl` ends, so the program starts that call and goes on without awaiting it, as an agent{apos}s host may run two calls at once (<<mcp-spec>>).
+
+The change must not come before the observer is registered. `get_exchanges` with `scheme` `coap` answers what crossed the wire for each CoAP exchange, its `chunks` each with a `direction`; once the observer{apos}s exchange has a `sent` chunk, the server has answered the registration. The program asks a tenth of a second apart, at most a hundred times.
+
+A second `curl` call replaces the file: `-X PUT` with `-d @new.txt` sends `setpoint=70`, a fixture in the folder both hosts are confined to, and `-i` puts the response code first, `CoAP/1.0 2.04`, Changed; `-s` keeps the progress meter out and `-S` keeps an error in. When the observer{apos}s call ends, its output holds two lines: `setpoint=68`, the answer to its registration, and `setpoint=70`, the notification.
+
+A file replaced another way is not notified at once. `-T new.txt` to the HTTP URL is answered `204`, `-w "%{http_code}"` printing the status, and `put_file`, which writes a file into the store as the test{apos}s own seed, answers too; in neither case is the observer sent anything in its six seconds. `surl` notifies at once only for a change made over CoAP; <<coap-watch-a-resource-change>> shows an HTTP change arriving when the representation{apos}s Max-Age of sixty seconds runs out. A gateway{apos}s test should make the change over CoAP.
+
+`-X DELETE` is answered `2.02`, and the observer is sent a last notification with no payload, which `curl` writes as an empty line before it ends by itself with exit `0`: the resource is gone and there is nothing left to observe. Without `--allow-uploads` the `PUT` is answered `4.05`, Method Not Allowed, the file is unchanged and the observer is sent nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<coap-watch-a-resource-change>> for the same task on the console.
+* <<coap-watch-a-resource-change-in-csharp>> for the same task in C#.
+* <<rfc7641>>, <<rfc7252>>, <<surl-readme>>, <<curl-protocols>>, <<mcp-spec>>.

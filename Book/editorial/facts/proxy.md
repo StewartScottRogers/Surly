@@ -92,3 +92,7 @@ http-require-a-proxy-login, https-tunnel-through-a-proxy, socks5-relay-through-a
 - rfc1928 and rfc1929 are now in the bibliography.
 
 - SOCKS5 and LDAP simple-bind logs (Surl BL-1609/1610, High): the -v log showed the password length byte before `****`; to be fixed to a fixed `04`. Do not claim the length byte.
+
+## Proxy records (batch 14: http-record-what-a-proxy-passed-on, http-see-what-went-through-a-proxy-from-an-agent; Surl v0.1.5 d64faa4bb, 2026-11-24, windows)
+- Verbose log: `Forwarded GET to 127.0.0.1:P; the origin answered 200.`, `Answered 403: the origin 192.0.2.1:80 could not be used (NotAllowed).` (no connection tried), loopback port with nothing listening `Answered 502: the origin 127.0.0.1:P could not be used (Refused).` The origin's record has the forwarded heads in origin form with `Via: 1.1 surl`; a `-p` CONNECT tunnel's inner request reaches the origin with no Via, and the proxy record shows only `CONNECT host:port`.
+- FINDING: a proxy listen URL with port 0 (`--proxy http://127.0.0.1:0/`, Surl.Api, surl-mcp) does not know its bound port as its own listener: a request through it to its own port is forwarded to itself (`Forwarded GET to 127.0.0.1:P; the origin answered 400.`, the second hop `Answered 400: the request target is not absolute-form.`). With a fixed port it is 403 `Origin ... is not an allowed origin` as above. Do not claim the own-listener 403 for port-0 proxies.

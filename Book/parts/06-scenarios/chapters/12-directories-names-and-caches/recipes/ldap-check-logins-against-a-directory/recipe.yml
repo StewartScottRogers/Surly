@@ -1,0 +1,121 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: ldap-check-logins-against-a-directory
+title: Checking Logins Against a Directory
+protocols: [ldap, http]
+tier: scenarios
+surl-options: [--directory, --cert, --key, -u, -v, --log-file, --user-ldap]
+curl-options: [-s, -S, -u, --cacert, -o, -w]
+exit-codes: [0, 2]
+references: [surl-readme, curl-manual, rfc4511, rfc4516, rfc7617]
+
+# dir/ holds the directory: the people under ou=people. svc.pass is the service account's password,
+# read from a file so it is never on a command line. site/ is what the web server serves; open-site/ the same for the open server (one surl holds a folder at a time).
+fixtures:
+  dir/.surl/ldap/directory.ldif: |
+    dn: dc=example,dc=com
+    objectClass: domain
+    dc: example
+
+    dn: ou=people,dc=example,dc=com
+    objectClass: organizationalUnit
+    ou: people
+
+    dn: uid=alice,ou=people,dc=example,dc=com
+    objectClass: inetOrgPerson
+    uid: alice
+    cn: Alice Liddell
+    sn: Liddell
+
+    dn: uid=bob,ou=people,dc=example,dc=com
+    objectClass: inetOrgPerson
+    uid: bob
+    cn: Bob Builder
+    sn: Builder
+  svc.pass: "svcpass\n"
+  site/report.txt: "q3 total: 1200\n"
+  open-site/report.txt: "q3 total: 1200\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed. Both servers use it.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# directory: the LDAP server. Its accounts check binds: alice and bob, and svc, the web server's
+# service account. web: the HTTPS server, checking logins it does not hold against the directory;
+# ops is its one account of its own. open: the same with no account of its own.
+servers:
+  directory:
+    command: surl -v --log-file ldap.log --directory dir --cert server.pem --key server.key -u alice:wonderland -u bob:builder -u svc:svcpass ldap://127.0.0.1:{{port}}/
+    ready: port
+  web:
+    command: surl -v --log-file web.log --directory site --cert server.pem --key server.key -u ops:opspass --user-ldap "ldap://127.0.0.1:{{port}}/ou=people,dc=example,dc=com;bind-dn=cn=svc,dc=example,dc=com;bind-password-file=svc.pass;ca-file=server.pem" https://127.0.0.1:{{port2}}/
+    ready: port
+  open:
+    command: surl --directory open-site --cert server.pem --key server.key --user-ldap "ldap://127.0.0.1:{{port}}/ou=people,dc=example,dc=com;bind-dn=cn=svc,dc=example,dc=com;bind-password-file=svc.pass;ca-file=server.pem" https://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test logs in to the web server as alice, a user it holds no account for, with her directory password; the server checks it against the directory and serves the report.
+    run: curl -sS --cacert server.pem -u alice:wonderland https://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "q3 total: 1200\n"
+
+  - id: second-user
+    claim: Any user under ou=people logs in the same way; bob with his password gets 200.
+    run: curl -sS --cacert server.pem -u bob:builder -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: wrong-password
+    claim: alice with a wrong password is refused, 401.
+    run: curl -sS --cacert server.pem -u alice:queenofhearts -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: no-such-user
+    claim: A name the directory does not hold under ou=people is refused, 401; so is svc, whose entry is not under the base.
+    run: curl -sS --cacert server.pem -u carol:x -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port2}}/report.txt --next -sS --cacert server.pem -u svc:svcpass -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "401\n401\n"
+
+  - id: why-refused
+    claim: The web server's verbose log names the account source at start and says why each directory login was refused, wrong password or no such entry.
+    run: 'grep -E "^Account source|directory: " web.log'
+    expect:
+      exit: 0
+      stdout-matches: '^Account source: LDAP directory ldap://127\.0\.0\.1:\d+\nLogin refused: password alice \(directory: wrong password\)\nLogin refused: password carol \(directory: no such entry\)\nLogin refused: password svc \(directory: no such entry\)\n$'
+
+  - id: directory-side
+    claim: On the directory's side each login is one connection upgraded with StartTLS, a bind as the service account, a search under ou=people that finds the user's entry, and a bind as that user.
+    run: 'grep -E "StartTLS accepted|Login|LDAP search" ldap.log | head -n 4 | cut -d "*" -f 2-'
+    expect:
+      exit: 0
+      stdout: " LDAP StartTLS accepted\n Login accepted: simple svc\n LDAP search ou=people,dc=example,dc=com scope sub: 1 entries, success\n Login accepted: simple alice\n"
+
+  - id: own-account
+    claim: The web server's own account, ops, is judged by the web server alone and logs in, 200; no login at all is 401.
+    run: curl -sS --cacert server.pem -u ops:opspass -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port2}}/report.txt --next -sS --cacert server.pem -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port2}}/report.txt
+    expect:
+      exit: 0
+      stdout: "200\n401\n"
+
+  - id: directory-alone-asks-no-login
+    claim: A server whose only accounts are in the directory asks no login for a GET; with no -u it serves the report, 200.
+    run: curl -sS --cacert server.pem -o {{null}} -w "%{http_code}\n" https://127.0.0.1:{{port3}}/report.txt
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: plaintext-refused
+    claim: Sending directory passwords in clear over ldap:// (;plaintext) is refused at start without --allow-plaintext-auth, exit 2.
+    run: surl --cert server.pem --key server.key --user-ldap "ldap://127.0.0.1:{{port}}/dc=example,dc=com;plaintext" https://127.0.0.1:0/
+    expect:
+      exit: 2
+      stderr-contains: "surl: (2) --user-ldap plaintext needs --allow-plaintext-auth"

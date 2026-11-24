@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: oci-list-tags-with-a-registry-token-in-csharp
+title: Listing Registry Tags in C#
+protocols: [oci, https]
+tier: new-protocols
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0, 1]
+references: [surl-readme, oci-distribution, oci-image-spec, rfc6750, rfc7617, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own registry through Surl.Api and seeds demo/app.
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Basic login at the token endpoint is answered 200 with a token good for 300 seconds, and the tag list read with that token as a Bearer credential is 200 with the three tags in lexical order.
+    program: list-tags.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "token endpoint: 200, a token good for 300 s\n200 {\"name\":\"demo/app\",\"tags\":[\"1.0\",\"1.1\",\"latest\"]}\n"
+
+  - id: no-token
+    claim: Without a token the tag list is 401, and WWW-Authenticate names the token endpoint, the service and the scope to ask for.
+    program: list-tags.cs
+    args: [no-token]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\A401 Bearer realm="https://127\.0\.0\.1:\d+/token",service="surl",scope="repository:demo/app:pull"\n\Z'
+
+  - id: password-is-not-a-token
+    claim: The password sent straight to the tag list with Basic is 401 as well.
+    program: list-tags.cs
+    args: [password]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: wrong-password
+    claim: A wrong password at the token endpoint is 401 and no token, and the tool stops, exit 1.
+    program: list-tags.cs
+    args: [wrong]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "token endpoint: 401, no token\n"
+
+  - id: scope-names-the-repository
+    claim: A token scoped to another repository is refused for demo/app's tag list, 403 DENIED.
+    program: list-tags.cs
+    args: [scope]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "token endpoint: 200, a token good for 300 s\n403 {\"errors\":[{\"code\":\"DENIED\",\"message\":\"requested access to the resource is denied\"}]}\n"
+
+  - id: pages
+    claim: With n=2 the list gives two tags and a Link header naming the next page; following it gives the last tag and no Link header.
+    program: list-tags.cs
+    args: [pages]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "token endpoint: 200, a token good for 300 s\n200 {\"name\":\"demo/app\",\"tags\":[\"1.0\",\"1.1\"]}\nLink: </v2/demo/app/tags/list?n=2&last=1.1>; rel=\"next\"\n200 {\"name\":\"demo/app\",\"tags\":[\"latest\"]}\n"

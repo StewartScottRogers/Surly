@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[oci-check-a-pushed-image-manifest]]
+=== Checking a Pushed Image's Manifest
+
+==== Problem
+
+Your build pushes a container image, and you want the C# test to read the manifest and the blobs the registry stored and check their digests, rather than trust the push{apos}s replies.
+
+==== Solution
+
+Start a `SurlServer` as an Open Container Initiative (OCI) registry, push with `Curl.Api`, then read the registry{apos}s store through `server.Files`: the tag in `index.json`, the manifest it names, and each blob the manifest names:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds `oci://127.0.0.1:0`, a registry on a free port that speaks the OCI Distribution Specification (<<oci-distribution>>). The listener is Transport Layer Security (TLS) from the first byte (<<rfc8446>>); `SelfSigned` makes the server generate a certificate, `SelfSignedCertificatePem`, which the client trusts through `CurlTlsOptions` and `CurlTlsPeerOptions` with `CertificateAuthorityBlob`. `Accounts` holds the build{apos}s `SurlAccount`, and `AllowUploads` lets it push.
+
+The build is a `CurlClient`. Each `CurlRequest` is a `HttpMethod.Put` whose `Body`, made by `CurlContent.FromBytes`, is one blob, to a URL ending `@sha256:DIGEST`, and last the manifest, to one ending `:1.0`; the test disposes each `CurlResponse`{apos}s body unread, since it judges the push by the store, not by the replies. The manifest is a JavaScript Object Notation (JSON) document that names the empty config and the two layers by digest and size (<<oci-image-spec>>). `Curl.Api` logs in at the registry{apos}s token endpoint with the account in `Authentication`, and it hashes each blob before sending it: a layer pushed under a digest that is not its own throws `CurlException` with the code `UploadFailed` (`25`), naming both digests, and nothing is stored.
+
+The registry keeps each repository as a folder in OCI image layout, and `server.Files` reads that store as files, as the test{apos}s own hand and not as a client. `/demo/app/index.json` lists the manifests, each tag in the annotation `org.opencontainers.image.ref.name`, with the manifest{apos}s digest and size. The manifest is a blob like the rest, under `/demo/app/blobs/sha256/` and the hexadecimal of its SHA-256 (Secure Hash Algorithm 256) digest. The test hashes the stored manifest and compares it with the tag{apos}s digest and with the bytes it pushed, then reads each blob the manifest names and checks three things: that it is there, that its length is the size the manifest says, and that it hashes to its name.
+
+Each failure leaves a different mark. A push of the blobs without the manifest leaves them in the store with no `index.json`: `ReadAsync` throws `SurlNotFoundException`, so no tag points at a manifest. A manifest naming a layer that was never pushed is refused `400 MANIFEST_BLOB_UNKNOWN`, `HttpReturnedError` (`22`), and records no tag. When the test deletes a layer from the store with `server.Files.DeleteAsync`, the check finds it missing; when it overwrites one with `server.Files.PutAsync`, with other bytes of the same length, the size check passes and only the hash finds the change.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<oci-check-an-image-landed>> for the same check by an agent through `surl-mcp`.
+* <<oci-push-and-pull-through-a-test-registry-in-csharp>> for a deploy that pulls the image and checks its digests as a client.
+* <<oci-push-and-pull-an-image>> for the push and the pull on the console.
+* <<surl-readme>>, <<oci-distribution>>, <<oci-image-spec>>, <<rfc8446>>.

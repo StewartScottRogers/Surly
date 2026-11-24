@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-page-through-messages-from-an-agent]]
+=== Paging Through Messages
+
+==== Problem
+
+You want an agent to walk a large mailbox on a stand-in server with `list_messages`, `after_uid` and `limit`, without missing or repeating a message, even when mail arrives or is deleted during the walk.
+
+==== Solution
+
+The program starts both hosts and an Internet Message Access Protocol (IMAP) server, seeds 60 messages, and asks `list_messages` for pages of 25, each after the last unique identifier (UID) of the page before, until `has_more` is false:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, on port 0 so the system picks a free one, and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` and a `--mailbox` for Ann, the account that logs in with her address. `seed_mail` puts 60 order notices straight into her INBOX, UIDs 1 to 60.
+
+`list_messages` takes the `owner`, the `mailbox`, `after_uid` and `limit`, and answers `messages`, at most `limit` of them in UID order, each with its `uid`, size, flags and the date the store took it in, and `has_more`, whether any follow. The agent starts with `after_uid` 0 and passes the last `uid` of each page to the next call. Pages of 25 give UIDs 1 to 25, 26 to 50 and 51 to 60, and the third says `has_more` false: every message seen once, in UID order. `has_more` is exact. With 50 messages the second page is full and already says false, so the agent never asks for an empty page.
+
+The walk goes by UID, not by position, and that keeps it honest while the mailbox changes. A UID names one message for good, and a new message always gets a larger one than any before it (<<rfc9051>>). A message seeded after the first page becomes UID 61 and turns up on the last page. When Ann{apos}s mail client deletes UID 10, already seen, after the first page, the next page still starts at UID 26. The agent plays that client with the `curl` tool, which runs `curl` with its own arguments: `-u` for Ann{apos}s login, `-X` for the IMAP command sent on the INBOX URL, first `UID STORE 10 +FLAGS (\Deleted)` and then `EXPUNGE`, with `-s` to keep the progress meter out and `-S` to keep an error line in (<<curl-manual>>). Counting by position instead, an agent that skipped the first 25 would now start at UID 27: the 26th message has moved, and UID 26 would be missed.
+
+`limit` is 1 to 1000, 100 if left out. A `limit` of 0 never reaches the tool: the host refuses the call as invalid params, `arguments.limit: expected at least 1`, a protocol error rather than a tool error (<<mcp-spec>>), which the program{apos}s Model Context Protocol (MCP) client throws as `McpProtocolException`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-page-through-a-large-mailbox-in-process>> for the same walk in C#.
+* <<imap-fetch-only-new-messages-from-an-agent>> for fetching only what came since the last pass.
+* <<imap-list-mailboxes-and-counts-from-an-agent>> for counting before walking.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>, <<mcp-spec>>.

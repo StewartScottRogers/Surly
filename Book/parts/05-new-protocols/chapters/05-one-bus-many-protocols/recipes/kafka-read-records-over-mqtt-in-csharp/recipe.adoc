@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-read-records-over-mqtt-in-csharp]]
+=== From Kafka to MQTT in C#
+
+==== Problem
+
+A Kafka producer and an MQTT 5 subscriber must agree on one topic named two ways. You want a C# test in which a Kafka record on `shop.orders` is delivered to the MQTT subscriber of `shop/orders`.
+
+==== Solution
+
+Host Kafka and MQTT 5 in one `SurlServer`, produce the record with a `Curl.Api` `POST`, and subscribe with a `Curl.Api` `GET`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds a `kafka://` and an `mqtt5://` URL on port 0, and one server puts both on one message bus; MQTT 5 is version 5.0 of the publish and subscribe protocol MQTT. `Topics` is `--topic`: `shop/#;retain` keeps the last message on every topic under `shop/`, so a subscriber that comes after the record can be sent it. `AdditionalArguments` passes `--mqtt5-disconnect-after-retained`, which makes the broker end a subscribe once the kept messages are sent, so the `GET` returns. `AllowAnonymous` is `--allow-anonymous`, which lets both clients in with no login, a loosening for a test on your own machine. `SurlServer.StartAsync` starts it, and `BoundUrls` holds the URLs in order.
+
+Kafka names a topic with dots and MQTT with slashes, so the Kafka topic `shop.orders` is the MQTT topic `shop/orders`. A `CurlClient` sends a `CurlRequest` with `HttpMethod.Post` and a `CurlContent` body to `kafka://.../shop.orders`, which produces the body as one record (<<kafka-protocol>>). A `CurlRequest` with `HttpMethod.Get` to `mqtt5://.../shop/orders` subscribes, and the `CurlResponse` body is the kept record{apos}s payload alone (<<mqtt5>>, <<curl-protocols>>).
+
+The two keep different things. After a second record the subscriber is sent only `order-1002 placed`, since a topic has one retained message; a `GET` of the Kafka URL consumes the topic{apos}s log from the start and holds both records, a line each. Without a `Topics` filter the record is still produced, but nothing is kept and the subscriber is sent nothing.
+
+The server{apos}s own store names topics the MQTT way. `server.Messages.ReadLogAsync("shop/orders", 0)` answers a `SurlLogPage` whose `Records` hold the record at `Offset` `0`; `ReadLogAsync("shop.orders", 0)`, the Kafka spelling, throws `SurlNotFoundException`, `No log for topic shop.orders.`, since nothing was written under that name. A test that reads the log behind a Kafka topic with a dot in it passes the slashed name. A Kafka URL cannot take the slashed name: the part after a slash is the partition, and `Curl.Api` throws `CurlException` with code `3`, `UrlMalformat`, before it connects.
+
+Without `AllowAnonymous` a producer with no login is disconnected, and `Curl.Api` throws `CurlException` with code `56`, `RecvError`, `Connection disconnected`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-read-records-over-mqtt>> for the same task on the console.
+* <<kafka-read-records-over-mqtt-from-an-agent>> for the same task run by an agent.
+* <<kafka-replay-a-topic-from-an-offset-in-csharp>> for consuming a Kafka topic from an offset in C#.
+* <<kafka-protocol>>, <<mqtt5>>, <<surl-readme>>, <<curl-protocols>>.

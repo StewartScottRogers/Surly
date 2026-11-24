@@ -1,0 +1,48 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: ldap-check-logins-against-a-directory-from-an-agent
+title: Checking Logins Against a Directory from an Agent
+protocols: [ldap, http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_ldap_entries, curl, get_events]
+curl-options: [-s, -S, --max-time, --cacert, -w, -u]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc4511, rfc4516, rfc7617]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed. Both servers use it.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent seeds the directory with four entries, and logs in to the web server with the curl tool as alice and as bob, users the web server holds no account for; each login is checked against the directory and the report is served, 200.
+    program: program.cs
+    args: [login]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "seeded: 4 entries\nalice: 200 q3 total: 1200\nbob: 200 q3 total: 1200\n"
+
+  - id: refused
+    claim: alice with a wrong password, carol whom the directory does not hold, and a request with no login are each answered 401.
+    program: program.cs
+    args: [refused]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "seeded: 4 entries\nalice, wrong password: 401\ncarol: 401\nno login: 401\n"
+
+  - id: events
+    claim: get_events on the web server finds one login judged, https, alice, accepted; on the directory two binds, svc's for the search and then alice's, both accepted.
+    program: program.cs
+    args: [events]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "seeded: 4 entries\nalice: 200 q3 total: 1200\nweb: https alice accepted\ndirectory: ldap svc accepted\ndirectory: ldap alice accepted\n"

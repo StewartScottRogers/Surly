@@ -1,0 +1,77 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs list-tags.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: oci-list-tags-with-a-registry-token-from-an-agent
+title: Listing Registry Tags from an Agent
+protocols: [oci, https]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl]
+curl-options: [-s, -S, --cacert, -D, -u, --oauth2-bearer]
+exit-codes: [0, 1]
+references: [surl-readme, oci-distribution, oci-image-spec, rfc6750, rfc7617, rfc8446]
+
+# manifest.json is the one manifest the registry holds, under the tags latest, 1.0 and 1.1.
+fixtures:
+  manifest.json: "{\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"config\":{\"mediaType\":\"application/vnd.oci.empty.v1+json\",\"digest\":\"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\",\"size\":2},\"layers\":[{\"mediaType\":\"text/plain\",\"digest\":\"sha256:33984613b0129bf0f7350dad5e7e372ccbfd585857d4cc9da2f1e333ac5b7603\",\"size\":13}]}\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: A Basic login at the token endpoint is answered 200 with a token good for 300 seconds, and the tag list read with that token is 200 with the three tags in lexical order.
+    program: list-tags.cs
+    args: [tags]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "token endpoint: 200, a token good for 300 s\n200 {\"name\":\"demo/app\",\"tags\":[\"1.0\",\"1.1\",\"latest\"]}\n"
+
+  - id: no-token
+    claim: Without a token the tag list is 401, and WWW-Authenticate names the token endpoint, the service and the scope to ask for.
+    program: list-tags.cs
+    args: [no-token]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\A401 Bearer realm="https://127\.0\.0\.1:\d+/token",service="surl",scope="repository:demo/app:pull"\n\Z'
+
+  - id: password-is-not-a-token
+    claim: The password sent straight to the tag list with Basic is 401 as well.
+    program: list-tags.cs
+    args: [password]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "401\n"
+
+  - id: wrong-password
+    claim: A wrong password at the token endpoint is 401 and no token, and the agent stops, exit 1.
+    program: list-tags.cs
+    args: [wrong]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "token endpoint: 401, no token\n"
+
+  - id: scope-names-the-repository
+    claim: A token scoped to another repository is refused for demo/app's tag list, 403 DENIED.
+    program: list-tags.cs
+    args: [scope]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "token endpoint: 200, a token good for 300 s\n403 {\"errors\":[{\"code\":\"DENIED\",\"message\":\"requested access to the resource is denied\"}]}\n"
+
+  - id: pages
+    claim: With n=2 the list gives two tags and a Link header naming the next page; following it gives the last tag and no Link header.
+    program: list-tags.cs
+    args: [pages]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "token endpoint: 200, a token good for 300 s\n200 {\"name\":\"demo/app\",\"tags\":[\"1.0\",\"1.1\"]}\nLink: </v2/demo/app/tags/list?n=2&last=1.1>; rel=\"next\"\n200 {\"name\":\"demo/app\",\"tags\":[\"latest\"]}\n"

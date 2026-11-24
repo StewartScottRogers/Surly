@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-resume-a-ranged-download]]
+=== Resuming a Ranged Object Download
+
+==== Problem
+
+Your downloader fetches big Amazon Simple Storage Service (S3) objects a byte range at a time. You want a connection dropped in the middle of a range, and the downloader to ask again for only the bytes it is missing.
+
+==== Solution
+
+Serve the bucket with a `drop` fault that cuts every connection after 1,500,000 bytes, and fetch a 2,000,000-byte range with a downloader that, after a short try, asks for the rest of the range from where its file ends. The downloader here is a short script that needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::get-range.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` serves `store` with `--directory`: each folder under it is a bucket, so `store/media/big.bin` is the object `big.bin` in the bucket `media`, 4,000,000 random bytes made fresh for each run. The `s3://` listen URL speaks Transport Layer Security (TLS) from the first byte, so it takes `--cert` and `--key`, a certificate made in setup that names `127.0.0.1` and every bucket{apos}s host in `us-east-1`. `--user` is the access key ID and secret every request must be signed with (<<surl-readme>>).
+
+`--fault "drop;after-bytes=1500000"` is one fault rule: once `surl` has sent 1,500,000 bytes on a connection, the response head included, it resets it. The rule has no `times` and no scope, so it cuts every connection that gets that far; a test server should never be run with it outside a test, which is why it is not the default and why `surl` warns on start (<<surl-readme>>).
+
+The downloader is `curl`, reaching the bucket at its own host name, `media.s3.us-east-1.amazonaws.com`, over HTTPS. `--aws-sigv4 aws:amz:us-east-1:s3` with `-u` signs each request with AWS Signature Version 4 (SigV4), as an S3 software development kit would; `--connect-to` sends the connection to the local port and `--cacert` trusts the certificate. `-r` sends `Range: bytes=<first>-<last>` (<<rfc9110>>), and `surl` answers `206 Partial Content` with only those bytes (<<aws-s3-api>>). `-w` prints the status and the bytes received, `-o` writes them to a file of their own for each try, `-f` makes an error status a failure with nothing written, `-s` silences the progress meter (`-S` keeps the error line in the plain get), and `--max-time 30` bounds a try that would otherwise hang.
+
+The first try at bytes 0 to 1,999,999 is answered `206` and reset part-way: `curl` exits `56`, a failure to receive. A reset also throws away what had reached the client{apos}s socket and was not yet read, so the bytes received are fewer than the 1,500,000 `surl` sent, by an amount that depends on timing. The script appends what came, takes the size of its file, and asks for `bytes=<first + size>-1999999`. The case checks that the second try starts at exactly the byte count of the first; the rest is shorter than the cut, so it comes whole and the script reports 2,000,000 bytes fetched for the 2,000,000-byte range, none of them twice. Fetched the same way, the second half of the object joins the first, and `cmp` finds the two parts byte for byte the object served.
+
+A plain ranged get, without the script, stops where the connection was cut: `206`, exit `56`, and a partial file. The rule counts bytes per connection, so a range of 1,000,000 bytes is served whole in one try. A refusal is not a cut: signed with a wrong secret, the try is answered `403`, `-f` makes it exit `22` with nothing written, and the script stops at once instead of asking again, since another try would be refused the same way.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-resume-a-ranged-download-in-csharp>> for the same task in C#.
+* <<s3-resume-a-ranged-download-from-an-agent>> for the same task run by an agent.
+* <<http-cut-a-download-off-halfway>> for the same cut on a plain HTTP download, resumed with `curl -C -`.
+* <<surl-readme>>, <<curl-manual>>, <<aws-s3-api>>, <<rfc9110>>.

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-seed-zones-for-a-test-class]]
+=== Seeding Zones for a Test Class
+
+==== Problem
+
+Every test in a class needs the same Domain Name System (DNS) zone, and some tests add names of their own. You want to seed the zone once for the class, snapshot it, and restore it before each test, so no test sees another{apos}s names.
+
+==== Solution
+
+In the class fixture, seed the zone with `AddZoneAsync` and take a `SurlSnapshot`; before each test, `RestoreAsync` it. A test that needs more names adds a zone of its own under the class{apos}s domain:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The fixture starts one `SurlServer` whose `SurlServerOptions.ListenUrls` holds one `dns://` URL on port 0, a free port, served over UDP and TCP (<<surl-readme>>). `SurlServerZones.AddZoneAsync` seeds the class{apos}s zone, `example.test`, from master-file text (<<rfc1035>>): the SOA and NS records, `api` at `192.0.2.10` and `www` at `192.0.2.1`. `SurlServer.SnapshotAsync` then returns a `SurlSnapshot`, a copy of the server{apos}s state that the fixture keeps.
+
+`Surl.Api` adds whole zones, not single records, and a second zone for an apex already held is refused (<<dns-change-answers-between-tests>>), so a test that needs `api.beta.example.test` adds the zone `beta.example.test` with its own SOA and NS and `api` at `192.0.2.30`. With both zones held, `api.example.test` still answers `192.0.2.10` and `api.beta.example.test` answers `192.0.2.30`. `SurlServerZones.ListAsync` names both apexes, each with its final dot.
+
+Each check is what the code under test would see: a `CurlClient` sends one `CurlRequest` per name, the bound `dns://` URL with the name as its path and `?type=A`, and the program reads the status and the address from the `CurlResponse` text (<<curl-readme>>).
+
+`RestoreAsync` with the snapshot puts the zones back as they were when it was taken: `example.test.` alone, and `api.beta.example.test` is `NXDOMAIN` again, a name that does not exist in a zone the server holds. The next test finds the baseline. The snapshot is not used up: restored after each of two tests that add zones, it gives the baseline both times, so a class takes it once. Without a restore the next test finds the last test{apos}s zone and its answer, and its check against the baseline fails, which points at the test before it and not at the code.
+
+`ResetAsync` is not a substitute. It returns the server to how it was at start, and the class{apos}s zone came from a call, not from an option, so the reset drops it too: no zones, and both names `REFUSED`, the answer for a name in no zone the server holds. A fixture that resets must seed again; one that restores need not.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-change-answers-between-tests>> for tests that each want a different zone.
+* <<surl-reset-keys-directory-and-zones>> for restoring zones with keys and a directory.
+* <<surl-share-one-server-across-a-test-class>> for the class fixture itself.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1035>>.

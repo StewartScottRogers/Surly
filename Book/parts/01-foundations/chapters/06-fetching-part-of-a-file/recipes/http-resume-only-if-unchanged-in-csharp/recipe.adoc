@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-resume-only-if-unchanged-in-csharp]]
+=== Resuming Only an Unchanged File in C#
+
+==== Problem
+
+Your C# test replaces a served file with `Files.PutAsync` between the two halves of a download. You want the resume to send `If-Range` and fall back to the whole new file, not splice its tail onto the old first half.
+
+==== Solution
+
+Start a `SurlServer` holding version 1, fetch the first 100 bytes and keep the `ETag`, replace the file, then ask for the rest with `Range` and `If-Range` and keep whichever answer comes back. The program takes the case to run as its argument; with none, the file is replaced:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties: an `http://` listen URL on port `0`, `records.txt` in `Files` (180 bytes, ten lines of `version 1 line NN`), and `RecordExchanges`, which keeps the bytes of every request so the program can show what reached the server. `SurlServer.StartAsync` starts it in process. Every answer for a file carries an `ETag`, a quoted tag that changes when the file is rewritten (<<surl-readme>>).
+
+The client is one `CurlClient`. Each `CurlRequest` carries its headers in `Headers`; the first has `Range: bytes=0-99`, which stands in for a download that was interrupted after 100 bytes. The `CurlResponse` is `206 Partial Content`, and the program keeps its body and its `ETag` header from `Headers`. Then `server.Files.PutAsync("/records.txt", ...)` replaces the file with version 2, the same length, as a publisher would while the download waits.
+
+The second request asks for `Range: bytes=100-` with `If-Range` set to the kept `ETag`. `If-Range` makes the range conditional (<<rfc9110>>): if the tag matches, the server sends the range, and if not, the whole current file with `200 OK`. Here it does not match, so the answer is `200` with all 180 bytes, and the program puts them in place of the first half: the result is version 2. The `SurlExchangeRecord` for that request, the last in `server.Exchanges`, shows the server received both headers. With the file left alone the tag matches, the answer is `206` with the 80 missing bytes, and the two halves make version 1.
+
+Leave out `If-Range` and the server cannot know which version the first half came from. It answers `206` with version 2{apos}s last 80 bytes, and the joined result is 180 bytes of neither version, with nothing in the status to say so. The status code is the only signal the client needs: `206` means append, `200` means replace, and the program rejects anything else.
+
+`If-Range` may carry the `Last-Modified` date instead (<<rfc9110>>), but a date has one-second steps. A `TimeProvider` in `SurlServerOptions` sets the server{apos}s clock, which dates in-memory files; the `date` case stops it, so the replacement, here one line longer, gets the very same `Last-Modified`. `If-Range` with that date is answered `206`, a splice. The `ETag` differs, because it is built from the time and the length, and `If-Range` with it is answered `200`. A real clock moves between two writes, but not always past a second; keep the tag.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-resume-only-if-unchanged>> for the same check on the console.
+* <<http-resume-only-if-unchanged-from-an-agent>> for the same check from an agent.
+* <<http-resume-an-interrupted-download-in-csharp>> for a resume with `Range` alone.
+* <<rfc9110>>, <<surl-readme>>.
