@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0.
+# One-off diagnosis for Curl BL-5686 / Surl BL-1565: a fetch over a Unix socket on macOS.
+# Runs on a push to diagnose/**; prints everything to the job log.
+name: Diagnose
+on:
+  push:
+    branches: ["diagnose/**"]
+permissions:
+  contents: read
+jobs:
+  unix-socket:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the pinned commits
+        shell: bash
+        run: |
+          pin() { sed -n "s/^$1: *\([0-9a-f]*\).*/\1/p" Book/build/pins.yml; }
+          echo "SURL_REF=$(pin surl)" >> "$GITHUB_ENV"
+          echo "CURL_REF=$(pin curl)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with: { repository: StewartScottRogers/Surl, ref: "${{ env.SURL_REF }}", path: programs/Surl }
+      - uses: actions/checkout@v4
+        with: { repository: StewartScottRogers/Curl, ref: "${{ env.CURL_REF }}", path: programs/Curl }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - name: Build surl and curl
+        shell: bash
+        run: |
+          set -e
+          B="$PWD/programs/bin"; mkdir -p "$B"
+          dotnet build programs/Surl/Application/Surl.Console -c Release -m:1 -o "$B/surl" -v q --nologo
+          dotnet build programs/Curl/Curl.Console -c Release -m:1 -o "$B/curl" -v q --nologo
+          echo "B=$B" >> "$GITHUB_ENV"
+      - name: Repro over a Unix socket
+        shell: bash
+        run: |
+          set +e
+          uname -a
+          /usr/bin/curl --version | head -1
+          "$B/curl/curl" --version | head -1
+          W=$(mktemp -d); cd "$W"; mkdir site; printf 'hello from surl\n' > site/hello.txt
+          echo "== work dir: $W (length ${#W})"
+          "$B/surl/surl" -v --directory site --unix-socket surl.sock http://localhost:8080/ > surl.log 2>&1 &
+          S=$!; for i in $(seq 1 50); do [ -S surl.sock ] && break; sleep 0.2; done; ls -la
+          echo "== port curl, relative path"
+          "$B/curl/curl" -v --trace-ascii trace-rel.txt --unix-socket surl.sock http://localhost:8080/hello.txt; echo "exit $?"
+          echo "== port curl, absolute path"
+          "$B/curl/curl" -v --trace-ascii trace-abs.txt --unix-socket "$PWD/surl.sock" http://localhost:8080/hello.txt; echo "exit $?"
+          echo "== upstream /usr/bin/curl, relative path"
+          /usr/bin/curl -v --trace-ascii trace-up.txt --unix-socket surl.sock http://localhost:8080/hello.txt; echo "exit $?"
+          echo "== upstream /usr/bin/curl, absolute path"
+          /usr/bin/curl -v --unix-socket "$PWD/surl.sock" http://localhost:8080/hello.txt; echo "exit $?"
+          kill $S; sleep 1
+          for f in trace-rel.txt trace-abs.txt trace-up.txt surl.log; do echo "===== $f"; cat "$f"; done
