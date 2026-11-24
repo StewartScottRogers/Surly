@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: dns-point-a-client-at-a-test-zone
+title: Pointing a Client at a Test Zone
+protocols: [dns, http]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --dns-transport]
+curl-options: [-s, -S, --doh-url, --cacert, --doh-insecure, --dns-servers, -w, -o]
+exit-codes: [0, 2, 6]
+references: [surl-readme, curl-manual, rfc1035]
+
+# The test zone names the orders service api.example.test and gives it the loopback address; the
+# test server behind that name serves one status file. surl reads the zone from site/.surl/dns/.
+fixtures:
+  site/.surl/dns/example.test.zone: |
+    $ORIGIN example.test.
+    $TTL 300
+    @   IN SOA ns1.example.test. hostmaster.example.test. 1 3600 600 86400 300
+    @   IN NS  ns1.example.test.
+    api IN A   127.0.0.1
+  site/status.txt: "orders api: up\n"
+
+# The certificate the DNS over HTTPS listener serves; the client trusts it with --cacert.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# One surl: the zone over DNS over HTTPS on {{port}}, and the service the zone names on {{port2}}.
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key --dns-transport https dns://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --doh-url naming the test server's DNS over HTTPS resource and --cacert trusting its certificate, curl resolves api.example.test from the test zone and the call reaches the test server, which answers its status file.
+    run: curl -sS --doh-url https://127.0.0.1:{{port}}/dns-query --cacert server.pem http://api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 0
+      stdout: "orders api: up\n"
+
+  - id: zone-address
+    claim: The address curl connected to is the one the zone's A record gives, 127.0.0.1.
+    run: curl -sS --doh-url https://127.0.0.1:{{port}}/dns-query --cacert server.pem -o {{null}} -w "%{remote_ip}\n" http://api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 0
+      stdout: "127.0.0.1\n"
+
+  - id: name-not-in-zone
+    claim: A name the zone does not hold, old-api.example.test, does not resolve; curl exits 6 and makes no call.
+    run: curl -sS --doh-url https://127.0.0.1:{{port}}/dns-query --cacert server.pem http://old-api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 6
+      stderr-contains: "Could not resolve host: old-api.example.test"
+
+  - id: without-doh-url
+    claim: Without --doh-url curl asks the machine's own resolver, which has no test zone, and exits 6.
+    run: curl -sS --max-time 10 http://api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 6
+      stderr-contains: "Could not resolve host: api.example.test"
+
+  - id: dns-servers-refused
+    claim: --dns-servers, which would send plain DNS to a chosen server, is refused by this curl build with exit 2 before any lookup.
+    run: curl -sS --dns-servers 127.0.0.1:{{port}} http://api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 2
+      stderr-contains: "option --dns-servers: the installed libcurl version does not support this"
+
+  - id: untrusted-certificate
+    claim: Without --cacert curl cannot verify the test server's certificate, so the lookup fails and curl exits 6, not 60; the call is never made.
+    run: curl -sS --doh-url https://127.0.0.1:{{port}}/dns-query http://api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 6
+      stderr-contains: "Could not resolve host: api.example.test"
+
+  - id: doh-insecure
+    claim: --doh-insecure in place of --cacert skips the check of the DNS server's certificate alone, and the call succeeds.
+    run: curl -sS --doh-url https://127.0.0.1:{{port}}/dns-query --doh-insecure http://api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 0
+      stdout: "orders api: up\n"

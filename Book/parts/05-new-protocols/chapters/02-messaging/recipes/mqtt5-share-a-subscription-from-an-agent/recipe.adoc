@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt5-share-a-subscription-from-an-agent]]
+=== Sharing MQTT Subscriptions from an Agent
+
+==== Problem
+
+Several workers subscribe as one shared group so each message reaches only one of them. You want an agent to subscribe two workers to an MQTT 5 shared subscription, publish jobs, and check that the jobs were split between them.
+
+==== Solution
+
+The program starts both hosts and an MQTT 5 broker, makes three `curl` tool calls that subscribe, two workers to `$share/workers/jobs` and a monitor to `jobs`, waits until `get_exchanges` shows all three subscribed, publishes six jobs, and counts what each call was sent:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+MQTT 5 is version 5.0 of the publish and subscribe protocol MQTT. A shared subscription is one subscription held by a group: its filter is `$share/`, a share name, `/`, and the topic filter, and each matching message is sent to one member of the group only (<<mqtt5>>, section 4.8.2). Which member is left to the broker, so the agent checks that the workers were sent every job once between them and that neither was left out, not how they were split.
+
+`start_server` takes the listen URL, here one `mqtt5` URL on a free port, and in `arguments` `surl`{apos}s own options (<<surl-readme>>): `--allow-anonymous` lets clients connect with no login, a loosening for a test on your own machine, and `--topic "jobs;retain"` keeps the last message on `jobs`. It answers a `server_id` and the `bound_urls`. Without `--allow-anonymous` a worker is refused at `CONNECT` with reason code `0x87`, and `curl` exits `67`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON). A `curl` without `-d` on an `mqtt5://` URL subscribes to the filter in its path, with `$` written `%24`, and writes each payload it is sent; `-m 8` ends it after eight seconds with exit `28` (<<curl-protocols>>). The tool answers only when `curl` ends, so the program starts the three calls and goes on without awaiting them, as an agent{apos}s host may run calls at once (<<mcp-spec>>).
+
+A job published before the workers are subscribed would be lost to the test. `get_exchanges` answers the bytes of each exchange, each chunk with a `direction`, an `encoding` and its `data`; a `SUBACK`, the broker{apos}s answer to a subscribe, is a `sent` packet whose first byte is `0x90` (<<mqtt5>>). The program asks a tenth of a second apart, at most fifty times, until three exchanges have one. It then publishes each job with `-d`, a line each; `-s` keeps the progress meter out and `-S` keeps an error in.
+
+When the subscriptions end, each worker{apos}s output holds at least one job and at most five, and between them `job-1` to `job-6`, each once; the monitor, outside the group, holds all six. A worker that joins the group after the run is sent nothing, not even `job-6`, which the broker kept, since retained messages are not sent for a shared subscription (<<mqtt5>>, section 3.3.1.3); a plain subscriber to `jobs` is sent `job-6`. Both end at `-m 3` with exit `28`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<mqtt5-share-a-subscription>> for the same task on the console.
+* <<mqtt5-share-a-subscription-in-csharp>> for the same task in C#.
+* <<mqtt5>>, <<surl-readme>>, <<curl-protocols>>, <<mcp-spec>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-malformed-request-from-an-agent]]
+=== Finding the Malformed Request
+
+==== Problem
+
+One of several clients sends a request the server refuses. You want an agent to find which one from the bytes of the recorded exchanges, and to say what in the request is wrong.
+
+==== Solution
+
+Start a server with `surl-mcp`{apos}s `start_server`, let the clients run through `curl-mcp`{apos}s `curl` tool, then read `get_exchanges`: pair each answer with the request before it, take the client{apos}s name from the request{apos}s `User-Agent`, and check each header line against the rule for a field name:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder. `start_server` runs a Hypertext Transfer Protocol (HTTP) server on a free port with two files in memory, and answers with `server_id` and `bound_urls`.
+
+Each client request is one call of the `curl` tool, which runs `curl`{apos}s own words (<<curl-manual>>). `-A` sets the `User-Agent` header, and each client names itself and its version there, as most real clients do; `-s` silences the progress meter, `--max-time 30` bounds the call, `-o out.txt` writes the body under `CURL_MCP_ROOT`, and `-w "%{http_code}"` prints the status. The inventory client adds `-H "X-Api-Key : k-7731"`, with a space before the colon, and the reports client asks for `summary.csv`, which the server does not have. The answers are `200`, `400`, `404` and `200`, and every call ends with `exitCode` 0: without `-f` a status is an answer, not a failure, so the clients report nothing.
+
+`get_events` with `kinds` `exchange_started` and then `exchange_ended` lets the program wait, at most ten seconds, until every connection that began has ended, so the record is whole. `get_exchanges` lists each exchange with its `chunks`, each with a `direction` (`received` or `sent`) and its `data` as text (<<surl-readme>>). A request head arrives as one received chunk, and the answer head goes out as one sent chunk after it, so the program pairs them in order. For each answer of `400` or more it prints the request line, the `User-Agent` value and the status.
+
+That alone gives two candidates, and only one is malformed. A field name must be a token: letters, digits and a short list of punctuation, with no spaces (<<rfc9110>>). The program checks the name before the colon on every header line. In the inventory request the fifth line is `X-Api-Key : k-7731`, whose name is `X-Api-Key ` with a trailing space; the server refuses a whole request head with such a line, `400 Bad Request`, rather than guess what the client meant. Every line of the reports request is well formed: its `404` is a missing file, not a bad request. Of the four requests, one is malformed, and the agent can name its client, `inventory/2.0`, and quote the line.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-client-that-misbehaved-from-an-agent>> for clients that differ only by port.
+* <<http-compare-a-good-and-a-bad-request-from-an-agent>> for a good and a bad request side by side.
+* <<http-find-which-client-sent-bad-requests>> for clients told apart by listener.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>, <<mcp-spec>>.

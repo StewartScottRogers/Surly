@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-upload-a-large-object-in-parts-in-csharp]]
+=== Uploading a Large Object in C#
+
+==== Problem
+
+Your app uploads files to Amazon Simple Storage Service (S3) that are large enough to go up in parts. From a C# test, you want a multipart upload stored whole, and one that goes over the server{apos}s size limit refused.
+
+==== Solution
+
+Host the bucket in-process with a `MaxFileSize`, run the upload with `Curl.Api` in its three steps, start, parts and complete, and read the object back from the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). The `s3://` listen URL serves over Transport Layer Security (TLS), so it takes `CertificateFile` and `KeyFile`, made in setup with a name for `127.0.0.1` and for every bucket{apos}s host in `us-east-1`. `Accounts` holds one `SurlAccount`, the access key ID and secret. `AllowUploads` lets a signed request write. `MaxFileSize`, the spelling of `--max-filesize`, caps an upload at 12 mebibytes (MiB), 12,582,912 bytes. `Files["backups/.keep"]` makes the bucket `backups`, which the program leaves out when it lists what the bucket holds.
+
+The client is one `CurlClient`, created with `CurlClientOptions` whose `Timeout` bounds each request at 60 seconds. Every step is a `CurlRequest` to the bucket{apos}s own host name over HTTPS: `CurlNetworkOptions.ConnectTo` sends it to the local port, `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is `server.pem` trusts the certificate, and `CurlAuthenticationOptions` with `AwsSigV4` `aws:amz:us-east-1:s3` signs it with AWS Signature Version 4 (SigV4). Over HTTPS an S3 refusal is an ordinary `CurlResponse` with an XML `Error` body, not an exception, so the program reads `StatusCode` and the `<Code>` from the body.
+
+A multipart upload has three steps (<<aws-s3-api>>). A `POST` to `?uploads` starts it; the answer carries an `UploadId`. Each part is a `PUT` to `?partNumber=<n>&uploadId=<id>` with the part{apos}s bytes as `Body`, and the response{apos}s `ETag` header names it. A `POST` to `?uploadId=<id>` whose body is a `CompleteMultipartUpload` document, every part{apos}s number and ETag, joins the parts into one object. 11,000,000 random bytes go up in three parts, two of 5 MiB and the rest, every step answered `200`. `SurlServerFiles.ReadAsync` reads the object from the server{apos}s store rather than over S3, and the `SurlFileContents` it returns has 11,000,000 `Bytes`, the same as the data sent.
+
+With 13,000,000 bytes, the first two parts come to 10 MiB and are taken, and the third, which takes the upload past `MaxFileSize`, is answered `400` `EntityTooLarge`. The server has already dropped the upload: the program{apos}s abort, a `DELETE` to `?uploadId=<id>`, is answered `404`. `ListAsync` returns a `SurlFolderPage` with nothing in the bucket. Sent as one `PUT`, the same 13,000,000 bytes are refused by the same limit. The limit keeps a client from filling the server{apos}s disk; the default is 100M, and `0` turns it off (<<surl-readme>>).
+
+S3 has its own rule for the parts: every part but the last must be at least 5 MiB. In parts of 1,000,000 bytes all eleven are taken, but the completion is answered `400` `EntityTooSmall`. That upload is still open, so the abort is answered `204`, and the bucket holds nothing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-upload-a-large-object-in-parts>> for the same task on the console.
+* <<s3-upload-a-large-object-in-parts-from-an-agent>> for the same task run by an agent.
+* <<s3-refuse-a-request-from-a-skewed-clock>> for another signed put from `Curl.Api`.
+* <<surl-readme>>, <<aws-s3-api>>.

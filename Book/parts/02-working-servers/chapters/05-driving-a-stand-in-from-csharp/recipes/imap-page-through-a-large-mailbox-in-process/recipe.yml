@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-page-through-a-large-mailbox-in-process
+title: Paging Through a Large Mailbox
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlMessagePage, SurlMessageSummary, SurlMailMessage, SurlReadRefusedException, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]
+exit-codes: [0]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Walking 250 messages with ListMessagesAsync, a limit of 100 and afterUid set to the last UID of the page before, gives three pages, UIDs 1 to 100, 101 to 200 and 201 to 250, with HasMore true, true and false; every message is seen once, in UID order, the last being order 250.
+    program: page-mailbox.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "page 1: 100 messages, UIDs 1 to 100, HasMore True\npage 2: 100 messages, UIDs 101 to 200, HasMore True\npage 3: 50 messages, UIDs 201 to 250, HasMore False\n250 messages, each once, in UID order\nSubject: Order 250 shipped\n"
+
+  - id: exact-fit
+    claim: When the messages fill the last page exactly, 200 in pages of 100, that page already says HasMore false, so the walk asks for no empty page.
+    program: page-mailbox.cs
+    args: [exact]
+    expect:
+      exit: 0
+      stdout: "page 1: 100 messages, UIDs 1 to 100, HasMore True\npage 2: 100 messages, UIDs 101 to 200, HasMore False\n200 messages, each once, in UID order\nSubject: Order 200 shipped\n"
+
+  - id: arrives-mid-walk
+    claim: A message delivered after the first page gets the next UID, 251, and the walk finds it on its last page.
+    program: page-mailbox.cs
+    args: [arrives]
+    expect:
+      exit: 0
+      stdout: "page 1: 100 messages, UIDs 1 to 100, HasMore True\npage 2: 100 messages, UIDs 101 to 200, HasMore True\npage 3: 51 messages, UIDs 201 to 251, HasMore False\n251 messages, each once, in UID order\nSubject: Order 251 shipped\n"
+
+  - id: deleted-mid-walk
+    claim: When UID 10, already seen, is deleted over IMAP after the first page, the next page still starts at UID 101 and nothing is skipped, while counting by position the 101st message has become UID 102.
+    program: page-mailbox.cs
+    args: [deleted]
+    expect:
+      exit: 0
+      stdout: "page 1: 100 messages, UIDs 1 to 100, HasMore True\npage 2: 100 messages, UIDs 101 to 200, HasMore True\npage 3: 50 messages, UIDs 201 to 250, HasMore False\n250 messages, each once, in UID order\nby position, the 101st message is now UID 102\n"
+
+  - id: limit
+    claim: A limit outside 1 to 1000 is refused with SurlReadRefusedException, The limit must be 1 to 1000.
+    program: page-mailbox.cs
+    args: [limit]
+    expect:
+      exit: 0
+      stdout: "SurlReadRefusedException: The limit must be 1 to 1000.\n"

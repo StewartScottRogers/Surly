@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-find-the-client-that-misbehaved
+title: Finding the Client That Misbehaved
+protocols: [http]
+tier: working-servers
+surl-options: [--directory, --trace-ascii]
+curl-options: [-s, -o, -w, -H, --local-port]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-manual]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  who-sent-it.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # For each request surl answered 400 in the trace file $1: the connection (exchange) it came on,
+    # the client's address and port, surl's reason, and the request head as received.
+    awk '
+      { sub(/\r$/, "") }
+      /^#[0-9]+ / { n = substr($1, 2); recv = ($2 == "<=") }
+      /^#[0-9]+ \* Exchange [0-9]+ opened: / { from[n] = $NF; sub(/\.$/, "", from[n]) }
+      recv && /^[0-9a-f]+: [A-Z]+ [^ ]+ HTTP\/1\.[01]$/ { head[n] = "" }
+      recv && /^[0-9a-f]+: ./ { head[n] = head[n] "  " substr($0, 7) "\n" }
+      /^#[0-9]+ \* .*answered 400/ {
+        why = $0; sub(/^#[0-9]+ \* /, "", why); sub(/; answered 400.*/, "", why)
+        bad[++count] = n; reason[n] = why
+      }
+      END {
+        for (i = 1; i <= count; i++) { n = bad[i]; printf "exchange %s from %s: %s\n%s", n, from[n], reason[n], head[n] }
+        if (count == 0) print "no request was answered 400"
+      }
+    ' "$1"
+
+servers:
+  main:
+    command: surl --directory site --trace-ascii trace.txt http://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: billing-client
+    claim: The billing client, on a local port of its own, fetches hello.txt and is answered 200.
+    run: curl -s --local-port {{port2}} -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: search-client
+    claim: The search client, on another local port, sends a header named X-Request ID, with a space in the name; surl answers 400 Bad Request, and curl still exits 0.
+    run: 'curl -s --local-port {{port3}} -H "X-Request ID: 7" -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "400\n"
+
+  - id: reports-client
+    claim: The reports client, on a third local port, fetches hello.txt twice over one connection and is answered 200 both times.
+    run: curl -s --local-port {{port4}} -o {{null}} -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port}}/hello.txt http://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "200\n200\n"
+
+  - id: solution
+    role: solution
+    claim: Read from the trace, exactly one request was answered 400; the script names its exchange, the client address it came from, surl's reason, MalformedHeaderField, and the request head with the X-Request ID line.
+    run: sh who-sent-it.sh trace.txt
+    expect:
+      exit: 0
+      stdout-matches: '\Aexchange \d+ from 127\.0\.0\.1:\d+: No request head was read: MalformedHeaderField\n  GET /hello\.txt HTTP/1\.1\n  Host: 127\.0\.0\.1:\d+\n  User-Agent: curl/8\.22\.0\n  Accept: \*/\*\n  X-Request ID: 7\n\Z'
+
+  - id: the-port-names-the-client
+    claim: The address and port the script names are the search client's, 127.0.0.1 and the local port it was given, so they point at one client.
+    run: 'sh who-sent-it.sh trace.txt | grep -c -e "^exchange [0-9]* from 127.0.0.1:{{port3}}: "'
+    expect:
+      exit: 0
+      stdout: "1\n"
+
+  - id: one-line-per-connection
+    claim: Each client connection has one opened line, and the reports client's two requests share one, so the trace counts connections, not requests.
+    run: grep -c -e "from 127.0.0.1:{{port4}}\." trace.txt
+    expect:
+      exit: 0
+      stdout: "1\n"

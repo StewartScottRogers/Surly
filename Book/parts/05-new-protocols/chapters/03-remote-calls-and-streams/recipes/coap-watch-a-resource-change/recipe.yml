@@ -1,0 +1,131 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: coap-watch-a-resource-change
+title: Watching a CoAP Resource Change
+protocols: [coap, http]
+tier: new-protocols
+surl-options: [--directory, --allow-anonymous, --allow-uploads]
+curl-options: [-s, -i, -m, -X, -d, -T, -o, --coap-observe, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0]
+references: [rfc7252, rfc7641, surl-readme, curl-protocols]
+
+# site/thermostat.txt is the resource the gateway observes; new.txt is what replaces it.
+# observe.sh is the test: it starts the gateway's observation, replaces the file, and prints what the
+# gateway saw.
+fixtures:
+  site/thermostat.txt: "setpoint=68"
+  new.txt: "setpoint=70"
+  observe.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh observe.sh COAP_PORT HTTP_PORT HOW SECONDS. The gateway observes thermostat.txt with
+    # curl --coap-observe, writing each representation it is sent to seen.txt, a line each. Once it holds
+    # the first, the file is replaced with new.txt by HOW: coap (a CoAP PUT), http (an HTTP PUT) or
+    # delete (a CoAP DELETE). Then it waits at most SECONDS for the gateway to see the change and prints
+    # what the gateway saw.
+    coap="coap://127.0.0.1:$1/thermostat.txt"
+    rm -f seen.txt
+    curl -s -m 90 --coap-observe "$coap" -o seen.txt &
+    gateway=$!
+    tries=0
+    until [ -s seen.txt ]; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt 20 ]; then echo "the gateway was not registered within 10 s" >&2; kill "$gateway"; exit 1; fi
+      sleep 0.5
+    done
+    case "$3" in
+      coap) curl -s -X PUT -d @new.txt "$coap" ;;
+      http) curl -s -T new.txt "http://127.0.0.1:$2/thermostat.txt" ;;
+      delete) curl -s -X DELETE "$coap"; wait "$gateway"; echo "the gateway ended by itself, exit $?"; cat seen.txt; exit 0 ;;
+    esac
+    tries=0
+    until [ "$(grep -c . seen.txt)" -ge 2 ]; do
+      tries=$((tries + 1))
+      if [ "$tries" -gt $(($4 * 2)) ]; then break; fi
+      sleep 0.5
+    done
+    kill "$gateway"
+    cat seen.txt
+    if [ "$(grep -c . seen.txt)" -lt 2 ]; then echo "no change seen within $4 s"; fi
+
+# CoAP listens on UDP only, so there is no TCP port to wait for (ready: none); the first case retries
+# until surl answers. main serves site over CoAP and HTTP with writes allowed. locked has writes
+# allowed but no --allow-anonymous; readonly has --allow-anonymous but no --allow-uploads.
+servers:
+  locked:
+    command: surl --allow-uploads coap://127.0.0.1:{{port3}}/
+    ready: none
+  readonly:
+    command: surl --allow-anonymous coap://127.0.0.1:{{port4}}/
+    ready: none
+  main:
+    command: surl --directory site --allow-anonymous --allow-uploads coap://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: none
+
+cases:
+  - id: plain-read
+    claim: A plain CoAP GET of thermostat.txt, retried until surl answers, reads setpoint=68 and ends.
+    run: curl -s --retry 5 --retry-all-errors --retry-delay 1 coap://127.0.0.1:{{port}}/thermostat.txt
+    expect:
+      exit: 0
+      stdout: "setpoint=68"
+
+  - id: solution
+    role: solution
+    claim: The gateway observing thermostat.txt is sent setpoint=68 when it registers, and once a CoAP PUT replaces the file it is sent setpoint=70 within 10 seconds, each written as a line.
+    fixtures:
+      site/thermostat.txt: "setpoint=68"
+    run: sh observe.sh {{port}} {{port2}} coap 10
+    expect:
+      exit: 0
+      stdout: "setpoint=68\nsetpoint=70\n"
+
+  - id: http-not-at-once
+    claim: When an HTTP PUT replaces the file instead, the gateway is sent nothing within 5 seconds.
+    fixtures:
+      site/thermostat.txt: "setpoint=68"
+    run: sh observe.sh {{port}} {{port2}} http 5
+    expect:
+      exit: 0
+      stdout: "setpoint=68\nno change seen within 5 s\n"
+
+  - id: http-at-max-age
+    claim: The HTTP replacement does reach the gateway when the first representation's Max-Age of 60 seconds runs out; it is sent setpoint=70 within 75 seconds.
+    timeout: 120
+    fixtures:
+      site/thermostat.txt: "setpoint=68"
+    run: sh observe.sh {{port}} {{port2}} http 75
+    expect:
+      exit: 0
+      stdout: "setpoint=68\nsetpoint=70\n"
+
+  - id: delete-ends
+    claim: A CoAP DELETE of the file sends the gateway a last notification with no payload, and its curl ends by itself with exit 0.
+    fixtures:
+      site/thermostat.txt: "setpoint=68"
+    run: sh observe.sh {{port}} {{port2}} delete 10
+    expect:
+      exit: 0
+      stdout: "the gateway ended by itself, exit 0\nsetpoint=68\n\n"
+
+  - id: missing-not-observed
+    claim: Observing a file that does not exist is answered 4.04 at once, with no observation, and curl exits 0 without waiting for -m.
+    run: curl -s -i -m 20 --coap-observe coap://127.0.0.1:{{port}}/nothere.txt
+    expect:
+      exit: 0
+      stdout-matches: '\ACoAP/1\.0 4\.04\r?\n\r?\n\Z'
+
+  - id: no-anonymous
+    claim: A server with --allow-uploads but no --allow-anonymous refuses the CoAP PUT 4.01, so nothing changes for an observer.
+    run: curl -s -i --retry 5 --retry-all-errors --retry-delay 1 -X PUT -d @new.txt coap://127.0.0.1:{{port3}}/thermostat.txt
+    expect:
+      exit: 0
+      stdout-matches: '\ACoAP/1\.0 4\.01\r?\n'
+
+  - id: no-uploads
+    claim: A server with --allow-anonymous but no --allow-uploads refuses the CoAP PUT 4.05, Method Not Allowed.
+    run: curl -s -i --retry 5 --retry-all-errors --retry-delay 1 -X PUT -d @new.txt coap://127.0.0.1:{{port4}}/thermostat.txt
+    expect:
+      exit: 0
+      stdout-matches: '\ACoAP/1\.0 4\.05\r?\n'

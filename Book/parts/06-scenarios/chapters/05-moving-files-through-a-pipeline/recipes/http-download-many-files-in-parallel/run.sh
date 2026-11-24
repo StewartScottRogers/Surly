@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")"
 sh make-site.sh
-surl --max-connections-per-address 8 --directory site http://127.0.0.1:8080/ &
+surl --max-connections-per-address 8 --fault "delay;stage=command;ms=300" --directory site http://127.0.0.1:8080/ &
 sleep 1
-curl -s -f --parallel --parallel-max 8 --create-dirs -o "out/f#1.bin" -w "%{http_code} %{size_download}\n" "http://127.0.0.1:8080/f[1-50].bin"
+curl -s -f --parallel --parallel-max 6 --create-dirs -o "out/f#1.bin" -w "%{http_code} %{size_download}\n" "http://127.0.0.1:8080/f[1-50].bin"
 kill $(jobs -p)

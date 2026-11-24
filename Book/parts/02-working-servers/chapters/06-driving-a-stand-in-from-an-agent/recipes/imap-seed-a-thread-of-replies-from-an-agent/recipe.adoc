@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-seed-a-thread-of-replies-from-an-agent]]
+=== Seeding a Thread of Replies
+
+==== Problem
+
+You want an agent to seed a conversation, a message and its replies linked by `In-Reply-To` headers, into a stand-in mailbox, and check that a mail client reading it can group the replies into one thread.
+
+==== Solution
+
+The program starts both hosts and an Internet Message Access Protocol (IMAP) server, seeds the messages with `seed_mail`, and reads every message{apos}s envelope with the `curl` tool, as a client would, to build the threads:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, on port 0 so the system picks a free one, and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` and a `--mailbox` for Ann, the account that logs in with her address. `seed_mail` puts each message straight into her INBOX, in the order given, as unique identifiers (UIDs) 1 to 4: Bob{apos}s question, an unrelated invoice, Cy{apos}s reply and Bob{apos}s answer to Cy.
+
+A thread lives in the messages{apos} own headers (<<rfc5322>>). Each has a `Message-ID`. A reply names the message it answers in `In-Reply-To` and the whole chain so far in `References`, so Bob{apos}s answer has `In-Reply-To: <lunch-2@example.com>` and `References: <lunch-1@example.com> <lunch-2@example.com>`. `seed_mail` stores a message as given, and `read_message` shows those three headers unchanged. The subjects do not link anything: two replies share one, and a client that grouped by subject would be guessing.
+
+The `curl` tool runs `curl` with its own arguments; every call logs in with `-u ann@example.com:annpass`, has `-s` to keep the progress meter out and `-S` to keep an error line in, and uses `-X` to send an IMAP command on the INBOX URL (<<curl-manual>>). `UID FETCH 1:* ENVELOPE` answers one line per message with its UID and envelope: the date, the subject, the addresses, and last `In-Reply-To` and `Message-ID` (<<rfc9051>>). The first reply{apos}s ends `"<lunch-1@example.com>" "<lunch-2@example.com>"`; a message that answers none has `NIL` there. The agent reads those two fields from each line: a message with no `In-Reply-To` starts a thread, and each reply goes under the message whose `Message-ID` it names. The question, UID 1, holds Cy{apos}s reply, UID 3, which holds Bob{apos}s answer, UID 4; the invoice, UID 2, is a thread of its own although it arrived in the middle.
+
+A client can also find a whole conversation by search: `UID SEARCH HEADER References "<lunch-1@example.com>"` answers 3 and 4, every reply that has the question in its chain. What the server does not do is thread for the client. Its `CAPABILITY` names no `THREAD` extension, and a `THREAD REFERENCES UTF-8 ALL` command is refused, `curl` exit `21`, `Quote command returned error`. A mail client under test must group by the headers itself, which is what this seeded mailbox lets an agent check.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-seed-mail-from-an-agent>> for seeding one message and reading it back.
+* <<imap-search-a-mailbox-from-an-agent>> for searching by subject and fetching by UID.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5322>>, <<rfc9051>>.

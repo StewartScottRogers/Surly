@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-check-logins-against-a-directory-from-an-agent]]
+=== Checking Logins Against a Directory from an Agent
+
+==== Problem
+
+Your users live in a Lightweight Directory Access Protocol (LDAP) directory. You want an agent to run an HTTP server that checks passwords against a directory the agent seeds, and to log in as one of the directory{apos}s users.
+
+==== Solution
+
+The program starts both hosts, starts a directory and seeds it with `add_ldap_entries`, starts a web server pointed at it with `--user-ldap`, and logs in with the `curl` tool as a directory user:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>), and answers a `server_id` and the `bound_urls`. The directory listens on `ldap://`, with `--cert` and `--key` so it can upgrade a connection with StartTLS; the certificate, made in setup, names `127.0.0.1`. This directory checks a bind against its accounts, not against a password in an entry, so `-u` gives it an account for each of `alice` and `bob`, and one for `svc`, the web server{apos}s service account. `add_ldap_entries` seeds it with LDAP Data Interchange Format text, `dc=example,dc=com`, the `ou=people` branch and an entry for each person (<<rfc4511>>), and answers `entry_count`, here 4.
+
+The web server listens on `https://` with the same certificate, serves `report.txt` from `files`, and has one account of its own, `ops`. `--user-ldap` is an LDAP URL (<<rfc4516>>) for the directory{apos}s port and the base `ou=people,dc=example,dc=com`, then settings after semicolons: `bind-dn` and `bind-password-file` make it search as `svc`, with the password read from `svc.pass`, which the program writes under `SURL_MCP_ROOT`, and `ca-file` is the certificate it trusts for the directory. For a login it holds no account for, the web server finds the entry whose `uid` is the login name and binds as it with the password sent, over a connection upgraded with StartTLS (<<surl-readme>>). The `ops` account matters: a web server whose only accounts are in the directory asks no login for a `GET` (<<ldap-check-logins-against-a-directory>>).
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `standardOutput` as JSON (<<curl-readme>>). `-u alice:wonderland` sends HTTP Basic authentication (<<rfc7617>>), the login that carries the password itself, as the bind needs; `--cacert server.pem` trusts the certificate; `-w " %{http_code}"` puts the status after the body; `-s` keeps the progress meter out, `-S` keeps an error line in, and `--max-time 30` bounds the call. `alice` and `bob` each get `200` and the report. A wrong password is `401`; so is `carol`, whom the directory does not hold, and so is a request with no login.
+
+`get_events` with `kinds` `login_judged` is each server{apos}s own account. The web server judged one login, `scheme` `https`, `account` `alice`, accepted. The directory judged two binds, both `ldap` and accepted: `svc`{apos}s for the search, then `alice`{apos}s own. An agent that finds a login refused can ask the directory whether the password reached it at all.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-check-logins-against-a-directory>> for the same task on the console.
+* <<ldap-check-logins-against-a-directory-in-csharp>> for the same task in C#.
+* <<ldap-seed-a-directory-from-an-agent>> for seeding a directory with `add_ldap_entries`.
+* <<surl-readme>>, <<curl-readme>>, <<rfc4511>>, <<rfc4516>>, <<rfc7617>>.

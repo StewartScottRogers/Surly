@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-resume-a-ranged-download-from-an-agent]]
+=== Resuming a Ranged Object Download from an Agent
+
+==== Problem
+
+Your downloader fetches big Amazon Simple Storage Service (S3) objects a byte range at a time. You want an agent to run a bucket that drops a connection in the middle of a range, and to fetch only the bytes the cut left missing.
+
+==== Solution
+
+The program starts both hosts and a bucket server whose fault rule cuts every connection after 1,500,000 bytes, then fetches each range with the `curl` tool, and after a cut calls it again with `-r` starting after the bytes already on disk:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the `s3://` listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). `--directory store` serves the folder the program writes the object into, `store/media/big.bin`, 4,000,000 random bytes: the bucket `media`, the key `big.bin`. The folder is under `SURL_MCP_ROOT`, the one folder the host may read. `--cert` and `--key` are a certificate made in setup that names `127.0.0.1` and every bucket{apos}s host in `us-east-1`, since S3 is served over Transport Layer Security (TLS). `--user` is the access key ID and secret. `--fault "drop;after-bytes=1500000"` resets every connection once 1,500,000 bytes have gone out on it, the response head included. `start_server` answers the `server_id` and the `bound_urls`, from which the program takes the port.
+
+The `curl` tool runs `curl`{apos}s own arguments under `CURL_MCP_ROOT` and answers `exitCode` and `standardOutput` as JSON (<<curl-readme>>). Each try asks for `https://media.s3.us-east-1.amazonaws.com/big.bin`, the bucket{apos}s own host name: `--connect-to` sends it to the local port, `--cacert server.pem` trusts the certificate, and `--aws-sigv4 aws:amz:us-east-1:s3` with `-u` signs it with AWS Signature Version 4 (SigV4). `-r` sends the `Range` header (<<rfc9110>>), `-o` writes the bytes to a file of their own, which the program appends to the range{apos}s file, and `-w "%{http_code} %{size_download}"` reports the status and the bytes received. `-f` makes an error status a failure, `-s` keeps the progress meter out, and `--max-time 30` bounds a try.
+
+The first try at bytes 0 to 1,999,999 is answered `206 Partial Content` (<<aws-s3-api>>) and cut off: `exitCode` `56`, a failure to receive. A reset throws away what had reached the client and was not yet read, so the count received is less than 1,500,000 and varies; the case checks that the next try{apos}s range starts exactly after it. The agent keeps going, at most five tries, until the file holds the whole range: 2,000,000 bytes fetched for 2,000,000 asked, none twice, matching the object{apos}s first 2,000,000 bytes. The two halves fetched the same way join into the whole object.
+
+`get_events` with `kinds` `fault_applied` is the server{apos}s own account: one event of `fault_kind` `drop` for each try the agent saw cut. An agent that finds a failed download should read these before it blames the client. The rule counts bytes per connection, so a range of 1,000,000 bytes comes whole in one call. Signed with a wrong secret, a try is answered `403`, `-f` makes the `exitCode` `22`, and the agent stops at once: a refusal is not a cut, and no fault was applied.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-resume-a-ranged-download>> for the same task on the console.
+* <<s3-resume-a-ranged-download-in-csharp>> for the same task in C#.
+* <<http-cut-a-download-off-halfway-from-an-agent>> for the same cut on a plain HTTP download.
+* <<surl-readme>>, <<curl-readme>>, <<aws-s3-api>>, <<rfc9110>>.

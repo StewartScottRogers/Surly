@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[coap-watch-a-resource-change]]
+=== Watching a CoAP Resource Change
+
+==== Problem
+
+Your gateway observes a Constrained Application Protocol (CoAP) resource and must react when it changes. You want a test in which the gateway{apos}s observation is sent a notification when the file behind the resource is replaced.
+
+==== Solution
+
+Serve the folder over CoAP with writes allowed, observe the resource with `curl --coap-observe`, and replace the file with a CoAP `PUT`. The test is a short script that needs a POSIX shell (Git Bash on Windows): it starts the observation, waits until the first representation has come, replaces the file, and prints what the gateway saw:
+
+[source,sh]
+----
+include::observe.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` serves the files of `--directory site` as CoAP resources, so `site/thermostat.txt` is `coap://127.0.0.1:8080/thermostat.txt`, and the same folder over Hypertext Transfer Protocol (HTTP) on the second listen URL (<<surl-readme>>). CoAP listens on User Datagram Protocol (UDP), so nothing says when `surl` is ready; the first case reads the file with a plain `GET`, and `--retry 5` tries again, up to five times, `--retry-all-errors` counting a port not yet bound as worth a retry and `--retry-delay 1` waiting a second between tries, until `surl` answers `setpoint=68`. `-s` keeps `curl` quiet throughout.
+
+Observing is RFC 7641{apos}s extension of CoAP: a `GET` carrying the Observe option registers the client, and the server then sends it a notification, a new representation under the same token, each time the resource changes (<<rfc7641>>, <<rfc7252>>). `--coap-observe` makes `curl` register and keep listening, acknowledging each notification and writing its payload followed by a line feed (<<curl-protocols>>). `-o seen.txt` is where the gateway keeps what it is sent, and `-m 90` is a ceiling on the whole observation. The script waits for the first line, the registration{apos}s answer, before it changes anything, so the change cannot come before the gateway is listening.
+
+`-X PUT` with `-d @new.txt` replaces the file over CoAP with the contents of `new.txt`, `setpoint=70`. Writes need two options, both loosenings for a test on your own machine: `--allow-uploads` lets clients change the served files at all, and `--allow-anonymous` lets a CoAP client with no login do it, since plain CoAP carries no login. A server with only `--allow-uploads` answers the `PUT` `4.01`, Unauthorized; one with only `--allow-anonymous` answers `4.05`, Method Not Allowed; `-i` shows the code as `CoAP/1.0 4.01`. Either way the file stays as it was and the gateway is sent nothing. With both, the gateway is sent `setpoint=70` within ten seconds. The script stops the observation with `kill` and prints `seen.txt`: two lines, the state the gateway started from and the change.
+
+A file replaced another way is not notified at once. `-T new.txt` sends the same bytes as an HTTP `PUT` to the same file, and the gateway is sent nothing in five seconds. Each representation carries a Max-Age of 60 seconds, how long it may be taken as fresh (<<rfc7252>>), and when it runs out `surl` reads the file again and sends it: the gateway is sent `setpoint=70` within seventy-five seconds of registering. A gateway that must react quickly should have the file changed over CoAP.
+
+A `DELETE` of the file ends the observation: the gateway is sent a last notification, `4.04`, with no payload, which `curl` writes as an empty line, and `curl` ends by itself with exit `0`. Observing a file that is not there is answered `4.04` at once, so there is nothing to observe and `curl` exits `0` long before `-m`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<coap-watch-a-resource-change-in-csharp>> for the same task in C#.
+* <<coap-watch-a-resource-change-from-an-agent>> for the same task run by an agent.
+* <<coap-get-a-resource>> for a plain CoAP read and the server{apos}s refusals.
+* <<rfc7641>>, <<rfc7252>>, <<surl-readme>>, <<curl-protocols>>.

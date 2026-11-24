@@ -13,6 +13,14 @@ start() {   # start surl on port $1; returns 0 once it listens, or surl's exit c
     if [ "$tries" -ge 50 ]; then kill "$pid"; return 1; fi
     sleep 0.1
   done
+  url=$(sed -n 's|^Listening on ||p' listening.txt | head -n 1)
+  # The line can come a moment before the port takes connections: wait until it answers.
+  tries=0
+  until curl -s -o /dev/null "$url"; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 50 ]; then kill "$pid"; return 1; fi
+    sleep 0.1
+  done
 }
 start "$1"; code=$?
 if [ "$code" -eq 45 ]; then
@@ -20,7 +28,6 @@ if [ "$code" -eq 45 ]; then
   start 0; code=$?
 fi
 if [ "$code" -ne 0 ]; then cat surl.log >&2; exit "$code"; fi
-url=$(sed -n 's|^Listening on ||p' listening.txt | head -n 1)
 echo "listening on $url"
 curl -s "${url}hello.txt"
 status=$?

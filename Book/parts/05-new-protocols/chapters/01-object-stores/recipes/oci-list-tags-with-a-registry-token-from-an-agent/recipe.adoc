@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[oci-list-tags-with-a-registry-token-from-an-agent]]
+=== Listing Registry Tags from an Agent
+
+==== Problem
+
+Your deploy tool lists a container repository{apos}s tags, which needs a Bearer token from the registry{apos}s token endpoint, and you want an artificial intelligence (AI) agent driving `surl-mcp` and `curl-mcp` to fetch the token with a Basic login, read the tag list with it, and see the `401` without it.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the Model Context Protocol (MCP) software development kit (SDK). It starts `surl-mcp` as an Open Container Initiative (OCI) registry holding the repository, then makes two calls of `curl-mcp`{apos}s `curl` tool, one for the token and one for the tag list:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` starts a server that answers as `surl` with the same options would (<<surl-readme>>). `listen_urls` is `oci://127.0.0.1:0`, a registry on a free port that speaks the OCI Distribution Specification over Hypertext Transfer Protocol (HTTP) (<<oci-distribution>>). The listener is Transport Layer Security (TLS) from the first byte (<<rfc8446>>), so `arguments` holds `--cert server.pem` and `--key server.key`, made by the `openssl` line in the folder `SURL_MCP_ROOT` names, and Alice{apos}s account with `--user`. `files` seeds the in-memory store: the repository `demo/app` as a folder in OCI image layout, whose `index.json` lists one manifest under the tags `latest`, `1.0` and `1.1` (<<oci-image-spec>>). The agent reaches the registry at `https://` and the port from `bound_urls`, since the token and the tag list are two separate HTTP requests.
+
+The `curl` tool runs `curl`{apos}s own arguments, confined to the folder `CURL_MCP_ROOT` names, and answers JavaScript Object Notation (JSON) text with `exitCode`, `standardOutput` and `standardError`. Every call has `--cacert server.pem`, to trust the registry{apos}s certificate, `-s` and `-S`, to keep the progress meter out and an error in, and `-D -`, which puts the status line and the headers in `standardOutput` ahead of the body, so the agent reads all three from one answer.
+
+Without a token the tag list is `401`, and its `WWW-Authenticate` header says where to get one: `Bearer realm="https://127.0.0.1:PORT/token",service="surl",scope="repository:demo/app:pull"` (<<rfc6750>>). The password itself is no use there: sent to the tag list with `-u`, as HTTP Basic, it is `401` too. The token endpoint is the one place that takes it. A Basic login (<<rfc7617>>) at `/token?service=surl&scope=repository:demo/app:pull` is answered `200` with JSON holding the `token` and `expires_in`, `300` seconds; a wrong password is `401` and no token, and the agent stops.
+
+With the token in `--oauth2-bearer`, `curl` sends `Authorization: Bearer` and the tag list is `200`, `{"name":"demo/app","tags":[...]}`, in lexical order whatever the order of `index.json`. A token is good only for the scope it was issued for: one scoped to `repository:other/app:pull` is refused for `demo/app`{apos}s tags, `403 DENIED`. A long list comes in pages: with `n=2` the registry gives two tags and a `Link` header whose `rel="next"` URL, `last=1.1`, asks for the page after; that page holds `latest` and no `Link` header, so the agent stops.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<oci-list-tags-with-a-registry-token>> for the same listing on the console.
+* <<oci-list-tags-with-a-registry-token-in-csharp>> for the same listing from a C# test.
+* <<oci-check-an-image-landed>> for an agent that checks a push from the registry{apos}s store.
+* <<surl-readme>>, <<oci-distribution>>, <<oci-image-spec>>, <<rfc6750>>, <<rfc7617>>, <<rfc8446>>.

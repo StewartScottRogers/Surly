@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs call-by-name.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: dns-resolve-names-over-tls-from-an-agent
+title: Resolving over DNS-over-TLS from an Agent
+protocols: [dns, http]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, add_dns_zone, curl]
+curl-options: [-s, -S, --max-time, --dns-transport, --cacert, --dns-json, --resolve, --dns-over-tls]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc1035]
+
+fixtures: {}
+
+# The certificate the DNS over TLS listener serves, in the folder both hosts are confined to.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent's curl call with a dns URL, --dns-transport tls and --cacert gets NOERROR and 127.0.0.1 for api.example.test from the seeded zone, and its second call, with --resolve giving that address for the name, answers the status file.
+    program: call-by-name.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "api.example.test: NOERROR, 127.0.0.1\ncall: curl exit 0\norders api: up\n"
+
+  - id: not-in-zone
+    claim: A name under the apex that the zone does not hold is answered NXDOMAIN with no address, and the agent makes no call.
+    program: call-by-name.cs
+    args: [not-in-zone]
+    expect:
+      exit: 1
+      stdout: "old-api.example.test: NXDOMAIN, no address\n"
+
+  - id: untrusted
+    claim: Without --cacert the lookup cannot verify the server's certificate and curl exits 60.
+    program: call-by-name.cs
+    args: [untrusted]
+    expect:
+      exit: 1
+      stdout: "lookup: curl exit 60\n"
+
+  - id: own-resolver
+    claim: curl's own --dns-over-tls resolver checks the server against the system's trust store and not --cacert, so with the test certificate the name does not resolve and curl exits 6.
+    program: call-by-name.cs
+    args: [own-resolver]
+    expect:
+      exit: 1
+      stdout: "curl exit 6\ncurl: (6) Could not resolve host: api.example.test\n"
+
+  - id: no-certificate
+    claim: start_server with a DNS over TLS listener and no certificate is a tool error whose exit_code is 58.
+    program: call-by-name.cs
+    args: [no-certificate]
+    expect:
+      exit: 1
+      stdout: "start refused: exit 58\n"

@@ -1,0 +1,144 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: ftp-give-a-group-write-access
+title: Giving a Group Write Access
+protocols: [ftp, http]
+tier: working-servers
+surl-options: [--user, --group, --share, --share-access, --allow-uploads, --allow-plaintext-auth, --list-directories, --allow-anonymous]
+curl-options: [-s, -S, -u, -T, -l, -o, -w]
+exit-codes: [0, 2, 9, 25, 67]
+references: [surl-readme, curl-readme, rfc959, rfc9110]
+
+# team/ is the folder shared as /team/. draft.txt and notes.txt are the editors' uploads; late.txt the
+# upload a reader tries.
+fixtures:
+  team/plan.txt: "plan v1\n"
+  draft.txt: "draft from ed\n"
+  notes.txt: "notes from erin\n"
+  late.txt: "a reader's edit\n"
+
+# main is the recipe: four accounts, two groups, one share with a grant for each group, FTP and HTTP.
+# open accepts every caller unchecked (--allow-anonymous); strict has no --allow-plaintext-auth. Both
+# share the same folder read-only, which takes no lock, so they can run beside main.
+servers:
+  main:
+    command: surl --user ed:edpass --user erin:erinpass --user rita:ritapass --user gus:guspass --group editors=ed,erin --group readers=rita --share team=team --share-access "team=@editors:rw,@readers:r" --allow-uploads --allow-plaintext-auth --list-directories ftp://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+  open:
+    command: surl --user ed:edpass --group editors=ed --share "team=team;readonly" --share-access team=@editors:rw --allow-anonymous --list-directories ftp://127.0.0.1:{{port3}}/ http://127.0.0.1:{{port4}}/
+    ready: port
+  strict:
+    command: surl --user ed:edpass --group editors=ed --share "team=team;readonly" --share-access team=@editors:rw ftp://127.0.0.1:{{port5}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Ed, a member of editors, uploads draft.txt into the share over FTP, exit 0, and the file is in the shared folder.
+    run: curl -sS -u ed:edpass -T draft.txt ftp://127.0.0.1:{{port}}/team/draft.txt
+    expect:
+      exit: 0
+      stdout: ""
+      files:
+        team/draft.txt: "draft from ed\n"
+
+  - id: second-editor
+    claim: Erin, the group's other member, uploads too; the grant is to the group, not to Ed.
+    run: curl -sS -u erin:erinpass -T notes.txt ftp://127.0.0.1:{{port}}/team/notes.txt
+    expect:
+      exit: 0
+      files:
+        team/notes.txt: "notes from erin\n"
+
+  - id: reader-reads
+    claim: Rita, a member of readers, reads a file from the share over FTP.
+    run: curl -sS -u rita:ritapass ftp://127.0.0.1:{{port}}/team/plan.txt
+    expect:
+      exit: 0
+      stdout: "plan v1\n"
+
+  - id: reader-lists
+    claim: Rita lists the share and sees the editors' uploads.
+    run: curl -sS -u rita:ritapass -l ftp://127.0.0.1:{{port}}/team/
+    expect:
+      exit: 0
+      stdout: "draft.txt\nnotes.txt\nplan.txt\n"
+
+  - id: reader-upload-refused
+    claim: An upload by Rita is refused 550, curl exit 25, although --allow-uploads is on.
+    run: curl -sS -u rita:ritapass -T late.txt ftp://127.0.0.1:{{port}}/team/late.txt
+    expect:
+      exit: 25
+      stderr-contains: "Failed FTP upload: 550"
+
+  - id: reader-over-http
+    claim: The grants hold over HTTP too; Rita reads the file, 200.
+    run: curl -s -u rita:ritapass -w "%{http_code}\n" http://127.0.0.1:{{port2}}/team/plan.txt
+    expect:
+      exit: 0
+      stdout: "plan v1\n200\n"
+
+  - id: reader-put-over-http
+    claim: An HTTP PUT by Rita is answered 403 Forbidden.
+    run: curl -s -u rita:ritapass -T late.txt -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port2}}/team/late.txt
+    expect:
+      exit: 0
+      stdout: "403\n"
+
+  - id: outsider-finds-it-missing
+    claim: Gus, a good account in neither group, is refused the share's folder, curl exit 9, as if it were not there.
+    run: curl -sS -u gus:guspass ftp://127.0.0.1:{{port}}/team/plan.txt
+    expect:
+      exit: 9
+      stderr-contains: "Server denied you to change to the given directory"
+
+  - id: outsider-root-listing
+    claim: A listing of the root for Gus does not name the share at all; for Rita it does.
+    run: curl -sS -u gus:guspass -l ftp://127.0.0.1:{{port}}/ && curl -sS -u rita:ritapass -l ftp://127.0.0.1:{{port}}/
+    expect:
+      exit: 0
+      stdout: "team\n"
+
+  - id: no-login
+    claim: On main, a caller with no account is refused at login, 530, curl exit 67, before any share is looked at.
+    run: curl -sS ftp://127.0.0.1:{{port}}/team/plan.txt
+    expect:
+      exit: 67
+      stderr-contains: "Access denied: 530"
+
+  - id: anonymous-finds-it-missing
+    claim: With --allow-anonymous a caller with no login gets in, and the share is missing to it, curl exit 9.
+    run: curl -sS ftp://127.0.0.1:{{port3}}/team/plan.txt
+    expect:
+      exit: 9
+      stderr-contains: "Server denied you to change to the given directory"
+
+  - id: anonymous-over-http
+    claim: Over HTTP the anonymous caller gets 404 Not Found for the same file.
+    run: curl -s -o {{null}} -w "%{http_code}\n" http://127.0.0.1:{{port4}}/team/plan.txt
+    expect:
+      exit: 0
+      stdout: "404\n"
+
+  - id: anonymous-checks-no-one
+    claim: Under --allow-anonymous Ed's own login is accepted unchecked and counts as anonymous, so the share is missing to him too, exit 9.
+    run: curl -sS -u ed:edpass ftp://127.0.0.1:{{port3}}/team/plan.txt
+    expect:
+      exit: 9
+      stderr-contains: "Server denied you to change to the given directory"
+
+  - id: password-needs-plaintext-auth
+    claim: Without --allow-plaintext-auth the password is refused over plain FTP before it is checked, 530, exit 67.
+    run: curl -sS -u ed:edpass ftp://127.0.0.1:{{port5}}/team/plan.txt
+    expect:
+      exit: 67
+      stderr-contains: "Access denied: 530"
+
+  - id: group-needs-at
+    claim: A grant that names the group without its @ is read as an account name and refused at start, exit 2.
+    run: surl --user ed:edpass --group editors=ed --share team=team --share-access team=editors:rw ftp://127.0.0.1:0/ 2>&1
+    timeout: 10
+    expect:
+      exit: 2
+      stdout: "surl: (2) option --share-access: member editors names no account or group\n"

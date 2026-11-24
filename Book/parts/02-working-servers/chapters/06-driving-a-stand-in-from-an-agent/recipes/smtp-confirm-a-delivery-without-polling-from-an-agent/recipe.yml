@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs confirm-delivery.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-confirm-a-delivery-without-polling-from-an-agent
+title: Confirming a Delivery Without Polling
+protocols: [smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, get_events, curl, wait_for_event, read_message]
+curl-options: [-s, -S, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc5321]
+
+fixtures:
+  order.eml: "From: shop@example.com\r\nTo: ann@example.com\r\nSubject: Order 1042 shipped\r\n\r\nYour order left the warehouse today.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the curl tool sends the order to Ann, one wait_for_event for a store_changed event in the mail store, named ann@example.com, after the last kept sequence, answers the delivered change of ann@example.com/INBOX/;UID=2, and read_message at that UID gives the order's Subject.
+    program: confirm-delivery.cs
+    args: [confirm]
+    expect:
+      exit: 0
+      stdout: "curl to ann@example.com: exit 0\nevent: delivered ann@example.com/INBOX/;UID=2\nSubject: Order 1042 shipped\n"
+
+  - id: stale-without-after-sequence
+    claim: Without after_sequence the wait answers at once with an event already kept, the seeded welcome message at UID 1, not the delivery the agent is waiting for.
+    program: confirm-delivery.cs
+    args: [stale]
+    expect:
+      exit: 0
+      stdout: "curl to ann@example.com: exit 0\nevent: seeded ann@example.com/INBOX/;UID=1\nSubject: Welcome\n"
+
+  - id: other-recipient
+    claim: The name filter passes over a delivery to another mailbox; with mail sent to Bob and then Ann, the wait for Ann answers Ann's delivery.
+    program: confirm-delivery.cs
+    args: [bob-first]
+    expect:
+      exit: 0
+      stdout: "curl to bob@example.com: exit 0\ncurl to ann@example.com: exit 0\nevent: delivered ann@example.com/INBOX/;UID=2\nSubject: Order 1042 shipped\n"
+
+  - id: never-delivered
+    claim: Mail to cy@example.com, in the domain with no mailbox, is sent with curl exit 0 but never delivered; the wait answers {"timed_out":true} after its 2 seconds and the program exits 1.
+    program: confirm-delivery.cs
+    args: [never]
+    expect:
+      exit: 1
+      stdout: "curl to cy@example.com: exit 0\nno delivery to cy@example.com within 2 s: {\"timed_out\":true}\n"

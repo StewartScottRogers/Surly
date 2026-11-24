@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[kafka-read-records-over-mqtt]]
+=== Reading Kafka Records over MQTT
+
+==== Problem
+
+A Kafka producer and an MQTT 5 subscriber must agree on one topic named two ways. You want a Kafka record on `shop.orders` delivered to the MQTT subscriber of `shop/orders`.
+
+==== Solution
+
+Serve Kafka and MQTT 5 from one `surl`, keep what is published under `shop/` with `--topic`, produce the record over Kafka, and subscribe over MQTT:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+Kafka and MQTT 5, version 5.0 of the publish and subscribe protocol MQTT, are served here by one `surl` over one message bus (<<surl-readme>>). Kafka names a topic with dots and MQTT with slashes, so the Kafka topic `shop.orders` is the MQTT topic `shop/orders`: the record `curl -d "order-1001 placed"` produces to `kafka://.../shop.orders` (<<kafka-protocol>>) is what a subscriber of `mqtt5://.../shop/orders` is sent (<<mqtt5>>), the payload alone. `--next` runs the second transfer after the first in one `curl`; `-s` keeps it quiet and `-S` keeps an error in (<<curl-protocols>>).
+
+A subscriber that comes after the record can be sent it only if the broker kept it. `--topic "shop/#;retain"` keeps the last message on every topic under `shop/`, as a retained message. `--mqtt5-disconnect-after-retained` makes the broker end a subscribe once it has sent the retained messages, so `curl` exits `0` with the record instead of listening until `-m 10` runs out. Without `--topic` the record is still produced, but nothing is kept and the later subscriber is sent nothing.
+
+The two keep different things. After a second record the MQTT subscriber is sent only `order-1002 placed`, the latest, since a topic has one retained message; a Kafka consumer, `curl` with no `-d`, reads the topic{apos}s log from the start and still has both records, a line each.
+
+The names must be spelt each protocol{apos}s way. A subscriber of `shop.orders` over MQTT is sent nothing: that is another MQTT topic. In a Kafka URL the part after a slash is the partition, so `kafka://.../shop/orders` is refused by `curl` before it connects, exit `3`, `Kafka partition in the URL is not a number`. An MQTT wildcard works as usual: `shop/#`, `%23` in a URL, is sent the record kept on `shop/orders`.
+
+It works the other way round too. A message `curl` publishes over MQTT 5 to `shop/orders` is appended to the Kafka log of `shop.orders`, here as its third record, which `?offset=2` reads.
+
+`--allow-anonymous` lets both clients in with no login, a loosening for a test on your own machine. Without it, a Kafka producer with no login is disconnected, and `curl` exits `56`, `Connection disconnected`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<kafka-read-records-over-mqtt-in-csharp>> for the same task in C#.
+* <<kafka-read-records-over-mqtt-from-an-agent>> for the same task run by an agent.
+* <<kafka-produce-and-consume>> for Kafka alone.
+* <<stomp-send-and-read-over-mqtt>> for another protocol read over MQTT.
+* <<kafka-protocol>>, <<mqtt5>>, <<surl-readme>>, <<curl-protocols>>.

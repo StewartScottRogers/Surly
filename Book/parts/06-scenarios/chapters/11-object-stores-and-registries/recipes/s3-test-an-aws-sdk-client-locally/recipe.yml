@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: s3-test-an-aws-sdk-client-locally
+title: Testing an AWS SDK Client Locally
+protocols: [s3]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerFiles, SurlFileContents, SurlFolderPage, SurlExchangeRecord]
+exit-codes: [0]
+references: [surl-readme, aws-s3-api]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; the client is the AWS SDK for .NET.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app's AmazonS3Client, pointed at the in-process server, puts this quarter's report, 200 with the MD5 of the content as ETag; the test reads the same bytes from the server's store, and ListObjectsV2 through the SDK lists the old and the new report, 24 bytes each.
+    program: program.cs
+    args: []
+    timeout: 300
+    expect:
+      exit: 0
+      stdout: "put: 200, ETag \"ae51bb33b8abab1fcc34f63346ab15d8\"\nstored:\nregion,total\nnorth,1200\nlisted: 2026-q2.csv 24 bytes, 2026-q3.csv 24 bytes\n"
+
+  - id: get-back
+    claim: GetObject through the SDK answers 200 and the report's text; a key that is not there throws AmazonS3Exception 404 NoSuchKey.
+    program: program.cs
+    args: [get]
+    timeout: 300
+    expect:
+      exit: 0
+      stdout: "put: 200, ETag \"ae51bb33b8abab1fcc34f63346ab15d8\"\nget: 200\nregion,total\nnorth,1200\nAmazonS3Exception 404 NoSuchKey: The specified key does not exist.\nstore: 2026-q2.csv, 2026-q3.csv\n"
+
+  - id: default-checksums
+    claim: With the SDK's default request checksums the put is sent as a signed aws-chunked stream with a CRC32 trailer (X-Amz-Content-SHA256 STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER), which this server answers 501 NotImplemented, and nothing is stored.
+    program: program.cs
+    args: [checksum]
+    timeout: 300
+    expect:
+      exit: 0
+      stdout: "AmazonS3Exception 501 NotImplemented: A header you provided implies functionality that is not implemented\nstore: 2026-q2.csv\nsent X-Amz-Trailer: x-amz-checksum-crc32\nsent X-Amz-Content-SHA256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER\n"
+
+  - id: wrong-secret
+    claim: A client configured with a wrong secret has its put refused, AmazonS3Exception 403 SignatureDoesNotMatch, and nothing is stored.
+    program: program.cs
+    args: [secret]
+    timeout: 300
+    expect:
+      exit: 0
+      stdout-matches: '^AmazonS3Exception 403 SignatureDoesNotMatch: The request signature we calculated does not match [^\n]*\nstore: 2026-q2\.csv\n$'

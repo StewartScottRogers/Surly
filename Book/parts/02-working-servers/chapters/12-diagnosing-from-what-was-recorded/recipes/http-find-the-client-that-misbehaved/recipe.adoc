@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-client-that-misbehaved]]
+=== Finding the Client That Misbehaved
+
+==== Problem
+
+Several clients use one `surl`, and one of them sends a malformed request. You want the server{apos}s trace to show which connection it came on, from which address, and exactly what it sent.
+
+==== Solution
+
+Run `surl` with `--trace-ascii`, let the clients run, then read the trace with a short script that prints, for every request answered `400`, its connection, the client{apos}s address and port, `surl`{apos}s reason and the request head:
+
+include::.generated/solution.adoc[]
+
+The script, `who-sent-it.sh`, needs a POSIX shell (Git Bash on Windows):
+
+include::who-sent-it.sh[]
+
+==== Discussion
+
+`surl` serves the folder `--directory` names, and `--trace-ascii trace.txt` writes everything it does to `trace.txt` as it happens: one `#N * Exchange N opened: http on <listen URL> from <address>:<port>.` line when a connection arrives, every byte received and sent in `#N <= Recv data` and `#N => Send data` blocks, and its own event lines between them (<<surl-readme>>). `N` is the exchange, which for the Hypertext Transfer Protocol (HTTP) is one connection, so every line about one client{apos}s connection carries the same number.
+
+The three clients here are three `curl` commands. `-s` silences the progress meter, `-o /dev/null` (`NUL` on Windows) drops the body and `-w "%{http_code}\n"` prints the status. `--local-port` makes each one connect from a port of its own choosing, as a real client on another machine would differ by address; on one machine every client is `127.0.0.1`, and without `--local-port` the port is whatever the system hands out. The search client adds `-H "X-Request ID: 7"`, a header whose name has a space in it, which a field name may not have (<<rfc9110>>). `surl` refuses the whole request head: `400 Bad Request`, `Connection: close`. `curl` exits `0` all the same, because without `-f` a status of `400` is an answer, not a failure (<<curl-manual>>), so the client{apos}s own exit code says nothing.
+
+The script is one `awk` program. It notes the client address from each `opened:` line, collects the data lines of each received block (starting afresh at each request line, so an earlier good request on the same connection is not mixed in), and for each event line that says `answered 400` prints the exchange number, the address and port, `surl`{apos}s reason and the request as received. Here there is one: `No request head was read: MalformedHeaderField`, followed by the head with the `X-Request ID: 7` line in it. The port it prints is the one the search client was given, which ties the request to that client.
+
+The trace counts connections, not requests. The reports client fetches the file twice on one connection, and the trace has one `opened:` line for it; both requests appear under the same exchange number. A client that keeps its connection open shows all its requests under one number, and the `opened:` line is the only place its address appears.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-client-that-misbehaved-in-csharp>> for the same search from a C# program.
+* <<http-find-the-client-that-misbehaved-from-an-agent>> for the same search from an agent.
+* <<http-compare-a-good-and-a-bad-request>> for the reasons `surl` gives for a `400`.
+* <<http-tell-which-listener-was-used>> for clients that differ by listener.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>.

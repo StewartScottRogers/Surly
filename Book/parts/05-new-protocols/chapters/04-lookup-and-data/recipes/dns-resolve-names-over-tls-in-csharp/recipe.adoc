@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-resolve-names-over-tls-in-csharp]]
+=== Resolving over DNS-over-TLS in C#
+
+==== Problem
+
+Your client resolves host names over DNS over TLS (DoT), the Domain Name System (DNS) inside Transport Layer Security (TLS), and you want a test name to point at a local server. You want a zone served over TLS and an HTTP request whose host name it resolved, from a C# test with `Surl.Api` and `Curl.Api`.
+
+==== Solution
+
+Start a `SurlServer` whose DNS listener speaks DoT alone, seed the zone, look the name up with a `dns://` request over TLS, and call the service at the address the answer gave:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds a `dns://` and an `http://` URL on port 0, so the system picks two free ports, and `BoundUrls` lists them in that order. `AdditionalArguments` carries `--dns-transport tls`, which has no property of its own: the DNS listener then speaks DoT alone, TLS from the first byte and each DNS message behind a two-byte length. `SelfSigned` is `--self-signed`, a certificate the server makes for itself, a loosening for a test on one machine; without it, or a certificate file, `StartAsync` throws `SurlServerStartException` with exit code `58`, `CertificateProblem`. `Files` is the status file the service answers with.
+
+`SurlServerZones.AddZoneAsync` seeds the zone as master-file text under its apex (<<rfc1035>>): the SOA and NS records and one A record, `api`, the orders service, at `127.0.0.1`.
+
+The client is one `CurlClient` (<<curl-readme>>). Its lookup is a `CurlRequest` for the bound `dns://` URL with the name as its path. `CurlDnsOptions` is the spelling of `curl`{apos}s `--dns-transport` and `--dns-json`: `Transport = "tls"` speaks DoT and `Json = true` makes the `CurlResponse` body one line of JSON, whose `status` is `NOERROR` and whose `answer` holds the A record, its `data.address` `127.0.0.1`. `CurlTlsOptions` with a `CurlTlsPeerOptions` whose `CertificateAuthorityBlob` is `SelfSignedCertificatePem` trusts exactly the certificate this server made, so verification stays on. Without it `SendAsync` throws `CurlException` with curl error `60`: the client cannot verify the server.
+
+The call is a second `CurlRequest`, to `http://api.example.test` on the service{apos}s port. `CurlNetworkOptions.Resolve`, `curl`{apos}s `--resolve`, connects that name and port to the address the lookup gave, while the URL keeps the name; the answer is `200` and the status file. A name under the apex that the zone does not hold, `old-api.example.test`, is answered `NXDOMAIN` with no address, and the client makes no call.
+
+`curl`{apos}s own DoT resolver checks the server against the system{apos}s trust store and not the certificate a test gives it (<<dns-resolve-names-over-tls>>), so the program does the lookup itself and hands the address on with `Resolve`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-resolve-names-over-tls>> for the same task on the console.
+* <<dns-resolve-names-over-tls-from-an-agent>> for the same task run by an agent.
+* <<dns-point-a-client-at-a-test-zone-in-csharp>> for lookups over DNS over HTTPS with `DohUrl`.
+* <<dns-read-answers-as-json-in-csharp>> for reading answers as JSON.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1035>>.

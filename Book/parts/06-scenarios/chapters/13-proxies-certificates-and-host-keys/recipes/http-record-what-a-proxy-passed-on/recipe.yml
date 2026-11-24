@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-record-what-a-proxy-passed-on
+title: Recording What a Proxy Passed On
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, SurlExchangeChunk, SurlExchangeDirection, CurlClient, CurlClientOptions, CurlProxyOptions, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [rfc9110, surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts the origin and the proxy through Surl.Api.
+
+cases:
+  - id: client-sees-statuses
+    claim: Through the proxy, the two requests for the origin are answered 200, the one for 192.0.2.1 403 and the one for a loopback port where nothing listens 502, all as responses, with no exception.
+    program: program.cs
+    args: ["{{port2}}"]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\Aclient: origin/orders\.csv 200\nclient: origin/stock\.csv 200\nclient: http://192\.0\.2\.1/orders\.csv 403\nclient: nothing-listening/orders\.csv 502\n'
+
+  - id: solution
+    role: solution
+    claim: The proxy listener's record holds all four requests in absolute form; the two it answered 200 are in the origin's record with Via 1.1 surl, so it forwarded them, and the 403 and the 502 are not, so it passed neither on.
+    program: program.cs
+    args: ["{{port2}}"]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nproxy: origin/orders\.csv answered 200; forwarded: the origin received it with Via\nproxy: origin/stock\.csv answered 200; forwarded: the origin received it with Via\nproxy: http://192\.0\.2\.1/orders\.csv answered 403; not passed on: the origin never received it\nproxy: nothing-listening/orders\.csv answered 502; not passed on: the origin never received it\n\Z'
+
+  - id: counts
+    claim: The proxy listener recorded four requests and the origin two, both carrying Via 1.1 surl.
+    program: program.cs
+    args: ["{{port2}}", counts]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nproxy listener: 4 requests; origin: 2 requests, 2 with Via: 1\.1 surl\n\Z'
+
+  - id: reasons
+    claim: The proxy's verbose log says why for each; it forwarded two GETs and the origin answered 200; 192.0.2.1 is NotAllowed, refused by policy with 403 before any connection; the empty port is Refused, a connection that failed, 502.
+    program: program.cs
+    args: ["{{port2}}", reasons]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nlog: Forwarded GET to origin; the origin answered 200\.\nlog: Forwarded GET to origin; the origin answered 200\.\nlog: Answered 403: the origin 192\.0\.2\.1:80 could not be used \(NotAllowed\)\.\nlog: Answered 502: the origin nothing-listening could not be used \(Refused\)\.\n\Z'

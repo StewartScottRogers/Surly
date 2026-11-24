@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-test-an-aws-sdk-client-locally]]
+=== Testing an AWS SDK Client Locally
+
+==== Problem
+
+Your app writes to Amazon Simple Storage Service (S3) with the AWS SDK for .NET. In a test, you want its `AmazonS3Client` pointed at an in-process S3 stand-in, and the test to read back the objects the app wrote.
+
+==== Solution
+
+Host a bucket with `Surl.Api` on plain HTTP, give the app{apos}s client the server{apos}s address as its `ServiceURL`, let the app put its object, and read the object from the server{apos}s store:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). The `s3://` listen URL normally speaks Transport Layer Security (TLS) from the first byte; `--s3-plaintext`, which has no property and so goes in `AdditionalArguments`, serves it as plain HTTP instead, for a client given an `http://` endpoint, with no certificate to make or trust. Requests are still signed and checked. `Accounts` holds one `SurlAccount`, the access key ID and secret the app signs with; `AllowUploads` lets a signed request write and `ListDirectories` lets it list. `Files` puts last quarter{apos}s report in the bucket `reports`, and `RecordExchanges` keeps each exchange for the test to look at.
+
+The app{apos}s side is the SDK{apos}s own: an `AmazonS3Client` made from `BasicAWSCredentials` and an `AmazonS3Config`. `ServiceURL` is the one setting a test changes, the server{apos}s address in place of Amazon{apos}s. `ForcePathStyle` puts the bucket in the path, `/reports/2026-q3.csv`, rather than in the host name, which `127.0.0.1` cannot carry. `AuthenticationRegion` is the region the requests are signed for. The app{apos}s `PutObjectAsync` is answered `200`, and its `ETag` is the MD5 of the content (<<aws-s3-api>>).
+
+The test does not trust the client{apos}s word for it. `ReadAsync` on the server{apos}s `SurlServerFiles` reads `/reports/2026-q3.csv` from the store, not over S3, and the `SurlFileContents` it returns holds the report the app sent. `ListObjectsV2Async` through the SDK lists both reports, 24 bytes each. `GetObjectAsync` reads the report back with `200`, and a key that is not there throws `AmazonS3Exception` with `404` and the code `NoSuchKey`, the code S3 itself gives (<<aws-s3-api>>).
+
+`RequestChecksumCalculation` is set to `WHEN_REQUIRED`, and the test needs it. Left at the SDK{apos}s default, the put is sent as a signed stream in chunks with a CRC32 checksum after the body: the server{apos}s record of the exchange, a `SurlExchangeRecord` whose `Received` bytes start with the request head, shows `X-Amz-Content-SHA256: STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER` and `X-Amz-Trailer: x-amz-checksum-crc32`. This build of the server does not take that form of upload: it answers `501` `NotImplemented`, the SDK throws `AmazonS3Exception`, and nothing is stored. With `WHEN_REQUIRED` the SDK sends an ordinary signed put, and the server takes it.
+
+A client configured with a wrong secret has its put refused with `403` and `SignatureDoesNotMatch`, and `ListAsync` returns a `SurlFolderPage` holding only the old report. A test that sees this has a credentials problem, not a server problem.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-serve-a-plain-http-endpoint-in-csharp>> for `--s3-plaintext` with `Curl.Api` as the client.
+* <<s3-refuse-a-request-from-a-skewed-clock>> for a refusal that depends on the server{apos}s clock.
+* <<surl-readme>>, <<aws-s3-api>>.

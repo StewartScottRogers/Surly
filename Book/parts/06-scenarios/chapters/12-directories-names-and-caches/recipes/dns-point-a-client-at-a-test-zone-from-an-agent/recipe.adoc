@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-point-a-client-at-a-test-zone-from-an-agent]]
+=== Pointing a Client at a Test Zone
+
+==== Problem
+
+A client looks a service name up before it calls the service, and you want an agent to set the test up: a test zone in the Domain Name System (DNS) answering that name, and the client{apos}s call reaching the test server the zone names.
+
+==== Solution
+
+The program starts both hosts, starts a server that answers DNS over HTTPS (DoH) beside the service, seeds the zone with `add_dns_zone`, and has the `curl` tool make the client{apos}s call with its lookups sent to the test server:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). The `dns://` URL on port 0 gets a free port; `--dns-transport https` makes it DoH, Transport Layer Security (TLS) from the first byte and one resource, `/dns-query`; `--cert server.pem` and `--key server.key` are the certificate `openssl` made before the program ran, in the folder both hosts are confined to. The `http://` URL is the service, whose one file, `status.txt`, comes in `files`. The answer holds a `server_id` and the `bound_urls`, in the order given.
+
+`add_dns_zone` seeds a zone into the running server: the `apex` and the `zone_text`, a master file (<<rfc1035>>) with the SOA and NS records and one A record, `api`, the orders service, at `127.0.0.1`. Before it is called the server holds no zone, so the same call cannot resolve the name and `curl` exits `6`. `read_zone` with the apex answers the zone back as `zone`, master-file text with absolute names and the TTL and class on every line, which is how an agent checks what it seeded.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON; a non-zero exit is a tool error. The call is by name, `http://api.example.test` on the service{apos}s port. `--doh-url` sends `curl`{apos}s lookups for it to the test server{apos}s `/dns-query` instead of the machine{apos}s resolver, and `--cacert server.pem` trusts the test certificate, which is its own authority (<<curl-manual>>). `-s` keeps the progress meter out, `-S` keeps an error in, and `--max-time 10` bounds the call. The name resolves to `127.0.0.1` and the answer is the status file.
+
+A name the zone does not hold, `old-api.example.test`, does not resolve: exit `6`, `Could not resolve host`, and no call is made. Without `--cacert` the lookup cannot verify the test server, and the failure is reported as the lookup{apos}s, exit `6`, not the `60` a failed check on the call itself would give. An agent that reads `Could not resolve host` with a zone in place should check the trust before the zone.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-point-a-client-at-a-test-zone>> for the same task on the console.
+* <<dns-point-a-client-at-a-test-zone-in-csharp>> for the same task in C#.
+* <<dns-add-a-zone-from-an-agent>> for seeding zones from an agent.
+* <<dns-resolve-names-over-tls-from-an-agent>> for lookups over DNS over TLS.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1035>>.

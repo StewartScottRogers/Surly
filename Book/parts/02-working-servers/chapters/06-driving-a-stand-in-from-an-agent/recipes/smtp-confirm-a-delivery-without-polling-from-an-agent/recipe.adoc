@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-confirm-a-delivery-without-polling-from-an-agent]]
+=== Confirming a Delivery Without Polling
+
+==== Problem
+
+Your agent sends mail over Simple Mail Transfer Protocol (SMTP) to a stand-in server and needs to know when it lands. You want it to wait once for the store change with `wait_for_event`, filtered to the recipient, instead of asking the mailbox again and again.
+
+==== Solution
+
+The program starts both hosts and a mail server, notes the last event the server has kept with `get_events`, sends with the `curl` tool, and makes one `wait_for_event` call for the recipient{apos}s mailbox after that event:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` is the domain served, and each `--mailbox` adds a mailbox and its account, for the shop app, Ann and Bob. Earlier in the session the agent put a welcome message in Ann{apos}s INBOX with `seed_mail`, as tests often do.
+
+The server keeps its events, each with a `sequence` number that only grows. Before it sends, the agent asks `get_events` for them and keeps the largest `sequence`. The `curl` tool then runs `curl` with `-u` for the shop{apos}s login, `--mail-from`, `--mail-rcpt ann@example.com`, `-T order.eml` for the message, a fixture in the folder both hosts are confined to, `-s` to keep the progress meter out of the answer and `-S` to keep an error line in (<<curl-manual>>). It exits `0`: the server took the message. Delivery into the store comes a moment later.
+
+`wait_for_event` answers the first event that matches its filters, or `{"timed_out":true}` when its `timeout_ms` passes, so one call does what a loop of reads would. `kinds` `store_changed` and `store` `mail` ask for changes to the mail store; `name` `ann@example.com` keeps those of Ann{apos}s mailboxes, matching the start of an event{apos}s name a segment at a time; `after_sequence` skips everything kept before the send. The answer is `change` `delivered` with the name `ann@example.com/INBOX/;UID=2`: the owner, the mailbox and the unique identifier (UID). That is enough to read it, and `read_message` at UID 2 gives the order{apos}s `Subject`. With mail sent to Bob first and then to Ann, Bob{apos}s delivery does not match and the wait still answers Ann{apos}s.
+
+`after_sequence` matters. A wait answers an event already kept at once, and without it the same call answers the welcome message, a `seeded` change at UID 1 from before the send: an agent that read only the kind would report a delivery that has not happened yet. And a wait is bounded. Mail to `cy@example.com`, inside the domain but with no mailbox, is sent with `curl` exit `0` and then discarded, since a server that refused unknown addresses in its own domain would tell a stranger which exist (<<rfc5321>>). No event comes; the wait answers `{"timed_out":true}` after its two seconds, and the program exits `1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-collect-delivered-mail-with-a-callback>> for collecting deliveries in C#.
+* <<http-wait-for-an-event-from-an-agent>> for waiting on an upload.
+* <<smtp-send-despite-a-bad-recipient-from-an-agent>> for reading each recipient{apos}s answer from the record.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

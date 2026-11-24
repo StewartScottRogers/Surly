@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-resolve-names-over-tls-from-an-agent]]
+=== Resolving over DNS-over-TLS from an Agent
+
+==== Problem
+
+Your client resolves host names over DNS over TLS (DoT), the Domain Name System (DNS) inside Transport Layer Security (TLS), and you want a test name to point at a local server. You want an agent to serve the zone over TLS and make an HTTP request whose host name it resolved there.
+
+==== Solution
+
+The program starts both hosts and a server whose DNS listener speaks DoT alone, seeds the zone with `add_dns_zone`, looks the name up with the `curl` tool, and calls the service at the address it got:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). `--dns-transport tls` makes the `dns://` listener DoT alone, TLS from the first byte and each DNS message behind a two-byte length; `--cert server.pem` and `--key server.key` are the certificate `openssl` made before the program ran, in the folder both hosts are confined to. With no certificate `start_server` is a tool error whose `exit_code` is `58`, as `surl` itself exits. The `http://` listener is the service, its one file in `files`. The answer holds the `server_id` and the `bound_urls` in the order given.
+
+`add_dns_zone` seeds the zone, its `apex` and its `zone_text`, a master file (<<rfc1035>>) with the SOA and NS records and one A record, `api`, the orders service, at `127.0.0.1`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The lookup is the bound `dns://` URL with the name as its path; `--dns-transport tls` speaks DoT, `--cacert server.pem` trusts the test certificate, which is its own authority, and `--dns-json` makes the output one line of JSON (<<curl-manual>>). `-s` keeps the progress meter out, `-S` keeps an error in, and `--max-time 10` bounds each call. The agent reads the `status`, `NOERROR`, and the A record{apos}s `data.address`, `127.0.0.1`, from the `answer` array. The second call is to `http://api.example.test` on the service{apos}s port with `--resolve`, which connects that name and port to the address the lookup gave while the URL keeps the name; it answers the status file.
+
+A name under the apex that the zone does not hold, `old-api.example.test`, is answered `NXDOMAIN` with no A record, and the agent makes no call. Without `--cacert` the lookup fails with exit `60`, because `curl` cannot verify a certificate the test made.
+
+`curl` has a DoT resolver of its own, `--dns-over-tls host:port`, which would resolve the name for the call directly. It checks the server against the system{apos}s trust store and not `--cacert`, so against the test server the name does not resolve and `curl` exits `6`. Until it can trust a test certificate, the lookup and `--resolve` are the way.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-resolve-names-over-tls>> for the same task on the console.
+* <<dns-resolve-names-over-tls-in-csharp>> for the same task in C#.
+* <<dns-point-a-client-at-a-test-zone-from-an-agent>> for `curl`{apos}s own lookups over DNS over HTTPS.
+* <<dns-read-answers-as-json-from-an-agent>> for reading answers as JSON.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1035>>.

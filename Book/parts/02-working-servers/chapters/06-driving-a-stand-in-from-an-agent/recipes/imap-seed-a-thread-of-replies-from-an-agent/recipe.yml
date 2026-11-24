@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs seed-thread.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-seed-a-thread-of-replies-from-an-agent
+title: Seeding a Thread of Replies
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, seed_mail, curl, read_message]
+curl-options: [-s, -S, -u, -X]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5322, rfc9051]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Four messages seeded with seed_mail, a question, an unrelated invoice and two replies linked by In-Reply-To, group by their IMAP ENVELOPEs into the thread UID 1, its reply UID 3 and that reply's reply UID 4, with UID 2 a thread of its own.
+    program: seed-thread.cs
+    args: [group]
+    expect:
+      exit: 0
+      stdout: "UID 1: Lunch on Friday?\n  UID 3: Re: Lunch on Friday?\n    UID 4: Re: Lunch on Friday?\nUID 2: Invoice 1002\n"
+
+  - id: envelope
+    claim: The ENVELOPE of the first reply ends with its In-Reply-To, the question's Message-ID, and then its own Message-ID.
+    program: seed-thread.cs
+    args: [envelope]
+    expect:
+      exit: 0
+      stdout: "* 3 FETCH (UID 3 ENVELOPE (NIL \"Re: Lunch on Friday?\" ((NIL NIL \"cy\" \"example.com\")) ((NIL NIL \"cy\" \"example.com\")) ((NIL NIL \"cy\" \"example.com\")) ((NIL NIL \"ann\" \"example.com\")) NIL NIL \"<lunch-1@example.com>\" \"<lunch-2@example.com>\"))\n"
+
+  - id: headers-kept
+    claim: seed_mail stores the linking headers as given; read_message shows the last reply's Message-ID, In-Reply-To and References unchanged.
+    program: seed-thread.cs
+    args: [headers]
+    expect:
+      exit: 0
+      stdout: "Message-ID: <lunch-3@example.com>\nIn-Reply-To: <lunch-2@example.com>\nReferences: <lunch-1@example.com> <lunch-2@example.com>\n"
+
+  - id: references-search
+    claim: UID SEARCH HEADER References with the question's Message-ID finds both replies, UIDs 3 and 4.
+    program: seed-thread.cs
+    args: [references]
+    expect:
+      exit: 0
+      stdout: "* SEARCH 3 4\n"
+
+  - id: no-thread-command
+    claim: The server offers no THREAD extension; its CAPABILITY names none and THREAD REFERENCES is refused, curl exit 21, so the client does the grouping.
+    program: seed-thread.cs
+    args: [no-thread]
+    expect:
+      exit: 0
+      stdout-matches: '^\* CAPABILITY (?![^\n]*THREAD)[^\n]*\nTHREAD REFERENCES UTF-8 ALL: curl exit 21, curl: \(21\) Quote command returned error\n$'

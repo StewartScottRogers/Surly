@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[oci-list-tags-with-a-registry-token]]
+=== Listing Tags with a Token
+
+==== Problem
+
+Your deploy tool lists a container repository{apos}s tags, which needs a Bearer token from the registry{apos}s token endpoint, and you want to see the token fetched with a Basic login, the tag list read with it, and the `401` without it.
+
+==== Solution
+
+Serve a repository with `surl` as an Open Container Initiative (OCI) registry, and list its tags with a short script that needs a POSIX shell (Git Bash on Windows). It fetches a token with `curl -u`, then asks for the tag list with `curl --oauth2-bearer`:
+
+[source,sh]
+----
+include::tags.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` on an `oci` listen URL is a registry that speaks the OCI Distribution Specification over Hypertext Transfer Protocol (HTTP) (<<oci-distribution>>, <<surl-readme>>). The tool talks to it at `https://` URLs on the same port, as any HTTP client would, because the token and the tag list are two separate HTTP requests. `--directory store` is the registry{apos}s store, where the repository `demo/app` is already a folder in OCI image layout: `index.json` lists one manifest under three tags, `latest`, `1.0` and `1.1` (<<oci-image-spec>>). `--user alice:s3cret` is the one account. The listener is Transport Layer Security (TLS) from the first byte (<<rfc8446>>): the `openssl` line makes a certificate for `127.0.0.1`, `--cert` and `--key` serve it, and `--cacert server.pem` makes `curl` trust it.
+
+Every request under `/v2/` needs a Bearer token (<<rfc6750>>). Without one, the tag list is `401 Unauthorized`, and the challenge says where to get one: `WWW-Authenticate: Bearer realm="https://127.0.0.1:8080/token",service="surl",scope="repository:demo/app:pull"`, the token endpoint, the service and the scope to ask for. The password itself is no use there: sent to the tag list with Basic, it is `401` too. The token endpoint is the one place that takes it. With `-u alice:s3cret`, `curl` sends it with HTTP Basic (<<rfc7617>>) to `/token?service=surl&scope=repository:demo/app:pull`, and the answer is JavaScript Object Notation (JSON) holding the token, as both `token` and `access_token`, and `expires_in` `300`, the seconds it is good for. A wrong password is `401` and no token; with `-f` `curl` exits `22` on that, and `-s` and `-S` keep it quiet but for the error, so the script stops there.
+
+The script takes the token out of the JSON with `sed` and sends it with `--oauth2-bearer`, which `curl` puts in an `Authorization: Bearer` header. The tag list is `200` with `{"name":"demo/app","tags":[...]}`, the tags in lexical order whatever the order of `index.json`. `-D tags.headers` keeps the response headers, `-o tags.json` the body, and `-w "%{http_code}"` prints the status. A token is good only for the scope it was issued for: one scoped to `repository:other/app:pull` is refused for `demo/app`{apos}s tags, `403 DENIED`, and the script exits `1`. In that case the script{apos}s fourth argument, a query, is `n=100`, which changes nothing here, so that the fifth, the scope, can follow.
+
+A long list comes in pages. With `n=2` the registry gives two tags and a `Link` header whose `rel="next"` URL asks for the page after the last tag given, `last=1.1`; that page holds `latest` and no `Link` header, so it is the last.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<oci-list-tags-with-a-registry-token-in-csharp>> for the same listing from a C# test.
+* <<oci-list-tags-with-a-registry-token-from-an-agent>> for the same listing by an agent.
+* <<oci-push-and-pull-an-image>> for pushing an image and pulling it with `curl`{apos}s `oci://` URLs, which fetch the token themselves.
+* <<http-expire-a-token-mid-session>> for a token that stops working.
+* <<surl-readme>>, <<curl-readme>>, <<oci-distribution>>, <<oci-image-spec>>, <<rfc6750>>, <<rfc7617>>, <<rfc8446>>.

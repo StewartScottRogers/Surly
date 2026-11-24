@@ -1,0 +1,70 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: s3-resume-a-ranged-download-from-an-agent
+title: Resuming a Ranged Object Download from an Agent
+protocols: [s3]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, get_events, curl]
+curl-options: [-s, -f, --max-time, --cacert, --connect-to, --aws-sigv4, -u, -r, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api, rfc9110]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (platforms.md, Curl BL-5799), so cut cases run on Windows and Linux.
+    claim: The curl tool's first try at bytes 0-1999999 is answered 206 and cut off, exitCode 56; the next try's -r starts at exactly the bytes already held, and the agent ends with 2,000,000 bytes fetched for the 2,000,000-byte range, matching the object's first 2,000,000 bytes.
+    program: program.cs
+    args: [range]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout-matches: '^bytes=0-1999999: 206 (\d+), exitCode 56\nbytes=\1-1999999: 206 \d+, exitCode (?:0|56)\n(?:[^\n]*\n)*fetched 2000000 bytes for a range of 2000000\nmatches the object: yes\n'
+
+  - id: events
+    platforms: [windows, linux]  # macOS: see solution.
+    claim: get_events finds one fault_applied event, of kind drop, for each try the agent saw cut.
+    program: program.cs
+    args: [range]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout-matches: '\nfault_applied events: ([1-5]) for \1 cut connections, kinds: drop\n$'
+
+  - id: whole-object
+    platforms: [windows, linux]  # macOS: see solution.
+    claim: Fetched the same way, the two halves of the object, joined, are byte for byte the 4,000,000-byte object served.
+    program: program.cs
+    args: [whole]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout-matches: '\nobject whole: yes\n$'
+
+  - id: short-range-whole
+    claim: The rule counts bytes per connection, so a range of 1,000,000 bytes is answered 206 and comes whole in one call, exitCode 0.
+    program: program.cs
+    args: [short]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "bytes=1000000-1999999: 206 1000000, exitCode 0\nfetched 1000000 bytes for a range of 1000000\n"
+
+  - id: refusal-is-not-a-cut
+    claim: Signed with a wrong secret the try is answered 403 and -f makes the curl tool's exitCode 22; the agent stops at once, and no fault was applied.
+    program: program.cs
+    args: [refused]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "bytes=0-1999999: 403 0, exitCode 22\nfault_applied events: 0 for 0 cut connections, kinds: \n"

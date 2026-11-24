@@ -1,0 +1,71 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: s3-resume-a-ranged-download-in-csharp
+title: Resuming a Ranged Object Download in C#
+protocols: [s3]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFault, SurlEventQuery, SurlEventKind, FaultAppliedEvent, FaultKind, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlException, CurlAuthenticationOptions, CurlNetworkOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0]
+references: [surl-readme, aws-s3-api, rfc9110]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (platforms.md, Curl BL-5799), so cut cases run on Windows and Linux.
+    claim: The first try at bytes 0-1999999 is answered 206 and its body read throws CurlException 56, RecvError; the next try's Range starts at exactly the bytes already held, and the downloader ends with 2,000,000 bytes fetched for the 2,000,000-byte range, matching the object's first 2,000,000 bytes.
+    program: program.cs
+    args: [range]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout-matches: '^bytes=0-1999999: 206, (\d+) bytes, then CurlException 56 RecvError\nbytes=\1-1999999: 206, \d+ bytes, (?:complete|then CurlException 56 RecvError)\n(?:[^\n]*\n)*fetched 2000000 bytes for a range of 2000000\nmatches the object: yes\n'
+
+  - id: events
+    platforms: [windows, linux]  # macOS: see solution.
+    claim: The server's events hold one FaultAppliedEvent, of kind Drop, for each connection the downloader saw cut.
+    program: program.cs
+    args: [range]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout-matches: '\nfault events: ([1-5]) for \1 cut connections, all Drop: True\n$'
+
+  - id: whole-object
+    platforms: [windows, linux]  # macOS: see solution.
+    claim: Fetched the same way, the two halves of the object, joined, are byte for byte the 4,000,000-byte object served.
+    program: program.cs
+    args: [whole]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout-matches: '\nobject whole: yes\n$'
+
+  - id: short-range-whole
+    claim: The rule counts bytes per connection, so a range of 1,000,000 bytes is answered 206 and read whole in one try.
+    program: program.cs
+    args: [short]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "bytes=1000000-1999999: 206, 1000000 bytes, complete\nfetched 1000000 bytes for a range of 1000000\n"
+
+  - id: refusal-is-not-a-cut
+    claim: Signed with a wrong secret, the ranged get over HTTPS is an ordinary 403 response, not an exception, and the downloader stops at once; no connection was cut.
+    program: program.cs
+    args: [refused]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "bytes=0-1999999: 403, stopped\nfault events: 0 for 0 cut connections, all Drop: True\n"

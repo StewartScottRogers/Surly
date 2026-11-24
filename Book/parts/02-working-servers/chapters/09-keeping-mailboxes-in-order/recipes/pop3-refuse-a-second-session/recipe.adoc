@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[pop3-refuse-a-second-session]]
+=== Refusing a Second POP3 Session
+
+==== Problem
+
+Two mail clients open the same maildrop over Post Office Protocol version 3 (POP3) at once, a phone and a desktop, say. You want to see the second login answered `-ERR [IN-USE]` and `curl` exit `67`, and the first session carry on unaffected.
+
+==== Solution
+
+Run a mail server with a Simple Mail Transfer Protocol (SMTP) listener to deliver a message and a POP3 listener to read it, and keep its verbose log in a file. A short script starts a slow download as the first client and, while it runs, logs in as the second:
+
+include::.generated/solution.adoc[]
+
+The script:
+
+include::two-clients.sh[]
+
+Stop `surl` with kbd:[Ctrl+C]. The script needs a POSIX shell (Git Bash on Windows).
+
+==== Discussion
+
+The server is `surl` with an `smtp://` and a `pop3://` listen URL over one mail store (<<surl-readme>>). `--mail-domain example.com` is the domain it takes mail for, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. `-v` and `--log-file surl.log` keep a verbose log in a file, which the script reads to know when to send the second client. Before the cases, `curl` sends the monthly report to Ann over SMTP, with `-u` for the shop{apos}s login, `--mail-from`, `--mail-rcpt`, `-T report.eml` and `--crlf` for the line ends mail needs; then, since delivery is asynchronous, it asks POP3 for message 1 with `-X "LIST 1"` until it exists: `--retry 10` tries ten more times, `--retry-all-errors` retries the error a missing message gives, and `--retry-delay 1` waits a second between tries. Every `curl` here runs with `-s` to keep the progress meter quiet and `-S` to still print an error.
+
+POP3 gives a session the maildrop to itself. Once a client has logged in, the server locks the maildrop until that client sends `QUIT`, so that the message numbers it was given and the deletions it marks stay true for the whole session (<<rfc1939>>). That lock is the protocol{apos}s, not a loosening `surl` could offer to drop. The script{apos}s first client is `curl` downloading message 1 with `-o first.eml` and `--limit-rate 100`, a hundred bytes a second, so its session lasts several seconds. The script counts the `Maildrop opened` lines in the log before it starts, and waits, for at most ten seconds, until there is one more: the first client is in.
+
+The second client then logs in with the same, right password. The server accepts the password and then answers `-ERR [IN-USE] Maildrop is locked by another session`; `IN-USE` is the response code for exactly this, a maildrop another session holds (<<rfc2449>>). `curl` ends the attempt and exits `67`, `Login denied` (<<curl-manual>>). `-v` writes the conversation to `second.log`, from which the script keeps the `-ERR` line. The server{apos}s log is plainer than `curl`: it records `Login accepted` for Ann and, on the next line, `Maildrop locked by another session`. A client that reports exit `67` as a wrong password sends its user to change a password that was fine.
+
+The first client never notices. Its download finishes with exit `0`, and once it has quit the lock is gone: a new session logs in and downloads message 1, and its copy and the first client{apos}s are byte for byte the same. A mail client that meets `[IN-USE]` should wait and try again later, not ask for the password.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<pop3-retrieve-and-delete-a-message>> for one session that reads and deletes.
+* <<pop3-drain-a-maildrop>> for emptying a maildrop in one session.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1939>>, <<rfc2449>>.

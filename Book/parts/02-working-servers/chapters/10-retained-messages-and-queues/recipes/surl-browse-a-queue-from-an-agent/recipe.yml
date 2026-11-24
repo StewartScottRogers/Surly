@@ -1,0 +1,64 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp (ADR-0008).
+# Each case runs browse.cs, a C# program on the official MCP SDK that starts surl-mcp from PATH.
+schema: 2
+key: surl-browse-a-queue-from-an-agent
+title: Browsing a Queue
+protocols: [mqtt]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, publish_message, browse_queue, read_retained_message, reset_server]
+exit-codes: [0]
+references: [surl-readme, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three jobs put on the declared queue jobs with publish_message are listed by browse_queue in the order sent, at positions 0, 1 and 2, with ready_count 3 and in_flight_count 0, and a second browse answers the same.
+    program: browse.cs
+    args: [browse]
+    expect:
+      exit: 0
+      stdout: "publish_message: {\"published\":true}\npublish_message: {\"published\":true}\npublish_message: {\"published\":true}\nbrowse_queue: {\"messages\":[{\"position\":0,\"text\":\"resize cat.png\",\"headers\":[]},{\"position\":1,\"text\":\"resize dog.png\",\"headers\":[]},{\"position\":2,\"text\":\"mail ann\",\"headers\":[]}],\"ready_count\":3,\"in_flight_count\":0,\"has_more\":false}\nbrowse_queue again: {\"messages\":[{\"position\":0,\"text\":\"resize cat.png\",\"headers\":[]},{\"position\":1,\"text\":\"resize dog.png\",\"headers\":[]},{\"position\":2,\"text\":\"mail ann\",\"headers\":[]}],\"ready_count\":3,\"in_flight_count\":0,\"has_more\":false}\n"
+
+  - id: page
+    claim: With limit 2 the first page holds positions 0 and 1 with has_more true; with after_position 1 the next holds position 2 with has_more false.
+    program: browse.cs
+    args: [page]
+    expect:
+      exit: 0
+      stdout-matches: '\nbrowse_queue limit 2: \{"messages":\[\{"position":0,[^\n]*\{"position":1,"text":"resize dog\.png","headers":\[\]\}\],"ready_count":3,"in_flight_count":0,"has_more":true\}\nbrowse_queue after 1: \{"messages":\[\{"position":2,"text":"mail ann","headers":\[\]\}\],"ready_count":3,"in_flight_count":0,"has_more":false\}\n\Z'
+
+  - id: binary
+    claim: A payload that is not UTF-8 text, put on the queue as payload_base64, is listed with base64 in place of text.
+    program: browse.cs
+    args: [binary]
+    expect:
+      exit: 0
+      stdout: "publish_message: {\"published\":true}\nbrowse_queue: {\"messages\":[{\"position\":0,\"base64\":\"AP8QgA==\",\"headers\":[]}],\"ready_count\":1,\"in_flight_count\":0,\"has_more\":false}\n"
+
+  - id: topic-is-not-the-queue
+    claim: publish_message with topic jobs and retain true does not reach the queue jobs, which stays empty; read_retained_message finds the message on the topic.
+    program: browse.cs
+    args: [topic]
+    expect:
+      exit: 0
+      stdout: "publish_message: {\"published\":true}\nbrowse_queue: {\"messages\":[],\"ready_count\":0,\"in_flight_count\":0,\"has_more\":false}\nread_retained_message: {\"topic\":\"jobs\",\"qos\":0,\"text\":\"resize cat.png\"}\n"
+
+  - id: undeclared
+    claim: On a broker started without --queue jobs, publish_message to the queue is a tool error naming UnknownQueue, and browse_queue is the tool error No queue jobs.
+    program: browse.cs
+    args: [undeclared]
+    expect:
+      exit: 0
+      stdout: "publish_message: tool error: Bus: A message for queue jobs was refused: UnknownQueue.\nbrowse_queue: tool error: No queue jobs.\n"
+
+  - id: reset
+    claim: reset_server empties the queue and keeps it; browse_queue then answers ready_count 0 and no messages.
+    program: browse.cs
+    args: [reset]
+    expect:
+      exit: 0
+      stdout-matches: '\nreset_server: \{"server_id":"[^"]+"\}\nbrowse_queue: \{"messages":\[\],"ready_count":0,"in_flight_count":0,"has_more":false\}\n\Z'

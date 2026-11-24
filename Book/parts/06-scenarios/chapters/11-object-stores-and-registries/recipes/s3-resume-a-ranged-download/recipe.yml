@@ -1,0 +1,95 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: s3-resume-a-ranged-download
+title: Resuming a Ranged Object Download
+protocols: [s3]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --user, --fault]
+curl-options: [-s, -S, -f, -r, -o, -w, --aws-sigv4, -u, --cacert, --connect-to, --max-time]
+exit-codes: [0, 1, 56]
+references: [surl-readme, curl-manual, aws-s3-api, rfc9110]
+
+# get-range.sh is the downloader: it fetches one byte range of an object and, when a try ends
+# short, asks only for the bytes it is missing.
+fixtures:
+  dl/.keep: ""
+  store/media/.keep: ""
+  get-range.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh get-range.sh URL FIRST LAST FILE [curl options...]
+    # Fetches bytes FIRST to LAST of an object into FILE. When a try ends short, the next one asks
+    # only for the bytes after those FILE holds; at most 5 tries. Prints each try's Range, status,
+    # bytes received and curl's exit code, then the bytes fetched in all. An error status (4xx, 5xx)
+    # is not a lost connection: the script stops there, exit 1.
+    url=$1 first=$2 last=$3 file=$4
+    shift 4
+    : > "$file"
+    tries=0 fetched=0
+    while :; do
+      have=$(wc -c < "$file" | tr -d ' ')
+      from=$((first + have))
+      if [ "$from" -gt "$last" ]; then break; fi
+      if [ "$tries" -ge 5 ]; then echo "gave up after $tries tries" >&2; exit 1; fi
+      tries=$((tries + 1))
+      got=$(curl -s -f "$@" -r "$from-$last" -o "$file.try" -w "%{http_code} %{size_download}" "$url")
+      code=$?
+      echo "bytes=$from-$last: $got, exit $code"
+      case "$got" in 4*|5*) exit 1 ;; esac
+      fetched=$((fetched + ${got#* }))
+      if [ -f "$file.try" ]; then cat "$file.try" >> "$file"; rm -f "$file.try"; fi
+    done
+    echo "fetched $fetched bytes for a range of $((last - first + 1))"
+
+# store/media/big.bin: 4,000,000 random bytes, made fresh for each run. A certificate for 127.0.0.1
+# and for any bucket's host name in us-east-1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+  - openssl rand -out store/media/big.bin 4000000
+
+# Every connection is cut once surl has sent 1,500,000 bytes on it, the response head included.
+servers:
+  main:
+    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --fault "drop;after-bytes=1500000" s3://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (platforms.md, Curl BL-5799), so cut cases run on Windows and Linux.
+    claim: The first try at bytes 0-1999999 is answered 206 and cut off, curl exit 56; the next try asks for bytes from exactly where the first stopped, and the downloader ends having fetched 2,000,000 bytes for the 2,000,000-byte range, none twice.
+    run: sh get-range.sh https://media.s3.us-east-1.amazonaws.com/big.bin 0 1999999 dl/part0 --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret
+    expect:
+      exit: 0
+      stdout-matches: '^bytes=0-1999999: 206 (\d+), exit 56\nbytes=\1-1999999: 206 \d+, exit (?:0|56)\n(?:[^\n]*\n)*fetched 2000000 bytes for a range of 2000000\n$'
+
+  - id: whole-object
+    platforms: [windows, linux]  # macOS: see solution.
+    claim: Fetched the same way, the second half of the object joins the first, and the two parts together are byte for byte the object served.
+    run: sh get-range.sh https://media.s3.us-east-1.amazonaws.com/big.bin 2000000 3999999 dl/part1 --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret > {{null}} && cat dl/part0 dl/part1 | cmp - store/media/big.bin
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: cut-off
+    platforms: [windows, linux]  # macOS: see solution.
+    claim: A plain ranged get of 2,000,000 bytes is answered 206 and reset part-way, curl exit 56, with fewer than the 1,500,000 bytes surl sent received.
+    run: curl -sS --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret -r 0-1999999 -o dl/once.bin -w "%{http_code} %{size_download}\n" https://media.s3.us-east-1.amazonaws.com/big.bin
+    expect:
+      exit: 56
+      stdout-matches: '^206 (?:1[0-4]\d{5}|\d{1,6})\n$'
+
+  - id: short-range-whole
+    claim: The rule counts bytes per connection, so a range of 1,000,000 bytes is served whole in one try, 206.
+    run: sh get-range.sh https://media.s3.us-east-1.amazonaws.com/big.bin 1000000 1999999 dl/mid --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret
+    expect:
+      exit: 0
+      stdout: "bytes=1000000-1999999: 206 1000000, exit 0\nfetched 1000000 bytes for a range of 1000000\n"
+
+  - id: refusal-is-not-a-cut
+    claim: A refusal is not a lost connection; signed with a wrong secret the try is answered 403, curl -f exits 22 with nothing written, and the downloader stops at once, exit 1.
+    run: sh get-range.sh https://media.s3.us-east-1.amazonaws.com/big.bin 0 1999999 dl/refused --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:wrong
+    expect:
+      exit: 1
+      stdout: "bytes=0-1999999: 403 0, exit 22\n"

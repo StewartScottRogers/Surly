@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-page-through-a-large-mailbox-in-process]]
+=== Paging Through a Large Mailbox
+
+==== Problem
+
+Your C# test checks a mailbox holding hundreds of messages on an in-process stand-in server. You want to page through them with `ListMessagesAsync`, `afterUid` and `HasMore`, seeing every message once even if mail arrives or is deleted while you walk.
+
+==== Solution
+
+Ask for a page of at most 100 messages after the last unique identifier (UID) seen, starting from 0, and stop when `HasMore` is false:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `imap://` URL on port 0, for Internet Message Access Protocol (IMAP) clients, and the system picks a free port; `MailDomains` is `--mail-domain`, and `Mailboxes` is `--mailbox`, Ann{apos}s address and password. `server.Mail.DeliverAsync` seeds 250 order notices straight into her INBOX, as UIDs 1 to 250.
+
+`server.Mail.ListMessagesAsync` takes the owner, the mailbox, `afterUid` and a limit, and answers a `SurlMessagePage`: `Messages`, at most the limit of them, in UID order, each a `SurlMessageSummary` with its `Uid`, size, flags and the date the store took it in; and `HasMore`, whether any follow. It reads the store directly, with no client and no login. The walk starts with `afterUid` 0 and passes the last UID of each page to the next call. Pages of 100 give UIDs 1 to 100, 101 to 200 and 201 to 250, and the third says `HasMore` false. Every message is seen once, in UID order, and `ReadMessageAsync` reads the last back as a `SurlMailMessage`: order 250. `HasMore` is exact. With 200 messages the second page is full and already says false, so the walk never asks for an empty page.
+
+The walk goes by UID, not by position, and that is what keeps it honest while the mailbox changes. A UID names one message for good, and a new message always gets a larger one than any before it (<<rfc9051>>). A message delivered after the first page becomes UID 251 and turns up on the last page. When Ann{apos}s mail client deletes UID 10, already seen, after the first page, the next page still starts at UID 101. The program plays that client with `Curl.Api`: a `CurlClient` and two `CurlRequest`s on the INBOX URL with `CurlAuthenticationOptions` for Ann{apos}s login, whose `CustomRequest` is the IMAP command, `UID STORE 10 +FLAGS (\Deleted)` and then `EXPUNGE`; each `CurlResponse` body is the server{apos}s answer, which the program discards. Counting by position instead, a walk that skipped the first 100 would now start at UID 102: the 101st message has moved, and UID 101 would be missed.
+
+The limit is 1 to 1000. A page of 1001 is refused with `SurlReadRefusedException`, `The limit must be 1 to 1000.`; the store does not cut it down for you.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-page-through-messages-from-an-agent>> for the same walk run by an agent.
+* <<imap-fetch-only-new-messages-in-csharp>> for fetching only what came since the last pass.
+* <<http-list-a-folder-page-by-page-in-process>> for paging through files.
+* <<surl-readme>>, <<rfc9051>>.

@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: s3-upload-a-large-object-in-parts-from-an-agent
+title: Uploading a Large Object from an Agent
+protocols: [s3]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, list_files]
+curl-options: [-s, --max-time, --cacert, --connect-to, --aws-sigv4, -u, -X, -T, -o, -w, --data-binary]
+exit-codes: [0]
+references: [surl-readme, curl-readme, aws-s3-api]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1, good for 30 days,
+# signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The agent starts a multipart upload of an 11,000,000-byte file with the curl tool, puts three parts of at most 5 MiB and completes it, each answered 200; list_files shows backup.tar, 11000000 bytes, in the bucket, the same as the file sent.
+    program: program.cs
+    args: [upload]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "initiate: 200\npart 1: 200\npart 2: 200\npart 3: 200\ncomplete: 200\nbucket holds: backup.tar 11000000 bytes\nsame as the file: True\n"
+
+  - id: too-large
+    claim: With 13,000,000 bytes, parts 1 and 2 (10 MiB) are taken and part 3, which takes the upload past --max-filesize 12M, is answered 400 EntityTooLarge; the server has already dropped the upload, so the abort is answered 404, and list_files finds the bucket empty.
+    program: program.cs
+    args: [huge]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "initiate: 200\npart 1: 200\npart 2: 200\npart 3: 400\nrefused: EntityTooLarge\nabort: 404\nbucket holds: nothing\n"
+
+  - id: parts-too-small
+    claim: Every part but the last must be at least 5 MiB; in 1,000,000-byte parts all eleven are taken, but the completion is answered 400 EntityTooSmall, the abort of the still-open upload is answered 204, and the bucket is empty.
+    program: program.cs
+    args: [small]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "initiate: 200\npart 1: 200\npart 2: 200\npart 3: 200\npart 4: 200\npart 5: 200\npart 6: 200\npart 7: 200\npart 8: 200\npart 9: 200\npart 10: 200\npart 11: 200\ncomplete: 400\nrefused: EntityTooSmall\nabort: 204\nbucket holds: nothing\n"

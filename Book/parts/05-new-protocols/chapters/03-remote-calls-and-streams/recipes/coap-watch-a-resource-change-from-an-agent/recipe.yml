@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs observe.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: coap-watch-a-resource-change-from-an-agent
+title: Observing CoAP Resources from an Agent
+protocols: [coap, http]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, get_exchanges, put_file]
+curl-options: [-s, -S, -m, -i, -X, -d, -T, -w, --coap-observe]
+exit-codes: [0]
+references: [rfc7252, rfc7641, surl-readme, curl-protocols, mcp-spec]
+
+# new.txt is what replaces thermostat.txt.
+fixtures:
+  new.txt: "setpoint=70"
+
+cases:
+  - id: solution
+    role: solution
+    claim: While the gateway's curl call observes thermostat.txt, a CoAP PUT from a second curl call is answered 2.04, and the gateway is sent setpoint=68 when it registers and then setpoint=70; its curl ends at -m 6 with exit 28.
+    program: observe.cs
+    args: [coap]
+    expect:
+      exit: 0
+      stdout: "change answered CoAP/1.0 2.04\nsetpoint=68\nsetpoint=70\ngateway exit 28\n"
+
+  - id: http-not-at-once
+    claim: An HTTP PUT of the same file, answered 204, sends the gateway nothing in the 6 seconds it observes.
+    program: observe.cs
+    args: [http]
+    expect:
+      exit: 0
+      stdout: "change answered 204\nsetpoint=68\ngateway exit 28\n"
+
+  - id: put-file-not-at-once
+    claim: Replacing the file with surl-mcp's put_file sends the gateway nothing in those 6 seconds either.
+    program: observe.cs
+    args: [put_file]
+    expect:
+      exit: 0
+      stdout: "put_file done\nsetpoint=68\ngateway exit 28\n"
+
+  - id: delete-ends
+    claim: A CoAP DELETE, answered 2.02, sends the gateway a last notification with no payload, written as an empty line, and its curl ends by itself with exit 0.
+    program: observe.cs
+    args: [delete]
+    expect:
+      exit: 0
+      stdout: "change answered CoAP/1.0 2.02\nsetpoint=68\n\ngateway exit 0\n"
+
+  - id: no-uploads
+    claim: Without --allow-uploads the CoAP PUT is answered 4.05 and the gateway is sent nothing.
+    program: observe.cs
+    args: [no-uploads]
+    expect:
+      exit: 0
+      stdout: "change answered CoAP/1.0 4.05\nsetpoint=68\ngateway exit 28\n"

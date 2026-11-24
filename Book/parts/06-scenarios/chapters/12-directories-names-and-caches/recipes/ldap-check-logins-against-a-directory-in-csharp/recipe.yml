@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: ldap-check-logins-against-a-directory-in-csharp
+title: Checking Logins Against a Directory in C#
+protocols: [ldap, http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlServerDirectory, SurlEventQuery, SurlEventKind, LoginJudgedEvent, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlAuthenticationOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0]
+references: [surl-readme, rfc4511, rfc4516, rfc7617]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed. Both servers use it.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# No servers: block. The program hosts both servers through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test logs in to the web server as alice and as bob, users it holds no account for, with their directory passwords; each login is checked against the seeded directory and the report is served, 200.
+    program: program.cs
+    args: []
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "alice: 200 q3 total: 1200\nbob: 200 q3 total: 1200\n"
+
+  - id: refused
+    claim: alice with a wrong password, carol whom the directory does not hold, and a request with no login are each answered 401.
+    program: program.cs
+    args: [refused]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "alice, wrong password: 401\ncarol: 401\nno login: 401\n"
+
+  - id: events
+    claim: The web server records one login judged, https, alice, accepted; the directory records two binds, svc's for the search and then alice's, both accepted.
+    program: program.cs
+    args: [events]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "alice: 200 q3 total: 1200\nweb: https alice accepted\ndirectory: ldap svc accepted\ndirectory: ldap alice accepted\n"

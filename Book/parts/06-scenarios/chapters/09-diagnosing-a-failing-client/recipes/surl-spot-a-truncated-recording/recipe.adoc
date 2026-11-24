@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-spot-a-truncated-recording]]
+=== Spotting a Truncated Recording
+
+==== Problem
+
+Your test judges a client by the exchanges the server recorded, and a big run fills the recording. You want the test to notice exchanges that were dropped or cut short, and refuse to pass or fail the client on a partial record.
+
+==== Solution
+
+Before reading `server.Exchanges`, check `DroppedExchangeCount`, `DroppedEventCount` and each record{apos}s `IsTruncated`; if any says the record is partial, fail the test for that reason:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions.RecordExchanges` makes the server keep what each client sent and was sent, byte for byte (<<surl-readme>>). It is not a `surl` option; it exists only in process, and it is bounded. `MaxRecordedExchanges`, 1000 by default, is how many exchanges are kept: past it the oldest is dropped and `SurlServer.DroppedExchangeCount` grows. `MaxRecordedBytesPerExchange`, 1 mebibyte by default, is how much of one exchange is kept, both directions together: past it no more of that exchange{apos}s bytes are kept, and its `SurlExchangeRecord.IsTruncated` is true. `MaxRecordedEvents`, 10000 by default, bounds the events kept beside them, counted in `DroppedEventCount`.
+
+The run is nine fetches through `Curl.Api`: eight of a short status file and one of `export.csv`, 13,000 bytes. Each uses its own `CurlClient`, disposed after its `CurlRequest` and `CurlResponse`, so each fetch is its own connection and its own exchange (<<curl-readme>>). With room for five exchanges of 4096 bytes, the server keeps five and drops four, the oldest first, and the export{apos}s exchange, the ninth, is truncated: its `Received` and `Sent` bytes add up to no more than 4096. The first line of `Received` names the request, `GET /export.csv HTTP/1.1`, so the failure says what was cut. Nothing in `Exchanges` says that four more exchanges happened; a test that read it alone would judge the client on five of nine.
+
+With the defaults the same run keeps all nine exchanges, none dropped or truncated, and the test goes on to its real checks. The event limit is separate: with `MaxRecordedEvents` at 10 every exchange is kept, but some of the events about them are dropped, `DroppedEventCount` is above 0, and the check fails on that too, since what a test reads from events would be incomplete. How many events nine fetches make is the server{apos}s business, and the case claims only that some were dropped.
+
+With `RecordExchanges` off there is no record at all. `DroppedExchangeCount` then throws `InvalidOperationException` rather than answer 0, so a test cannot mistake recording that was never on for a record with nothing missing.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-summarise-a-test-run-from-events>> for reading a run from its events.
+* <<smtp-see-exactly-what-an-app-sent-in-csharp>> for printing one recorded exchange.
+* <<surl-readme>>, <<curl-readme>>.

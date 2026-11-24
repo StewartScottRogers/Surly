@@ -1,0 +1,72 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: oci-push-and-pull-through-a-test-registry-in-csharp
+title: Pushing and Pulling Through a Registry
+protocols: [oci]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, oci-distribution, oci-image-spec, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own registry through Surl.Api. A failing test exits 1.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The build pushes build 41 under demo/app:1.0; the deploy pulls the manifest by its tag, finds it hashes to the digest the build pushed, as the registry's Docker-Content-Digest says too, and pulls the config and the layer, each hashing to its name; the test passes.
+    program: build-and-deploy.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "build pushed 1.0: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\ndeploy pulled :1.0: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275, the registry says sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nblob sha256:44136fa355b3: 2 bytes, hash ok\nblob sha256:33984613b012: 13 bytes, hash ok\nPASS: the deployed image is the one the build pushed\n"
+
+  - id: tag-moved
+    claim: When a rebuild pushes build 42 under the same tag first, the deploy of 1.0 pulls a manifest with another digest and the test fails, exit 1.
+    program: build-and-deploy.cs
+    args: [moved]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "build pushed 1.0: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nrebuild pushed 1.0: sha256:0bdf1c73f543e0ac481c1db12a0608afd498c076228adca73e717ea95a7b7b7c\ndeploy pulled :1.0: sha256:0bdf1c73f543e0ac481c1db12a0608afd498c076228adca73e717ea95a7b7b7c, the registry says sha256:0bdf1c73f543e0ac481c1db12a0608afd498c076228adca73e717ea95a7b7b7c\nFAIL: not the manifest the build pushed (sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275)\n"
+
+  - id: pinned-by-digest
+    claim: A deploy that pulls by the manifest's digest still gets build 41 after the tag moved, and passes.
+    program: build-and-deploy.cs
+    args: [pinned]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "build pushed 1.0: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nrebuild pushed 1.0: sha256:0bdf1c73f543e0ac481c1db12a0608afd498c076228adca73e717ea95a7b7b7c\ndeploy pulled @sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275: sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275, the registry says sha256:267a1a95fbd5b9ea80c16d403cfb6c46dfa46b3abc615dafa13acb32e452c275\nblob sha256:44136fa355b3: 2 bytes, hash ok\nblob sha256:33984613b012: 13 bytes, hash ok\nPASS: the deployed image is the one the build pushed\n"
+
+  - id: unknown-tag
+    claim: A deploy of a tag never pushed throws CurlException HttpReturnedError (22) naming 404 MANIFEST_UNKNOWN.
+    program: build-and-deploy.cs
+    args: [unknown]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout-matches: 'deploy failed: HttpReturnedError \(22\) The requested URL returned error: 404 \(MANIFEST_UNKNOWN'
+
+  - id: wrong-password
+    claim: A deploy with the wrong password gets no token, CurlException LoginDenied (67).
+    program: build-and-deploy.cs
+    args: [password]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout-matches: 'deploy failed: LoginDenied \(67\) The token endpoint answered 401 without a token\.'
+
+  - id: changed-layer-not-served
+    claim: When build 41's layer is overwritten in the store with other bytes of the same length, the registry answers 404 BLOB_UNKNOWN for it and the deploy fails after checking the config.
+    program: build-and-deploy.cs
+    args: [changed]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout-matches: 'layer overwritten in the store\n.*\nblob sha256:44136fa355b3: 2 bytes, hash ok\ndeploy failed: HttpReturnedError \(22\) The requested URL returned error: 404 \(BLOB_UNKNOWN'

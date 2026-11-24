@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[dns-change-answers-between-tests]]
+=== Changing DNS Answers Between Tests
+
+==== Problem
+
+Each of your tests needs a different Domain Name System (DNS) answer for the same name: the service at its old address, at its new one, or not there at all. You want one server for the whole run, with a zone added, reset and replaced between tests.
+
+==== Solution
+
+Seed each test{apos}s zone with `AddZoneAsync`, and call `ResetAsync` before the next test seeds its own; a reset with no seed after it leaves the name unanswered:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+One `SurlServer` serves DNS for every test: `SurlServerOptions.ListenUrls` holds one `dns://` URL on port 0, so the system picks a free port, and the server answers over UDP and TCP there (<<surl-readme>>). It starts with no zone. `SurlServerZones.AddZoneAsync` adds one zone, read from master-file text under its apex (<<rfc1035>>): here the SOA and NS records and one A record, `api`, at the address the test wants.
+
+The client asks as the code under test would: a `CurlClient` sends one `CurlRequest` per lookup, the bound `dns://` URL with the name as its path and `?type=A`, and the `CurlResponse` body is dig-like text, whose header line holds the status and whose answer line the address (<<curl-readme>>). The first test gets `NOERROR` and `192.0.2.10`.
+
+A zone cannot be replaced in place. A second `AddZoneAsync` for an apex the server already holds throws `SurlSeedRefusedException`, store `Zones`, refusal `a second zone for example.test`, and the name goes on answering the first test{apos}s address; a test that ignored the exception would test against the wrong answer. `ResetAsync` returns the server to how it was at start, and for zones, which come from calls and not from options, that is none: `SurlServerZones.ListAsync`, which names each apex with its final dot, answers `example.test.` before the reset and nothing after it. The second test then seeds its zone and gets `192.0.2.20`.
+
+The third test wants the name not to resolve. A reset alone does that: with no zone holding the name the server answers `REFUSED`, which is how an authoritative server says the name is not its business. A test that needs `NXDOMAIN` instead, a name that does not exist in a domain the server does serve, seeds the zone without the name (<<dns-seed-zones-for-a-test-class>> shows one).
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<dns-seed-zones-for-a-test-class>> for one zone kept across a class with a snapshot.
+* <<dns-point-a-client-at-a-test-zone-in-csharp>> for a client whose calls are resolved from the zone.
+* <<surl-reset-keys-directory-and-zones>> for resetting zones with other stores.
+* <<surl-readme>>, <<curl-readme>>, <<rfc1035>>.

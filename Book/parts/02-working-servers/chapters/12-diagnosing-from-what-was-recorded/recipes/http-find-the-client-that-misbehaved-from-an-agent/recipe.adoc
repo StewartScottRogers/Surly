@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-find-the-client-that-misbehaved-from-an-agent]]
+=== Finding the Misbehaving Client from an Agent
+
+==== Problem
+
+Several clients use one test server and one of them sends a malformed request. You want an agent to sift the server{apos}s recorded exchanges for that one request and say which client sent it.
+
+==== Solution
+
+Start a server with `surl-mcp`{apos}s `start_server`, let the clients run through `curl-mcp`{apos}s `curl` tool, then read `get_exchanges` and pair each answer of `400` with the request before it and the exchange{apos}s `client`. The program takes the three clients{apos} local ports as arguments:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program starts both hosts over standard input and output with the Model Context Protocol (MCP) SDK (<<mcp-spec>>), each confined to the case folder. `start_server` runs a Hypertext Transfer Protocol (HTTP) server on a free port with `hello.txt` in memory, and answers with `server_id` and `bound_urls`.
+
+Each client is one call of the `curl` tool, which runs `curl`{apos}s own words (<<curl-manual>>). `--local-port` makes it connect from the port given, standing in for clients on separate machines: on one machine every client is `127.0.0.1`, and only the port differs. `-s` silences the progress meter, `--max-time 30` bounds the call, `-w "%{http_code} "` prints each status, and `-o` with `--create-dirs` writes each body under `CURL_MCP_ROOT`. The search client makes its second request after `--next`, which starts a new set of options for the next URL on the same connection, and that set adds `-H "X-Request ID: 7"`, a header whose name has a space in it, which a field name may not have (<<rfc9110>>). The server answers it `400 Bad Request`. Every call still ends with `exitCode` 0: without `-f`, a status of `400` is an answer, not a failure, so no client reports anything.
+
+`get_events` with `kinds` `exchange_started` and then `exchange_ended` counts the connections that began and ended; the program waits, at most ten seconds, until the two counts agree, so the record is whole. `get_exchanges` then lists each exchange, a connection for HTTP, with its `client` (address and port) and its `chunks`, each with a `direction` (`received` or `sent`) and its `data` (<<surl-readme>>). There are three, one per `curl` tool call, all from `127.0.0.1`. A request head arrives as one received chunk and its answer head goes out as one sent chunk, so the program walks the chunks in order, remembers the last request it received, and when a sent chunk starts with `HTTP/1.1 400` prints that request with the exchange and its `client`.
+
+There is one such answer. Its exchange{apos}s `client` ends in the port the search client was given, and the request before it carries the `X-Request ID: 7` line: the agent can name the client and quote what it sent.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-find-the-client-that-misbehaved>> for the same search on the console, from `surl`{apos}s trace.
+* <<http-find-the-client-that-misbehaved-in-csharp>> for the same search from a C# program.
+* <<http-find-which-client-sent-bad-requests>> for clients told apart by the listener they used.
+* <<rfc9110>>, <<surl-readme>>, <<curl-manual>>, <<mcp-spec>>.

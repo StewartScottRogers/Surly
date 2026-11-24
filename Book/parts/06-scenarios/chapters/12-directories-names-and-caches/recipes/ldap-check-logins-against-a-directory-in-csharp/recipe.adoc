@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ldap-check-logins-against-a-directory-in-csharp]]
+=== Checking Logins Against a Directory in C#
+
+==== Problem
+
+Your users live in a Lightweight Directory Access Protocol (LDAP) directory. In a C# test, you want the HTTP server to check passwords against a directory the test seeds, and the test to log in as one of the directory{apos}s users.
+
+==== Solution
+
+Host two servers in-process, an LDAP directory seeded with the people and a web server pointed at it with `--user-ldap`, and log in to the web server with `Curl.Api` as a directory user:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). The first `SurlServer` is the directory, an `ldap://` listen URL with `CertificateFile` and `KeyFile` so it can upgrade a connection with StartTLS; the certificate, made in setup, names `127.0.0.1`. This directory checks a bind against its `Accounts`, not against a password in an entry, so it holds a `SurlAccount` for each of `alice` and `bob`, and one for `svc`, the web server{apos}s service account. `AddEntriesAsync` on its `SurlServerDirectory` seeds it at run time with LDAP Data Interchange Format text: `dc=example,dc=com`, the `ou=people` branch and an entry for each person (<<rfc4511>>).
+
+The second is the web server: an `https://` listen URL with the same certificate, the report in `Files`, and one account of its own, `ops`. It has no property for `--user-ldap`, so the option and its value go in `AdditionalArguments`. The value is an LDAP URL (<<rfc4516>>) for the directory{apos}s port and the base `ou=people,dc=example,dc=com`, then settings after semicolons: `bind-dn` and `bind-password-file` make it search as `svc`, with the password read from the file{apos}s first line, and `ca-file` is the certificate it trusts for the directory. For a login it holds no account for, the web server searches under the base for the entry whose `uid` is the login name, then binds as that entry with the password sent, over a connection upgraded with StartTLS (<<surl-readme>>). The `ops` account matters: a web server whose only accounts are in the directory asks no login for a `GET` (<<ldap-check-logins-against-a-directory>>).
+
+The test is one `CurlClient`, created with `CurlClientOptions` whose `Timeout` bounds each request at 30 seconds. Each `CurlRequest` trusts `server.pem` through `CurlTlsOptions` and a `CurlTlsPeerOptions` `CertificateAuthorityBlob`, and `CurlAuthenticationOptions` with `UserName` and `Password` sends HTTP Basic authentication (<<rfc7617>>), the login that carries the password itself, as the bind needs. The `CurlResponse` for `alice` and for `bob` is `200` with the report. A wrong password is `401`; so is `carol`, whom the directory does not hold, and so is a request with no login.
+
+`RecordExchanges` keeps each server{apos}s events. `FindEvents` with a `SurlEventQuery` for `SurlEventKind.LoginJudged` gives `LoginJudgedEvent`s: on the web server one, scheme `https`, account `alice`, accepted. On the directory there are two, both `ldap` and accepted, `svc`{apos}s bind for the search and then `alice`{apos}s own: the directory saw her password checked, and the web server saw her let in. The program waits, for at most ten seconds, for the directory{apos}s exchange to end before it reads them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ldap-check-logins-against-a-directory>> for the same task on the console.
+* <<ldap-check-logins-against-a-directory-from-an-agent>> for the same task run by an agent.
+* <<ldap-seed-a-directory-in-process>> for seeding a directory with `AddEntriesAsync`.
+* <<surl-readme>>, <<rfc4511>>, <<rfc4516>>, <<rfc7617>>.

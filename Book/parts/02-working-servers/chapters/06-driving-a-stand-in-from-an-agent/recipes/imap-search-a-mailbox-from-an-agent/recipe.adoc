@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-search-a-mailbox-from-an-agent]]
+=== Searching a Mailbox from an Agent
+
+==== Problem
+
+You want an agent to search a seeded mailbox by subject over Internet Message Access Protocol (IMAP) and fetch the matching messages by their unique identifiers (UIDs).
+
+==== Solution
+
+The program starts both hosts and an IMAP server, seeds five messages, sends `UID SEARCH SUBJECT invoice` with the `curl` tool, and fetches each UID in the answer:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, on port 0 so the system picks a free one, and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` and a `--mailbox` for Ann, the account that logs in with her address. `seed_mail` puts five messages straight into her INBOX, UIDs 1 to 5, three of them about invoices.
+
+The `curl` tool runs `curl` with its own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. Every call logs in with `-u ann@example.com:annpass`, and has `-s` to keep the progress meter out and `-S` to keep an error line in (<<curl-manual>>). `-X` sends an IMAP command of the agent{apos}s choosing on the URL{apos}s folder, here `UID SEARCH SUBJECT invoice` on the INBOX. `SUBJECT` matches a string anywhere in the subject, letter case ignored (<<rfc9051>>), so `Invoice 1001 for October` and `Overdue: invoice 1001` both match, and the answer is `* SEARCH 1 3 5`. A quoted phrase is one string: `SUBJECT "invoice 1001"` answers 1 and 5. A search that matches nothing answers `* SEARCH` and nothing else, so the agent reads the list, not the exit code.
+
+The agent then fetches each match with the URL `INBOX;UID=n;SECTION=HEADER.FIELDS%20(SUBJECT)`, which asks for that message{apos}s `Subject` field and nothing more. A UID the mailbox does not have makes `curl` exit `78`, `Remote file not found`. The fetch is a client{apos}s read and marks the message `\Seen`: `list_messages` shows the flag on UIDs 1, 3 and 5 and none on 2 and 4, so an agent testing a mail client{apos}s unread count should fetch before the client looks, or not at all.
+
+Use `UID SEARCH`, not a plain search, when the answer will be used to fetch. `curl`{apos}s own search syntax, a query on the folder URL such as `INBOX?SUBJECT%20invoice`, sends a plain `SEARCH`, which answers message numbers: positions in the folder, which close up when a message is deleted. After Ann{apos}s client deletes UID 2, with `UID STORE 2 +FLAGS (\Deleted)` and `EXPUNGE`, that query answers `1 2 4` while `UID SEARCH` still answers `1 3 5`. Taking the first answer{apos}s `2` as a UID would ask for the deleted message, and `4` would fetch the lunch invitation.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-search-by-sender-and-date-from-an-agent>> for searching by sender and date.
+* <<imap-seed-a-thread-of-replies-from-an-agent>> for searching by header.
+* <<imap-page-through-messages-from-an-agent>> for walking a whole mailbox.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9051>>.

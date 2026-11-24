@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[oci-push-and-pull-through-a-test-registry]]
+=== Pushing and Pulling Through a Registry
+
+==== Problem
+
+Your build pushes a container image and a deploy step pulls it, and you want both to run against a local registry, with the deploy checking that the manifest it pulled is the one the build pushed.
+
+==== Solution
+
+Run `surl` as an Open Container Initiative (OCI) registry, push the image with one `curl`, and run the deploy step, a short script that needs a POSIX shell (Git Bash on Windows). It pulls the manifest, compares its SHA-256 digest with the one the build pushed, then pulls and checks each blob the manifest names:
+
+[source,sh]
+----
+include::deploy.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` on an `oci` listen URL is a registry that speaks the OCI Distribution Specification (<<oci-distribution>>, <<surl-readme>>). `--directory store` is its store on disk, `--user` adds an account for the build and one for the deploy, and `--allow-uploads` lets a login push; without it the token endpoint grants pulls only. The listener is Transport Layer Security (TLS) from the first byte (<<rfc8446>>): the `openssl` line makes a certificate for `127.0.0.1`, `--cert` and `--key` serve it, and `--cacert server.pem` makes `curl` trust it. `-u` gives `curl` the account it logs in with at the registry{apos}s token endpoint; a wrong password gets no token, and `curl` exits `67`.
+
+An image is blobs and a manifest. Each blob is addressed by the SHA-256 digest of its bytes; the manifest, a JavaScript Object Notation (JSON) document, names the config and the layers by digest and size, and is pushed under a tag (<<oci-image-spec>>). In `curl`, `oci://HOST/demo/app@sha256:DIGEST` is a blob and `oci://HOST/demo/app:1.0` a manifest; `-T` pushes the file it names to the URL after it, so the build{apos}s one command pushes the empty config, the layer and then the manifest (<<curl-protocols>>). The order matters, since the registry refuses a manifest that names a blob it does not hold (<<oci-push-and-pull-an-image>>). The push leaves the store in OCI image layout: each blob, the manifest among them, is a file under `store/demo/app/blobs/sha256/`, and `index.json` records the tag `1.0` against the manifest{apos}s digest and size.
+
+The build knows its manifest{apos}s digest, `sha256:267a1a...`, because it is the SHA-256 of `manifest.json`, and passes it to the deploy. The deploy pulls `demo/app:1.0` with `-o pulled.json`, keeping the response headers with `-D pull.headers`, and hashes what it got with `openssl dgst -sha256`. The two agree, and so does the registry{apos}s own `Docker-Content-Digest` header. Then it pulls each blob the manifest names, by digest, and checks that each hashes to its name. `-s` and `-S` keep `curl` quiet but for its errors. A tag the build never pushed stops the deploy at the pull: `404 MANIFEST_UNKNOWN`, exit `22`.
+
+The check matters because a tag is a name that can be moved. When a rebuild pushes build 42 under `1.0`, the deploy of `1.0` pulls a manifest with another digest, says so, and exits `1`, rather than deploying an image nobody tested. A deploy that pulls by the manifest{apos}s digest, `demo/app@sha256:267a1a...`, still gets build 41 after the tag has moved, since a digest names one set of bytes. And when build 41{apos}s layer file in the store is overwritten with other bytes of the same length, the file no longer hashes to its name, and `surl` answers as though the blob were not there: `404 BLOB_UNKNOWN`, exit `22`, and the deploy stops before it uses the layer.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<oci-push-and-pull-through-a-test-registry-in-csharp>> for the same build and deploy in a C# test.
+* <<oci-push-and-pull-through-a-test-registry-from-an-agent>> for an agent that pushes, pulls and compares the digests.
+* <<oci-push-and-pull-an-image>> for the push, the pull and the registry{apos}s refusals on their own.
+* <<oci-check-an-image-landed>> for checking the store after a push.
+* <<surl-readme>>, <<curl-protocols>>, <<oci-distribution>>, <<oci-image-spec>>, <<rfc8446>>.

@@ -1,0 +1,101 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: dns-resolve-names-over-tls
+title: Resolving Names over DNS over TLS
+protocols: [dns, http]
+tier: new-protocols
+surl-options: [--directory, --cert, --key, --dns-transport]
+curl-options: [-s, -S, --max-time, --dns-transport, --cacert, --resolve, --dns-over-tls]
+exit-codes: [0, 2, 6, 58, 60]
+references: [surl-readme, curl-manual, rfc1035]
+
+# The test zone gives api.example.test the loopback address; the service behind it serves one file.
+# call-by-name.sh is the client: it looks the name up over DNS over TLS, then calls the service at
+# the address the answer gave.
+fixtures:
+  site/.surl/dns/example.test.zone: |
+    $ORIGIN example.test.
+    $TTL 300
+    @   IN SOA ns1.example.test. hostmaster.example.test. 1 3600 600 86400 300
+    @   IN NS  ns1.example.test.
+    api IN A   127.0.0.1
+  site/status.txt: "orders api: up\n"
+  call-by-name.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Usage: sh call-by-name.sh DNS-PORT NAME HTTP-PORT PATH. Looks NAME up over DNS over TLS on
+    # 127.0.0.1:DNS-PORT, trusting server.pem, then fetches http://NAME:HTTP-PORT/PATH from the
+    # address the answer gave. A failed lookup exits with curl's code; no A record exits 6.
+    answer=$(curl -sS --max-time 10 --dns-transport tls --cacert server.pem "dns://127.0.0.1:$1/$2") || exit
+    addr=$(printf '%s\n' "$answer" | awk -F '\t' 'NF == 5 && $4 == "A" { print $5; exit }')
+    if [ -z "$addr" ]; then echo "$2 did not resolve" >&2; exit 6; fi
+    echo "$2 is $addr"
+    curl -sS --max-time 10 --resolve "$2:$3:$addr" "http://$2:$3$4"
+
+# The certificate the DNS over TLS listener serves; the client trusts it with --cacert.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# One surl: the zone over DNS over TLS alone on {{port}}, and the service on {{port2}}.
+servers:
+  main:
+    command: surl --directory site --cert server.pem --key server.key --dns-transport tls dns://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: The script looks api.example.test up over DNS over TLS, gets 127.0.0.1 from the test zone, and its call to that address with the name in the URL reaches the test server, which answers its status file.
+    run: sh call-by-name.sh {{port}} api.example.test {{port2}} /status.txt
+    expect:
+      exit: 0
+      stdout: "api.example.test is 127.0.0.1\norders api: up\n"
+
+  - id: the-answer
+    claim: The lookup itself, curl's dns URL with --dns-transport tls and --cacert, is answered NOERROR with the zone's A record, TTL 300.
+    run: curl -sS --max-time 10 --dns-transport tls --cacert server.pem dns://127.0.0.1:{{port}}/api.example.test
+    expect:
+      exit: 0
+      stdout-matches: 'status: NOERROR,[\s\S]*;; ANSWER SECTION:\napi\.example\.test\.\t300\tIN\tA\t127\.0\.0\.1\n'
+
+  - id: nxdomain
+    claim: A name under the apex that the zone does not hold, old-api.example.test, is answered NXDOMAIN with no answer records.
+    run: curl -sS --max-time 10 --dns-transport tls --cacert server.pem dns://127.0.0.1:{{port}}/old-api.example.test
+    expect:
+      exit: 0
+      stdout-matches: 'status: NXDOMAIN,[\s\S]*ANSWER: 0,'
+
+  - id: name-not-in-zone
+    claim: For that name the script finds no address, exits 6 and makes no call.
+    run: sh call-by-name.sh {{port}} old-api.example.test {{port2}} /status.txt
+    expect:
+      exit: 6
+      stderr-contains: "old-api.example.test did not resolve"
+
+  - id: untrusted-certificate
+    claim: Without --cacert curl cannot verify the server's self-made certificate and the lookup fails with exit 60.
+    run: curl -sS --max-time 10 --dns-transport tls dns://127.0.0.1:{{port}}/api.example.test
+    expect:
+      exit: 60
+
+  - id: dns-over-tls-resolver
+    claim: curl's own --dns-over-tls resolver checks the server against the system's trust store and not --cacert, so with a test certificate the lookup fails and curl exits 6.
+    run: curl -sS --max-time 10 --dns-over-tls 127.0.0.1:{{port}} --cacert server.pem http://api.example.test:{{port2}}/status.txt
+    expect:
+      exit: 6
+      stderr-contains: "Could not resolve host: api.example.test"
+
+  - id: needs-a-certificate
+    claim: A DNS over TLS listener with no --cert is refused at start, exit 58.
+    run: surl --dns-transport tls dns://127.0.0.1:{{port3}}/
+    expect:
+      exit: 58
+      stderr-contains: "needs a certificate: give --cert <file>, or --self-signed for a throwaway one"
+
+  - id: tcp-and-tls-one-port
+    claim: Plain TCP and TLS cannot share one port, since a connection's first bytes could be either; surl refuses the pair with exit 2.
+    run: surl --cert server.pem --key server.key --dns-transport tcp,tls dns://127.0.0.1:{{port3}}/
+    expect:
+      exit: 2
+      stderr-contains: "--dns-transport tcp and tls cannot share port"

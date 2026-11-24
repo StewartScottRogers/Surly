@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-a-refused-seed-from-an-agent]]
+=== Catching a Refused Seed from an Agent
+
+==== Problem
+
+Your agent seeds mail into a stand-in mail server for an address the server does not serve, a typo of a real mailbox. You want the agent to read the refusal and seed the mailbox it meant, rather than carry on with an empty one.
+
+==== Solution
+
+The program starts both hosts and a mail server for one domain. `seed_mail` for the mistyped address is a tool error; the agent reads the refusal, picks the mailbox it meant from those it started the server with, seeds that, and checks it with `list_messages`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` is the domain served, and each `--mailbox` adds a mailbox and the account that logs in to it, Ann{apos}s and the shop{apos}s. The agent keeps that list; it is how it knows which addresses are real.
+
+`seed_mail` puts a message straight into the mail store, as Simple Mail Transfer Protocol (SMTP) would after the `RCPT TO` for its `to` address. For `anne@example.com`, one letter too many, it answers with a tool error whose text is `Mail: Mail for anne@example.com was refused: NoSuchAccount.`: the address is inside the domain, but no mailbox has it. The agent takes the word after `was refused:` and acts on it. For `NoSuchAccount` it looks for a mailbox of its own in the same domain whose name the address begins with, finds `ann@example.com`, and seeds that, which answers `{"delivered":true}`; `list_messages` then finds one message in Ann{apos}s INBOX. The refused seed itself changed nothing: `get_events`, asked for `store_changed` events in the `mail` store, finds none.
+
+The other refusals call for other fixes, which is why the agent reads the word rather than retrying blindly. `ann@example.org`, outside every mail domain, is `RelayingDenied`: the agent named the wrong domain, or the server needs another `--mail-domain`. `ann`, which is not an address, is `InvalidAddress`.
+
+Over SMTP the same mistake is silent. The `curl` tool runs `curl` with `-u` for the shop{apos}s login, `--mail-from`, `--mail-rcpt anne@example.com`, `-T order.eml` for the message, a fixture in the folder both hosts are confined to, `-s` to keep the progress meter out and `-S` to keep an error line in, and `-w "%{response_code}"` to print the last reply (<<curl-manual>>). It exits `0` and the reply is `250`. Then nothing: `wait_for_event` for a change to the mail store answers `{"timed_out":true}` after its `timeout_ms` of two seconds, and `list_mailboxes` for the address is a tool error, `No mailboxes for anne@example.com.`. A server that refused unknown addresses inside its own domain would tell a stranger which addresses exist, so it accepts them and discards the mail (<<rfc5321>>). A seed is the test{apos}s own setup, not a stranger, so it is refused instead.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-a-refused-seed>> for the same task in C#.
+* <<smtp-seed-mail-from-an-agent>> for seeding a mailbox and reading it back.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

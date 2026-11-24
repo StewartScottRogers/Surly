@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: oci-check-a-pushed-image-manifest
+title: Checking a Pushed Image's Manifest
+protocols: [oci]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlNotFoundException, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlTlsOptions, CurlTlsPeerOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, oci-distribution, oci-image-spec, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own registry through Surl.Api. A failing test exits 1.
+# The image: an empty config (2 bytes), two layers (16 and 26 bytes) and a 479-byte manifest.
+
+cases:
+  - id: solution
+    role: solution
+    claim: After the push, index.json in the store tags 1.0 with the manifest's digest and size; the stored manifest hashes to that digest and is the pushed bytes; the config and both layers it names are present, the size it says, and hash to their names; the test passes.
+    program: check-manifest.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "index.json: 1.0 -> sha256:05d4c22255b4, 479 bytes\nmanifest sha256:05d4c22255b4: hash ok, the pushed bytes: True\nblob sha256:44136fa355b3: present, 2 bytes, hash ok\nblob sha256:f669b3e4e480: present, 16 bytes, hash ok\nblob sha256:e2cc2c09c989: present, 26 bytes, hash ok\nPASS: image 1.0 landed whole\n"
+
+  - id: no-manifest
+    claim: A push of the blobs without the manifest leaves them in the store with no index.json, so no tag; the test fails.
+    program: check-manifest.cs
+    args: [no-manifest]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "index.json: none, so no tag points at a manifest\nblobs in the store: 3\nFAIL: image 1.0 did not land\n"
+
+  - id: missing-layer
+    claim: A manifest that names a layer the build never pushed is refused 400 MANIFEST_BLOB_UNKNOWN, CurlException HttpReturnedError (22), and no tag is recorded.
+    program: check-manifest.cs
+    args: [missing-layer]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "push failed: HttpReturnedError (22) The requested URL returned error: 400 (MANIFEST_BLOB_UNKNOWN: manifest references a manifest or blob unknown to registry)\nindex.json: none, so no tag points at a manifest\nblobs in the store: 2\nFAIL: image 1.0 did not land\n"
+
+  - id: lost-layer
+    claim: When a layer is deleted from the store after the push, the check finds it missing and the test fails.
+    program: check-manifest.cs
+    args: [lost-layer]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "index.json: 1.0 -> sha256:05d4c22255b4, 479 bytes\nmanifest sha256:05d4c22255b4: hash ok, the pushed bytes: True\nblob sha256:44136fa355b3: present, 2 bytes, hash ok\nblob sha256:f669b3e4e480: present, 16 bytes, hash ok\nblob sha256:e2cc2c09c989: MISSING\nFAIL: image 1.0 landed with 1 problem(s)\n"
+
+  - id: corrupt-layer
+    claim: A layer overwritten in the store with other bytes of the same length passes a size check and fails the hash check.
+    program: check-manifest.cs
+    args: [corrupt-layer]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "index.json: 1.0 -> sha256:05d4c22255b4, 479 bytes\nmanifest sha256:05d4c22255b4: hash ok, the pushed bytes: True\nblob sha256:44136fa355b3: present, 2 bytes, hash ok\nblob sha256:f669b3e4e480: 16 bytes as the manifest says, but the content does not hash to its name\nblob sha256:e2cc2c09c989: present, 26 bytes, hash ok\nFAIL: image 1.0 landed with 1 problem(s)\n"
+
+  - id: digest-checked
+    claim: Curl.Api hashes a blob before it sends it; a layer pushed under a digest that is not its own throws CurlException UploadFailed (25) naming both digests, and the manifest is never pushed.
+    program: check-manifest.cs
+    args: [digest-checked]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "push failed: UploadFailed (25) The upload's digest sha256:e2cc2c09c989aa2d5c2092312d5e747972c6a0b987edd4b53f2ce922f3ddf7ae does not match the URL's sha256:f669b3e4e4801d51b0ecf4b732f9beaee4f7923d1c0abc524e2f1b564e620888.\nindex.json: none, so no tag points at a manifest\nblobs in the store: 2\nFAIL: image 1.0 did not land\n"

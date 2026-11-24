@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-find-the-malformed-request-from-an-agent
+title: Finding the Malformed Request
+protocols: [http]
+tier: advanced
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges]
+curl-options: [-s, --max-time, -A, -H, -o, -w]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-manual, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: clients-see-statuses
+    claim: The four client requests are answered 200, 400, 404 and 200, and every curl tool call ends with exitCode 0.
+    program: find-malformed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\Abilling/1\.4 /prices\.csv: 200, exitCode 0\ninventory/2\.0 /stock\.csv: 400, exitCode 0\nreports/3\.1 /summary\.csv: 404, exitCode 0\nbilling/1\.4 /stock\.csv: 200, exitCode 0\n'
+
+  - id: solution
+    role: solution
+    claim: From the exchange bytes, the refused request is inventory/2.0's GET /stock.csv, answered 400, and its fifth line, X-Api-Key with a space before the colon, has a field name that is not a token.
+    program: find-malformed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nexchange \d+: GET /stock\.csv HTTP/1\.1 from inventory/2\.0, answered 400\n  line 5 is malformed: "X-Api-Key : k-7731", its field name "X-Api-Key " is not a token\n'
+
+  - id: a-404-is-well-formed
+    claim: The reports client's 404 is also an answer of 400 or more, but every line of its request is well formed, so it is a missing file, not a malformed request.
+    program: find-malformed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nexchange \d+: GET /summary\.csv HTTP/1\.1 from reports/3\.1, answered 404\n  every header line is well formed\n'
+
+  - id: only-one
+    claim: Of the four requests recorded, exactly one is malformed.
+    program: find-malformed.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nmalformed requests: 1\n\Z'

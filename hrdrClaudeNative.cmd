@@ -21,7 +21,7 @@ REM  It performs these steps, each a no-op if already satisfied:
 REM
 REM      [1/7] Ensure git            (installs via winget if missing)
 REM      [2/7] Ensure Node.js / npm  (installs via winget if missing)
-REM      [3/7] Ensure Claude Code    (installs/updates via npm)
+REM      [3/7] Ensure Claude Code    (installs/updates via npm, plus ByteRover's MCP server)
 REM      [4/7] Ensure herdr          (installs/updates the terminal multiplexer)
 REM      [5/7] Clone / update repo   (into %USERPROFILE%\Surly)
 REM      [6/7] Ensure herdr server   (starts a compatible one if needed)
@@ -175,6 +175,47 @@ echo       updating Claude Code ...
 call claude update 2>nul
 
 :claude_ready
+
+REM  ByteRover (npm byterover-cli, command "brv") gives Claude a persistent memory
+REM  through its MCP server, "brv mcp". It replaces the older @byterover/cipher
+REM  server. Install it globally when missing, and update it only when npm has a
+REM  newer release: reinstalling while a "brv mcp" is running can fail half-way on
+REM  locked files, so it is not reinstalled on every launch (offline, the installed
+REM  copy is kept). Then make Claude Code's user-scope MCP list name "byterover" as
+REM  "cmd /c brv mcp" -- the same entry the Surl launcher writes, so the two never
+REM  overwrite each other -- and drop any "cipher" entry left from before. Node, not
+REM  PowerShell, reads ~/.claude.json for the check (Windows PowerShell's
+REM  ConvertFrom-Json rejects its keys that differ only in case), and the entries
+REM  are rewritten only when they differ. ByteRover asks you to sign in
+REM  ("brv login") on first use -- that cannot be baked in.
+echo       checking ByteRover (byterover-cli) ...
+set "BRV_PKG=%APPDATA%\npm\node_modules\byterover-cli"
+if not exist "%BRV_PKG%\package.json" goto :brv_install
+set "BRV_HAVE="
+set "BRV_LATEST="
+for /f "usebackq delims=" %%V in (`node -p "require(process.env.BRV_PKG + '/package.json').version" 2^>nul`) do set "BRV_HAVE=%%V"
+for /f "usebackq delims=" %%V in (`call "%NPM%" view byterover-cli version 2^>nul`) do set "BRV_LATEST=%%V"
+if not defined BRV_LATEST goto :brv_register
+if "%BRV_HAVE%"=="%BRV_LATEST%" goto :brv_register
+:brv_install
+echo       installing / updating byterover-cli ...
+call "%NPM%" install -g byterover-cli@latest --no-fund --no-audit --loglevel=error >nul 2>nul
+if not exist "%BRV_PKG%\package.json" (
+    echo       warning: byterover-cli could not be installed; continuing without it
+    goto :brv_ready
+)
+:brv_register
+node -e "let m = {}; try { m = require(process.env.USERPROFILE + '/.claude.json').mcpServers || {} } catch (e) {} const s = m.byterover; process.exit(!m.cipher && s && s.command === 'cmd' && JSON.stringify(s.args) === JSON.stringify(['/c', 'brv', 'mcp']) ? 0 : 1)"
+if not errorlevel 1 (
+    echo       ByteRover MCP server already registered
+    goto :brv_ready
+)
+echo       registering the ByteRover MCP server with Claude Code ...
+call claude mcp remove cipher -s user >nul 2>nul
+call claude mcp remove byterover -s user >nul 2>nul
+call claude mcp add -s user byterover -- cmd /c brv mcp
+
+:brv_ready
 
 
 REM -----------------------------------------------------------------------------

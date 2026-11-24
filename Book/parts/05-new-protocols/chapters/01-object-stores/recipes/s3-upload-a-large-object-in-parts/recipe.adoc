@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-upload-a-large-object-in-parts]]
+=== Uploading a Large Object
+
+==== Problem
+
+Your app uploads files to Amazon Simple Storage Service (S3) that are large enough to go up in parts. You want a multipart upload stored whole, and one that goes over the server{apos}s size limit refused.
+
+==== Solution
+
+Serve the bucket with `--max-filesize`, and run the upload as S3 does it in parts: start it, put each part, and complete it with the parts{apos} numbers and entity tags (ETags). The uploader here is a short script that needs a POSIX shell (Git Bash on Windows):
+
+[source,sh]
+----
+include::upload-in-parts.sh[]
+----
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`surl` serves `store` with `--directory`: each folder under it is a bucket, so `store/backups` is the bucket `backups`. The `s3://` listen URL speaks Transport Layer Security (TLS) from the first byte, so it takes `--cert` and `--key`, a certificate made in setup that names `127.0.0.1` and every bucket{apos}s host in `us-east-1`. `--user` is the access key ID and secret, `--allow-uploads` lets a signed request write, since without it every write is refused, and `--max-filesize 12M` caps an upload at 12 mebibytes (MiB), 12,582,912 bytes; the default is 100M (<<surl-readme>>).
+
+The uploader is `curl`, one request per step, each to the bucket{apos}s own host name over HTTPS: `--connect-to` sends it to the local port, `--cacert` trusts the certificate, and `--aws-sigv4 aws:amz:us-east-1:s3` with `-u` signs it with AWS Signature Version 4 (SigV4). A multipart upload has three steps (<<aws-s3-api>>). `-X POST` to `?uploads` starts it and the answer carries an `UploadId`. Each part is a put, `-T`, to `?partNumber=<n>&uploadId=<id>`, and its answer carries the part{apos}s `ETag`, which `-w "%header{etag}"` prints beside the status. `--data-binary` posts a `CompleteMultipartUpload` document listing every part{apos}s number and ETag to `?uploadId=<id>`, and the server joins the parts into one object. The script writes that document to a file, since Git Bash would take an argument holding `</ETag>` for a path and rewrite it. `-o` keeps each answer for the script to read, `-w "%{http_code}"` prints the status, `-s` silences the progress meter (`-S` keeps an error line in the single commands), and `--max-time 60` bounds each request.
+
+`backup.tar`, 11,000,000 random bytes, goes up in three parts, two of 5 MiB and one of the rest, and every step is answered `200`. The object is the file `store/backups/backup.tar`, and `cmp` finds it byte for byte the one uploaded. `-I` asks for the object{apos}s head: `Content-Length` is the whole 11,000,000, and the ETag is a hash followed by `-3`, the number of parts the object was joined from.
+
+`huge.tar` is 13,000,000 bytes. Its first two parts come to 10 MiB and are taken; the third would take the upload past 12 MiB, and the server refuses it with `400` and the S3 code `EntityTooLarge`. The server has dropped the whole upload by then: the uploader{apos}s abort, `-X DELETE` to `?uploadId=<id>`, is answered `404`, and no object `huge.tar` was stored. The limit is on the object, however it arrives: sent as a single put, `huge.tar` is refused `400` as well. The limit is there so that a client cannot fill the server{apos}s disk; raise it with a larger `--max-filesize`, or `0` for none (<<surl-readme>>).
+
+S3 has a rule of its own for parts: every part but the last must be at least 5 MiB. Sent in parts of 1,000,000 bytes, `backup.tar`{apos}s eleven parts are each taken, but the completion is refused `400` `EntityTooSmall`. That upload is still open, so the abort is answered `204`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-upload-a-large-object-in-parts-in-csharp>> for the same task in C#.
+* <<s3-upload-a-large-object-in-parts-from-an-agent>> for the same task run by an agent.
+* <<s3-put-and-get-an-object>> for an object sent in one put.
+* <<surl-readme>>, <<curl-manual>>, <<aws-s3-api>>.

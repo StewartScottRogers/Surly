@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: pop3-refuse-a-second-session
+title: Refusing a Second POP3 Session
+protocols: [pop3, smtp]
+tier: working-servers
+surl-options: [-v, --log-file, --mail-domain, --mailbox]
+curl-options: [-s, -S, -v, -u, -o, --limit-rate, --crlf, --mail-from, --mail-rcpt, -T, -X, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 67]
+references: [surl-readme, curl-manual, rfc1939, rfc2449]
+
+fixtures:
+  report.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Monthly report\n\nOrders taken this month: 1,204.\nOrders shipped this month: 1,187.\nOrders returned this month: 31.\nOrders still waiting for stock: 17.\nOrders cancelled by the customer: 9.\nThe busiest day was the 14th, with 92 orders.\nThe quietest day was the 3rd, with 11 orders.\nThe warehouse in the north shipped 702 orders.\nThe warehouse in the south shipped 485 orders.\nThe average order was worth 38.20.\nThe largest order was worth 912.00.\nNext month's report follows on the first working day.\n"
+  two-clients.sh: |
+    #!/bin/sh
+    # Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+    # Two mail clients on Ann's maildrop at once. The first downloads message 1 slowly, so its
+    # session stays open; once the server has opened the maildrop for it, the second logs in.
+    # Usage: sh two-clients.sh <pop3 port>
+    url="pop3://127.0.0.1:$1"
+    opened=$(grep -c "Maildrop opened" surl.log)
+    curl -sS --limit-rate 100 -u ann@example.com:annpass -o first.eml "$url/1" &
+    first=$!
+    # Wait, at most ten seconds, until the server's log shows the first session's maildrop opened.
+    n=0
+    while [ "$(grep -c "Maildrop opened" surl.log)" -le "$opened" ] && [ $n -lt 50 ]; do sleep 0.2; n=$((n + 1)); done
+    curl -v -sS -u ann@example.com:annpass "$url/" 2> second.log
+    echo "second: exit $?"
+    grep -E "^< -ERR|^curl:" second.log | tr -d '\r'
+    wait $first
+    echo "first: exit $?"
+
+# SMTP to put the report in Ann's maildrop, POP3 for the two clients, over one mail store. -v and
+# --log-file keep the server's verbose log, which the script reads.
+servers:
+  main:
+    command: surl -v --log-file surl.log --mail-domain example.com --mailbox shop@example.com:shoppass --mailbox ann@example.com:annpass smtp://127.0.0.1:{{port}}/ pop3://127.0.0.1:{{port2}}/
+    ready: port
+
+seed:
+  - curl -sS --crlf -u shop@example.com:shoppass --mail-from shop@example.com --mail-rcpt ann@example.com -T report.eml smtp://127.0.0.1:{{port}}/shop.example.com
+  - curl -sS -o {{null}} --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass -X "LIST 1" pop3://127.0.0.1:{{port2}}/
+
+cases:
+  - id: solution
+    role: solution
+    claim: While the first client's session holds Ann's maildrop, the second client's login is answered -ERR [IN-USE] Maildrop is locked by another session and curl exits 67 with Login denied; the first client's download then finishes with exit 0.
+    run: sh two-clients.sh {{port2}}
+    expect:
+      exit: 0
+      stdout: "second: exit 67\n< -ERR [IN-USE] Maildrop is locked by another session\ncurl: (67) Login denied\nfirst: exit 0\n"
+
+  - id: lock-released
+    claim: Once the first client has quit, the lock is gone; a new session logs in and downloads message 1, exit 0.
+    run: curl -sS -u ann@example.com:annpass -o again.eml pop3://127.0.0.1:{{port2}}/1
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: first-unaffected
+    claim: The first client got the whole message; its copy and the later session's copy are byte for byte the same.
+    run: cmp first.eml again.eml
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: password-was-right
+    claim: The server's log shows the second login accepted and then the maildrop locked; the password was right and the refusal is the lock, although curl reports it as Login denied.
+    run: grep -A1 -e "Login accepted" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '#(\d+) \* Login accepted: CRAM-MD5 ann@example\.com\r?\n#\1 \* Maildrop locked by another session\r?\n'

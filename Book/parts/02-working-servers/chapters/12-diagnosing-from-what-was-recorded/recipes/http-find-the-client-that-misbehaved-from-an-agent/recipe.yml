@@ -1,0 +1,42 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-find-the-client-that-misbehaved-from-an-agent
+title: Finding the Misbehaving Client from an Agent
+protocols: [http]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, get_events, get_exchanges]
+curl-options: [-s, --max-time, --local-port, -w, -o, -H, --create-dirs]
+exit-codes: [0]
+references: [rfc9110, surl-readme, curl-manual, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Sifting get_exchanges finds one answer of 400; its exchange's client is 127.0.0.1 on the search client's local port, and the request before it carries the X-Request ID header.
+    program: find-the-misbehaving-client.cs
+    args: ["{{port2}}", "{{port3}}", "{{port4}}"]
+    expect:
+      exit: 0
+      stdout-matches: '\nanswered 400: exchange \d+, from 127\.0\.0\.1:\d+, the search client\n  GET /hello\.txt HTTP/1\.1\n  Host: 127\.0\.0\.1:\d+\n  User-Agent: curl/8\.22\.0\n  Accept: \*/\*\n  X-Request ID: 7\n\Z'
+
+  - id: client-says-nothing
+    claim: Every curl tool call ends with exitCode 0; the search client's second request is answered 400, the others 200.
+    program: find-the-misbehaving-client.cs
+    args: ["{{port2}}", "{{port3}}", "{{port4}}"]
+    expect:
+      exit: 0
+      stdout-matches: '\Abilling: exitCode 0, 200 200\nsearch: exitCode 0, 200 400\nreports: exitCode 0, 200 200\n'
+
+  - id: one-exchange-per-call
+    claim: The record holds three exchanges, one per curl tool call, all from 127.0.0.1, so only the port tells the clients apart.
+    program: find-the-misbehaving-client.cs
+    args: ["{{port2}}", "{{port3}}", "{{port4}}"]
+    expect:
+      exit: 0
+      stdout-matches: '\nexchanges: 3, clients: 127\.0\.0\.1\n'
