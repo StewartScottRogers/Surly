@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-serve-your-own-protocol-in-process
+title: Serving Your Own Protocol
+protocols: [echo]
+tier: advanced
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlProtocolServer, SurlProtocolServices, SurlFault, SurlEventQuery, SurlExchangeRecord, IConnectionProtocolServer, IConnection, ExchangeContext, ExchangeLimits, ExchangeEndedEvent]
+exit-codes: [0, 1]
+references: [surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its server, with its own protocol in it, through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The echo server registered for echo:// answers a session, hello echoed and QUIT answered BYE, and Surl records the exchange under the scheme echo, byte for byte both ways, without the server writing to the record.
+    program: own-protocol.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "hello\nBYE\nrecorded echo exchange: client sent hello\\r\\nQUIT\\r\\n, server sent hello\\r\\nBYE\\r\\n\n"
+
+  - id: events
+    claim: The session publishes an exchange_ended event that a wait with the scheme echo finds, counting 13 bytes received and 12 sent.
+    program: own-protocol.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout: "hello\nBYE\nexchange 1 ended: 13 bytes received, 12 sent\n"
+
+  - id: fault
+    claim: A drop rule on the echo listener, once, drops the first connection before any byte, so its client gets nothing back; the second session is answered.
+    program: own-protocol.cs
+    args: [fault]
+    expect:
+      exit: 0
+      stdout: "first session: nothing back\nsecond session: hello\nBYE\n"
+
+  - id: limit
+    claim: --max-line 16 reaches the server as ExchangeContext.Limits.MaxLineBytes; a short line is echoed and a longer one answered ERR line too long, which ends the session.
+    program: own-protocol.cs
+    args: [limit]
+    expect:
+      exit: 0
+      stdout: "short line\nERR line too long\n"
+
+  - id: idle
+    claim: With IdleTimeout of one second, a client that says nothing for three seconds gets nothing back; Surl ended the session on the server's behalf.
+    program: own-protocol.cs
+    args: [idle]
+    expect:
+      exit: 0
+      stdout: "after 3 s of silence: nothing back\n"
+
+  - id: scheme-taken
+    claim: Registering the custom server for http, a scheme Surl serves, is refused at start with ArgumentException; a custom server may only add a scheme.
+    program: own-protocol.cs
+    args: [taken]
+    expect:
+      exit: 1
+      stdout-matches: '^refused: ProtocolServers may only add a scheme: http is served by Surl or given twice\.'

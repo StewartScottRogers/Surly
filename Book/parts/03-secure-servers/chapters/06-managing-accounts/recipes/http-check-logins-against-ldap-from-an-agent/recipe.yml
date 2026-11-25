@@ -1,0 +1,68 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs ldap-logins.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: http-check-logins-against-ldap-from-an-agent
+title: Checking Logins against LDAP from an Agent
+protocols: [http, ldap]
+tier: secure-servers
+surface: mcp
+mcp-tools: [start_server, add_ldap_entries, add_account, remove_account, get_events, curl]
+curl-options: [-s, -S, --max-time, --cacert, -o, -w, -u]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc4511, rfc4516, rfc7617]
+
+# svc.pass is the web server's service password, read from a file inside the folder both hosts are confined to.
+fixtures:
+  svc.pass: "svcpass\n"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed. Both servers use it.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: alice, whom only the directory holds, logs in to the web server with her directory password through the curl tool and is served the report.
+    program: ldap-logins.cs
+    args: []
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "alice: 200 q3 total: 1200\n"
+
+  - id: starter
+    claim: carol, whom the directory does not hold, is refused 401; after add_ldap_entries adds her entry she is still refused, since the directory checks binds against its accounts; after add_account gives her an account too she logs in, 200, and the web server was not changed.
+    program: ldap-logins.cs
+    args: [starter]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "carol, not in the directory: 401\ncarol, entry only: 401\ncarol, entry and account: 200 q3 total: 1200\n"
+
+  - id: leaver
+    claim: After remove_account takes alice's account from the directory her next login to the web server is refused, 401.
+    program: ldap-logins.cs
+    args: [leaver]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "alice: 200 q3 total: 1200\nalice, account removed from the directory: 401\n"
+
+  - id: events
+    claim: get_events on the web server gives a login_judged event for each of carol's three logins, https and Basic, refused, refused and accepted.
+    program: ldap-logins.cs
+    args: [events]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "web judged: https Basic carol refused\nweb judged: https Basic carol refused\nweb judged: https Basic carol accepted\n"
+
+  - id: local-shadows
+    claim: A name the web server holds itself is never asked of the directory; bob with his directory password is refused 401 and with the web server's own password is served; and a request with no login is refused 401.
+    program: ldap-logins.cs
+    args: [shadow]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "bob, directory password: 401\nbob, the web server's own password: 200 q3 total: 1200\nno login: 401\n"

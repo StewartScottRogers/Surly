@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs watch-login.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: xmpp-watch-a-login-from-an-agent
+title: Watching an XMPP Login
+protocols: [xmpp]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, wait_for_event, get_events]
+curl-options: [-s, -S, --cacert, -u]
+exit-codes: [0, 1]
+references: [surl-readme, rfc6120, rfc7677, rfc4616, mcp-spec]
+
+fixtures: {}
+
+# The certificate and its key are made here, never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The client's login with a wrong password fails, curl exit 67 not-authorized; the server's login_judged event says alice tried SCRAM-SHA-256 and was refused, not by a fault rule, so the account and password did not match.
+    program: watch-login.cs
+    args: [wrong]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "client: exit 67, curl: (67) XMPP authentication failed: not-authorized\nagent: alice tried SCRAM-SHA-256; refused: the account and password did not match\n"
+
+  - id: right-password
+    claim: With the right password the same mechanism, SCRAM-SHA-256, is accepted and curl exits 0.
+    program: watch-login.cs
+    args: [right]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "client: exit 0\nagent: alice tried SCRAM-SHA-256; accepted\n"
+
+  - id: plain-alone
+    claim: On a server started with --auth plain, which offers PLAIN alone, the client logs in with PLAIN, and the event says so.
+    program: watch-login.cs
+    args: [plain]
+    timeout: 90
+    expect:
+      exit: 0
+      stdout: "client: exit 0\nagent: alice tried PLAIN; accepted\n"
+
+  - id: refused-by-fault
+    claim: A refuse-login fault added with add_fault refuses the right password; the client sees the same not-authorized, and only the event's is_refused_by_fault tells the two apart.
+    program: watch-login.cs
+    args: [fault]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "client: exit 67, curl: (67) XMPP authentication failed: not-authorized\nagent: alice tried SCRAM-SHA-256; refused by a fault rule, not by the password\n"
+
+  - id: no-credentials
+    claim: A client with no user name asks for SASL ANONYMOUS, which the server does not offer; curl exits 67 and no login_judged event is published.
+    program: watch-login.cs
+    args: [nologin]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout: "client: exit 67, curl: (67) XMPP server does not offer SASL ANONYMOUS\nagent: no login reached the server's judge\n"
+
+  - id: untrusted-certificate
+    claim: A client that does not trust the server's certificate fails the TLS handshake, curl exit 60, and no login_judged event is published.
+    program: watch-login.cs
+    args: [untrusted]
+    timeout: 90
+    expect:
+      exit: 1
+      stdout-matches: '^client: exit 60, curl: \(60\) [^\n]*\nagent: no login reached the server''s judge\n$'

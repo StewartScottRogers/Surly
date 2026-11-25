@@ -1,0 +1,73 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs trust-ca.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: https-trust-a-test-ca-end-to-end-from-an-agent
+title: Trusting a Test CA End to End from an Agent
+protocols: [https, smtps]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, list_messages]
+curl-options: [-s, -k, --cacert, --ssl-no-revoke, -u, --mail-from, --mail-rcpt, -T, -w]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5280, rfc8314]
+
+# The app's message to Ann, with the line ends mail needs.
+fixtures:
+  note.eml: "From: app@example.com\r\nTo: ann@example.com\r\nSubject: Signed by the test CA\r\n\r\nThis came over SMTPS.\r\n"
+
+# One test certificate authority (CA), and two server certificates it signs for 127.0.0.1: www for
+# HTTPS, mail for SMTPS. stray is signed by another authority, as a server nobody trusts.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 30 -subj "/CN=Test CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
+  - printf "subjectAltName=IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n" > server.ext
+  - openssl req -newkey rsa:2048 -nodes -keyout www.key -out www.csr -subj "/CN=127.0.0.1"
+  - openssl x509 -req -in www.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out www.pem -days 30 -extfile server.ext
+  - openssl req -newkey rsa:2048 -nodes -keyout mail.key -out mail.csr -subj "/CN=127.0.0.1"
+  - openssl x509 -req -in mail.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out mail.pem -days 30 -extfile server.ext
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout other.key -out other.pem -days 30 -subj "/CN=Other CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
+  - openssl req -newkey rsa:2048 -nodes -keyout stray.key -out stray.csr -subj "/CN=127.0.0.1"
+  - openssl x509 -req -in stray.csr -CA other.pem -CAkey other.key -CAcreateserial -out stray.pem -days 30 -extfile server.ext
+
+cases:
+  - id: solution
+    role: solution
+    claim: The curl tool, trusting only the test CA, fetches over HTTPS and sends over SMTPS (reply 250), both exit 0, and list_messages finds the mail in Ann's mailbox.
+    program: trust-ca.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "HTTPS: curl exit 0, hello from surl\nSMTPS: curl exit 0, reply 250\nann@example.com holds 1\n"
+
+  - id: without-the-ca
+    claim: Without --cacert both calls exit 60.
+    program: trust-ca.cs
+    args: [no-ca]
+    expect:
+      exit: 0
+      stdout: "HTTPS: curl exit 60\nSMTPS: curl exit 60\n"
+
+  - id: other-authority-refused
+    claim: A server whose certificate another authority signed, for the same address, is refused by the call that trusts only the test CA, exit 60.
+    program: trust-ca.cs
+    args: [stray]
+    expect:
+      exit: 0
+      stdout: "HTTPS: curl exit 60\n"
+
+  - id: insecure-hides-it
+    claim: With -k the call skips the check and fetches from that server, exit 0, which is why the agent never passes it.
+    program: trust-ca.cs
+    args: [insecure]
+    expect:
+      exit: 0
+      stdout: "HTTPS: curl exit 0, hello from surl\n"
+
+  - id: windows-checks-revocation
+    platforms: [windows]
+    claim: On Windows, without --ssl-no-revoke, the right --cacert still exits 60, because the test certificates name no revocation list.
+    program: trust-ca.cs
+    args: [revocation]
+    expect:
+      exit: 0
+      stdout: "HTTPS: curl exit 60\n"

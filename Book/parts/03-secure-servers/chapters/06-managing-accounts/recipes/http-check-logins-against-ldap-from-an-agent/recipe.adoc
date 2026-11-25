@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-check-logins-against-ldap-from-an-agent]]
+=== Checking Logins against LDAP from an Agent
+
+==== Problem
+
+Your real service checks passwords against the company{apos}s Lightweight Directory Access Protocol (LDAP) directory, and you want the test{apos}s web server to do the same instead of holding its own accounts. You want an agent driving `surl-mcp` and `curl-mcp` to run one server as the directory and another checking Hypertext Transfer Protocol (HTTP) logins against it, refusing a user the directory does not hold.
+
+==== Solution
+
+The program starts the directory and seeds it, starts the web server pointed at it, and logs in through the `curl` tool as a directory user; it manages the people in the directory alone:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>); it answers a `server_id` and the `bound_urls`. The directory listens on `ldap://127.0.0.1:0`, a free port. `--cert` and `--key`, a certificate for `127.0.0.1` made in setup, let it upgrade a connection with StartTLS, which starts Transport Layer Security (TLS) on a plain connection. This directory checks a bind against its accounts, not against a password in an entry, so each person is two things in it: an account, given by `-u` for `alice`, `bob` and `svc`, the web server{apos}s service account, and an entry, which `add_ldap_entries` adds from LDAP Data Interchange Format (LDIF) text, all or none: `dc=example,dc=com`, `ou=people` and a `uid=` entry for each person (<<rfc4511>>).
+
+The web server listens on `https://127.0.0.1:0` with the same certificate and serves `report.txt` from `files`. `--user-ldap` is an LDAP URL (<<rfc4516>>) naming the directory{apos}s port and the `ou=people` branch, then `bind-dn` and `bind-password-file`, so the server searches as `svc` with the password from `svc.pass`, and `ca-file=server.pem`, the certificate it trusts for the directory; both file names resolve inside the folder `SURL_MCP_ROOT` names. For a login it holds no account for, the web server searches the branch for the entry whose `uid` is the login name and binds as that entry with the password sent; the bind{apos}s answer is the login{apos}s.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON) (<<curl-manual>>). Each login is `-u name:password`, sent as HTTP Basic, the one HTTP login that carries the password itself, as a bind needs (<<rfc7617>>); `--cacert server.pem` trusts the web server{apos}s certificate, `-o report.out` keeps the body in a file inside the folder, `-w "%{http_code}"` prints the status, `--max-time 30` bounds the call, and `-s` and `-S` keep the progress meter out and an error in. `alice` is served the report: the web server has no account for her, asked the directory, and let her in.
+
+The agent manages the people in the directory alone, while both servers run. `carol`, not in the directory, is refused `401`. After `add_ldap_entries` adds her entry she is still refused, since the directory has no account to check her bind against; after `add_account` gives her one on the directory, with its `server_id`, her `user` and `password`, she logs in, and nothing about the web server changed. `remove_account` on the directory is a leaver: `alice`{apos}s next login to the web server is refused `401`. `get_events` on the web server with `kinds` `login_judged` and `account` `carol` answers each of her three logins: `https`, `Basic`, `is_accepted` false, false and then true.
+
+The web server{apos}s own accounts come first. It holds `bob` itself, with an old password of its own, so it never asks the directory about him: `bob` with his directory password is refused, and with the web server{apos}s password is served. An agent that means every login to go to the directory starts the web server with no account that shares a name with a person. Its other account, `ops`, is there because a `surl` whose only accounts are in the directory asks no login for a `GET` (<<ldap-check-logins-against-a-directory>>); with one account of its own the web server answers a request with no login `401`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-check-logins-against-ldap>> for the same task on the console.
+* <<http-check-logins-against-ldap-in-csharp>> for the same task in C#.
+* <<ldap-check-logins-against-a-directory-from-an-agent>> for what the directory records of each login.
+* <<surl-readme>>, <<curl-manual>>, <<rfc4511>>, <<rfc4516>>, <<rfc7617>>.

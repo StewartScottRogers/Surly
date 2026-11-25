@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs read-status.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: grpc-diagnose-a-failing-call-from-an-agent
+title: Diagnosing a Failing gRPC Call
+protocols: [grpc]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 1]
+references: [surl-readme, grpc-http2, rfc9113, rfc7541, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test's call to surl.test.Echo/Echo fails, curl exit 22; from get_exchanges the agent decodes each call's HTTP/2 headers and reports the reflection lookup answered grpc-status 0 and the Echo call grpc-status 5, NOT_FOUND, with grpc-message no such order, as curl said.
+    program: read-status.cs
+    args: [notfound]
+    expect:
+      exit: 1
+      stdout: "test: curl exit 22, curl: (22) grpc-status 5 (NOT_FOUND): no such order\nagent: /grpc.reflection.v1.ServerReflection/ServerReflectionInfo: grpc-status 0 (OK)\nagent: /surl.test.Echo/Echo: grpc-status 5 (NOT_FOUND), grpc-message \"no such order\"\n"
+
+  - id: percent-encoded
+    claim: grpc-message is percent-encoded on the wire; a message holding a percent sign was sent as disk 100%25 full, and the agent's report undoes the encoding, as curl does.
+    program: read-status.cs
+    args: [percent]
+    expect:
+      exit: 1
+      stdout: "test: curl exit 22, curl: (22) grpc-status 8 (RESOURCE_EXHAUSTED): disk 100% full\nagent: /grpc.reflection.v1.ServerReflection/ServerReflectionInfo: grpc-status 0 (OK)\nagent: /surl.test.Echo/Echo: grpc-status 8 (RESOURCE_EXHAUSTED), grpc-message \"disk 100% full\" (sent as \"disk 100%25 full\")\n"
+
+  - id: success
+    claim: A call that succeeds is recorded with grpc-status 0 and no grpc-message, and the agent reports no failure, exit 0.
+    program: read-status.cs
+    args: [ok]
+    expect:
+      exit: 0
+      stdout: "test: curl exit 0\nagent: /grpc.reflection.v1.ServerReflection/ServerReflectionInfo: grpc-status 0 (OK)\nagent: /surl.test.Echo/Echo: grpc-status 0 (OK)\n"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, the call with no login never reaches Echo; the record shows curl's reflection lookup answered grpc-status 16, UNAUTHENTICATED, and curl exits 22.
+    program: read-status.cs
+    args: [nologin]
+    expect:
+      exit: 1
+      stdout: "test: curl exit 22, curl: (22) The server did not answer gRPC server reflection (grpc-status 16 (UNAUTHENTICATED): unauthenticated); give the method's .proto file with --grpc-proto\nagent: /grpc.reflection.v1.ServerReflection/ServerReflectionInfo: grpc-status 16 (UNAUTHENTICATED), grpc-message \"unauthenticated\"\n"

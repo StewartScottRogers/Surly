@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-expire-tokens-with-a-response-override
+title: Expiring Tokens with a Response Override
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFaultScope, FaultStage, FaultPoint, SurlFault, SurlEventQuery, SurlEventKind, LoginJudgedEvent, FaultAppliedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0, 1]
+references: [surl-readme, rfc6750, rfc7617, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts the server through Surl.Api and plays the client with Curl.Api.
+cases:
+  - id: solution
+    role: solution
+    claim: With an override that answers the fourth API call after a token fetch 401, a client making six calls gets 200 three times, 401 on the fourth, fetches the token again and retries it, 200, and the fifth and sixth calls are 200; it fetched the token twice.
+    program: expire.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "call 1: 200\ncall 2: 200\ncall 3: 200\ncall 4: 401, token fetched again, retry 200\ncall 5: 200\ncall 6: 200\ntoken fetches: 2\n"
+
+  - id: count-restarts
+    claim: The count starts again at each fetch; with a lifetime of two calls the 401 comes on the third call and again on the fifth, two calls after the retry, and the client fetches the token three times.
+    program: expire.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout: "call 1: 200\ncall 2: 200\ncall 3: 401, token fetched again, retry 200\ncall 4: 200\ncall 5: 401, token fetched again, retry 200\ncall 6: 200\ntoken fetches: 3\n"
+
+  - id: no-refresh
+    claim: A client that does not refresh fails the test at exactly the fourth call, with the 401, and exits 1.
+    program: expire.cs
+    args: [no-refresh]
+    expect:
+      exit: 1
+      stdout: "call 1: 200\ncall 2: 200\ncall 3: 200\ncall 4: 401\nFAIL: call 4 was answered 401\n"
+
+  - id: token-still-good
+    claim: The 401 is the override's, not the server's judgement; the override's 401 carries no WWW-Authenticate challenge, where the server's own 401 to a call with no token offers Digest three times, Basic and Bearer; the server judged five logins, the Basic fetch and four Bearer calls, every Bearer one accepted; and it records one FaultApplied event, an Error on /api/orders.json.
+    program: expire.cs
+    args: [answer]
+    expect:
+      exit: 0
+      stdout: "call 4: 401, challenges: none\nno token at all: 401, challenges: Digest, Digest, Digest, Basic, Bearer\nlogins judged: 5; Bearer accepted: 4 of 4\nfault events: 1, Error on /api/orders.json\n"
+
+  - id: no-override
+    claim: Without the override the token never expires; six calls are 200 on one fetch.
+    program: expire.cs
+    args: [no-override]
+    expect:
+      exit: 0
+      stdout: "call 1: 200\ncall 2: 200\ncall 3: 200\ncall 4: 200\ncall 5: 200\ncall 6: 200\ntoken fetches: 1\n"

@@ -1,0 +1,61 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-wait-for-mail-from-an-app-process
+title: Waiting for Mail from an App
+protocols: [smtp]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlEventQuery, SurlEvent, StoreChangedEvent, SurlMailMessage]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc5321]
+
+# The app's shipping notice. The app is curl, run as a process of its own; --crlf gives the line ends mail needs.
+fixtures:
+  order.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Your order has shipped\n\nOrder 1042 left the warehouse today.\n"
+
+# No servers: block. The program hosts its own server through Surl.Api and starts the app.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The test starts the app as a process, and WaitForEventAsync answers a StoreChanged event, Delivered to ann@example.com/INBOX/;UID=1; the stored message is the shipping notice, the app exits 0 and the test passes.
+    program: wait-for-app.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "Delivered ann@example.com/INBOX/;UID=1\nSubject: Your order has shipped\nPASS; the app exited 0\n"
+
+  - id: astray
+    claim: When the app's settings name another recipient, the wait throws TimeoutException after 10 seconds and the test fails, though the app itself exits 0.
+    program: wait-for-app.cs
+    args: [astray]
+    expect:
+      exit: 1
+      stdout: "FAIL: no mail for ann@example.com within 10 s\nthe app exited 0\n"
+
+  - id: bad-login
+    claim: When the app cannot log in it exits 67 before any mail, and the test, waiting on the app's exit as well as the mail, fails at once with the app's error rather than after the 10 seconds.
+    program: wait-for-app.cs
+    args: [bad-login]
+    expect:
+      exit: 1
+      stdout: "FAIL: the app exited 67 before any mail: curl: (67) Login denied\n"
+
+  - id: late
+    claim: The server keeps its events, so a wait begun after the app has already exited still answers the delivery.
+    program: wait-for-app.cs
+    args: [late]
+    expect:
+      exit: 0
+      stdout: "app exited 0; then the wait answered ann@example.com/INBOX/;UID=1\n"
+
+  - id: no-record
+    claim: Without RecordExchanges the server keeps no events, and WaitForEventAsync throws InvalidOperationException saying so.
+    program: wait-for-app.cs
+    args: [no-record]
+    expect:
+      exit: 1
+      stdout: "cannot wait: RecordExchanges is off, so nothing was recorded; set SurlServerOptions.RecordExchanges to use WaitForEventAsync.\n"

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[s3-explain-a-signature-mismatch]]
+=== Explaining an S3 Signature Mismatch
+
+==== Problem
+
+A client of Amazon Simple Storage Service (S3) gets `SignatureDoesNotMatch`; you want an agent to read the request it signed and name the part of the signing that differs.
+
+==== Solution
+
+The program starts both hosts and an S3 server, sends the client{apos}s request with the `curl` tool, reads the request from `get_exchanges`, signs it again with the account{apos}s secret as it arrived and under a few other readings, and names the reading that reproduces the client{apos}s signature:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). `s3://` is served over Transport Layer Security (TLS), so `--cert` and `--key` name a certificate made in setup, which names any bucket{apos}s host in `us-east-1`; `--user` is the access key ID and its secret, and `files` puts `hello.txt` in the bucket `photos`.
+
+An S3 request is signed with Signature Version 4 (<<aws-s3-api>>). The client builds a canonical request, the method, the path, the query, the headers it chooses to sign and the hash of the body, hashes it into a string to sign with the date and a scope of date, region and service, and signs that with a key derived from the secret. The `Authorization` header carries the scope, the names of the signed headers and the signature; the server builds the same canonical request from what arrived and compares. A part signed differently and a wrong secret get the same answer here, `403 SignatureDoesNotMatch`, so the answer alone does not say which part.
+
+The client in the solution is an app with its own signer, played by the `curl` tool: `-H` sends the app{apos}s `x-amz-date`, `x-amz-content-sha256` and `Authorization` headers, `--connect-to` sends the bucket{apos}s host name to the local server, `--cacert server.pem` trusts the certificate, `-w` prints the status after the body, and `-s` and `-S` keep the progress meter out and an error in (<<curl-manual>>). The app sends `GET /hello.txt` to `photos.s3.us-east-1.amazonaws.com`, the bucket in the host name, but signs `/photos/hello.txt`, the path the bucket would have in the URL. The server answers `403` with `SignatureDoesNotMatch`.
+
+The agent calls `wait_for_event` for `exchange_ended`, bounded at ten seconds, then asks `get_exchanges` for that exchange and reads the request head from the `chunks` the server `received`; the record holds them decrypted. From the `Authorization` header it takes the scope, `us-east-1/s3/aws4_request` after the date, the signed headers, `host`, `x-amz-content-sha256` and `x-amz-date`, and the signature. Then it signs the request again with the account{apos}s secret, which the test set: as it arrived, which differs; with the bucket in the path, which matches; with `UNSIGNED-PAYLOAD` as the body{apos}s hash, which differs. The reading that matches names the part: the canonical path the client signed is not the path it sent.
+
+When no reading matches, the parts tried are not it. `curl` with `-u` and a wrong secret, signing with `--aws-sigv4 aws:amz:us-east-1:s3`, gets the same `403 SignatureDoesNotMatch`; signing its request again matches under no reading, and the agent names the signing key. With the right secret `curl` gets `200`, and the agent{apos}s signature of the request as it arrived matches the client{apos}s.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<s3-tell-the-refusals-apart>> for the S3 refusals and what each means.
+* <<s3-sign-a-run-of-s3-requests>> for signing with `curl` over `https://`.
+* <<http-compare-a-good-and-a-bad-request-from-an-agent>> for comparing two requests from the record.
+* <<surl-readme>>, <<curl-manual>>, <<aws-s3-api>>.

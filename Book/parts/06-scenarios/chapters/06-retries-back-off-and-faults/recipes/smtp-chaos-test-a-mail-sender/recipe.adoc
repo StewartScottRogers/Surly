@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-chaos-test-a-mail-sender]]
+=== Chaos-Testing a Mail Sender
+
+==== Problem
+
+You want an agent to add delays, dropped connections and temporary errors to a test mail server and prove that your sender still delivers each mail exactly once.
+
+==== Solution
+
+The program starts both hosts and a mail server, adds three fault rules with `add_fault`, lets the `curl` tool send three orders with retries, and counts each order{apos}s `Message-ID` in the recipient{apos}s mailbox:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` and a `--mailbox` each for the shop and for Ann. It answers a `server_id` and the `bound_urls`.
+
+`add_fault` adds one rule in the form of `surl`{apos}s `--fault` option, to a server already running, from its next connection on. The three rules are each spent after one use, `times=1`, and scoped to `scheme=smtp`. `delay;stage=command;command=MAIL;ms=2000` holds the next `MAIL FROM` for two seconds before answering. `drop;stage=command;command=DATA` closes the connection at the next `DATA`, before the message is sent. `error;command=RCPT;reply=451 4.3.0 try later` answers the next `RCPT TO` with a temporary failure. These are the faults a mail server{apos}s clients meet on a bad day; a 4xx reply means try again later (<<rfc5321>>).
+
+The sender is the `curl` tool, which runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. `-u` is the shop{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T order1.eml` the message, `--crlf` the line ends, `-m 10` a limit on each try, and `-w "%{response_code} %{num_retries}"` prints the last reply and how many times `curl` tried again (<<curl-manual>>). `--retry 3` allows three more tries, `--retry-all-errors` counts a dropped connection and a refused command as reasons to retry, and `--retry-delay 1` waits a second between them; `-s` keeps the progress meter out and `-S` keeps an error in. Order 1 meets all three faults: its first try is held at `MAIL` and refused at `RCPT`, its second is dropped at `DATA`, and its third is delivered, so it ends with exit `0`, reply `250` and two retries. Orders 2 and 3 go through at once. `get_events` with `kinds` `fault_applied` shows the rules acting in that order, `f1` the delay, `f3` the error, `f2` the drop, and `list_faults` shows each with `0` remaining.
+
+The proof is in the mailbox, not in the sender{apos}s exit codes. `list_messages` lists Ann{apos}s `INBOX` and `read_message` returns each message{apos}s `text`; each order carries its own `Message-ID` header (<<rfc5322>>), and the program counts how many messages carry each one. Every order is stored once, and the program exits `0`. Without the retries the `451` ends the send with `curl` exit `55` and nothing is stored: a sender that does not retry loses the mail.
+
+Retrying has its own risk, and the agent can show it. The reply `250` after the message is the server{apos}s only word that it has taken the message (<<rfc5321>>). The program sends one clean order, reads its exchange with `get_exchanges` to count the bytes the server sends up to and including the `354` that asks for the message, and adds `drop;scheme=smtp;after-bytes=` that count plus one, with `add_fault`{apos}s `close` set to `graceful`, so the connection is ended cleanly one byte into the next reply. The server stores order 2 and the cut takes its confirmation; `curl` sees a failed try, sends it again, and ends with exit `0`. Order 2 is now in the `INBOX` twice, the count says so, and the program exits `1`. A retrying sender can deliver twice when a confirmation is lost; this test is how to find out what your sender, and the mail{apos}s readers, do about it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-resend-after-a-dropped-connection-from-an-agent>> for one dropped connection.
+* <<smtp-survive-a-temporary-rcpt-failure-from-an-agent>> for one temporary failure.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc5322>>.

@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-test-a-wait-with-a-fake-clock
+title: Testing a Wait with a Fake Clock
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlEventQuery, SurlEventKind, StoreKind, SurlEvent, StoreChangedEvent, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api, on a clock it moves itself.
+cases:
+  - id: solution
+    role: solution
+    claim: When the app never uploads, the wait for /reports/daily.csv stays open while the fake clock stands still and at 59 seconds of fake time, throws TimeoutException at 60, naming the query and the 1-minute bound, and the whole of it takes well under ten seconds of real time.
+    program: wait.cs
+    args: []
+    expect:
+      exit: 1
+      stdout-matches: '\Aafter 0 s of fake time: waiting\nafter 59 s of fake time: waiting\nafter 60 s of fake time: TimeoutException: No event matching SurlEventQuery \{[^\n]*Kind = StoreChanged, Store = Content, Name = /reports/daily\.csv[^\n]*\} within 00:01:00; 0 events were recorded while waiting and none matched\.\nreal time spent: under ten seconds: True\n\Z'
+
+  - id: arrives
+    claim: When the app uploads the report, 201, the wait ends at once with a Written change for /reports/daily.csv and the fake clock has not moved.
+    program: wait.cs
+    args: [arrives]
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp uploaded /reports/daily\.csv: 201, Date [^\n]+\nthe wait ended: Written /reports/daily\.csv\nfake time spent waiting: 0 s\n\Z'
+
+  - id: date-from-clock
+    claim: The server dates its answers by the same clock; the upload's Date header is the fake clock's start, Tue, 01 Jan 2030 00:00:00 GMT.
+    program: wait.cs
+    args: [arrives]
+    expect:
+      exit: 0
+      stdout-matches: '\Aapp uploaded /reports/daily\.csv: 201, Date Tue, 01 Jan 2030 00:00:00 GMT\n'
+
+  - id: wrong-path
+    claim: An upload under another name, /reports/daily-old.csv, is recorded but does not match the query, so the wait still times out at 60 seconds of fake time, with events recorded and none matching.
+    program: wait.cs
+    args: [wrong-path]
+    expect:
+      exit: 1
+      stdout-matches: '\Aapp uploaded /reports/daily-old\.csv: 201, [^\n]+\nafter 0 s of fake time: waiting\nafter 59 s of fake time: waiting\nafter 60 s of fake time: TimeoutException: [^\n]* within 00:01:00; [1-9]\d* events were recorded while waiting and none matched\.\nreal time spent: under ten seconds: True\n\Z'
+
+  - id: no-advance
+    claim: The fake clock never moves on its own; with no Advance the wait is still open when a 2-second real-time cancellation token ends it with OperationCanceledException.
+    program: wait.cs
+    args: [no-advance]
+    expect:
+      exit: 1
+      stdout-matches: '\Ano Advance: the wait was still open after [2-9] s of real time, and the guard cancelled it\n\Z'

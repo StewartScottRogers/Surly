@@ -1,0 +1,106 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-recover-a-pipeline-from-a-midway-fault
+title: Recovering a Pipeline from a Fault
+protocols: [ftp, http, s3]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --cert, --key, --user, --allow-uploads, --fault]
+curl-options: [--fail-early, -s, -S, --ssl-reqd, --cacert, -u, -T, --next, -f, --retry, --retry-all-errors, --connect-to, -w]
+exit-codes: [0, 8, 9]
+references: [surl-readme, curl-manual, rfc959, rfc4217, rfc9110, aws-s3-api]
+
+# The nightly report, and yesterday's copy at each of the three places it goes, so each folder exists.
+fixtures:
+  report.csv: "region,total\r\nnorth,1200\r\nsouth,950\r\n"
+  store/inbox/2026-11-23.csv: "region,total\r\nnorth,1180\r\nsouth,940\r\n"
+  store/staging/2026-11-23.csv: "region,total\r\nnorth,1180\r\nsouth,940\r\n"
+  store/archive/2026-11-23.csv: "region,total\r\nnorth,1180\r\nsouth,940\r\n"
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# One surl stands in for all three services over one store: an FTP inbox, an HTTPS staging service
+# and an S3 archive bucket. The fault rule cuts the S3 answer after its first byte, cleanly, three times.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory store --cert server.pem --key server.key --user nightly:s3cret --user AKIAIOSFODNN7EXAMPLE:s3cret --allow-uploads --fault "drop;scheme=s3;after-bytes=1;close=graceful;times=3" ftp://127.0.0.1:{{port}}/ https://127.0.0.1:{{port2}}/ s3://127.0.0.1:{{port3}}/
+    # Not ready: port. A connection that sends nothing, as a port check does, spends one of an
+    # after-bytes rule's times; the seed waits on the HTTPS listener instead.
+    ready: none
+
+seed:
+  - curl -sS --retry 20 --retry-connrefused --retry-delay 1 --cacert server.pem -u nightly:s3cret -o {{null}} https://127.0.0.1:{{port2}}/staging/2026-11-23.csv
+
+cases:
+  - id: cut-without-retry
+    claim: The pipeline as first written, one curl command of three transfers, uploads over FTP and over HTTPS, then has its S3 put cut one byte into the answer; curl reports exit 8 for that step and the command exits 8.
+    run: curl --fail-early -sS --ssl-reqd --cacert server.pem -u nightly:s3cret -T report.csv ftp://127.0.0.1:{{port}}/inbox/2026-11-24.csv --next -sS -f --cacert server.pem -u nightly:s3cret -T report.csv https://127.0.0.1:{{port2}}/staging/2026-11-24.csv --next -sS --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv -w "%{url.path} %{exitcode} %{num_retries}\n" s3://archive/2026-11-24.csv
+    timeout: 60
+    expect:
+      exit: 8
+      stdout: "/2026-11-24.csv 8 0\n"
+      stderr-contains: "curl: (8) The connection closed before the response head ended."
+
+  - id: stored-before-the-cut
+    claim: The cut came after the put was stored; the archive holds the report byte for byte, though the pipeline was told the step failed.
+    run: cmp report.csv store/archive/2026-11-24.csv && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: retry-alone-is-not-enough
+    claim: With --retry 1 on the S3 step and no --retry-all-errors, curl does not retry exit 8, which it does not count as a transient error; num_retries is 0 and the command exits 8.
+    run: curl --fail-early -sS --ssl-reqd --cacert server.pem -u nightly:s3cret -T report.csv ftp://127.0.0.1:{{port}}/inbox/2026-11-25.csv --next -sS -f --cacert server.pem -u nightly:s3cret -T report.csv https://127.0.0.1:{{port2}}/staging/2026-11-25.csv --next -sS --retry 1 --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv -w "%{url.path} %{exitcode} %{num_retries}\n" s3://archive/2026-11-25.csv
+    timeout: 60
+    expect:
+      exit: 8
+      stdout: "/2026-11-25.csv 8 0\n"
+
+  - id: solution
+    role: solution
+    claim: With --retry 1 --retry-all-errors on the S3 step only, the cut put is tried once more and succeeds; the S3 step reports exit 0 after 1 retry and the command exits 0, though the first try's error is still printed.
+    run: curl --fail-early -sS --ssl-reqd --cacert server.pem -u nightly:s3cret -T report.csv ftp://127.0.0.1:{{port}}/inbox/2026-11-26.csv --next -sS -f --cacert server.pem -u nightly:s3cret -T report.csv https://127.0.0.1:{{port2}}/staging/2026-11-26.csv --next -sS --retry 1 --retry-all-errors --cacert server.pem --connect-to ::127.0.0.1:{{port3}} -u AKIAIOSFODNN7EXAMPLE:s3cret -T report.csv -w "%{url.path} %{exitcode} %{num_retries}\n" s3://archive/2026-11-26.csv
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "/2026-11-26.csv 0 1\n"
+      stderr-contains: "curl: (8)"
+
+  - id: first-two-once
+    claim: In surl's log the solution's run has one STOR over FTP and one HTTPS PUT stored with 201, but two S3 puts stored with 200; only the S3 step was repeated.
+    run: 'grep -a -c "STOR 2026-11-26.csv" surl.log && grep -a -c "PUT /staging/2026-11-26.csv: 201" surl.log && grep -a -c "PUT /2026-11-26.csv: 200" surl.log'
+    expect:
+      exit: 0
+      stdout: "1\n1\n2\n"
+
+  - id: three-cuts
+    claim: Over the three runs surl logged three cuts, each after 1 byte sent by rule f1 and each closing gracefully.
+    run: grep -a -c "cut after 1 bytes sent by fault rule f1, closing gracefully" surl.log
+    expect:
+      exit: 0
+      stdout: "3\n"
+
+  - id: archive-is-the-report
+    claim: The archived object of the solution's run is the report byte for byte, Windows line ends included.
+    run: cmp report.csv store/archive/2026-11-26.csv && echo identical
+    expect:
+      exit: 0
+      stdout: "identical\n"
+
+  - id: fail-early-stops
+    claim: With --fail-early an FTP step that fails, here an upload into a folder that does not exist, exit 9, stops the command before the HTTPS step, which leaves no staging copy.
+    run: curl --fail-early -sS --ssl-reqd --cacert server.pem -u nightly:s3cret -T report.csv ftp://127.0.0.1:{{port}}/nowhere/2026-11-27.csv --next -sS -f --cacert server.pem -u nightly:s3cret -T report.csv https://127.0.0.1:{{port2}}/staging/2026-11-27.csv || test ! -f store/staging/2026-11-27.csv && echo no staging copy
+    timeout: 60
+    expect:
+      exit: 0
+      stdout: "no staging copy\n"
+      stderr-contains: "curl: (9)"
+
+  - id: warns-on-start
+    claim: surl warns on start that a fault rule makes it misbehave on purpose; the warning is the log's first line.
+    run: head -n 1 surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^surl: warning: --fault: 1 fault rule\(s\) make this server misbehave on purpose\r?\n$'

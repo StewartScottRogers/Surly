@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-reproduce-a-bug-report-from-an-agent]]
+=== Reproducing a Bug Report
+
+==== Problem
+
+A user reports that the app{apos}s report download stops short. You want an agent to take the user{apos}s request from `get_exchanges`, replay it with the `curl` tool against a fresh server, confirm the same answer, and find what in the request caused it.
+
+==== Solution
+
+The program plays the user{apos}s app against one server, then, as the agent, reads the request back from that server{apos}s record, replays it header for header on a second server holding the same file, and drops one header at a time:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, here `http://127.0.0.1:0` for a free port, and `files`, the report, 573 bytes of comma-separated values, served from memory (<<surl-readme>>). It answers a `server_id` and the `bound_urls`. The program starts two: the server the user reached and, later, a fresh one for the replay, each given the same file.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JavaScript Object Notation (JSON). Every call here has `-s` and `-S` to keep the progress meter out and an error in, `--max-time 10` so no call can hang, `-o body.out` for the body, a file in the folder the host is confined to, and `-w "%{http_code} %{size_download} bytes"` for the status and the bytes received (<<curl-manual>>). The user{apos}s app sends `-A shop/2.1`, its user agent, `-H "X-App-Build: 2.1.7"` and, left over from a resume feature, `-H "Range: bytes=0-99"`. It is answered `206` with 100 bytes, and the user sees a cut-off report.
+
+The agent starts from the server{apos}s record. `get_exchanges` with `server_id` and `scheme` `http` answers each exchange{apos}s `chunks` in the order they crossed the wire, each with a `direction`, `received` for what the client sent and `sent` for what the server answered, and its `data`. The first `received` chunk of the last exchange is the user{apos}s request head: `GET /report.csv HTTP/1.1` and four headers besides `Host`. The first `sent` line is the answer{apos}s status line, `206`. The agent leaves `Host` out, since it names the user{apos}s server and port, and replays the rest with `-H`, one per header, adding `-X` only for a method other than `GET`. On the fresh server the answer is `206` with 100 bytes again: reproduced. The replay is the same request, not one like it: the fresh server{apos}s record of it holds the same request line and the same headers in the same order, `User-Agent`, `Accept`, `X-App-Build` and `Range`, with only `Host` different.
+
+To find the cause, the agent replays the request once for each header with that header left out, and keeps the headers whose absence changes the status. Only one does: without `Range: bytes=0-99` the answer is `200` with all 573 bytes. A `Range` header asks for part of a file, and `206 Partial Content` is the server granting it (<<rfc9110>>): the server did what it was asked, and the bug is in the app that asked.
+
+A replay proves something only when the answer depends on the request alone. In the other case the user{apos}s server had lost the file, `delete_file` here, before the user{apos}s app asked for it, so the user got `404`. The same request on a fresh server is `200` with the whole file, and the agent reports that the bug does not reproduce and that the answer depends on the server{apos}s state, exit `1`. That is a finding too: the next place to look is what changed on the user{apos}s server, not the request.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-reproduce-a-bug-report-as-a-test>> for turning a reported request into a test.
+* <<http-replay-exchanges-without-the-server>> for replaying a recorded exchange without a server.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

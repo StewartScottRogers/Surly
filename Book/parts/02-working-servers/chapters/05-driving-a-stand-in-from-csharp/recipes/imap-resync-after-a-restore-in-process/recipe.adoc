@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-resync-after-a-restore-in-process]]
+=== Resyncing IMAP After a Restore
+
+==== Problem
+
+Your test fixture restores a snapshot of its in-process mail server between tests, and your Internet Message Access Protocol (IMAP) client caches messages by UID; you want to see `UIDVALIDITY` change at the restore and the client read the mailbox again instead of trusting stale UIDs.
+
+==== Solution
+
+Have the client keep the `UIDVALIDITY` it last saw beside its cache and compare it at each sync; when it differs, drop the cache and read every UID again:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The fixture is a `SurlServer` started from `SurlServerOptions`, `surl`{apos}s command line as properties (<<surl-readme>>): one `imap://` URL on port 0, so the system picks a free port, the domain `example.com` and Ann{apos}s mailbox. `server.Mail.DeliverAsync` seeds two messages, which get UIDs 1 and 2, and `SnapshotAsync` returns a `SurlSnapshot`, a copy of the server{apos}s state that `RestoreAsync` puts back between tests.
+
+Every message in an IMAP mailbox has a UID, a unique identifier that grows as mail arrives and is never given to another message, as long as the mailbox{apos}s `UIDVALIDITY` stays the same. When a server cannot keep that promise it must change `UIDVALIDITY`, and a client that sees a new value must discard what it cached by UID (<<rfc9051>>). A restore is such a case. The snapshot was taken when the next UID was 3; test 1{apos}s password-reset mail took UID 3, and after the restore `STATUS` gives `UIDNEXT 3` again, so test 2{apos}s shipping notice gets UID 3 too. `surl` gives the mailbox a new `UIDVALIDITY` at the restore, and the store{apos}s own `SurlMailboxInfo.UidValidity`, from `ListMailboxesAsync`, is the same new value.
+
+The client is `Curl.Api`: one `CurlClient` sends each `CurlRequest`, logged in by `CurlAuthenticationOptions`, and each `CurlResponse` has the server{apos}s answer as its `Body`. `CustomRequest` sends an IMAP command of its own: `STATUS INBOX (UIDVALIDITY)` on the server{apos}s URL reads the value without opening the mailbox, and `UID SEARCH UID 3:*` on `INBOX` lists the UIDs from 3 up. A search for UIDs above the largest answers the largest (<<rfc9051>>), so the client keeps only UIDs at or above where it started. A fetch of `INBOX;UID=n;SECTION=HEADER.FIELDS%20(SUBJECT)` gives each message{apos}s subject for the cache.
+
+`Sync` reads `UIDVALIDITY` first. Unchanged, it fetches only UIDs above the last one cached, which is all a client needs while UIDs keep their promise. Changed, it prints the old and new values, empties the cache and fetches from UID 1. After test 2 the cache holds the shipping notice as UID 3, and the program exits `0`. The naive client, which skips the comparison, searches from UID 4, finds nothing, and keeps the password-reset mail as UID 3: a UID that now names a different message on the server. It exits `1`.
+
+The fixture does not have to change anything for this to matter: a restore with nothing changed since the snapshot still gives a new `UIDVALIDITY`, so the client always resyncs after one and never has to guess whether the restore made a difference. `ResetAsync`, which empties the mailboxes, changes it as well and starts `UIDNEXT` at 1.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-reset-and-snapshot-in-process>> for snapshots of files.
+* <<imap-fetch-only-new-messages>> for fetching by UID.
+* <<surl-readme>>, <<rfc9051>>.

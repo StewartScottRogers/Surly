@@ -1,0 +1,67 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs explain.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-explain-why-mail-did-not-arrive-from-an-agent
+title: Explaining Why Mail Never Arrived
+protocols: [smtp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_exchanges, list_mailboxes, get_events]
+curl-options: [-s, -S, --crlf, -u, --mail-from, --mail-rcpt, -T]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc5321]
+
+# The app's welcome mail to Ann. The app's sign-up form took her address with a typo, anne@example.com.
+fixtures:
+  welcome.eml: "From: app@example.com\r\nTo: anne@example.com\r\nSubject: Welcome to the shop\r\n\r\nYour account is ready.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The app's send to anne@example.com exits 0; the agent finds the recipient and the message both accepted with 250, no delivery within 2 seconds, and no mailbox for that address, and explains that the server discarded the mail.
+    program: explain.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "the app: curl exit 0\nrecipient accepted: True; message accepted: True; delivered: False; anne@example.com has a mailbox: False\nexplanation: the server took the mail for anne@example.com, an address in its domain with no mailbox, and discarded it\n"
+
+  - id: dialogue
+    claim: In get_exchanges the RCPT TO:<anne@example.com> is answered 250 2.1.5 Recipient OK and the end of the message 250 2.0.0 Message accepted, the replies a delivered message gets.
+    program: explain.cs
+    args: [dialogue]
+    expect:
+      exit: 0
+      stdout: "the app: curl exit 0\nRCPT TO:<anne@example.com> -> 250 2.1.5 Recipient OK\n. -> 250 2.0.0 Message accepted\n"
+
+  - id: mailboxes
+    claim: list_mailboxes for anne@example.com is a tool error, No mailboxes for anne@example.com., while Ann's lists her INBOX.
+    program: explain.cs
+    args: [mailboxes]
+    expect:
+      exit: 0
+      stdout: "the app: curl exit 0\nanne@example.com: tool error: No mailboxes for anne@example.com.\nann@example.com: INBOX\n"
+
+  - id: events
+    claim: The server kept no store_changed event in the mail store for the send; nothing was stored anywhere.
+    program: explain.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout: "the app: curl exit 0\nstore_changed events: 0\n"
+
+  - id: outside
+    claim: A typo outside the domain, ann@example.cm, is different; the recipient is refused 550 5.7.1 Relaying denied, and the app's curl exits 55.
+    program: explain.cs
+    args: [outside]
+    expect:
+      exit: 0
+      stdout: "the app: curl exit 55\nRCPT TO:<ann@example.cm> -> 550 5.7.1 Relaying denied\n"
+
+  - id: catch-all
+    claim: Started with --mail-catch-all example.com=postmaster@example.com, the same send is delivered to the postmaster's INBOX instead of discarded.
+    program: explain.cs
+    args: [catch-all]
+    expect:
+      exit: 0
+      stdout: "the app: curl exit 0\ndelivered postmaster@example.com/INBOX/;UID=1\n"

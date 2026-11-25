@@ -1,0 +1,51 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs who-sees.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: imap-share-a-folder-between-mailboxes-from-an-agent
+title: Sharing an IMAP Folder from an Agent
+protocols: [imap]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, list_mailboxes]
+curl-options: [-s, -S, -u, -T, -X]
+exit-codes: [0, 1, 2]
+references: [surl-readme, curl-manual, rfc9051]
+
+# The rota the team keeps in its folder; CRLF line ends, since an IMAP APPEND sends the size first.
+fixtures:
+  rota.eml: "From: ann@example.com\r\nTo: team@example.com\r\nSubject: On-call rota for December\r\n\r\nBob takes the first week.\r\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: After Ann appends the rota, the agent logs in as each mailbox in turn; Ann and Bob each have Shared/team in their LIST and STATUS counts 1 message, while Carol's LIST lacks it and her STATUS is refused with curl exit 21.
+    program: who-sees.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ann: listed, STATUS * STATUS Shared/team (MESSAGES 1)\nbob: listed, STATUS * STATUS Shared/team (MESSAGES 1)\ncarol: not listed, STATUS refused, curl exit 21\n"
+
+  - id: store
+    claim: list_mailboxes agrees from the server's side; Shared/team is among Ann's and Bob's mailboxes and not among Carol's.
+    program: who-sees.cs
+    args: [store]
+    expect:
+      exit: 0
+      stdout: "ann: INBOX, Shared/team\nbob: INBOX, Shared/team\ncarol: INBOX\n"
+
+  - id: read
+    claim: Carol's read of Shared/team UID 1 through the curl tool exits 67, Select failed.
+    program: who-sees.cs
+    args: [read]
+    expect:
+      exit: 1
+      stdout: "carol reads team: exit 67, curl: (67) Select failed\n"
+
+  - id: typo
+    claim: A member misspelt in start_server's arguments makes start_server a tool error with exit_code 2 and the member named in lines.
+    program: who-sees.cs
+    args: [typo]
+    expect:
+      exit: 2
+      stdout: "start_server refused: exit_code 2, (2) option --shared-folder: member bobb@example.com names no account or group\n"

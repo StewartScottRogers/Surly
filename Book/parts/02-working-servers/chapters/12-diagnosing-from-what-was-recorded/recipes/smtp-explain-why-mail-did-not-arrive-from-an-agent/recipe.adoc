@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-explain-why-mail-did-not-arrive-from-an-agent]]
+=== Explaining Why Mail Never Arrived
+
+==== Problem
+
+An app says it sent mail that never arrived; you want an agent to see in `get_exchanges` that the server accepted it, in `list_mailboxes` that no mailbox got it, and explain that the server discarded it.
+
+==== Solution
+
+The program starts both hosts and a mail server, lets the `curl` tool send as the app, waits a bounded time for a delivery, then puts together what the record, the store and the events say:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` is the domain the server takes mail for, and each `--mailbox` adds a mailbox and its account, the app{apos}s and Ann{apos}s. It answers a `server_id` and the `bound_urls`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The app{apos}s send is `-u` for its login, `--mail-from` and `--mail-rcpt` for the envelope (<<rfc5321>>), `-T welcome.eml` for the message, a fixture in the folder both hosts are confined to, and `--crlf` for line ends; `-s` and `-S` keep it quiet but for an error (<<curl-manual>>). The address came from a sign-up form with a typo, `anne@example.com`. `curl` exits `0`: the app has nothing to report.
+
+`wait_for_event` answers the next event that matches, or `{"timed_out":true}` when its `timeout_ms` passes. The program waits, for at most ten seconds, for the `exchange_ended` event of the `smtp` exchange, so the record is complete, then for at most two seconds for a `store_changed` event in the `mail` store. None comes.
+
+The agent then reads three things. `get_exchanges` with `scheme` `smtp` gives the exchange{apos}s `chunks` in the order they crossed the wire, each with a `direction`, `received` for what the client sent and `sent` for what the server answered: `RCPT TO:<anne@example.com>` was answered `250 2.1.5 Recipient OK` and the end of the message `250 2.0.0 Message accepted`, the same replies a delivered message gets. `list_mailboxes` for `anne@example.com` is a tool error, `No mailboxes for anne@example.com.`, while Ann{apos}s lists her `INBOX`. `get_events` with `kinds` `store_changed` and `store` `mail` shows that nothing was stored. Accepted, with no mailbox and no delivery: the server discarded it.
+
+That is `surl`{apos}s default for an address inside its domain that has no mailbox: it accepts the recipient and drops the message, so a sender cannot try addresses one by one to learn which exist (<<surl-readme>>). A typo outside the domain is different, and easier to find: `ann@example.cm` is refused at `RCPT` with `550 5.7.1 Relaying denied`, and the app{apos}s `curl` exits `55`, so the app itself sees the failure. To keep such mail where a test can see it, start the server with `--mail-catch-all example.com=postmaster@example.com` and a mailbox for the postmaster: the same send is then delivered, `delivered` to `postmaster@example.com/INBOX/;UID=1`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-explain-why-mail-never-arrived>> for a message refused for its size.
+* <<smtp-see-exactly-what-an-app-sent-from-an-agent>> for mail delivered to the wrong mailbox.
+* <<smtp-catch-mail-for-unknown-addresses>> for the catch-all.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.

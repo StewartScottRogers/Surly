@@ -1,0 +1,52 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs plan-move.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: ftp-plan-a-move-from-recorded-traffic
+title: Planning a Move from Recorded Traffic
+protocols: [ftp, sftp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, curl, get_exchanges, read_file, reset_server]
+curl-options: [-s, -S, --ssl-reqd, --cacert, -u, -l, -o, -T, --append, -Q, -I, -k]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc959, rfc4217]
+
+# What the job uploads and appends each night.
+fixtures:
+  up.txt: "run 2\n"
+
+# A certificate for FTP over TLS and an SSH host key for SFTP; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+  - ssh-keygen -q -t rsa -b 3072 -N "" -f host_key
+
+cases:
+  - id: commands
+    claim: get_exchanges holds one FTP exchange per curl call of the job, each starting AUTH, USER, PASS, PBSZ, PROT, PWD; less those and the other session commands, the job used NLST, SIZE, RETR, STOR, APPE, RNFR, RNTO, DELE and MDTM; and RNTO onto the existing in/upload.csv replaced it with the upload.
+    program: plan-move.cs
+    args: [commands]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "AUTH USER PASS PBSZ PROT PWD CWD EPSV TYPE NLST QUIT\nAUTH USER PASS PBSZ PROT PWD CWD EPSV TYPE SIZE RETR QUIT\nAUTH USER PASS PBSZ PROT PWD CWD EPSV TYPE STOR QUIT\nAUTH USER PASS PBSZ PROT PWD CWD EPSV TYPE APPE QUIT\nAUTH USER PASS PBSZ PROT PWD RNFR RNTO DELE CWD EPSV TYPE NLST QUIT\nAUTH USER PASS PBSZ PROT PWD CWD MDTM TYPE SIZE REST QUIT\nFTP commands the job used: NLST, SIZE, RETR, STOR, APPE, RNFR, RNTO, DELE, MDTM\nin/upload.csv after RNTO: run 2\n"
+
+  - id: solution
+    role: solution
+    claim: After reset_server, the SFTP trial of each command works for NLST (-l), SIZE (the long listing), RETR, STOR (-T), APPE (-T --append) and DELE (rm); a rename onto the existing in/upload.csv fails, exit 21, and -I exits 0 with no Last-Modified; the agent reports those two gaps.
+    program: plan-move.cs
+    args: [plan]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout: "FTP commands the job used: NLST, SIZE, RETR, STOR, APPE, RNFR, RNTO, DELE, MDTM\nNLST: sftp -l, exitCode 0, works\nSIZE: sftp long listing, exitCode 0, works\nRETR: sftp get, exitCode 0, works\nSTOR: sftp -T, exitCode 0, works\nAPPE: sftp -T --append, exitCode 0, works\nRNFR: sftp rename onto an existing name, exitCode 21, GAP: curl: (21) rename \"/in/upload.tmp\" to \"/in/upload.csv\" failed: Operation failed\nDELE: sftp rm, exitCode 0, works\nMDTM: sftp -I, exitCode 0, GAP, no Last-Modified\ngaps: RNFR/RNTO, MDTM\n"
+
+  - id: workaround
+    claim: Both gaps close with other SFTP steps; rm of the old name, then rename, in one call, works; the long listing gives the file's size and date.
+    program: plan-move.cs
+    args: [workaround]
+    timeout: 180
+    expect:
+      exit: 0
+      stdout-matches: 'RNFR: sftp rm, then rename, exitCode 0, works\nMDTM: sftp long listing, exitCode 0, works\n  -rw-r--r-- 1 surl surl +26 [A-Z][a-z]{2} [ 0-9]\d [0-9:]+ report\.csv\ngaps: none\n$'

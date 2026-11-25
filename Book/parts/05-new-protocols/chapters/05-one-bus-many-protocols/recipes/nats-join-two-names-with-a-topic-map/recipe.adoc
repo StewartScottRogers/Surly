@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[nats-join-two-names-with-a-topic-map]]
+=== Joining Names with a Topic Map
+
+==== Problem
+
+Two teams named the same stream differently: the orders service publishes on the NATS subject `orders.created`, and the shop reads the Message Queuing Telemetry Transport (MQTT) topic `shop/orders/new`. You want a topic map that makes one name mean the other, both ways, without changing either team{apos}s code.
+
+==== Solution
+
+Give `surl` one `--topic-map` that names the NATS subject on the left and the MQTT topic on the right, serve both protocols from the one `surl`, and publish on one side to read on the other:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+One `surl` serving `nats://` and `mqtt://` runs one message bus for both (<<surl-readme>>). Each protocol names a topic in its own way, and by default `surl` turns one into the other by swapping NATS{apos}s dots for MQTT{apos}s slashes, so `orders.created` is the MQTT topic `orders/created`. That is the case without a map: the NATS publish lands on `orders/created`, and `shop/orders/new` holds nothing.
+
+`--topic-map nats:orders.created=mqtt:shop/orders/new` says that the NATS name `orders.created` means the topic the MQTT name `shop/orders/new` has. Each side is a scheme, a colon and a name in that scheme{apos}s own spelling. `--allow-anonymous` lets the clients in with no login, and `--topic "#;retain"` keeps the last message on every topic, so a subscriber that arrives later is sent it.
+
+The publisher is `curl -d paid` to `nats://`, the path being the subject (<<nats-protocol>>); `--next` then runs a second transfer, an MQTT subscribe, `curl` with no `-d` and the topic as the path (<<mqtt311>>). `-s` keeps the progress meter quiet. The subscriber is sent the retained message and `surl` ends the session, so `curl` exits `0`; it writes the topic{apos}s length in two bytes, the topic and the payload, here `shop/orders/new` and `paid`.
+
+The map works both ways. An MQTT publish to `shop/orders/new` reaches a NATS subscriber to `orders.created`. NATS keeps nothing for a subscriber that arrives late, so the subscriber must be in place first: `-Z` runs the two transfers at once, the second `surl`, `live`, holds every MQTT connection for a second with `--fault "delay;ms=1000;scheme=mqtt"`, and `?count=1` ends the NATS subscription after one message. `curl` writes `shipped` and a newline.
+
+A map adds a name and takes none away. The MQTT topic{apos}s own NATS name, `shop.orders.new`, still reaches it, and a publish there replaces the retained message with `packed`. What the map does take is the default route: after the publish to `orders.created`, the MQTT topic `orders/created` holds nothing, even under `#;retain`.
+
+A name may be mapped once on a scheme: a second `--topic-map nats:orders.created=...` is refused as the command line is read, exit `2`. A map joins names, not filters, so `nats:orders.*`, with its wildcard, is `not a valid name for nats`, exit `2` at start. Without `--allow-anonymous` a NATS publish with no login is answered `-ERR 'Authorization Violation'` and `curl` exits `67`, with `-S` showing the error `-s` would hide: `surl` asks for a login by default, and a test that wants no accounts says so.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<nats-join-two-names-with-a-topic-map-in-csharp>> for the same task in C#.
+* <<nats-join-two-names-with-a-topic-map-from-an-agent>> for the same task run by an agent.
+* <<nats-publish-and-subscribe>> for NATS on its own and the default route to MQTT.
+* <<surl-readme>>, <<curl-readme>>, <<nats-protocol>>, <<mqtt311>>.

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-trust-a-test-ca-end-to-end-from-an-agent]]
+=== Trusting a Test CA End to End from an Agent
+
+==== Problem
+
+You want an agent to run a Hypertext Transfer Protocol Secure (HTTPS) server and a Simple Mail Transfer Protocol Secure (SMTPS) server whose certificates one test certificate authority (CA) signed, and to reach both trusting that authority and nothing else, never skipping the check.
+
+==== Solution
+
+The certificates are made with `openssl` before the agent starts. The program starts both hosts, starts each server with `start_server` and its own `--cert` and `--key`, and passes `--cacert ca.pem` to every `curl` tool call:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The recipe{apos}s set-up makes the certificates in the folder both hosts are confined to: a self-signed authority whose extensions say it may sign others, `basicConstraints=critical,CA:TRUE` and a `keyUsage` of `keyCertSign` (<<rfc5280>>), and two server certificates it signs, each naming `IP:127.0.0.1`. A third, `stray.pem`, is signed by another authority for the same address.
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>); certificate files are read from the confined folder. A server serves one certificate, so the agent starts two: an `https://` server with `--cert www.pem --key www.key` holding `hello.txt` through `files`, and an `smtps://` server with the mail certificate, `--mail-domain example.com` and a `--mailbox` each for the app and Ann. Both are Transport Layer Security (TLS) from the first byte (<<rfc8314>>). Each answers a `server_id` and its `bound_urls`.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode` and `standardOutput` as JSON. Every call carries the same trust: `--cacert ca.pem`, the test CA and no other authority (<<curl-manual>>), and `--ssl-no-revoke`, for Windows, whose TLS library asks whether a certificate an authority signed has been revoked and finds no revocation list in a test certificate; without it the right `--cacert` still exits `60` there. The `transfer` tool has a `caFile` but nothing for revocation, which is why the agent uses `curl`. The fetch, with `-s` for quiet, exits `0`; the send, `-u` the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T note.eml` the message and `-w "%{response_code}"` the last reply, exits `0` with `250`. Delivery is asynchronous, so `wait_for_event` waits up to ten seconds for a `store_changed` event in Ann{apos}s mailbox, and `list_messages` counts one message there.
+
+Without `--cacert` both calls exit `60`; a nonzero exit is a tool error whose answer still holds `exitCode`. Against the server started with `stray.pem`, the call that trusts the test CA exits `60` too: the right address is not enough, the test{apos}s own authority has to have signed the certificate. `-k` would skip the check and fetch from that server, exit `0`; the agent never passes it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-trust-a-test-ca-end-to-end>> for the same task on the console.
+* <<https-trust-a-test-ca-end-to-end-in-csharp>> for the same task in C#.
+* <<https-serve-a-certificate-chain-from-an-agent>> for a server that sends an intermediate certificate too.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5280>>, <<rfc8314>>.

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-serve-your-own-protocol-in-process]]
+=== Serving Your Own Protocol
+
+==== Problem
+
+Your app speaks a small in-house protocol that `surl` does not serve, and you still want its tests to have what the built-in servers have: a listener on a free port, limits, events, a record of each exchange, and faults. You want to plug your own server into `Surl.Api`.
+
+==== Solution
+
+Write the protocol as an `IConnectionProtocolServer`, register it for a scheme of your own with a `SurlProtocolServer` in `ProtocolServers`, and listen on that scheme:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The in-house protocol here is a line echo: each line the client sends comes back as sent, `QUIT` is answered `BYE` and ends the session. `EchoServer` implements `IConnectionProtocolServer`: `Schemes` names the schemes it answers, and `ServeAsync` is called once per connection with an `IConnection`, which it reads and writes, and an `ExchangeContext`, which carries what `surl` gives every exchange: its `CancellationToken`, its `Limits`, its `Faults` and more. It returns when the session is over, and `surl` closes the connection.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties, and `SurlServer.StartAsync` starts the server it describes. `SurlProtocolServer` joins a scheme to a factory: `echo`, and a function that builds the server once per start from `SurlProtocolServices`, the instance{apos}s stores, accounts and clock, which this server does not need. `ProtocolServers` holds it, and `ListenUrls` names `echo://127.0.0.1:0`, port 0 for a free one, written as a scheme, a host and a port and nothing more (<<surl-readme>>). `server.BoundUrl` gives the port back, and the app, played by a `TcpClient`, connects to it.
+
+`RecordExchanges = true` keeps every exchange in `server.Exchanges`, and the custom one is no exception. The `SurlExchangeRecord` has `Scheme` `echo`, `Received` the bytes the client sent and `Sent` the bytes the server sent back, though `EchoServer` never wrote to the record: `surl` records at the connection, below the protocol. The events are the same as for a built-in scheme: `WaitForEventAsync` with a `SurlEventQuery` of kind `ExchangeEnded` and scheme `echo` answers an `ExchangeEndedEvent` with the byte counts, 13 received and 12 sent.
+
+Faults apply at the listener. `SurlFault.DropConnection()` with `Listener` `echo://127.0.0.1:0`, port 0 matching whatever port was bound, and `Times = 1` is `--fault "drop;listener=...;times=1"`: the first connection is dropped before any byte, and its client gets nothing back; the second is served.
+
+Limits reach the server through the context. `AdditionalArguments` passes `surl` options that have no property, here `--max-line 16`, and the server reads it as `ExchangeLimits.MaxLineBytes` in `context.Limits`. Enforcing it is the server{apos}s own work: `EchoServer` answers a longer line `ERR line too long` and ends the session. The idle timeout needs no work at all: with `IdleTimeout` one second, a client that says nothing for three seconds finds the session ended, and gets nothing back.
+
+A custom server may only add a scheme. Registering it for `http`, which `surl` serves, makes `StartAsync` throw `ArgumentException`: `http is served by Surl or given twice`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-change-an-answer-per-request>> for changing a built-in server{apos}s answers instead of writing a server.
+* <<smtp-collect-mail-with-an-event-callback>> for reacting to the events a server publishes.
+* <<surl-readme>>.

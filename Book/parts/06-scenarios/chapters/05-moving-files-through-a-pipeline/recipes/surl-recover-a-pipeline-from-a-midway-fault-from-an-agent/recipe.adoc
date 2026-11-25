@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-recover-a-pipeline-from-a-midway-fault-from-an-agent]]
+=== Recovering a Pipeline from a Fault from an Agent
+
+==== Problem
+
+As an agent, you run an upload pipeline that sends a report over File Transfer Protocol (FTP), then Hypertext Transfer Protocol (HTTP), then to Amazon Simple Storage Service (S3); you want the S3 step{apos}s connection dropped once, and the pipeline to resume at that step without repeating the first two.
+
+==== Solution
+
+The program starts both hosts and one server with three listeners, adds a fault rule that cuts one S3 answer, runs each step as its own `curl` tool call, runs a failed step once more on its own, and reads the server{apos}s record:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). One server stands in for the three services over one in-memory store: an `ftp://`, an `https://` and an `s3://` listener, each on port 0 so the system picks a free one, answered back in `bound_urls` in that order. `--cert` and `--key` name the certificate made in setup, in the folder both hosts are confined to; it names `127.0.0.1` and the host `curl` gives any bucket. The two `--user` options are the job{apos}s login and its S3 access key ID and secret, `--allow-uploads` lets them write, and `files` puts yesterday{apos}s report in `inbox`, `staging` and `archive`, which makes `archive` a bucket.
+
+`add_fault` adds a rule to the running server: `drop;scheme=s3;after-bytes=1;times=1` cuts an S3 connection once the server has sent one byte, once, and its `close` argument, `graceful`, ends the connection cleanly, with the Transport Layer Security (TLS) `close_notify` and a normal close, rather than the default reset, which may lose what the client had not read (<<surl-readme>>). An S3 put{apos}s answer is only a status line and headers, so the cut falls inside it, after the object is stored.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The FTP step uploads with `-T`, `--ssl-reqd` upgrading the connection to TLS before the password goes (<<rfc959>>, <<rfc4217>>); the HTTPS step is a `PUT` with `-u`, and `-f` to fail on an error status (<<rfc9110>>); the S3 step puts the object, `--connect-to` sending the bucket{apos}s host name to the local listener and `-u` signing the request (<<aws-s3-api>>). `--cacert server.pem` trusts the certificate, `-w "%{http_code}"` prints the status, `-s` hides the progress meter and `-S` keeps an error (<<curl-manual>>).
+
+The FTP step is exit `0` and the HTTPS step `201`. The S3 step is exit `8`, `The connection closed before the response head ended.`, with status `000`, since no status line arrived. The pipeline as first written stops there, yet `read_file` finds the report in the archive: the put was stored before the cut, and the client cannot tell. An agent that keeps each step separate knows which one failed, runs that step again alone, and gets `200`; running a put again is safe, because it replaces the object whole. `get_exchanges` with a `scheme` answers that scheme{apos}s exchanges, and their counts show the resume: one `ftp`, one `https` and two `s3`. The archived object is `report.csv`, Windows line ends included.
+
+`get_events` with `kinds` `fault_applied` has one event: rule `f1`, `drop`, at the `accept` stage, with the S3 listen URL as its `target`. `list_faults` shows the rule as `drop;scheme=s3;after-bytes=1;close=graceful`, with the `close` argument in its text, `times` left out, and `remaining` `0`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-recover-a-pipeline-from-a-midway-fault>> for the same task on the console, with `curl`{apos}s own retry.
+* <<surl-recover-a-pipeline-from-a-midway-fault-in-csharp>> for the same task in C#.
+* <<ftp-copy-a-report-from-ftp-to-s3-from-an-agent>> for a two-step hop.
+* <<surl-readme>>, <<curl-manual>>, <<rfc959>>, <<rfc4217>>, <<rfc9110>>, <<aws-s3-api>>.

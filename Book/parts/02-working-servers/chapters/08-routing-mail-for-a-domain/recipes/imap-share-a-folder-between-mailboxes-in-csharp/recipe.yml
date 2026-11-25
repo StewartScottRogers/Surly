@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-share-a-folder-between-mailboxes-in-csharp
+title: Sharing a Folder Between Mailboxes in C#
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerStartException, CurlClient, CurlRequest, CurlResponse, CurlContent, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1, 2]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The client's LIST finds Shared/team for Ann, Shared/ops and Shared/team for Bob, Shared/ops for Carol; Ann appends the rota to Shared/team with a Curl.Api PUT and Bob reads its Subject back, exit 0.
+    program: share-folder.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "ann shares: Shared/team\nbob shares: Shared/ops, Shared/team\ncarol shares: Shared/ops\nbob reads team: Subject: On-call rota for December\n"
+
+  - id: namespace
+    claim: NAMESPACE, sent as a Curl.Api CustomRequest, names Shared/ as the shared namespace with / as its separator.
+    program: share-folder.cs
+    args: [namespace]
+    expect:
+      exit: 0
+      stdout: "* NAMESPACE ((\"\" \"/\")) NIL ((\"Shared/\" \"/\"))\n"
+
+  - id: non-member
+    claim: Carol is not a member of team, so Curl.Api's read of Shared/team throws CurlException 67, LoginDenied, with the message Select failed.
+    program: share-folder.cs
+    args: [non-member]
+    expect:
+      exit: 1
+      stdout: "carol reads team: curl error 67, LoginDenied: Select failed\n"
+
+  - id: store
+    claim: The server's store agrees with the LIST; ListMailboxesAsync names Shared/team among Ann's mailboxes, both shared folders among Bob's, and Shared/ops among Carol's.
+    program: share-folder.cs
+    args: [store]
+    expect:
+      exit: 0
+      stdout: "ann@example.com: INBOX, Shared/team\nbob@example.com: INBOX, Shared/ops, Shared/team\ncarol@example.com: INBOX, Shared/ops\n"
+
+  - id: typo
+    claim: A member's address misspelt in SharedFolders stops StartAsync with SurlServerStartException, ExitCode FailedInit, naming the member.
+    program: share-folder.cs
+    args: [typo]
+    expect:
+      exit: 2
+      stdout: "not started: FailedInit: (2) option --shared-folder: member bobb@example.com names no account or group\n"

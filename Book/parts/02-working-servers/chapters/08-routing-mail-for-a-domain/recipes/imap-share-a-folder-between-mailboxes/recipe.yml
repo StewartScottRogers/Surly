@@ -1,0 +1,103 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 1
+key: imap-share-a-folder-between-mailboxes
+title: Sharing a Folder Between Mailboxes
+protocols: [imap]
+tier: working-servers
+surl-options: [--mail-domain, --mailbox, --shared-folder, --group]
+curl-options: [-s, -S, -u, -T, --next, -X, -v]
+exit-codes: [0, 2, 21, 67]
+references: [surl-readme, curl-manual, rfc9051]
+
+# The rota the team keeps in its folder. Its lines already end in CRLF: an IMAP APPEND sends the
+# file's exact size first, so curl does not convert line ends there.
+fixtures:
+  rota.eml: "From: ann@example.com\r\nTo: team@example.com\r\nSubject: On-call rota for December\r\n\r\nBob takes the first week.\r\n"
+
+# One surl for example.com: Ann and Bob share the folder team; Bob and Carol, the on-call group,
+# share the folder ops. Carol is not a member of team.
+servers:
+  main:
+    command: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --mailbox carol@example.com:carolpass --group oncall=bob@example.com,carol@example.com --shared-folder team=ann@example.com,bob@example.com --shared-folder ops=@oncall imap://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Ann appends rota.eml to Shared/team, and Bob, logged in as himself, reads the same message as Shared/team UID 1, exit 0.
+    run: 'curl -sS -u ann@example.com:annpass -T rota.eml imap://127.0.0.1:{{port}}/Shared/team --next -sS -u bob@example.com:bobpass "imap://127.0.0.1:{{port}}/Shared/team;UID=1"'
+    expect:
+      exit: 0
+      stdout: "From: ann@example.com\nTo: team@example.com\nSubject: On-call rota for December\n\nBob takes the first week.\n"
+
+  - id: ann-lists
+    claim: Ann's LIST shows her INBOX, a Shared folder that cannot be selected, and Shared/team, and not Shared/ops.
+    run: 'curl -sS -u ann@example.com:annpass imap://127.0.0.1:{{port}}/'
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\Noselect \\HasChildren) \"/\" Shared\n* LIST (\\HasNoChildren) \"/\" Shared/team\n"
+
+  - id: bob-lists
+    claim: Bob is a member of team by name and of ops through the group oncall, so his LIST shows both folders.
+    run: 'curl -sS -u bob@example.com:bobpass imap://127.0.0.1:{{port}}/'
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\Noselect \\HasChildren) \"/\" Shared\n* LIST (\\HasNoChildren) \"/\" Shared/ops\n* LIST (\\HasNoChildren) \"/\" Shared/team\n"
+
+  - id: carol-lists
+    claim: Carol's LIST shows Shared/ops, through the group, and not Shared/team.
+    run: 'curl -sS -u carol@example.com:carolpass imap://127.0.0.1:{{port}}/'
+    expect:
+      exit: 0
+      stdout: "* LIST (\\HasNoChildren) \"/\" INBOX\n* LIST (\\Noselect \\HasChildren) \"/\" Shared\n* LIST (\\HasNoChildren) \"/\" Shared/ops\n"
+
+  - id: carol-cannot-read
+    claim: Carol's read of Shared/team UID 1 is refused as a folder that does not exist; curl exits 67, Select failed, and prints nothing.
+    run: 'curl -sS -u carol@example.com:carolpass "imap://127.0.0.1:{{port}}/Shared/team;UID=1"'
+    expect:
+      exit: 67
+      stdout: ""
+      stderr-contains: "curl: (67) Select failed"
+
+  - id: carol-told-nonexistent
+    claim: The server's answer to Carol's STATUS of Shared/team is NO [NONEXISTENT] Mailbox does not exist, the answer for a folder that is not there at all.
+    run: 'curl -sS -v -u carol@example.com:carolpass -X "STATUS Shared/team (MESSAGES)" imap://127.0.0.1:{{port}}/'
+    expect:
+      exit: 21
+      stderr-contains: "< A003 NO [NONEXISTENT] Mailbox does not exist"
+
+  - id: same-as-never-made
+    claim: Carol's STATUS of Shared/nosuch, a folder nobody made, gets the same answer, so a non-member cannot tell the two apart.
+    run: 'curl -sS -v -u carol@example.com:carolpass -X "STATUS Shared/nosuch (MESSAGES)" imap://127.0.0.1:{{port}}/'
+    expect:
+      exit: 21
+      stderr-contains: "< A003 NO [NONEXISTENT] Mailbox does not exist"
+
+  - id: bob-counts
+    claim: Bob's STATUS of Shared/team counts the one message Ann appended.
+    run: 'curl -sS -u bob@example.com:bobpass -X "STATUS Shared/team (MESSAGES)" imap://127.0.0.1:{{port}}/'
+    expect:
+      exit: 0
+      stdout: "* STATUS Shared/team (MESSAGES 1)\n"
+
+  - id: unknown-member
+    claim: A member that names no mailbox or group, here a misspelt address, stops surl at start with exit 2 and the member named.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --shared-folder team=ann@example.com,bobb@example.com imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: (2) option --shared-folder: member bobb@example.com names no account or group"
+
+  - id: bare-group-name
+    claim: A group is named with a leading @; written without it, oncall is looked up as an account and refused the same way.
+    run: surl --mail-domain example.com --mailbox bob@example.com:bobpass --group oncall=bob@example.com --shared-folder ops=oncall imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: (2) option --shared-folder: member oncall names no account or group"
+
+  - id: folder-twice
+    claim: One folder named in two --shared-folder options is refused at start, exit 2; its members go in one list.
+    run: surl --mail-domain example.com --mailbox ann@example.com:annpass --mailbox bob@example.com:bobpass --shared-folder team=ann@example.com --shared-folder team=bob@example.com imap://127.0.0.1:{{port2}}/
+    expect:
+      exit: 2
+      stderr-contains: "surl: option --shared-folder: shared folder team is given twice"

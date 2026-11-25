@@ -1,0 +1,36 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-test-a-wait-with-a-fake-clock]]
+=== Testing a Wait with a Fake Clock
+
+==== Problem
+
+Your C# test waits up to a minute for an app to upload its nightly report, and the test of the path where the report never comes should not sit through that minute. You want the server on a fake `TimeProvider`, the test to move it, and the `TimeoutException` that `WaitForEventAsync` throws to come at once.
+
+==== Solution
+
+Build the `SurlServer` with a `TimeProvider` the test owns, start the wait, and move the clock past the wait{apos}s bound:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `http://` URL on port 0, so the system picks a free port. `AllowUploads` is `--allow-uploads`, and a `SurlAccount` in `Accounts` is `--user export:exportpass`, the app{apos}s login; `Files` seeds the `reports` folder the upload goes into. `RecordExchanges = true` keeps the server{apos}s events, which is what a wait looks for. `TimeProvider` is the one clock the server runs on, `TimeProvider.System` unless given; here it is `FakeClock`, a small subclass of .NET{apos}s `TimeProvider` written in the program. It answers `GetUtcNow` with a time that stands still at 1 January 2030 until `Advance` moves it, and its `CreateTimer` hands out timers that fire only when `Advance` passes their due time.
+
+The wait is `WaitForEventAsync` with a `SurlEventQuery`: `Kind` `SurlEventKind.StoreChanged`, `Store` `StoreKind.Content`, the server{apos}s files, and `Name` `/reports/daily.csv`. Its bound, 60 seconds, is counted on the server{apos}s clock, so on the fake one. With no upload the wait is still open when the clock has not moved and still open at 59 seconds of fake time; one more second and it throws `TimeoutException`, whose message repeats the query, the bound, `00:01:00`, and how many events came while it waited, none of them matching. The test moved the clock a minute; the whole run took a fraction of a second of real time, well under ten. The short `Task.Delay` before each look is not a timeout: it only lets the server{apos}s side run before the test reads whether the wait has ended.
+
+The app is played by `Curl.Api`: a `CurlClient` sends a `CurlRequest` with `HttpMethod.Put` and the report as its body, logging in through `CurlAuthenticationOptions` with `HttpAuthenticationMethods.Digest`. The `CurlResponse` is `201 Created` (<<rfc9110>>). Then the wait ends at once with a `SurlEvent` that is a `StoreChangedEvent`, `Change` `Written` and `Name` `/reports/daily.csv`, and the fake clock has not moved at all. The server dates its answers by the same clock: the upload{apos}s `Date` header is `Tue, 01 Jan 2030 00:00:00 GMT`.
+
+The query{apos}s `Name` matches a whole path, or a folder above it, not a file whose name only starts the same (<<surl-readme>>). An upload of `/reports/daily-old.csv` is recorded, events and all, and the wait for `/reports/daily.csv` times out at 60 seconds of fake time like a missing upload; the message says that events came and none matched.
+
+A fake clock moves only when the test moves it. A wait the test forgets to advance would wait for ever, so the program also passes a real `CancellationToken`, from a `CancellationTokenSource` with a bound of real time, as a guard. With no `Advance` at all the wait is still open when that token ends it, 2 seconds later, with `OperationCanceledException`, not `TimeoutException`; a test that sees the first knows its clock did not govern the wait.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-wait-for-mail-on-a-fake-clock>> for the same kind of wait for mail.
+* <<surl-spot-a-truncated-recording>> for the limits on what a recording server keeps.
+* <<surl-readme>>, <<rfc9110>>.

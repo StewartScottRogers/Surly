@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-reach-test-services-through-socks-from-an-agent]]
+=== Reaching Test Services Through SOCKS from an Agent
+
+==== Problem
+
+Your agent works on a test network that lets clients out only through a SOCKS5 proxy. You want its Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP) calls made through the proxy, and the proxy{apos}s record showing each one.
+
+==== Solution
+
+The program starts both hosts, starts the services and the proxy with `start_server`, calls each service with `transfer` and its `proxy` argument, and reads the proxy{apos}s record with `get_exchanges` on the proxy{apos}s listen URL:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+SOCKS5 relays a Transmission Control Protocol (TCP) connection: the client names a host and port, the proxy connects there and answers success, and from then on passes bytes both ways without reading them as any protocol (<<rfc1928>>), so one proxy serves HTTP and FTP alike. `start_server` takes several listen URLs in one server (<<surl-readme>>): the HTTP and FTP services on `localhost` and the proxy on `socks5h://127.0.0.1`, all on port 0. `bound_urls` answers them in that order with the ports the system chose. `files` holds `hello.txt` for both services, and `--allow-anonymous` in `arguments` lets the FTP service take the client{apos}s anonymous login; the proxy asks for no login.
+
+`transfer` takes a `url` and a `proxy`, as `curl -x`; `socks5h://` hands the name `localhost` to the proxy to resolve, and `timeoutSeconds` bounds each call at twenty seconds. The same `proxy` fetches `hello.txt` over HTTP and over FTP, and the answer{apos}s `body.content` is the file.
+
+`get_exchanges` with `listen_url` set to the proxy{apos}s bound URL answers only the proxy{apos}s exchanges, one per connection a client opened to it, with each `chunk` in base64. The client{apos}s second message is its request: `05 01 00 03`, then the length of the name, the name, and the port in two bytes. The agent reads the name and port from it and names each exchange by the port. There are three, all asking for `localhost`: the HTTP service, the FTP service{apos}s control connection, and a third for the file itself. FTP moves a file on a second connection (<<rfc959>>): the FTP service answers passive mode with `229 Entering Extended Passive Mode` and a port, which the agent reads from the FTP service{apos}s own exchanges, and the third proxy exchange asked for exactly that port.
+
+The record holds a refused call as well. A second server, an FTP service started without `--allow-anonymous`, refuses the anonymous login; `transfer` is a tool error whose `failure` text ends `curl exit code 67 (LoginDenied)`, and the proxy{apos}s record still has the exchange that asked for that service{apos}s port. The proxy carried the call; the service refused it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-reach-test-services-through-socks>> for the same task on the console.
+* <<socks5-reach-test-services-through-socks-in-csharp>> for the same task in C#.
+* <<socks5-relay-through-a-socks-proxy-from-an-agent>> for how the proxy resolves names and what it turns away.
+* <<surl-readme>>, <<rfc1928>>, <<rfc959>>.

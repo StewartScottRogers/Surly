@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[grpc-diagnose-a-failing-call-from-an-agent]]
+=== Diagnosing a Failing gRPC Call
+
+==== Problem
+
+A gRPC (gRPC Remote Procedure Calls) call failed in a test, and the test{apos}s log says little. You want an agent to read the server{apos}s record of the exchange and report, call by call, the status and the message the server sent.
+
+==== Solution
+
+The program starts both hosts and a gRPC server, makes the test{apos}s call with the `curl` tool, and then, as the agent, reads the exchange with `get_exchanges`, takes its Hypertext Transfer Protocol version 2 (HTTP/2) frames apart, decodes their compressed headers and reports each call{apos}s `grpc-status` and `grpc-message`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `grpc://127.0.0.1:0`, and in `arguments` `surl`{apos}s own options (<<surl-readme>>); `--allow-anonymous` lets calls in with no login. It answers a `server_id` and the `bound_urls`. The server has the method `surl.test.Echo/Echo` built in, which answers with whatever status its request asks for, so the test can fail on purpose.
+
+The test is the `curl` tool, which runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError`. `-d` with JavaScript Object Notation (JSON) is the request, and `-s` and `-S` keep it quiet but for an error. `curl` asks the server{apos}s reflection service for the method{apos}s types, then calls it; a status other than 0 is exit `22`.
+
+The agent works from the record. `wait_for_event` for `exchange_ended`, bounded at ten seconds, makes sure the exchange is over; `get_exchanges` with `scheme` `grpc` answers its `chunks`, each with a `direction`, `received` for the client{apos}s bytes and `sent` for the server{apos}s, and its `data`, here base64. gRPC runs on HTTP/2 (<<grpc-http2>>), so the bytes are frames (<<rfc9113>>): three bytes of length, a type, flags and a stream number, one stream per call. A call{apos}s status is in its last `HEADERS` frame, and header blocks are compressed with HPACK (<<rfc7541>>): a field is an index into a static table of 61 entries or into a table the two sides build as they go, or a literal, often Huffman-coded. The program joins each direction{apos}s bytes, skips the client{apos}s 24-byte preface, decodes every header block in order, since each changes the table the next is read with, and rebuilds the Huffman code from its code lengths, the code being canonical. That is the whole of the program after the tool calls.
+
+The report has one line per call, by the `:path` the client sent. The reflection lookup was answered `grpc-status 0`. The Echo call was answered `grpc-status 5`, which the program names `NOT_FOUND`, and `grpc-message` `no such order`: what `curl` said, now read from the server{apos}s side. A message is percent-encoded on the wire, so `disk 100% full` was sent as `disk 100%25 full`, and the agent undoes it as `curl` does. A call that succeeds is recorded with `grpc-status 0` and no message, and the program exits `0`; any other status, exit `1`.
+
+Without `--allow-anonymous` the call with no login never reaches Echo. The record holds one call, the reflection lookup, answered `grpc-status 16`, `UNAUTHENTICATED`, and `curl` exits `22` saying the server did not answer reflection: `surl` asks for a login by default.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<grpc-test-a-failing-call-from-an-agent>> for making a call fail with a chosen status.
+* <<surl-readme>>, <<grpc-http2>>, <<rfc9113>>, <<rfc7541>>, <<mcp-spec>>.

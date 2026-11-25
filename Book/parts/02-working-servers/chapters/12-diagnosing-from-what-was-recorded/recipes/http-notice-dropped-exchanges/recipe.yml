@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-notice-dropped-exchanges
+title: Noticing Dropped Exchanges
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0, 1, 2]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts the server through Surl.Api and plays the app with Curl.Api.
+# The app's requests run eight at a time, so which item is the oldest kept varies; the claims allow any.
+cases:
+  - id: solution
+    role: solution
+    claim: With room for 100 exchanges, after 1,202 requests, each on its own connection, the record keeps 100 and has dropped 1,102, which add up to every request; GET /session/start is not in the record, and because exchanges were dropped the test reports that it cannot tell, exit 2, instead of failing the app.
+    program: dropped.cs
+    args: []
+    expect:
+      exit: 2
+      stdout: "requests made: 1202; exchanges kept: 100; dropped: 1102; kept + dropped: 1202\nGET /session/start in the record: no\nINCONCLUSIVE: 1102 exchanges were dropped, oldest first; the request may be among them\n"
+
+  - id: oldest-first
+    claim: The record drops the oldest exchanges first; the newest it keeps is the app's last request, GET /session/end, and the oldest is an item read late in the run, so the session's opening request was among the first dropped.
+    program: dropped.cs
+    args: [oldest]
+    expect:
+      exit: 0
+      stdout-matches: '\Arequests made: 1202; exchanges kept: 100; dropped: 1102; kept \+ dropped: 1202\noldest kept: GET /items/(1[01]\d\d|9\d\d)\nnewest kept: GET /session/end\n\Z'
+
+  - id: roomy
+    claim: With room for 2,000 exchanges nothing is dropped, every request is kept, GET /session/start is found and the test passes.
+    program: dropped.cs
+    args: [roomy]
+    expect:
+      exit: 0
+      stdout: "requests made: 1202; exchanges kept: 1202; dropped: 0; kept + dropped: 1202\nGET /session/start in the record: yes\nPASS: the app opened its session\n"
+
+  - id: really-missing
+    claim: Only with nothing dropped is a missing record a missing request; an app that never opens its session leaves 1,201 exchanges, none dropped, and the test fails it, exit 1.
+    program: dropped.cs
+    args: [no-session]
+    expect:
+      exit: 1
+      stdout: "requests made: 1201; exchanges kept: 1201; dropped: 0; kept + dropped: 1201\nGET /session/start in the record: no\nFAIL: nothing was dropped, so the app never opened its session\n"

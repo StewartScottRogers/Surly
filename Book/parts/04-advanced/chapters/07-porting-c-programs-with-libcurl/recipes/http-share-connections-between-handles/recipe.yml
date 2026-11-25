@@ -1,0 +1,90 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-share-connections-between-handles
+title: Sharing Connections between Handles
+protocols: [http]
+tier: advanced
+surface: csharp
+surl-options: [-v, --log-file, --directory]
+api-types: [CurlGlobal, CurlGlobalFlags, CurlLibrary, CurlShare, CurlShareOption, CurlLockData, CurlShareCode, CurlEasy, CurlOption, WriteCallback, CurlInfo, CurlCode, CurlErrorText]
+exit-codes: [0]
+references: [surl-readme, libcurl-api]
+
+# Three servers, one per way of running the program, so each verbose log holds one run. One surl
+# holds a folder at a time, so each serves its own copy of the two files.
+fixtures:
+  both/a.txt: "q3 total: 1200\n"
+  both/b.txt: "q4 total: 1350\n"
+  apart/a.txt: "q3 total: 1200\n"
+  apart/b.txt: "q4 total: 1350\n"
+  conn/a.txt: "q3 total: 1200\n"
+  conn/b.txt: "q4 total: 1350\n"
+
+# The program is only the client. -v writes every request line and header to the log file.
+servers:
+  both:
+    command: surl -v --log-file both.log --directory both http://127.0.0.1:{{port}}/
+    ready: port
+  apart:
+    command: surl -v --log-file apart.log --directory apart http://127.0.0.1:{{port2}}/
+    ready: port
+  conn:
+    command: surl -v --log-file conn.log --directory conn http://127.0.0.1:{{port3}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Two easy handles attached to one share handle that shares connections and cookies both fetch with status 200; the first opens a connection and the second opens none.
+    program: share.cs
+    args: ["http://127.0.0.1:{{port}}/a.txt", "http://127.0.0.1:{{port}}/b.txt"]
+    expect:
+      exit: 0
+      stdout: "handle 1: 200, new connections 1\nhandle 2: 200, new connections 0\n"
+
+  - id: server-log-one-connection
+    claim: The server's verbose log shows both requests in one exchange, that is on one connection, and the second handle's request carries the session cookie that was given to the first handle only.
+    run: grep -E "< (GET|Cookie)" both.log | cut -d " " -f 1,3,4
+    expect:
+      exit: 0
+      stdout-matches: '\A(#\d+) GET /a\.txt\n\1 Cookie: session=abc123\\r\\n\n\1 GET /b\.txt\n\1 Cookie: session=abc123\\r\\n\n\Z'
+
+  - id: no-share
+    claim: Without a share handle each easy handle keeps its own cache; the second handle opens a connection of its own.
+    program: share.cs
+    args: ["http://127.0.0.1:{{port2}}/a.txt", "http://127.0.0.1:{{port2}}/b.txt", "none"]
+    expect:
+      exit: 0
+      stdout: "handle 1: 200, new connections 1\nhandle 2: 200, new connections 1\n"
+
+  - id: no-share-log
+    claim: The server's log then shows the two requests in two exchanges, and only the first carries the cookie.
+    run: grep -E "< (GET|Cookie)" apart.log | cut -d " " -f 1,3,4
+    expect:
+      exit: 0
+      stdout-matches: '\A(#\d+) GET /a\.txt\n\1 Cookie: session=abc123\\r\\n\n(?!\1 )#\d+ GET /b\.txt\n\Z'
+
+  - id: connect-only
+    claim: Sharing only CURL_LOCK_DATA_CONNECT keeps the one connection but not the cookie; the log shows one exchange and no cookie on the second request.
+    program: share.cs
+    args: ["http://127.0.0.1:{{port3}}/a.txt", "http://127.0.0.1:{{port3}}/b.txt", "connect"]
+    expect:
+      exit: 0
+      stdout: "handle 1: 200, new connections 1\nhandle 2: 200, new connections 0\n"
+
+  - id: connect-only-log
+    claim: In that run's log both requests are in one exchange and only the first carries the cookie.
+    run: grep -E "< (GET|Cookie)" conn.log | cut -d " " -f 1,3,4
+    expect:
+      exit: 0
+      stdout-matches: '\A(#\d+) GET /a\.txt\n\1 Cookie: session=abc123\\r\\n\n\1 GET /b\.txt\n\Z'
+
+  - id: cleanup-in-use
+    claim: curl_share_cleanup while easy handles are still attached answers CURLSHE_IN_USE, 2, "Share currently in use", and leaves the share working; after the handles are detached it answers CURLSHE_OK.
+    program: share.cs
+    args: ["http://127.0.0.1:{{port}}/a.txt", "http://127.0.0.1:{{port}}/b.txt", "cleanup-early"]
+    expect:
+      exit: 0
+      stdout: "curl_share_cleanup: 2 InUse: Share currently in use\nhandle 1: 200, new connections 1\nhandle 2: 200, new connections 0\ncurl_share_cleanup after detaching: 0 Ok\n"
