@@ -1,6 +1,6 @@
 # Surly
 
-Monorepo for the Curl port, the Surl server, and the *Surly* cookbook. Only `Book/` is active; `Curl/` and `Surl/` are placeholders until the two programs are migrated here.
+Monorepo for the Curl port, the Surl server, and the *Surly* cookbook. Only `Book/` is active; `Curl/`, `Surl/` and `Curl.ThirdPartyReview/` are placeholders until the two programs and the Curl review repository are migrated here.
 
 - Working on the book: read `Book/AI.md` first. It is the whole method.
 - Running or working as the factory: `Factory/README.md` and `Factory/Policy/`.

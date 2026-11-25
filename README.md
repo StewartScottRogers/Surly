@@ -15,6 +15,7 @@ Surly is the monorepo for two matched programs and the book that describes them:
 | Folder | Holds |
 |---|---|
 | `Curl/` | The Curl solution, once migrated here with its history |
+| `Curl.ThirdPartyReview/` | Outside fitness reviews of the Curl port against C curl, once migrated here with their history |
 | `Surl/` | The Surl solution, once migrated here with its history |
 | `Book/` | The Surly cookbook |
 | `Factory/` | The unattended production line that writes and maintains the book |
