@@ -31,11 +31,11 @@ await using McpClient curl = await McpClient.CreateAsync(new StdioClientTranspor
 }));
 
 // surl-mcp: one broker for both services, STOMP and MQTT 5 on one message bus, keeping the latest message under
-// orders/ and ending an idle STOMP subscription after a second.
+// orders/.
 CallToolResult started = await surl.CallToolAsync("start_server", new Dictionary<string, object?>
 {
     ["listen_urls"] = new[] { "stomp://127.0.0.1:0", "mqtt5://127.0.0.1:0" },
-    ["arguments"] = new[] { "--allow-anonymous", "--topic", "orders/#;retain", "--idle-timeout", "1" },
+    ["arguments"] = new[] { "--allow-anonymous", "--topic", "orders/#;retain" },
 });
 string serverId = started.StructuredContent!.Value.GetProperty("server_id").GetString()!;
 string stomp = started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!;
@@ -79,8 +79,8 @@ switch (which)
         Console.Write($"kept on orders/created: {(kept.TryGetProperty("text", out JsonElement found) ? found.GetString() : "nothing\n")}");
         break;
     case "stomp-retained":
-        // A STOMP subscriber to the same topic; surl ends the idle subscription, and -m is only a ceiling.
-        JsonElement subscribed = await Curl("-s", "-S", "-m", "10", stomp + "topic/orders/created");
+        // A STOMP subscriber to the same topic. Nothing comes, so -m 3 ends the wait.
+        JsonElement subscribed = await Curl("-s", "-m", "3", stomp + "topic/orders/created");
         Console.WriteLine($"STOMP subscriber: exit code {subscribed.GetProperty("exitCode")}, " +
                           $"{subscribed.GetProperty("standardOutput").GetProperty("content").GetString()!.Length} characters");
         break;

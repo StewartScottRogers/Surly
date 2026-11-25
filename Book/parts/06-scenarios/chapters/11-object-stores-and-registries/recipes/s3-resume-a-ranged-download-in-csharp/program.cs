@@ -18,7 +18,7 @@ using Surl.Protocol.Abstractions;
 
 string which = args.Length > 0 ? args[0] : "range";
 
-// big.bin: 4,000,000 random bytes in the bucket media. The server resets every connection once it has
+// big.bin: 4,000,000 random bytes in the bucket media. The server closes every connection once it has
 // sent 1,500,000 bytes on it, the response head included.
 byte[] big = System.Security.Cryptography.RandomNumberGenerator.GetBytes(4_000_000);
 var options = new SurlServerOptions
@@ -27,7 +27,7 @@ var options = new SurlServerOptions
     CertificateFile = "server.pem",
     KeyFile = "server.key",
     Accounts = { new SurlAccount("AKIAIOSFODNN7EXAMPLE", "s3cret") },
-    Faults = { SurlFault.DropConnection() with { AfterBytes = 1_500_000 } },
+    Faults = { SurlFault.DropConnection() with { AfterBytes = 1_500_000, Close = FaultClose.Graceful } },
     RecordExchanges = true,
 };
 options.Files["media/big.bin"] = big;

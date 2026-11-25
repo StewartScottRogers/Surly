@@ -7,7 +7,7 @@ protocols: [s3]
 tier: scenarios
 surl-options: [--directory, --cert, --key, --user, --fault]
 curl-options: [-s, -S, -f, -r, -o, -w, --aws-sigv4, -u, --cacert, --connect-to, --max-time]
-exit-codes: [0, 1, 56]
+exit-codes: [0, 1, 18]
 references: [surl-readme, curl-manual, aws-s3-api, rfc9110]
 
 # get-range.sh is the downloader: it fetches one byte range of an object and, when a try ends
@@ -48,21 +48,21 @@ setup:
   - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
   - openssl rand -out store/media/big.bin 4000000
 
-# Every connection is cut once surl has sent 1,500,000 bytes on it, the response head included.
+# Every connection is closed, cleanly, once surl has sent 1,500,000 bytes on it, the response head included.
 servers:
   main:
-    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --fault "drop;after-bytes=1500000" s3://127.0.0.1:{{port}}/
+    command: surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --fault "drop;after-bytes=1500000;close=graceful" s3://127.0.0.1:{{port}}/
     ready: port
 
 cases:
   - id: solution
     role: solution
-    platforms: [windows, linux]  # macOS: a transfer that surl aborts mid-body sometimes never ends there (platforms.md, Curl BL-5799), so cut cases run on Windows and Linux.
-    claim: The first try at bytes 0-1999999 is answered 206 and cut off, curl exit 56; the next try asks for bytes from exactly where the first stopped, and the downloader ends having fetched 2,000,000 bytes for the 2,000,000-byte range, none twice.
+    platforms: [windows, linux]  # macOS: cut cases ran only on Windows and Linux while surl reset the connection (platforms.md, Curl BL-5799); not yet run there with close=graceful.
+    claim: The first try at bytes 0-1999999 is answered 206 and ends early, curl exit 18, a partial file; the next try asks for bytes from exactly where the first stopped and comes whole, and the downloader ends having fetched 2,000,000 bytes for the 2,000,000-byte range, none twice.
     run: sh get-range.sh https://media.s3.us-east-1.amazonaws.com/big.bin 0 1999999 dl/part0 --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret
     expect:
       exit: 0
-      stdout-matches: '^bytes=0-1999999: 206 (\d+), exit 56\nbytes=\1-1999999: 206 \d+, exit (?:0|56)\n(?:[^\n]*\n)*fetched 2000000 bytes for a range of 2000000\n$'
+      stdout-matches: '^bytes=0-1999999: 206 (1499\d{3}), exit 18\nbytes=\1-1999999: 206 \d+, exit 0\nfetched 2000000 bytes for a range of 2000000\n$'
 
   - id: whole-object
     platforms: [windows, linux]  # macOS: see solution.
@@ -74,11 +74,12 @@ cases:
 
   - id: cut-off
     platforms: [windows, linux]  # macOS: see solution.
-    claim: A plain ranged get of 2,000,000 bytes is answered 206 and reset part-way, curl exit 56, with fewer than the 1,500,000 bytes surl sent received.
+    claim: A plain ranged get of 2,000,000 bytes is answered 206 and ends when the 1,500,000 bytes surl sends, the response head included, have arrived; curl exits 18, the end of the response with bytes missing.
     run: curl -sS --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:{{port}} --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret -r 0-1999999 -o dl/once.bin -w "%{http_code} %{size_download}\n" https://media.s3.us-east-1.amazonaws.com/big.bin
     expect:
-      exit: 56
-      stdout-matches: '^206 (?:1[0-4]\d{5}|\d{1,6})\n$'
+      exit: 18
+      stdout-matches: '^206 1499\d{3}\n$'
+      stderr-contains: "bytes missing"
 
   - id: short-range-whole
     claim: The rule counts bytes per connection, so a range of 1,000,000 bytes is served whole in one try, 206.
