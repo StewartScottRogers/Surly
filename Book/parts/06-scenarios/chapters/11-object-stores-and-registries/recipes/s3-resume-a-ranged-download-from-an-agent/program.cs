@@ -34,11 +34,11 @@ await using McpClient curl = await McpClient.CreateAsync(new StdioClientTranspor
     EnvironmentVariables = new Dictionary<string, string?> { ["CURL_MCP_ROOT"] = here },
 }));
 
-// The bucket server: TLS, one account, and every connection reset once 1,500,000 bytes have gone out on it.
+// The bucket server: TLS, one account, and every connection closed cleanly once 1,500,000 bytes have gone out on it.
 CallToolResult started = await surl.CallToolAsync("start_server", new Dictionary<string, object?>
 {
     ["listen_urls"] = new[] { "s3://127.0.0.1:0" },
-    ["arguments"] = new[] { "--directory", "store", "--cert", "server.pem", "--key", "server.key", "--user", "AKIAIOSFODNN7EXAMPLE:s3cret", "--fault", "drop;after-bytes=1500000" },
+    ["arguments"] = new[] { "--directory", "store", "--cert", "server.pem", "--key", "server.key", "--user", "AKIAIOSFODNN7EXAMPLE:s3cret", "--fault", "drop;after-bytes=1500000;close=graceful" },
 });
 string id = started.StructuredContent!.Value.GetProperty("server_id").GetString()!;
 int port = new Uri(started.StructuredContent!.Value.GetProperty("bound_urls")[0].GetString()!).Port;

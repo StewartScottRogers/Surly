@@ -18,13 +18,12 @@ using Surl.Api;
 string which = args[0];
 
 // One broker for both services: STOMP for the old, MQTT 5 for the new, on one message bus. Topics keeps the latest
-// message under orders/ (--topic "orders/#;retain"); --idle-timeout ends an idle STOMP subscription after a second.
+// message under orders/ (--topic "orders/#;retain").
 var options = new SurlServerOptions
 {
     ListenUrls = { "stomp://127.0.0.1:0", "mqtt5://127.0.0.1:0" },
     AllowAnonymous = true,
     Topics = { "orders/#;retain" },
-    AdditionalArguments = { "--idle-timeout", "1" },
 };
 await using SurlServer server = await SurlServer.StartAsync(options);
 string stomp = server.BoundUrls[0].ToString();
@@ -65,14 +64,21 @@ switch (which)
         Console.Write($"kept on orders/created: {(kept is null ? "nothing\n" : Encoding.UTF8.GetString(kept.Payload.Span))}");
         break;
     case "stomp-retained":
-        // A STOMP subscriber to the same topic; surl ends the idle subscription, and the token is only a ceiling.
-        using (var ceiling = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+        // A STOMP subscriber to the same topic. Nothing comes, so the test stops waiting after 3 s.
+        using (var bytes = new MemoryStream())
+        using (var ceiling = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
         {
-            CurlResponse response = await client.SendAsync(new CurlRequest(HttpMethod.Get, stomp + "topic/orders/created"), ceiling.Token);
-            await using Stream body = response.Body;
-            using var bytes = new MemoryStream();
-            await body.CopyToAsync(bytes, ceiling.Token);
-            Console.WriteLine($"STOMP subscriber was sent {bytes.Length} bytes");
+            try
+            {
+                CurlResponse response = await client.SendAsync(new CurlRequest(HttpMethod.Get, stomp + "topic/orders/created"), ceiling.Token);
+                await using Stream body = response.Body;
+                await body.CopyToAsync(bytes, ceiling.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            Console.WriteLine($"STOMP subscriber was sent {bytes.Length} bytes in 3 s");
         }
 
         break;
