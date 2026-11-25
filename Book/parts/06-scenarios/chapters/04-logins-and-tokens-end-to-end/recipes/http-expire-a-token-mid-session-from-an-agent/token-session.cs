@@ -53,7 +53,8 @@ if (mode == "endpoint")
 
     string headers = (await Curl("-s", "-D", "-", "-o", "api.out", baseUrl + "v2/")).Output;
     Console.WriteLine($"no token: {headers.Split('\n')[0].Trim()}, {headers.Split('\n').First(l => l.StartsWith("WWW-Authenticate:")).Trim()}");
-    // A fixed Bearer token is an account with an empty user name; add_account will not take one.
+    // A fixed Bearer token is an account with an empty user name; add_account adds one, and the
+    // registry, which takes only the tokens it issues, still refuses it.
     string fixedToken;
     try
     {
@@ -69,6 +70,7 @@ if (mode == "endpoint")
     }
 
     Console.WriteLine($"add_account with an empty user: {fixedToken}");
+    Console.WriteLine($"the fixed token at the registry: {(await Curl("-s", "--oauth2-bearer", "tok-2", "-o", "api.out", "-w", "%{http_code}", baseUrl + "v2/")).Output}");
     return 0;
 }
 
