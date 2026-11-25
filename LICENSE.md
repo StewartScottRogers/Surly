@@ -5,6 +5,7 @@ This repository is not under one licence. Each top-level folder has its own term
 | Folder | Terms |
 |---|---|
 | `Curl/` | The curl licence (SPDX `curl`); see `Curl/LICENSE.txt` once migrated |
+| `Curl.ThirdPartyReview/` | None yet: the repository is private and has no licence file; one is chosen when it is migrated |
 | `Surl/` | The MIT licence; see `Surl/LICENSE.txt` once migrated |
 | `Book/` | Copyright © 2026 Stewart Rogers. Prose: Creative Commons Attribution-NoDerivatives 4.0; example code: Apache 2.0. See `Book/LICENSE.txt` and `Book/LICENSE-CODE.txt` |
 | Everything else | Copyright © 2026 Stewart Rogers, all rights reserved |
