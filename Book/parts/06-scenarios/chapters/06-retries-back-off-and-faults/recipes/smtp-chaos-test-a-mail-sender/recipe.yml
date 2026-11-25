@@ -1,0 +1,53 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs chaos.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: smtp-chaos-test-a-mail-sender
+title: Chaos-Testing a Mail Sender
+protocols: [smtp]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, list_messages, read_message, get_events, list_faults, get_exchanges]
+curl-options: [-s, -S, --crlf, -m, -u, --mail-from, --mail-rcpt, --retry, --retry-all-errors, --retry-delay, -T, -w]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc5321, rfc5322]
+
+# Three orders the shop sends Ann, each with its own Message-ID.
+fixtures:
+  order1.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 1 confirmed\nMessage-ID: <order-1@shop.example.com>\n\nThank you for order 1.\n"
+  order2.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 2 confirmed\nMessage-ID: <order-2@shop.example.com>\n\nThank you for order 2.\n"
+  order3.eml: "From: shop@example.com\nTo: ann@example.com\nSubject: Order 3 confirmed\nMessage-ID: <order-3@shop.example.com>\n\nThank you for order 3.\n"
+
+cases:
+  - id: solution
+    role: solution
+    claim: Under a 2-second hold on MAIL, a 451 on RCPT and a dropped connection at DATA, each once, the sender with retries ends every send with exit 0 and reply 250, order 1 after two retries, and each order's Message-ID is stored in Ann's INBOX exactly once.
+    program: chaos.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "order 1: curl exit 0, reply 250, retries 2\norder 2: curl exit 0, reply 250, retries 0\norder 3: curl exit 0, reply 250, retries 0\n<order-1@shop.example.com> stored 1 time(s)\n<order-2@shop.example.com> stored 1 time(s)\n<order-3@shop.example.com> stored 1 time(s)\nevery order arrived exactly once\n"
+
+  - id: faults
+    claim: The server's fault_applied events show each rule acting once, the delay and the error on the first try and the drop on the second, and list_faults still lists all three rules, each with 0 remaining.
+    program: chaos.cs
+    args: [faults]
+    expect:
+      exit: 0
+      stdout-matches: '\nfaults applied: f1 delay, f3 error, f2 drop\nremaining: f1 0, f2 0, f3 0\n$'
+
+  - id: no-retry
+    claim: Without retries the 451 ends the send with curl exit 55, and the order is not stored at all.
+    program: chaos.cs
+    args: [no-retry]
+    expect:
+      exit: 0
+      stdout: "order 1: curl exit 55, reply 451, retries 0\n<order-1@shop.example.com> stored 0 time(s)\n"
+
+  - id: lost-reply
+    claim: When the connection is cut inside the 250 that confirms a stored message, the sender sees an error, retries, and the order is stored twice; the count catches the duplicate and the check fails, exit 1.
+    program: chaos.cs
+    args: [lost-reply]
+    expect:
+      exit: 1
+      stdout: "order 1: curl exit 0, reply 250, retries 0\norder 2: curl exit 0, reply 250, retries 1\n<order-1@shop.example.com> stored 1 time(s)\n<order-2@shop.example.com> stored 2 time(s)\n"

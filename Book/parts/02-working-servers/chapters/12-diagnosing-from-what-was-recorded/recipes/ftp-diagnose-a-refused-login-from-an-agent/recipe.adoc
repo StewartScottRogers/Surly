@@ -1,0 +1,39 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-diagnose-a-refused-login-from-an-agent]]
+=== Diagnosing a Refused FTP Login from an Agent
+
+==== Problem
+
+A File Transfer Protocol (FTP) client fails with exit `67`, access denied; you want an agent to read the server{apos}s login events and tell a wrong password from a password refused because it was sent in clear.
+
+==== Solution
+
+The program starts both hosts and an FTP server, lets the `curl` tool log in as the client, waits for the server to end the exchange, then reads the `login_judged` events with `get_events` and the exchange with `get_exchanges`, and says which refusal it was:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). `--cert` and `--key` name a certificate made in setup, in the folder both hosts are confined to, so the server can offer Transport Layer Security (TLS) on the FTP connection; `--user app:s3cret` is the one account; `files` holds a report to fetch.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode` and `standardError` as JSON. The client is `-u` with the account and a password, `-o` for the report, and `-s` and `-S` for quiet but for an error. With `--ssl-reqd` it upgrades the connection to TLS before it logs in (<<rfc4217>>), and `--cacert server.pem` trusts the certificate. Every refusal here looks the same from the client{apos}s side: exit `67`, `Access denied: 530` (<<curl-manual>>).
+
+`wait_for_event` for `exchange_ended` on the `ftp` scheme, bounded at ten seconds, answers the exchange{apos}s `exchange_id` once the server has finished with it. `get_events` with `kinds` `login_judged` then answers each login the server checked, with the `exchange_id`, the `account`, the `mechanism` and `is_accepted`; `get_exchanges` with `after_exchange_id` one less and `max_exchanges` `1` answers that exchange{apos}s `chunks`, what the client sent (`received`) and what the server answered (`sent`), a protocol line at a time (<<rfc959>>). The record keeps `PASS` with the password as sent, so the agent prints only its length when it lists the client{apos}s login commands.
+
+A wrong password over TLS has a `login_judged` event for `app`, mechanism `password`, `is_accepted` false. The client sent `AUTH SSL`, `USER app` and `PASS`, and the server answered `530 Login incorrect`. The password reached the check and failed it: the agent reports a wrong password.
+
+The right password sent without TLS has no `login_judged` event at all. The client sent `USER app` and `PASS` with no `AUTH`, and the server answered `530 Login needs TLS first: send AUTH TLS`. `surl` refuses a password over plain FTP before checking it, because it has already crossed the network in clear; the agent reports that, and that the client never asked for TLS. A wrong password sent the same way gets exactly the same answer: a refusal in clear says nothing about whether the password was right, and the password the client sent is now in the record, which is reason enough to change it.
+
+The fixes show the other side. The right password over TLS is judged and accepted, and `curl` exits `0`. `--allow-plaintext-auth`, given to `start_server`, loosens the default: the right password without TLS is then judged and accepted too, and the password still crosses in clear.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-retry-after-a-refused-login>> for a login refused on purpose by a fault rule.
+* <<ftp-find-which-account-uploaded-a-file-from-an-agent>> for joining login events to uploads.
+* <<smtp-see-exactly-what-an-app-sent-from-an-agent>> for reading a dialogue from `get_exchanges`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc959>>, <<rfc4217>>.

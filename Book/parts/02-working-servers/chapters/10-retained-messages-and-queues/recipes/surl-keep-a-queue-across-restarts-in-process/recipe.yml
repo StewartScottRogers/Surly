@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-keep-a-queue-across-restarts-in-process
+title: Keeping a Queue Across Restarts
+protocols: [mqtt]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlQueuePage, SurlQueueMessage, SurlSeedRefusedException, SurlServerStartException]
+exit-codes: [0, 1]
+references: [surl-readme]
+
+fixtures: {}
+
+# No servers: block. The program hosts its servers through Surl.Api, on a fresh temporary folder each run.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Three jobs enqueued with EnqueueAsync into jobs;durable under a DataDirectory are all back after the server is stopped and a new one started on the same folder; BrowseQueueAsync lists them oldest first at positions 0 to 2.
+    program: keep-queue.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "before the restart, jobs holds 3\nafter the restart, jobs holds 3\n0: resize photo 1\n1: resize photo 2\n2: resize photo 3\n"
+
+  - id: plain-queue-empty
+    claim: A queue declared without ;durable, on the same server and folder, is empty after the restart.
+    program: keep-queue.cs
+    args: [scratch]
+    expect:
+      exit: 0
+      stdout: "before the restart, scratch holds 3\nafter the restart, scratch holds 0\n"
+
+  - id: no-folder-keeps-nothing
+    claim: jobs;durable with no DataDirectory is accepted and keeps nothing; the queue is empty after the restart.
+    program: keep-queue.cs
+    args: [nodir]
+    expect:
+      exit: 0
+      stdout: "before the restart, jobs holds 3\nafter the restart, jobs holds 0\n"
+
+  - id: on-disk
+    claim: The durable queue is kept under the folder's .surl/bus/queues, an index and one file per ready message.
+    program: keep-queue.cs
+    args: [disk]
+    expect:
+      exit: 0
+      stdout: "before the restart, jobs holds 3\n.surl/bus/queues/index\n.surl/bus/queues/messages/0000000000000000\n.surl/bus/queues/messages/0000000000000001\n.surl/bus/queues/messages/0000000000000002\n"
+
+  - id: unknown-queue-refused
+    claim: EnqueueAsync to a queue the server was not started with throws SurlSeedRefusedException, UnknownQueue; it does not create the queue.
+    program: keep-queue.cs
+    args: [unknown]
+    expect:
+      exit: 1
+      stdout: "refused: Bus: A message for queue job was refused: UnknownQueue.\n"
+
+  - id: folder-in-use
+    claim: A second server on the folder while the first runs is refused at start, SurlServerStartException with exit code 124, the directory is in use by another surl process.
+    program: keep-queue.cs
+    args: [inuse]
+    expect:
+      exit: 1
+      stdout: "before the restart, jobs holds 3\nsecond server refused, exit 124: (124) Directory <folder> is in use by another surl process\n"

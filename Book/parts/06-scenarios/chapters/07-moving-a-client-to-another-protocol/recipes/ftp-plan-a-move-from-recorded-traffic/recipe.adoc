@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[ftp-plan-a-move-from-recorded-traffic]]
+=== Planning a Move from Recorded Traffic
+
+==== Problem
+
+You want an agent to read which File Transfer Protocol (FTP) commands a client really uses, then try the SSH File Transfer Protocol (SFTP) equivalent of each and report any gap.
+
+==== Solution
+
+The program starts both hosts and one server with an FTP and an SFTP listener over one store, runs the old job over FTP with the `curl` tool, reads its commands from `get_exchanges`, resets the store with `reset_server`, tries each command{apos}s SFTP equivalent, and lists the gaps:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs and, in `arguments`, `surl`{apos}s own options (<<surl-readme>>). The `ftp://` and `sftp://` listeners share one in-memory store, so both protocols see the same files. `--cert` and `--key` name a certificate made in setup, so FTP can offer Transport Layer Security (TLS); `--hostkey host_key` is the SFTP server{apos}s Secure Shell (SSH) host key, also made in setup. `--user job:s3cret` is the job{apos}s account on both, `--allow-uploads` lets it write, rename and delete, and `--list-directories` lets it list folders. `files` holds tonight{apos}s report, yesterday{apos}s upload, the job{apos}s log and a file to clear away.
+
+The `curl` tool runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. The old job is six calls, each with `--ssl-reqd` to log in over TLS (<<rfc4217>>), `--cacert server.pem` to trust the certificate, `-u` for the account and `-s` and `-S` for quiet but for an error: `-l` lists `out/`, `-o` downloads the report, `-T` uploads `in/upload.tmp`, `-T` with `--append` adds a line to the log, three `-Q` commands rename the upload onto yesterday{apos}s `in/upload.csv` and delete `in/old.csv`, and `-I` asks for the report{apos}s size and date (<<curl-manual>>).
+
+`get_exchanges` with `scheme` `ftp` answers one exchange per call, each with its `chunks`, what the client sent (`received`) and what the server answered (`sent`). A file{apos}s bytes travel in the same record, between the server{apos}s `150` and its next reply, so the agent skips those and takes the first word of each line the client sent. Every exchange starts `AUTH`, `USER`, `PASS`, `PBSZ`, `PROT`, `PWD`; less those and the other session commands, the job used `NLST`, `SIZE`, `RETR`, `STOR`, `APPE`, `RNFR`, `RNTO`, `DELE` and `MDTM` (<<rfc959>>). That list is what the job did, not what its settings say it does; here `-I` is where `MDTM` came from, and `RETR` brought a `SIZE` with it. `read_file` shows what the rename did: `in/upload.csv` now holds the upload, the old one replaced.
+
+`reset_server` returns the store to its state at start, so each SFTP trial meets the files the job met. The agent{apos}s table of equivalents goes over SFTP, with `-k` in place of `--ssl-reqd`, skipping the check of a host key the test never pinned. `-l` lists, the long listing gives sizes, `-o` gets, `-T` puts and `-T --append` appends, all exit `0`, and `-Q "rm /in/old.csv"` deletes. Two do not carry over. A rename onto a name that exists, `-Q "rename /in/upload.tmp /in/upload.csv"`, is refused, exit `21`, `Operation failed`, where FTP replaced the file. `-I` exits `0` but prints no `Last-Modified`, so a job that reads it gets no date. The agent reports both gaps.
+
+Both close with other SFTP steps. `rm` of the old name, then `rename`, as two `-Q` commands in one call, works. The long listing, a folder URL without `-l`, gives each file{apos}s size and date, the line ending in its name.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<ftp-move-a-client-to-sftp-from-an-agent>> for running the old and the new client side by side.
+* <<ftp-see-which-command-broke-a-transfer-from-an-agent>> for reading one failed command from the record.
+* <<ftp-rename-and-delete-a-file>> for `RNFR`, `RNTO` and `DELE` over FTP.
+* <<surl-readme>>, <<curl-manual>>, <<rfc959>>, <<rfc4217>>.

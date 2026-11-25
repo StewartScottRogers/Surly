@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-expire-tokens-with-a-response-override]]
+=== Expiring Tokens with a Response Override
+
+==== Problem
+
+Your client keeps a Bearer token and fetches a new one when a call is answered `401`. You want a C# test to make the token expire after a set number of calls, so the refresh happens at a call the test chose, with a response override answering that call `401`.
+
+==== Solution
+
+Give the server a response override that counts the API calls since the last token fetch and answers the one past the token{apos}s lifetime `401`, then run the client against it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `https://` URL on port 0, and `SelfSigned = true` makes the server a certificate of its own. `Accounts` holds two `SurlAccount` entries: `app` with its password, for fetching the token, and one with an empty user name, which is the server{apos}s Bearer token, `tok-7f3a` (<<rfc6750>>). `surl` issues no tokens, so the token endpoint is a file, `token.txt`, that holds the token and is served only to a login; `api/orders.json` is the application programming interface (API). `RecordExchanges = true` keeps the events the last case reads.
+
+`server.Faults.AddOverride` adds a response override, a decision the server asks at each point its `SurlFaultScope` matches: here every `https` request, at `FaultStage.Command`, once its head is read. The decision is handed a `FaultPoint` with the request{apos}s `Path`. A fetch of `/token.txt` sets the count back to 0 and is left alone, `null`; a call under `/api/` adds one to the count, and once the count passes the token{apos}s lifetime, three calls, the answer is `SurlFault.ProtocolError("401")`. The count is all the state the test keeps, and it is where the test says when the token expires.
+
+The client is `Curl.Api`: one `CurlClient` sends every request. Each `CurlRequest` carries `CurlTlsOptions` whose `CurlTlsPeerOptions` hold the server{apos}s own certificate as the one authority to trust, so verification stays on. The token fetch logs in with `CurlAuthenticationOptions` and `HttpAuthenticationMethods.Basic` (<<rfc7617>>); an API call sends the kept token with `XOAuth2Bearer` and `HttpAuthenticationMethods.Bearer`. The client under test keeps its token and, when a `CurlResponse` has `StatusCode` `401`, fetches the token again and retries that call once. Six calls give `200` three times, `401` on the fourth, a fetch and a retry that is `200`, and `200` for the fifth and sixth: two fetches in all. Because each fetch starts the count again, a lifetime of two calls makes the `401` come on the third call and again on the fifth. A client that does not refresh fails the test at exactly the fourth call; that is the bug this test is for. Without the override six calls go through on one fetch.
+
+The token never stopped working on the server. `FindEvents` with a `SurlEventQuery` of `Kind` `SurlEventKind.LoginJudged` returns a `LoginJudgedEvent` per login the server judged: five, the Basic fetch and four Bearer calls, and every Bearer one `IsAccepted`, the fourth call included. The `401` came after, from the override, and the server records it as one `FaultAppliedEvent`, an `Error` on `/api/orders.json`. It is not the server{apos}s own `401` in every respect: a call with no token at all is answered `401` with `WWW-Authenticate` challenges, three Digest, then Basic, then Bearer, as the Hypertext Transfer Protocol (HTTP) asks of a `401` (<<rfc9110>>), and the override{apos}s carries none. A client that reads the challenge to decide what to do will see the difference; this one decides on the status alone.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-expire-a-token-mid-session-in-csharp>> for a token the server really revokes, from a registry that issues tokens.
+* <<http-fail-only-the-third-request>> for an override that counts requests.
+* <<surl-readme>>, <<rfc6750>>, <<rfc7617>>, <<rfc9110>>.

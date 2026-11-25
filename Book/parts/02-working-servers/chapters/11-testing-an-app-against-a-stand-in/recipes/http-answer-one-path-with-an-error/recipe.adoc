@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-answer-one-path-with-an-error]]
+=== Answering One Path with an Error
+
+==== Problem
+
+Your app reads several documents from its back end at start-up, and your C# test needs one of them, the exchange rates, to fail while the rest are served. You want a response override on the stand-in server that answers `503` for that path alone.
+
+==== Solution
+
+Seed the stand-in with every document, add a response override whose scope is the one path, and let it answer `503` to everything it is asked:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `http://` URL on port 0, so the system picks a free port, and `Files` seeds the stand-in with what the back end serves: `prices.json`, `stock.json`, the rates for each currency in a `rates` folder, and an old `rates-archive.json`. `RecordExchanges = true` keeps the server{apos}s events for the cases that read them. `SurlServer.StartAsync` starts it in the test{apos}s process.
+
+`server.Faults.AddOverride` adds a response override: a decision the server asks, at each point its `SurlFaultScope` matches, which fault to apply there. The scope does the choosing. `Scheme` `http` and `Stage` `FaultStage.Command` make it a question about each Hypertext Transfer Protocol (HTTP) request once its head is read, and `Path` `/rates` narrows it to that path and everything under it. The decision is handed a `FaultPoint`, which carries the request{apos}s `Command` and `Path`, and here answers every time with `SurlFault.ProtocolError("503")`. `AddOverride` returns the override{apos}s identifier, `f1`.
+
+The app is played by `Curl.Api`: one `CurlClient` sends a `CurlRequest` with `HttpMethod.Get` for each document, and each `CurlResponse` has a `StatusCode`, a `ReasonPhrase` and a `Body`. The two rates come back `503 Service Unavailable`, with a body that says the same; the other three come back `200 OK` with the seeded bytes. A 503 is a response, not an exception, so the test reads its status like any other (<<rfc9110>>). The scope{apos}s path matches whole segments: `/rates-archive.json` begins with the same letters as `/rates` and is not under it, so the decision is never asked about it. It is asked twice, about `GET /rates/eur.json` and `GET /rates/usd.json`, and never about the paths it should leave alone. The server records each failure as a `FaultAppliedEvent`, found with `FindEvents` and a `SurlEventQuery` of `Kind` `SurlEventKind.FaultApplied`: an `Error` at the `Command` stage, with the request{apos}s path as its `Target` and `f1` as its `RuleId`.
+
+The answer is read as a `--fault` rule{apos}s `reply` is, so it can be any status in HTTP{apos}s error shape: `ProtocolError("404")` makes the rates `404 Not Found` although the files are there. An answer `surl` cannot read is not a failure of the request. With `ProtocolError("abc")` every document is served `200`, as if there were no override, and the server records a `HookFailedEvent` for each request the decision was asked about, `Failure` `Threw`, with the reason in `Message`: `option --fault: key reply does not fit the http error shape`. A test that sees its error path never taken looks there first.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-change-an-answer-per-request>> for an override that fails a path only while the test says so.
+* <<http-fail-only-the-third-request>> for an override that counts requests.
+* <<http-catch-a-hook-that-fails>> for the HookFailed event in detail.
+* <<surl-readme>>, <<rfc9110>>.

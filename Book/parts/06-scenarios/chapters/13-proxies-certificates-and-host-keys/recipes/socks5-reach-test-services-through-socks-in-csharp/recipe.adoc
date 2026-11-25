@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-reach-test-services-through-socks-in-csharp]]
+=== Reaching Test Services Through SOCKS in C#
+
+==== Problem
+
+Your C# test runs on a network that lets clients out only through a SOCKS5 proxy. You want its Hypertext Transfer Protocol (HTTP) and File Transfer Protocol (FTP) calls made through the proxy, and the proxy{apos}s record showing each one.
+
+==== Solution
+
+Host the services and a SOCKS5 proxy in one `SurlServer` with a verbose log, give the `CurlClient` the proxy as a `socks5h://` URL, and read the proxy{apos}s `Connected to` lines from the log:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+SOCKS5 relays a Transmission Control Protocol (TCP) connection: the client names a host and port, the proxy connects there, answers `05 00` for success, and passes bytes both ways without reading them as any protocol (<<rfc1928>>), so one proxy serves HTTP and FTP alike. `SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds the HTTP and FTP services on `localhost` and the proxy on `socks5h://127.0.0.1`, all on port 0, so the system picks free ports and `BoundUrls` says which. `Files` holds `hello.txt` in memory for both services. `AllowAnonymous` is `--allow-anonymous`, which lets the FTP service take the client{apos}s anonymous login; the proxy asks for no login. `Log` with `LogLevel.Verbose` is `-v` with the log written to a `StringWriter`, made safe for the server{apos}s threads with `TextWriter.Synchronized`.
+
+The client is a `CurlClient` whose `CurlClientOptions.Proxy` is a `CurlProxyOptions` naming `socks5h://127.0.0.1:<port>`; the `h` hands the name `localhost` to the proxy to resolve. Every `CurlRequest` it sends goes through the proxy, the HTTP GET and the FTP one alike, and each `CurlResponse` body is the file. `Timeout` bounds each call at twenty seconds, so a call the proxy cannot complete fails rather than hangs.
+
+The proxy{apos}s record is its log, read once the server has stopped. For each connection it writes `Connected to <host>:<port>; answered 05 00.`, the host and port the client asked for, so the program names each line by the port it went to. There are three. One goes to the HTTP service and one to the FTP service, the control connection. FTP moves the file on a second connection (<<rfc959>>): the client asks for passive mode, the FTP service answers `229 Entering Extended Passive Mode` with a port, and the client opens that connection through the proxy too, so the third line names the port from the `229` reply.
+
+The record holds a refused call as well. A second server, an FTP service started without `AllowAnonymous`, does not take the anonymous login: `SendAsync` throws `CurlException` with `Code` `LoginDenied`, curl{apos}s `67`, and the proxy{apos}s log still has its connection to that service. The proxy carried the call; the service refused it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-reach-test-services-through-socks>> for the same task on the console.
+* <<socks5-reach-test-services-through-socks-from-an-agent>> for the same task run by an agent.
+* <<socks5-relay-through-a-socks-proxy-in-csharp>> for how the proxy resolves names and what it turns away.
+* <<surl-readme>>, <<rfc1928>>, <<rfc959>>.

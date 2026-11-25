@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-recover-a-pipeline-from-a-midway-fault]]
+=== Recovering a Pipeline from a Fault
+
+==== Problem
+
+Your upload pipeline sends a report over File Transfer Protocol (FTP), then Hypertext Transfer Protocol (HTTP), then to Amazon Simple Storage Service (S3); you want the S3 step{apos}s connection dropped once, and the pipeline to resume at that step without repeating the first two.
+
+==== Solution
+
+Run one `surl` with an FTP, an HTTPS and an S3 listener and a fault rule that cuts the S3 answers, then run the pipeline as one `curl` command of three transfers, with the retry options on the S3 transfer only:
+
+include::.generated/solution.adoc[]
+
+The cases below run the pipeline as first written, with `--retry` alone, and with the solution{apos}s options, then read `surl`{apos}s log.
+
+==== Discussion
+
+One `surl` stands in for all three services, over one store, `--directory store`, where `inbox`, `staging` and `archive` are folders and, to S3, `archive` is a bucket (<<surl-readme>>). Its three listeners are all TCP, so each needs its own port. `--user nightly:s3cret` is the job{apos}s login for FTP and HTTPS, `--user AKIAIOSFODNN7EXAMPLE:s3cret` its S3 access key ID and secret, and `--allow-uploads` lets them write. `--cert` and `--key` give the three listeners the certificate made in setup, which names `127.0.0.1` and the host `curl` gives any bucket, `*.s3.us-east-1.amazonaws.com`; `--cacert server.pem` makes `curl` trust it. `-v` makes the log verbose and `--log-file surl.log` writes it to that file.
+
+The fault is `drop;scheme=s3;after-bytes=1;close=graceful;times=3`: on an S3 connection, once `surl` has sent one byte, cut the exchange, three times in all. An S3 put{apos}s answer is only a status line and headers, so the cut falls inside `HTTP/1.1 200 OK`, after the object is stored. `close=graceful` ends the connection cleanly, with the Transport Layer Security (TLS) `close_notify` and a normal close, rather than a reset, so `curl` reads exactly the byte sent and then the end; the default, `close=reset`, aborts the connection, and what the client had not read yet may be lost with it (<<surl-readme>>). `--fault` is for tests only, and `surl` warns on start, the first line of the log.
+
+The pipeline is three transfers joined by `--next`, which starts a fresh set of options for each. The first uploads with `-T` over FTP, `--ssl-reqd` upgrading the control connection to TLS before the password goes (<<rfc959>>, <<rfc4217>>). The second is an HTTPS `PUT` with `-u`, and `-f` to fail on an error status (<<rfc9110>>). The third puts the object in the bucket, `--connect-to` sending the bucket{apos}s host name to the local listener and `-u` signing the request (<<aws-s3-api>>). `-w` prints, for that transfer alone, the key, its exit code and how many retries it took; `-s` hides the progress meter and `-S` still prints an error.
+
+As first written, the pipeline uploads to the inbox and to staging, and its S3 put is cut: that transfer is exit `8`, `The connection closed before the response head ended.`, and so is the command. The object is in the archive, byte for byte; `curl` cannot know that, and neither can the job. With `--retry 1` alone nothing changes: `curl` retries only what it counts as transient, such as a timeout, and a broken answer is not on that list (<<curl-manual>>). `--retry-all-errors` makes it retry any failure. Because the retry options come after the second `--next`, they belong to the S3 transfer: the cut put is tried once more and stored, `-w` prints exit `0` after `1` retry, and the command exits `0`. The first try{apos}s error is still printed.
+
+The log shows where the pipeline resumed. For the solution{apos}s run it has one `STOR` over FTP and one HTTPS `PUT` stored with `201`, but two S3 puts stored with `200`: only the S3 step ran twice. Repeating it is safe, because a put replaces the object whole, and the archived object is the report byte for byte. Over the three runs `surl` logged three cuts, each `closing gracefully`.
+
+`--fail-early` makes the pipeline stop at a step that fails rather than go on to the next. An FTP upload into a folder that does not exist is exit `9`, and the command stops there, with no staging copy made.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-recover-a-pipeline-from-a-midway-fault-in-csharp>> for the same task in C#.
+* <<surl-recover-a-pipeline-from-a-midway-fault-from-an-agent>> for the same task run by an agent.
+* <<ftp-copy-a-report-from-ftp-to-s3>> for a two-step hop and a stale copy without `--fail-early`.
+* <<http-cut-a-download-off-halfway>> for a graceful cut in a download.
+* <<surl-readme>>, <<curl-manual>>, <<rfc959>>, <<rfc4217>>, <<rfc9110>>, <<aws-s3-api>>.

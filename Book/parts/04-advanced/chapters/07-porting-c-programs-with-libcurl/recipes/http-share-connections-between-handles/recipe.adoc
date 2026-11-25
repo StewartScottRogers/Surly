@@ -1,0 +1,88 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-share-connections-between-handles]]
+=== Sharing Connections between Handles
+
+==== Problem
+
+Your C program gives two easy handles one connection cache and one cookie store with `curl_share`, and you want the port to C# to do the same, with the server{apos}s log as proof that the second handle reused the first one{apos}s connection.
+
+==== Solution
+
+Port the program call for call with `Libcurl`, run it against `surl` with a verbose log, and read the log for the exchange each request arrived on:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The C program makes a share handle that shares connections and cookies, attaches two easy handles to it, gives the first a session cookie, and fetches one URL on each:
+
+[source,c]
+----
+#include <stdio.h>
+#include <curl/curl.h>
+
+static size_t discard(char *data, size_t size, size_t nmemb, void *userdata)
+{
+  return size * nmemb;
+}
+
+int main(int argc, char *argv[])
+{
+  CURL *easy[2];
+  CURLSH *share;
+  int i, failed = 0;
+
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  share = curl_share_init();
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
+  curl_share_setopt(share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+  for(i = 0; i < 2; i++) {
+    easy[i] = curl_easy_init();
+    curl_easy_setopt(easy[i], CURLOPT_URL, argv[i + 1]);
+    curl_easy_setopt(easy[i], CURLOPT_WRITEFUNCTION, discard);
+    curl_easy_setopt(easy[i], CURLOPT_COOKIEFILE, "");
+    curl_easy_setopt(easy[i], CURLOPT_SHARE, share);
+  }
+  curl_easy_setopt(easy[0], CURLOPT_COOKIELIST,
+                   "Set-Cookie: session=abc123; Domain=127.0.0.1; Path=/");
+  for(i = 0; i < 2; i++) {
+    long code, connects;
+    CURLcode res = curl_easy_perform(easy[i]);
+    curl_easy_getinfo(easy[i], CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_getinfo(easy[i], CURLINFO_NUM_CONNECTS, &connects);
+    if(res == CURLE_OK)
+      printf("handle %d: %ld, new connections %ld\n", i + 1, code, connects);
+    else {
+      failed++;
+      printf("handle %d: %d, new connections %ld\n", i + 1, res, connects);
+    }
+  }
+  for(i = 0; i < 2; i++) {
+    curl_easy_setopt(easy[i], CURLOPT_SHARE, NULL);
+    curl_easy_cleanup(easy[i]);
+  }
+  curl_share_cleanup(share);
+  curl_global_cleanup();
+  return failed;
+}
+----
+
+The port prints a failure by the name of its code where the C prints the number, and takes a third argument that changes what is shared, for the cases below. `CurlGlobal.Init(CurlGlobalFlags.Default)` is `curl_global_init(CURL_GLOBAL_DEFAULT)`, `CurlGlobalFlags` holding libcurl{apos}s flag values, and returns the `CurlLibrary` that makes every kind of handle: `ShareInit` is `curl_share_init` and gives a `CurlShare`, `EasyInit` is `curl_easy_init` and gives a `CurlEasy`. `SetOption` on the share is `curl_share_setopt`, with a `CurlShareOption`, here `Share` for `CURLSHOPT_SHARE`, and a `CurlLockData`, `Connect` or `Cookie` for `CURL_LOCK_DATA_CONNECT` and `CURL_LOCK_DATA_COOKIE`. `SetOption` on an easy handle is `curl_easy_setopt` with a `CurlOption` named after its `CURLOPT_` constant: `Url`, `Writefunction` with a `WriteCallback` that takes every byte and keeps none, `Cookiefile` with an empty name, which turns the cookie engine on without reading a file, and `Share` with the `CurlShare`, which attaches the handle. `Cookielist` with a `Set-Cookie:` line puts the session cookie in the first handle{apos}s store, as a login would have. `Perform` is `curl_easy_perform` and answers a `CurlCode`; `GetInfo` with `CurlInfo.ResponseCode` and `CurlInfo.NumConnects` is `curl_easy_getinfo` for the status and for the number of new connections the transfer opened (<<libcurl-api>>).
+
+`surl` serves a folder of two files over the Hypertext Transfer Protocol (HTTP) with `--directory`, and with no account it serves a `GET` to anyone. `-v` makes its log verbose, every request line and header, and `--log-file` writes the log to a file; each line starts with `#` and the number of the exchange, which for HTTP is one connection (<<surl-readme>>). The program{apos}s own report is the first half of the proof: the first handle opens one connection and the second opens none. The log is the second half: both requests carry the same exchange number, so they came over one connection, and the second handle{apos}s request carries `Cookie: session=abc123`, though only the first handle was given the cookie. The log writes a line{apos}s carriage return and line feed as `\r\n`.
+
+Without a share handle each easy handle keeps its own connection cache and its own cookie store. Then the second handle opens a connection of its own, the log shows the two requests under two exchange numbers, and only the first carries the cookie. Each kind of data is shared on its own: with only `CURL_LOCK_DATA_CONNECT`, the second handle reuses the connection and sends no cookie. The program runs its handles one after the other on one thread, so it sets no lock functions; a program that runs attached handles on several threads gives the share `CURLSHOPT_LOCKFUNC` and `CURLSHOPT_UNLOCKFUNC` (<<libcurl-api>>).
+
+The order of the clean-up matters. `Cleanup` is `curl_share_cleanup` and answers a `CurlShareCode`: called while easy handles are still attached, it answers `CURLSHE_IN_USE`, 2, which `CurlErrorText.Share`, `curl_share_strerror`, words as `Share currently in use`, and the share goes on working. Once `SetOption(CurlOption.Share, null)` has detached each handle, the same call answers `CURLSHE_OK`. Disposing an easy handle and the library is `curl_easy_cleanup` and `curl_global_cleanup`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-run-many-transfers-with-a-multi-handle>> for many easy handles driven together.
+* <<http-reuse-one-connection-for-many-files>> for one connection reused by one `curl` command.
+* <<http-port-a-c-program-with-libcurl>> for the first libcurl program ported.
+* <<surl-readme>>, <<libcurl-api>>.

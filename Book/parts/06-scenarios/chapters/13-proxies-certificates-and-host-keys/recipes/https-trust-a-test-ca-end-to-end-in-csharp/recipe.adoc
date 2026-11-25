@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-trust-a-test-ca-end-to-end-in-csharp]]
+=== Trusting a Test CA End to End in C#
+
+==== Problem
+
+Your C# test runs a Hypertext Transfer Protocol Secure (HTTPS) server and a Simple Mail Transfer Protocol Secure (SMTPS) server, and you want one test certificate authority (CA) to sign both servers{apos} certificates, with the test{apos}s client trusting that authority and nothing else, never skipping the check.
+
+==== Solution
+
+Make the authority and the certificates with `openssl` before the test runs, start each `SurlServer` with its own `CertificateFile` and `KeyFile`, and give the `CurlClient` the authority{apos}s certificate as `CertificateAuthorityFile`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The certificates are made once, outside the program, by the `openssl` commands in the recipe{apos}s set-up: a self-signed authority whose extensions say it may sign others, `basicConstraints=critical,CA:TRUE` and a `keyUsage` of `keyCertSign` (<<rfc5280>>), and two server certificates it signs, each naming `IP:127.0.0.1` as its subject alternative name. A third, `stray.pem`, is signed by another authority for the same address.
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `CertificateFile` and `KeyFile` are `--cert` and `--key`, read from the program{apos}s working directory. A server serves one certificate, so there are two: one on an `https://` URL that holds `hello.txt` in memory through `Files`, one on an `smtps://` URL with `MailDomains` and `Mailboxes`, the app{apos}s and Ann{apos}s. Both URLs are Transport Layer Security (TLS) from the first byte (<<rfc8314>>). `RecordExchanges = true` on the mail server lets the test wait on its events.
+
+The client{apos}s trust is a `CurlTlsPeerOptions` set as `CurlTlsOptions.Origin` in its `CurlClientOptions`: `CertificateAuthorityFile = "ca.pem"` is `curl --cacert`, the test CA and no other authority. `SslOptions.NoRevoke` is `--ssl-no-revoke`, for Windows: its TLS library asks whether a certificate an authority signed has been revoked, the test CA publishes no revocation list, and without it the right authority still fails. One `CurlClient` carries the trust to both requests, each a `CurlRequest` whose `CurlResponse` holds the reply: a GET on the HTTPS server, answered `200`, and a PUT with `CurlMailOptions` and the app{apos}s `CurlAuthenticationOptions` on the SMTPS server, answered `250`. Delivery is asynchronous, so the test waits up to ten seconds with `WaitForEventAsync` and a `SurlEventQuery` for a `StoreChanged` event in Ann{apos}s mailbox, then counts one message there with `ListMessagesAsync`.
+
+Take the authority away, a null `CertificateAuthorityFile`, and both requests throw `CurlException` with `Code` `PeerFailedVerification`, curl{apos}s `60`. Started with `stray.pem`, the HTTPS server is refused the same way by the client that trusts the test CA: a certificate for the right address is not enough, the test{apos}s own authority has to have signed it. `VerifyPeer = false` with `VerifyHost = false`, which together are `curl -k`, would fetch from that server with `200`; the test never sets them.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-trust-a-test-ca-end-to-end>> for the same task on the console.
+* <<https-trust-a-test-ca-end-to-end-from-an-agent>> for the same task run by an agent.
+* <<https-serve-a-certificate-chain-in-csharp>> for a server that sends an intermediate certificate too.
+* <<surl-readme>>, <<rfc5280>>, <<rfc8314>>.

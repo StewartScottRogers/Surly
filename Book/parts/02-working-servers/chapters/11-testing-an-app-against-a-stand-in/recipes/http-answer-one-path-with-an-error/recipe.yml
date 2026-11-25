@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-answer-one-path-with-an-error
+title: Answering One Path with an Error
+protocols: [http]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFaultScope, FaultStage, FaultPoint, SurlFault, SurlEventQuery, SurlEventKind, FaultAppliedEvent, HookFailedEvent, CurlClient, CurlRequest, CurlResponse]
+exit-codes: [0]
+references: [surl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts the stand-in through Surl.Api and plays the app with Curl.Api.
+cases:
+  - id: solution
+    role: solution
+    claim: With a response override scoped to /rates answering 503, the app's two requests under /rates/ get 503 Service Unavailable, and prices.json, stock.json and rates-archive.json are served 200 from the seeded files.
+    program: one-path.cs
+    args: []
+    expect:
+      exit: 0
+      stdout: "GET /prices.json: 200 OK: {\"widget\":4.5}\nGET /stock.json: 200 OK: {\"widget\":12}\nGET /rates/eur.json: 503 Service Unavailable: 503 Service Unavailable\nGET /rates/usd.json: 503 Service Unavailable: 503 Service Unavailable\nGET /rates-archive.json: 200 OK: {\"eur\":0.9}\n"
+
+  - id: asked-in-scope-only
+    claim: The decision is asked only about requests in its scope, twice, for GET /rates/eur.json and GET /rates/usd.json; /rates-archive.json is not under /rates, because the scope's path matches whole segments.
+    program: one-path.cs
+    args: [asked]
+    expect:
+      exit: 0
+      stdout: "the decision was asked 2 times: GET /rates/eur.json, GET /rates/usd.json\n"
+
+  - id: events
+    claim: The server records one FaultApplied event per failed request, an Error at the Command stage on its path, whose rule identifier is the one AddOverride returned.
+    program: one-path.cs
+    args: [events]
+    expect:
+      exit: 0
+      stdout: "fault events: 2\nError at Command on /rates/eur.json, rule f1 is the override: True\nError at Command on /rates/usd.json, rule f1 is the override: True\n"
+
+  - id: any-status
+    claim: The answer can be any status in HTTP's error shape; ProtocolError("404") makes the rates 404 Not Found although the files are there.
+    program: one-path.cs
+    args: ["404"]
+    expect:
+      exit: 0
+      stdout-matches: '\AGET /prices\.json: 200 OK: [^\n]+\nGET /stock\.json: 200 OK: [^\n]+\nGET /rates/eur\.json: 404 Not Found: [^\n]*\nGET /rates/usd\.json: 404 Not Found: [^\n]*\nGET /rates-archive\.json: 200 OK: [^\n]+\n\Z'
+
+  - id: unread-answer
+    claim: An answer surl cannot read, ProtocolError("abc"), fails nothing; every request is served 200, and the server records a HookFailed event per request, Threw, saying the reply does not fit the http error shape.
+    program: one-path.cs
+    args: [unread]
+    expect:
+      exit: 0
+      stdout: "GET /prices.json: 200 OK: {\"widget\":4.5}\nGET /stock.json: 200 OK: {\"widget\":12}\nGET /rates/eur.json: 200 OK: {\"eur\":0.92}\nGET /rates/usd.json: 200 OK: {\"usd\":1}\nGET /rates-archive.json: 200 OK: {\"eur\":0.9}\nhook failures: 2; Threw: option --fault: key reply does not fit the http error shape (Parameter 'answer')\n"

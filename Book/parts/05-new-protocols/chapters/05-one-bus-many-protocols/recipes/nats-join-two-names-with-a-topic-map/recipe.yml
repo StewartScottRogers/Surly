@@ -1,0 +1,88 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: nats-join-two-names-with-a-topic-map
+title: Joining Names with a Topic Map
+protocols: [nats, mqtt]
+tier: new-protocols
+surl-options: [--allow-anonymous, --topic, --topic-map, --fault]
+curl-options: [-s, -S, -d, -Z, --next]
+exit-codes: [0, 2, 67]
+references: [surl-readme, curl-readme, nats-protocol, mqtt311]
+
+# The orders team publishes on the NATS subject orders.created; the shop team reads the MQTT topic
+# shop/orders/new. main joins the two names with --topic-map and keeps every publish (--topic "#;retain"),
+# so a later MQTT subscriber is sent it. live is the same server with every MQTT connection held a
+# second by --fault, so a NATS subscriber started beside an MQTT publish is in place before it. plain
+# has no map; locked has the map and no --allow-anonymous.
+servers:
+  main:
+    command: surl --allow-anonymous --topic "#;retain" --topic-map nats:orders.created=mqtt:shop/orders/new nats://127.0.0.1:{{port}}/ mqtt://127.0.0.1:{{port2}}/
+    ready: port
+  live:
+    command: surl --allow-anonymous --fault "delay;ms=1000;scheme=mqtt" --topic-map nats:orders.created=mqtt:shop/orders/new nats://127.0.0.1:{{port3}}/ mqtt://127.0.0.1:{{port4}}/
+    ready: port
+  plain:
+    command: surl --allow-anonymous --topic "#;retain" nats://127.0.0.1:{{port5}}/ mqtt://127.0.0.1:{{port6}}/
+    ready: port
+  locked:
+    command: surl --topic-map nats:orders.created=mqtt:shop/orders/new nats://127.0.0.1:{{port7}}/
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: A NATS publish of paid to orders.created is kept as the MQTT topic shop/orders/new; a later MQTT subscriber to shop/orders/new is sent it, written as the topic's length in two bytes, the topic and the payload, exit 0.
+    run: curl -s -d paid nats://127.0.0.1:{{port}}/orders.created --next -s mqtt://127.0.0.1:{{port2}}/shop/orders/new
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x0fshop/orders/newpaid\Z'
+
+  - id: mqtt-to-nats
+    claim: The other way, an MQTT publish of shipped to shop/orders/new reaches a NATS subscriber to orders.created, started beside it with -Z, which writes the payload and a newline and ends after one message, exit 0.
+    run: curl -s -Z "nats://127.0.0.1:{{port3}}/orders.created?count=1" --next -d shipped mqtt://127.0.0.1:{{port4}}/shop/orders/new
+    expect:
+      exit: 0
+      stdout: "shipped\n"
+
+  - id: default-name-kept
+    claim: The map adds a name and takes none away; a NATS publish to shop.orders.new, the topic's default NATS name, lands on shop/orders/new as well.
+    run: curl -s -d packed nats://127.0.0.1:{{port}}/shop.orders.new --next -s mqtt://127.0.0.1:{{port2}}/shop/orders/new
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x0fshop/orders/newpacked\Z'
+
+  - id: old-topic-empty
+    claim: With the map, the earlier publish to orders.created did not also land on orders/created, the MQTT topic the default mapping gives it; that topic holds nothing.
+    run: curl -s mqtt://127.0.0.1:{{port2}}/orders/created
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: without-map
+    claim: Without --topic-map, the NATS subject orders.created is the MQTT topic orders/created, dots for slashes; the publish lands there and shop/orders/new holds nothing.
+    run: curl -s -d paid nats://127.0.0.1:{{port5}}/orders.created --next -s mqtt://127.0.0.1:{{port6}}/orders/created --next -s mqtt://127.0.0.1:{{port6}}/shop/orders/new
+    expect:
+      exit: 0
+      stdout-matches: '\A\x00\x0eorders/createdpaid\Z'
+
+  - id: mapped-twice
+    claim: A name mapped twice on one scheme is refused as the command line is read, exit 2.
+    run: surl --topic-map nats:orders.created=mqtt:shop/orders/new --topic-map nats:orders.created=mqtt:shop/orders/old nats://127.0.0.1:{{port8}}/
+    expect:
+      exit: 2
+      stderr-contains: "topic map nats:orders.created is given twice"
+
+  - id: wildcard-refused
+    claim: A map is between names, not filters; a NATS wildcard on the left is not a valid name for nats, exit 2 at start.
+    run: surl --topic-map "nats:orders.*=mqtt:shop/orders/new" nats://127.0.0.1:{{port8}}/
+    expect:
+      exit: 2
+      stderr-contains: "not a valid name for nats"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, a NATS publish with no login is answered -ERR 'Authorization Violation', and curl exits 67.
+    run: curl -sS -d paid nats://127.0.0.1:{{port7}}/orders.created
+    expect:
+      exit: 67
+      stderr-contains: "Authorization Violation"

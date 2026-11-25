@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-check-logins-against-ldap]]
+=== Checking Logins against LDAP
+
+==== Problem
+
+Your real service checks passwords against the company{apos}s Lightweight Directory Access Protocol (LDAP) directory, and you want the test{apos}s web server to do the same instead of holding its own accounts. You want one `surl` serving the directory and another checking Hypertext Transfer Protocol (HTTP) logins against it, refusing a user the directory does not hold.
+
+==== Solution
+
+Run one `surl` as the directory, with a control endpoint for managing its people, and another as the web server with `--user-ldap` pointing at it; then log in as a directory user:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The directory is a `surl` serving `ldap://` from `--directory dir`, whose `dir/.surl/ldap/directory.ldif` it reads at start: `dc=example,dc=com`, the `ou=people` branch, and entries for `alice` and `bob` (<<rfc4511>>). This directory checks a bind against its accounts, not against a password in an entry, so each person is two things in it, an entry and an account, given at start by `-u`; `svc` is the account the web server searches as. `--cert` and `--key` let the directory upgrade a connection with StartTLS, which starts Transport Layer Security (TLS) on a plain connection. `--control http://127.0.0.1:<port>/` opens its control endpoint, the HTTP interface for changing a running server, and `--control-token-file control.token` is the Bearer token every control request must carry (<<surl-readme>>).
+
+The web server is a second `surl` serving `site/report.txt` over HTTPS, HTTP over TLS. `--user-ldap` is an LDAP URL (<<rfc4516>>) naming the directory and the branch the people are under, then settings after semicolons: `bind-dn` and `bind-password-file` make it search as `svc`, with the password read from a file so it is never on a command line, and `ca-file=server.pem` is the certificate it trusts for the directory. For a login it holds no account for, it searches the branch for the entry whose `uid` is the login name and binds to the directory as that entry with the password sent; the bind{apos}s answer is the login{apos}s. The certificate both servers use, for `127.0.0.1`, is made in setup.
+
+The test is `curl` with `-u alice:wonderland`, which sends HTTP Basic authentication (<<rfc7617>>), the one HTTP login that carries the password itself, as a bind needs; `--cacert` trusts the web server{apos}s certificate. The web server has no account for `alice`, asks the directory, and serves the report. `carol` is not in the directory and is refused `401`. In each check `-o` throws the body away, `-w "%{http_code}"` prints the status, `-s` silences the progress meter and `-S` keeps an error line.
+
+Accounts are now managed in one place, the directory, while both servers run. A new starter takes two control requests to the directory, each with `-H "Authorization: Bearer ..."`: a `POST` of her entry in LDAP Data Interchange Format (LDIF) to `/v1/directory`, sent as `text/plain` with `--data-binary`, and a `POST` of her user name and password as JavaScript Object Notation (JSON) to `/v1/accounts`, which `--json` sends with the right content type; each is answered `204`. With the entry alone `carol` is still refused, since the directory has no account to check her bind against; with both she logs in, and the web server was not touched. A leaver is one request: `-X DELETE` of `/v1/accounts/alice`, `204`, and her next login to the web server is refused `401`. `-v` and `--log-file web.log` keep the web server{apos}s verbose log, which names its account source at start and gives each directory refusal a reason: `directory: no such entry` for `carol` before she was added, `directory: wrong password` while she had an entry and no account, and the same for `alice` after her account was removed.
+
+The web server has two accounts of its own, given by `-u`, and they come first. A name it holds is never asked of the directory: `bob` with his directory password is refused, and with the web server{apos}s old local password for him is served. A test that means to check every login against the directory gives the web server no account that shares a name with a person. The other local account, `ops`, is there for a different reason: a `surl` whose only accounts are in the directory asks no login for a `GET` (<<ldap-check-logins-against-a-directory>>), and with one account of its own the web server answers a request with no login `401`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-check-logins-against-ldap-in-csharp>> for the same task in C#.
+* <<http-check-logins-against-ldap-from-an-agent>> for the same task run by an agent.
+* <<ldap-check-logins-against-a-directory>> for the directory{apos}s side of each login and refusing passwords sent in clear.
+* <<surl-readme>>, <<curl-manual>>, <<rfc4511>>, <<rfc4516>>, <<rfc7617>>.

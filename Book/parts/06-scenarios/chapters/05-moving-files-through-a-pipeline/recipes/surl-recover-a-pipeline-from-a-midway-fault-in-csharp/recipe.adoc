@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-recover-a-pipeline-from-a-midway-fault-in-csharp]]
+=== Recovering a Pipeline from a Fault in C#
+
+==== Problem
+
+In a C# test, your upload pipeline sends a report over File Transfer Protocol (FTP), then Hypertext Transfer Protocol (HTTP), then to Amazon Simple Storage Service (S3); you want the S3 step{apos}s connection dropped once, and the pipeline to resume at that step without repeating the first two.
+
+==== Solution
+
+Start one `SurlServer` with the three listeners and a `SurlFault` that cuts one S3 answer, run the pipeline{apos}s steps in order with `Curl.Api`, run a failed step once more on its own, and count the server{apos}s recorded exchanges by scheme:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). One server stands in for the three services over one store: `ListenUrls` holds an `ftps://`, an `https://` and an `s3://` URL on port 0, so the system picks free ports, and `BoundUrls` gives them back in that order. `ftps://` is FTP over Transport Layer Security (TLS) from the first byte, so the password never crosses in the clear (<<rfc4217>>). `CertificateFile` and `KeyFile` are the certificate made in setup, which names `127.0.0.1` and the host `Curl.Api` gives any bucket. `Accounts` holds two `SurlAccount` entries, the job{apos}s login and its S3 access key ID and secret; `AllowUploads` lets them write, `Files` puts yesterday{apos}s report in `inbox`, `staging` and `archive`, which makes `archive` a bucket, and `RecordExchanges` keeps each exchange for the test to read.
+
+The fault is `SurlFault.DropConnection()` with `Scheme = "s3"`, `AfterBytes = 1`, `Close = FaultClose.Graceful` and `Times = 1`: on an S3 connection, once the server has sent one byte, close the connection cleanly, once. An S3 put{apos}s answer is only a status line and headers, so the cut falls inside it, after the object is stored. `FaultClose.Graceful` sends the TLS `close_notify` and a normal close; the default, `FaultClose.Reset`, aborts the connection, and what the client had not read may be lost with it (<<surl-readme>>).
+
+Each step is a `CurlRequest` with `HttpMethod.Put` and the report as its `Body`, sent by one `CurlClient`. `CurlTlsOptions` trusts the certificate through `CurlTlsPeerOptions.CertificateAuthorityBlob`, and `CurlAuthenticationOptions` is the login, sent as FTP{apos}s `USER` and `PASS` (<<rfc959>>), as an HTTP login (<<rfc9110>>), and for S3 as the key pair that signs the request, which `CurlNetworkOptions.ConnectTo` sends to the local listener (<<aws-s3-api>>). `CurlResponse.StatusCode` is the last reply: `226` for the FTP upload, `201` for the HTTP one.
+
+The S3 put throws `CurlException` with `Code` `WeirdServerReply`: the answer ended one byte in. The pipeline as first written stops there and the test exits `1`, yet `server.Files.ReadAsync` finds the report in the archive, byte for byte; the client cannot tell. The resuming pipeline catches the exception for that step and runs the same step again, alone. The steps before it are done and stay done: `server.Exchanges`, one `SurlExchangeRecord` per connection, counted by `Scheme`, holds one `ftps` exchange, one `https` exchange and two `s3` exchanges, the second put answered `200`, and the archived object is the report. Running a put again is safe because it replaces the object whole. The server published one `FaultAppliedEvent`, `Kind` `Drop`, from rule `f1`, in an S3 exchange; `FindEvents` with a `SurlEventQuery` of kind `FaultApplied` returns it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-recover-a-pipeline-from-a-midway-fault>> for the same task on the console.
+* <<surl-recover-a-pipeline-from-a-midway-fault-from-an-agent>> for the same task run by an agent.
+* <<ftp-copy-a-report-from-ftp-to-s3-in-csharp>> for a two-step hop.
+* <<surl-readme>>, <<rfc959>>, <<rfc4217>>, <<rfc9110>>, <<aws-s3-api>>.

@@ -1,0 +1,49 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: surl-recover-a-pipeline-from-a-midway-fault-in-csharp
+title: Recovering a Pipeline from a Fault in C#
+protocols: [ftp, http, s3]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlAccount, SurlFault, FaultClose, SurlEventQuery, FaultAppliedEvent, SurlExchangeRecord, CurlClient, CurlRequest, CurlResponse, CurlException, CurlAuthenticationOptions, CurlNetworkOptions, CurlTlsOptions, CurlTlsPeerOptions]
+exit-codes: [0, 1]
+references: [surl-readme, rfc959, rfc4217, rfc9110, aws-s3-api]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+# No servers: block. The program hosts its server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: The pipeline stores the report over FTPS (226) and over HTTPS (201); the S3 put is cut one byte into its answer and throws CurlException WeirdServerReply, and the pipeline runs that step alone once more, 200; the server recorded one FTPS exchange, one HTTPS exchange and two S3 exchanges, and the archived object is the report; exit 0.
+    program: program.cs
+    args: []
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "ftps: 226\nhttps: 201\ns3: WeirdServerReply, trying this step again\ns3: 200\nexchanges: ftps 1, https 1, s3 2\narchive: 37 bytes, identical to the report\n"
+
+  - id: stop-at-the-cut
+    claim: The pipeline as first written stops at the cut S3 step, exit 1, yet the archive holds the report, byte for byte; the cut came after the object was stored.
+    program: program.cs
+    args: [stop]
+    timeout: 120
+    expect:
+      exit: 1
+      stdout: "ftps: 226\nhttps: 201\ns3: WeirdServerReply, the pipeline stops\nexchanges: ftps 1, https 1, s3 1\narchive: 37 bytes, identical to the report\n"
+
+  - id: one-fault-event
+    claim: The server published one FaultApplied event, of kind Drop by rule f1, in an S3 exchange.
+    program: program.cs
+    args: [events]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\narchive: [^\n]+\nfault f1: Drop, exchange of s3\n$'

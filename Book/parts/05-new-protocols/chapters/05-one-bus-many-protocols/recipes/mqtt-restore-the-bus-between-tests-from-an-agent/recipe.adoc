@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[mqtt-restore-the-bus-between-tests-from-an-agent]]
+=== Restoring the Bus between Tests
+
+==== Problem
+
+Your tests share one message broker, and each leaves retained messages and queued jobs behind for the next. You want an agent to seed the bus once, snapshot it, and restore that snapshot before each test, so every test starts from the same state.
+
+==== Solution
+
+The program starts both hosts and a server for Message Queuing Telemetry Transport (MQTT) and Advanced Message Queuing Protocol (AMQP) on one bus, seeds it with `publish_message`, takes one snapshot, lets a test change the bus with the `curl` tool, then calls `restore_server` and reads what the next test would find:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URLs, an `mqtt://` and an `amqp://` URL on port 0, and in `arguments` `surl`{apos}s own options (<<surl-readme>>); it answers a `server_id` and the `bound_urls`. Both listeners share one message bus. `--queue jobs` declares a queue, `--topic "devices/#;retain"` keeps the last message on every topic under `devices/`, and `--allow-anonymous` lets the test{apos}s clients in with no login.
+
+The seed is the agent{apos}s own, not a client{apos}s: `publish_message` with `topic` and `retain` true keeps `off` on `devices/lamp/state`, and with `queue` puts `job-1` and `job-2` into `jobs`. `snapshot_server` copies the server{apos}s stores, messages among them, keeps the copy in `surl-mcp`, and answers its `snapshot_id`, `p1`.
+
+The test is three calls of the `curl` tool, which runs `curl`{apos}s own arguments, `-s` and `-S` for a quiet run that still shows an error. `-d on` to `mqtt://` with a topic as the path is a publish (<<mqtt311>>): the lamp goes `on`, and a second publish keeps the hall{apos}s topic. A `curl` to `amqp://` with `%2F/jobs`, the virtual host `/` and the queue, takes one job (<<amqp091>>). An MQTT publish is not acknowledged, so after each call the program calls `wait_for_event` for the next `exchange_ended`, passing the last `sequence` it saw as `after_sequence`, bounded at ten seconds. Without a restore the next test would find the lamp on, the hall{apos}s topic kept and one job left.
+
+`restore_server` with the `server_id` and the `snapshot_id` replaces the bus with the snapshot: `read_retained_message` reads `off` on the lamp{apos}s topic and answers `retained` false for the hall{apos}s, and `browse_queue` lists `job-1` and `job-2`, oldest first. Restoring does not use the snapshot up: after a second test the same `p1` puts back the same state, so one seed and one snapshot serve every test. `surl-mcp` keeps a server{apos}s newest four snapshots, and an id it does not hold, `p9` here, is a tool error that says so.
+
+`reset_server` is not the same thing. It returns the bus to its state at start, so the queue is empty and nothing is retained; the seed is gone too. A seeded starting point needs the snapshot.
+
+Without `--allow-anonymous` the seeding still works, since `publish_message` is not a client, but the test{apos}s MQTT publish with no login is refused with CONNACK return code 5, and the `curl` tool answers `exitCode` `8`. `surl` asks for a login by default; a test with no accounts says so.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-snapshot-before-a-risky-step>> for snapshots of a file server.
+* <<surl-browse-a-queue-from-an-agent>> for reading a queue without taking from it.
+* <<surl-readme>>, <<mqtt311>>, <<amqp091>>, <<mcp-spec>>.

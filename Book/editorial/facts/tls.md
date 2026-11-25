@@ -81,3 +81,9 @@ https-refuse-clients-below-tls-1-3 (and -in-csharp, -from-an-agent), http-move-a
 - Recipes (batch 12): https-require-a-client-certificate, https-log-in-with-tls-srp (each with -in-csharp and -from-an-agent).
 
 - HTTPS proxy with its own certificate (https-run-an-https-proxy + twins, 2026-11-22, windows): a separate self-signed proxy.pem works with `--proxy-cacert proxy.pem` and no `--ssl-no-revoke`; `--cacert` and `-k` never apply to the proxy, `--proxy-insecure` does. Details in proxy.md (batch 13).
+
+## One test CA, HTTPS and SMTPS (https-trust-a-test-ca-end-to-end + twins; Surl v0.1.8 9f8005dff / Curl 2145a49eae, 2026-11-25, windows)
+- A self-signed CA (CA:TRUE, keyCertSign) signing two leaves directly (no intermediate; SAN IP:127.0.0.1, extendedKeyUsage=serverAuth): `--cacert ca.pem` alone is exit 60 `schannel: the revocation status is unknown` on Windows for https, smtps and imaps alike; `--ssl-no-revoke` fixes it. So any CA-signed leaf needs it on Windows, not only chains. Linux/macOS not probed.
+- No `--cacert`: 60 `SEC_E_UNTRUSTED_ROOT`. A leaf from another CA with `--cacert ca.pem`: 60; `-k` alone: 0. `openssl verify -CAfile ca.pem a.pem b.pem` prints `a.pem: OK` per file; a stranger exits 2 with empty stdout.
+- One surl serves one `--cert`: two certificates means two surls (the mail one needs no `--directory`, so no lock clash with the https one).
+- Curl.Api `CertificateAuthorityFile = "ca.pem"` (relative to the working directory) with `SslOptions.NoRevoke` works for https and smtps from one CurlClient; failure `PeerFailedVerification` (60). curl-mcp: use the `curl` tool (`transfer` has no no-revoke field).

@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs map-topics.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: nats-join-two-names-with-a-topic-map-from-an-agent
+title: Mapping Topics between Protocols from an Agent
+protocols: [nats, mqtt]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, read_retained_message]
+curl-options: [-s, -S, -d, -m]
+exit-codes: [0, 1, 2]
+references: [surl-readme, nats-protocol, mqtt311, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: With --topic-map nats:orders.created=mqtt:shop/orders/new, a NATS publish of paid to orders.created is kept on shop/orders/new; read_retained_message reads it there, and the curl tool's MQTT subscriber is sent it, exit 0.
+    program: map-topics.cs
+    args: [forth]
+    expect:
+      exit: 0
+      stdout: "retained on shop/orders/new: paid\nMQTT subscriber, exit 0: topic shop/orders/new, payload paid\n"
+
+  - id: back
+    claim: The other way, an MQTT publish of shipped to shop/orders/new reaches a NATS subscriber to orders.created, a curl tool call left running while the publish is sent every half second until it ends, for at most ten seconds.
+    program: map-topics.cs
+    args: [back]
+    expect:
+      exit: 0
+      stdout: "NATS subscriber, exit 0: shipped\n"
+
+  - id: without-map
+    claim: With no topic map, the NATS publish to orders.created is kept on the MQTT topic orders/created, dots for slashes, and shop/orders/new holds nothing.
+    program: map-topics.cs
+    args: [nomap]
+    expect:
+      exit: 0
+      stdout: "retained on orders/created: paid\nretained on shop/orders/new: (nothing)\n"
+
+  - id: wildcard-refused
+    claim: A map whose NATS side holds a wildcard makes start_server a tool error, exit_code 2, not a valid name for nats.
+    program: map-topics.cs
+    args: [wildcard]
+    expect:
+      exit: 2
+      stdout: "start_server refused, exit 2: (2) option --topic-map: not a valid name for nats\n"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, the curl tool's NATS publish with no login exits 67, Authorization Violation.
+    program: map-topics.cs
+    args: [locked]
+    expect:
+      exit: 1
+      stdout: "NATS publish refused: exit 67, curl: (67) NATS server refused the login: Authorization Violation\n"

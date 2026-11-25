@@ -1,0 +1,65 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs restore-bus.cs, a C# program on the official MCP SDK that starts both hosts from PATH.
+schema: 2
+key: mqtt-restore-the-bus-between-tests-from-an-agent
+title: Restoring the Bus between Tests
+protocols: [mqtt, amqp]
+tier: new-protocols
+surface: mcp
+mcp-tools: [start_server, publish_message, snapshot_server, restore_server, reset_server, curl, wait_for_event, read_retained_message, browse_queue]
+curl-options: [-s, -S, -d]
+exit-codes: [0, 1]
+references: [surl-readme, mqtt311, amqp091, mcp-spec]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a test that turned the lamp on, took a job over AMQP and added the hall's topic, restore_server with the snapshot taken after seeding puts back the lamp's off, removes the hall's topic and returns both jobs in order.
+    program: restore-bus.cs
+    args: [restore]
+    expect:
+      exit: 0
+      stdout: "after restore_server p1:\n  devices/lamp/state: off\n  devices/hall/state: (nothing)\n  jobs: [job-1, job-2]\n"
+
+  - id: dirty
+    claim: Without the restore, the next test would find the lamp on, the hall's topic kept and one job left.
+    program: restore-bus.cs
+    args: [dirty]
+    expect:
+      exit: 0
+      stdout: "after the test:\n  devices/lamp/state: on\n  devices/hall/state: on\n  jobs: [job-2]\n"
+
+  - id: restore-again
+    claim: A snapshot can be restored again and again; after a second test, the same snapshot id puts back the same state.
+    program: restore-bus.cs
+    args: [twice]
+    expect:
+      exit: 0
+      stdout: "after a second test and restore_server p1 again:\n  devices/lamp/state: off\n  devices/hall/state: (nothing)\n  jobs: [job-1, job-2]\n"
+
+  - id: reset-is-not-restore
+    claim: reset_server returns the bus to its state at start, not the seeded one; nothing is retained and the queue is empty.
+    program: restore-bus.cs
+    args: [reset]
+    expect:
+      exit: 0
+      stdout: "after reset_server:\n  devices/lamp/state: (nothing)\n  devices/hall/state: (nothing)\n  jobs: []\n"
+
+  - id: unknown-snapshot
+    claim: restore_server with a snapshot id never taken of the server is a tool error that says so.
+    program: restore-bus.cs
+    args: [unknown]
+    expect:
+      exit: 1
+      stdout: "tool error True: server s1 has no snapshot p9; it was never taken of this server, or was dropped as one past its newest 4 snapshots\n"
+
+  - id: no-login-refused
+    claim: Without --allow-anonymous, the seeding still works, but the test's MQTT publish with no login is refused with CONNACK 5, and the curl tool answers exitCode 8.
+    program: restore-bus.cs
+    args: [locked]
+    expect:
+      exit: 1
+      stdout: "publish refused: exit 8, curl: (8) Expected 0000 but got 0005\n"

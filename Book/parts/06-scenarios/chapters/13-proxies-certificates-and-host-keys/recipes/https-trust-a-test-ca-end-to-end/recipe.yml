@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: https-trust-a-test-ca-end-to-end
+title: Trusting a Test CA End to End
+protocols: [https, smtps]
+tier: scenarios
+surl-options: [--directory, --cert, --key, --mail-domain, --mailbox]
+curl-options: [-s, -S, -k, --cacert, --ssl-no-revoke, --crlf, -u, --mail-from, --mail-rcpt, -T, -w, --retry, --retry-all-errors, --retry-delay]
+exit-codes: [0, 2, 60]
+references: [surl-readme, curl-manual, rfc5280, rfc8314]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  stray/hello.txt: "hello from surl\n"
+  note.eml: "From: app@example.com\nTo: ann@example.com\nSubject: Signed by the test CA\n\nThis came over SMTPS.\n"
+
+# One test certificate authority (CA), and two server certificates it signs for 127.0.0.1: www for
+# HTTPS, mail for SMTPS and IMAPS. stray is signed by another authority, as a server nobody trusts.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 30 -subj "/CN=Test CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
+  - printf "subjectAltName=IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n" > server.ext
+  - openssl req -newkey rsa:2048 -nodes -keyout www.key -out www.csr -subj "/CN=127.0.0.1"
+  - openssl x509 -req -in www.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out www.pem -days 30 -extfile server.ext
+  - openssl req -newkey rsa:2048 -nodes -keyout mail.key -out mail.csr -subj "/CN=127.0.0.1"
+  - openssl x509 -req -in mail.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out mail.pem -days 30 -extfile server.ext
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout other.key -out other.pem -days 30 -subj "/CN=Other CA" -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign"
+  - openssl req -newkey rsa:2048 -nodes -keyout stray.key -out stray.csr -subj "/CN=127.0.0.1"
+  - openssl x509 -req -in stray.csr -CA other.pem -CAkey other.key -CAcreateserial -out stray.pem -days 30 -extfile server.ext
+
+# www serves HTTPS; mail serves SMTPS and IMAPS over one mail store; stray serves HTTPS with the
+# certificate the other authority signed.
+servers:
+  www:
+    command: surl --directory site --cert www.pem --key www.key https://127.0.0.1:{{port}}/
+    ready: port
+  mail:
+    command: surl --cert mail.pem --key mail.key --mail-domain example.com --mailbox app@example.com:apppass --mailbox ann@example.com:annpass smtps://127.0.0.1:{{port2}}/ imaps://127.0.0.1:{{port3}}/
+    ready: port
+  stray:
+    command: surl --directory stray --cert stray.pem --key stray.key https://127.0.0.1:{{port4}}/
+    ready: port
+
+cases:
+  - id: signed-by-the-ca
+    claim: openssl verify, given the test CA alone, finds both server certificates signed by it.
+    run: openssl verify -CAfile ca.pem www.pem mail.pem
+    expect:
+      exit: 0
+      stdout: "www.pem: OK\nmail.pem: OK\n"
+
+  - id: solution
+    role: solution
+    claim: curl trusting only the test CA, with --cacert ca.pem, fetches the file over HTTPS, exit 0.
+    run: curl -s --ssl-no-revoke --cacert ca.pem https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: smtps-send
+    claim: The same trust sends a message over SMTPS, logged in as the app, and the server's last reply is 250.
+    run: curl -sS --ssl-no-revoke --cacert ca.pem --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T note.eml -w "%{response_code}\n" smtps://127.0.0.1:{{port2}}/client.example.com
+    expect:
+      exit: 0
+      stdout: "250\n"
+
+  - id: imaps-read
+    claim: Ann reads it back over IMAPS with the same trust, once it is stored, waited for a try a second for at most ten.
+    run: curl -sS --ssl-no-revoke --cacert ca.pem --retry 10 --retry-all-errors --retry-delay 1 -u ann@example.com:annpass "imaps://127.0.0.1:{{port3}}/INBOX;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)"
+    timeout: 60
+    expect:
+      exit: 0
+      stdout-matches: '^Subject: Signed by the test CA\r?\n\r?\n$'
+
+  - id: https-without-the-ca
+    claim: Without --cacert curl has no reason to trust the HTTPS server and exits 60.
+    run: curl -s --ssl-no-revoke https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: smtps-without-the-ca
+    claim: Without --cacert the SMTPS send fails the same way, exit 60, and nothing is sent.
+    run: curl -s --ssl-no-revoke --crlf -u app@example.com:apppass --mail-from app@example.com --mail-rcpt ann@example.com -T note.eml smtps://127.0.0.1:{{port2}}/client.example.com
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: other-authority-refused
+    claim: A server whose certificate another authority signed, for the same address, is refused by a client that trusts only the test CA, exit 60.
+    run: curl -s --ssl-no-revoke --cacert ca.pem https://127.0.0.1:{{port4}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""
+
+  - id: other-authority-not-in-chain
+    claim: openssl verify says the same of that certificate, exit 2.
+    run: openssl verify -CAfile ca.pem stray.pem
+    expect:
+      exit: 2
+      stdout: ""
+
+  - id: insecure-hides-it
+    claim: With -k curl skips the check and fetches from that server, exit 0, which is why no command here uses it.
+    run: curl -s -k https://127.0.0.1:{{port4}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "hello from surl\n"
+
+  - id: windows-checks-revocation
+    platforms: [windows]
+    claim: On Windows, whose TLS library asks about revocation, the right --cacert without --ssl-no-revoke still exits 60, because the test certificates name no revocation list.
+    run: curl -s --cacert ca.pem https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 60
+      stdout: ""

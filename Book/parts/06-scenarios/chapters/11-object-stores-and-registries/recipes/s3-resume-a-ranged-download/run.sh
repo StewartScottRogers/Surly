@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
 openssl rand -out store/media/big.bin 4000000
-surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --fault "drop;after-bytes=1500000" s3://127.0.0.1:8080/ &
+surl --directory store --cert server.pem --key server.key --user AKIAIOSFODNN7EXAMPLE:s3cret --fault "drop;after-bytes=1500000;close=graceful" s3://127.0.0.1:8080/ &
 sleep 1
 sh get-range.sh https://media.s3.us-east-1.amazonaws.com/big.bin 0 1999999 dl/part0 --max-time 30 --cacert server.pem --connect-to ::127.0.0.1:8080 --aws-sigv4 aws:amz:us-east-1:s3 -u AKIAIOSFODNN7EXAMPLE:s3cret
 kill $(jobs -p)

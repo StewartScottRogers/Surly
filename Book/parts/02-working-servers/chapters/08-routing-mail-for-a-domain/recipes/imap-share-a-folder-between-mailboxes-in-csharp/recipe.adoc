@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[imap-share-a-folder-between-mailboxes-in-csharp]]
+=== Sharing a Folder Between Mailboxes in C#
+
+==== Problem
+
+Your C# client lists a user{apos}s shared Internet Message Access Protocol (IMAP) folders; you want a test where each member sees the right folders, one member appends to a shared folder and another reads it.
+
+==== Solution
+
+Host the server in the test with `SharedFolders` set, list each member{apos}s folders with `Curl.Api`, append as one member and read as another:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `imap://` URL on port 0, so the system picks a free port. `MailDomains` and `Mailboxes` make three mailboxes for `example.com`, each an account that logs in by its whole address. `Groups` is `--group`: `oncall` holds Bob and Carol. `SharedFolders` is `--shared-folder`, one entry per folder: `team` for Ann and Bob by name, `ops` for everyone in `@oncall`. The `@` marks a group.
+
+The client{apos}s part is `Curl.Api`: one `CurlClient` sends every request, and each `CurlResponse` has the answer as its `Body`, a stream. A `CurlRequest` with `HttpMethod.Get` on the server{apos}s URL with no folder is an IMAP `LIST`, and `CurlAuthenticationOptions` logs in as the member. The test keeps the `LIST` lines whose name starts `Shared/` and leaves out the `Shared` line itself, which is `\Noselect`: it holds folders, not mail. Ann sees `Shared/team`, Bob both folders, Carol `Shared/ops`. A client need not guess the `Shared/` prefix: `NAMESPACE`, sent with `CustomRequest`, answers it as the shared namespace, with `/` between levels (<<rfc9051>>).
+
+The append is a `PUT` to `Shared/team` whose `Body` is `CurlContent.FromStream` with the message{apos}s length, because an IMAP `APPEND` states its size before the message. Bob{apos}s `GET` of `Shared/team;UID=1;SECTION=HEADER.FIELDS%20(SUBJECT)` returns the subject Ann wrote: the folder is stored once for its members, not copied into each mailbox. The test passes and exits `0`.
+
+To Carol, `Shared/team` does not exist. Her `GET` of it throws `CurlException`; the code is `67`, which `Curl.Api` names `LoginDenied`, with the message `Select failed`: her login worked, and the code is the one `curl` gives a refused `SELECT`. The store says the same thing from the server{apos}s side: `server.Mail.ListMailboxesAsync` lists each owner{apos}s mailboxes, and a shared folder appears under each member and under no one else. Membership is set when the server starts, and a member that names no mailbox or group, here a misspelt `bobb@example.com`, stops `StartAsync` with `SurlServerStartException`, `ExitCode` `FailedInit`, and the member named in `Lines`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<imap-share-a-folder-between-mailboxes>> for the same task on the console.
+* <<imap-share-a-folder-between-mailboxes-from-an-agent>> for the same task run by an agent.
+* <<imap-test-a-shared-team-folder-in-csharp>> for flags in a shared folder.
+* <<surl-readme>>, <<rfc9051>>.

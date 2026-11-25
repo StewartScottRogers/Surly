@@ -1,0 +1,62 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs diagnose-login.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the client's attempt.
+schema: 2
+key: ftp-diagnose-a-refused-login-from-an-agent
+title: Diagnosing a Refused FTP Login from an Agent
+protocols: [ftp]
+tier: working-servers
+surface: mcp
+mcp-tools: [start_server, curl, wait_for_event, get_events, get_exchanges]
+curl-options: [-s, -S, --ssl-reqd, --cacert, -u, -o]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc959, rfc4217]
+
+fixtures: {}
+
+# A certificate for 127.0.0.1, so the FTP server can offer TLS; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+cases:
+  - id: wrong
+    role: solution
+    claim: "A wrong password over TLS: curl exits 67 with Access denied: 530; get_events has a login_judged event for app, mechanism password, is_accepted false; the client sent AUTH SSL, USER and PASS; the server answered 530 Login incorrect; the agent reports a wrong password."
+    program: diagnose-login.cs
+    args: [wrong]
+    expect:
+      exit: 0
+      stdout: "curl exitCode 67, curl: (67) Access denied: 530\nlogin_judged: account app, mechanism password, is_accepted False\nlogin commands: AUTH SSL, USER app, PASS (6 characters, withheld)\ndiagnosis: wrong password; the server checked it and refused it (530 Login incorrect)\n"
+
+  - id: clear
+    claim: "The right password without TLS: curl exits 67 with the same message, but no login was judged; the client sent USER and PASS and no AUTH, and the server answered 530 Login needs TLS first: send AUTH TLS; the agent reports a password refused unchecked because it came in clear."
+    program: diagnose-login.cs
+    args: [clear]
+    expect:
+      exit: 0
+      stdout: "curl exitCode 67, curl: (67) Access denied: 530\nlogin commands: USER app, PASS (6 characters, withheld)\ndiagnosis: no login was judged; the client never asked for TLS and the server refused the password unchecked (530 Login needs TLS first: send AUTH TLS)\n"
+
+  - id: clear-says-nothing-of-the-password
+    claim: A wrong password without TLS gets exactly the same answer and the same diagnosis; a refusal in clear says nothing about whether the password was right.
+    program: diagnose-login.cs
+    args: [clear-wrong]
+    expect:
+      exit: 0
+      stdout: "curl exitCode 67, curl: (67) Access denied: 530\nlogin commands: USER app, PASS (6 characters, withheld)\ndiagnosis: no login was judged; the client never asked for TLS and the server refused the password unchecked (530 Login needs TLS first: send AUTH TLS)\n"
+
+  - id: right
+    claim: The right password over TLS is judged and accepted, and curl exits 0.
+    program: diagnose-login.cs
+    args: [right]
+    expect:
+      exit: 0
+      stdout: "curl exitCode 0\nlogin_judged: account app, mechanism password, is_accepted True\nlogin commands: AUTH SSL, USER app, PASS (6 characters, withheld)\ndiagnosis: the login was accepted\n"
+
+  - id: allowed
+    claim: Against a server started with --allow-plaintext-auth the right password without TLS is judged and accepted, and curl exits 0.
+    program: diagnose-login.cs
+    args: [allowed]
+    expect:
+      exit: 0
+      stdout: "curl exitCode 0\nlogin_judged: account app, mechanism password, is_accepted True\nlogin commands: USER app, PASS (6 characters, withheld)\ndiagnosis: the login was accepted\n"

@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-check-logins-against-ldap-in-csharp]]
+=== Checking Logins against LDAP in C#
+
+==== Problem
+
+Your real service checks passwords against the company{apos}s Lightweight Directory Access Protocol (LDAP) directory, and you want your C# test{apos}s web server to do the same instead of holding its own accounts. You want one `SurlServer` serving the directory and another checking Hypertext Transfer Protocol (HTTP) logins against it, refusing a user the directory does not hold, with Surl.Api and Curl.Api.
+
+==== Solution
+
+Start the directory, point the web server{apos}s `--user-ldap` at it, and log in as a directory user; manage the people in the directory alone:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). The directory listens on `ldap://127.0.0.1:0`, a free port; `CertificateFile` and `KeyFile`, a certificate for `127.0.0.1` made in setup, let it upgrade a connection with StartTLS, which starts Transport Layer Security (TLS) on a plain connection. This directory checks a bind against its accounts, not against a password in an entry, so each person is two things in it: a `SurlAccount` in `Accounts`, for `alice`, `bob` and `svc`, the web server{apos}s service account, and an entry, which `directory.Directory`, a `SurlServerDirectory`, adds from LDAP Data Interchange Format (LDIF) text with `AddEntriesAsync`: `dc=example,dc=com`, `ou=people` and a `uid=` entry for each person (<<rfc4511>>).
+
+The web server listens on `https://127.0.0.1:0` with the same certificate and serves `report.txt` from `Files`. `--user-ldap` has no property, so it goes in `AdditionalArguments`, as on the command line: an LDAP URL (<<rfc4516>>) naming the directory{apos}s port and the `ou=people` branch, then `bind-dn` and `bind-password-file`, so the server searches as `svc` with the password from `svc.pass`, which the program writes, and `ca-file=server.pem`, the certificate it trusts for the directory. For a login it holds no account for, it searches the branch for the entry whose `uid` is the login name and binds as that entry with the password sent; the bind{apos}s answer is the login{apos}s. `RecordExchanges = true` keeps its events.
+
+The test is `Curl.Api`: a `CurlClient` with `CurlClientOptions` bounding each request at 30 seconds, and a `CurlRequest` per login whose `CurlTlsOptions` trust the certificate through `CurlTlsPeerOptions`, and whose `CurlAuthenticationOptions` carry the name and password, sent as HTTP Basic, the one HTTP login that carries the password itself, as a bind needs (<<rfc7617>>). The `CurlResponse` for `alice` is `200` with the report: the web server has no account for her, asked the directory, and let her in.
+
+The people are managed in the directory alone, while both servers run. `carol`, not in the directory, is refused `401`. With her entry added by `AddEntriesAsync` she is still refused, since the directory has no account to check her bind against; with `directory.Accounts.Add("carol", "marvel")` as well she logs in, and nothing about the web server changed. `directory.Accounts.Remove("alice")` is a leaver: her next login to the web server is refused `401`. The web server records each login it judged: `FindEvents` with a `SurlEventQuery` of `Kind` `SurlEventKind.LoginJudged` and `Account` `carol` returns three `LoginJudgedEvent` records, each `https` and `Basic`, refused, refused and accepted.
+
+The web server{apos}s own accounts come first. It holds `bob` itself, with an old password of its own, so it never asks the directory about him: `bob` with his directory password is refused, and with the web server{apos}s password is served. A test that means every login to go to the directory gives the web server no account that shares a name with a person. Its other account, `ops`, is there because a `surl` whose only accounts are in the directory asks no login for a `GET` (<<ldap-check-logins-against-a-directory>>); with one account of its own the web server answers a request with no login `401`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-check-logins-against-ldap>> for the same task on the console.
+* <<http-check-logins-against-ldap-from-an-agent>> for the same task run by an agent.
+* <<ldap-check-logins-against-a-directory-in-csharp>> for what the directory records of each login.
+* <<surl-readme>>, <<rfc4511>>, <<rfc4516>>, <<rfc7617>>.

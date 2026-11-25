@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[surl-keep-a-queue-across-restarts-in-process]]
+=== Keeping a Queue Across Restarts
+
+==== Problem
+
+Your C# test restarts the message broker in the middle, and the jobs queued before the restart must still be there after it. You want an in-process Surl server with a durable queue under a data directory, jobs put in with `EnqueueAsync`, and `BrowseQueueAsync` to find them after the restart.
+
+==== Solution
+
+Start a `SurlServer` with `DataDirectory` set and the queue declared as `jobs;durable`, enqueue the jobs, dispose of the server, start a new one on the same folder, and browse the queue:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one Message Queuing Telemetry Transport (MQTT) URL on port 0, so the server is a broker on a free port; its message bus holds topics and queues alike. `DataDirectory` is `--directory`, the folder the server keeps its state in, here a fresh folder under the system{apos}s temporary folder. `Queues` is `--queue`, a queue that exists from the start: `jobs;durable` keeps its messages under `DataDirectory`, and `scratch`, with no flag, is in memory only.
+
+`server.Messages.EnqueueAsync` puts a payload into a queue as the test{apos}s own seed, not a client{apos}s publish. Disposing of the server stops it; `StartAsync` with the same options on the same folder is the restart, a new server on a new port. `BrowseQueueAsync` lists the ready messages without taking any: the queue{apos}s name, `-1` to start at the first, and at most 100. It answers a `SurlQueuePage`, whose `ReadyCount` is how many are ready and whose `Messages` are `SurlQueueMessage` records, each with its `Position`, from `0`, and its `Payload`. All three jobs are back, oldest first.
+
+A queue without `;durable` is empty after the restart, though it lived on the same server and folder; so is `jobs;durable` when no `DataDirectory` is given, which is accepted and keeps nothing. On disk the durable queue is the folder{apos}s `.surl/bus/queues`: an `index` and one file in `messages` per ready message.
+
+`EnqueueAsync` does not create a queue: one the server was not started with is refused with `SurlSeedRefusedException`, `UnknownQueue`. A folder belongs to one server at a time: a second `StartAsync` on it while the first runs throws `SurlServerStartException`, whose `ExitCode` is `surl`{apos}s `124` and whose first line says the directory is in use by another `surl` process. The program deletes the folder only after every server on it has stopped, since a running server holds a lock file in it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<amqp-keep-a-queue-across-restarts>> for a durable queue that an Advanced Message Queuing Protocol (AMQP) client reads after the restart.
+* <<mqtt-keep-readings-across-restarts>> for retained MQTT messages under `--directory`.
+* <<surl-readme>>.

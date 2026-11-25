@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tune-a-retry-policy-by-experiment]]
+=== Tuning a Retry Policy by Experiment
+
+==== Problem
+
+You want an agent to choose a client{apos}s retry policy by trying it: retry counts and delays against a server whose outages grow longer, and a recommendation of the smallest policy that still gets through.
+
+==== Solution
+
+The program starts a server, and for an outage of one, two and then three failed requests tries policies with the `curl` tool, cheapest first, until one succeeds; the largest of the winners is the recommendation:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `http://127.0.0.1:0` for a free port, and `files`, here one `status.json` served from memory (<<surl-readme>>). It answers a `server_id` and the `bound_urls`.
+
+The outage is a fault rule. `add_fault` takes one `surl --fault` item: `error;scheme=http;reply=503;times=N` answers the next N Hypertext Transfer Protocol (HTTP) requests `503 Service Unavailable` and then stops acting. `--fault` loosens the server on purpose, for tests only. Before each trial the program asks `list_faults` for the rules in place and removes each with `remove_fault`, so every trial starts on a fresh outage of the size it is testing.
+
+A trial is one call of the `curl` tool, which runs `curl`{apos}s own arguments and answers `exitCode` and `standardOutput` as JavaScript Object Notation (JSON) (<<curl-manual>>). `--retry R` lets `curl` try again up to R times after a transient error, and a 503 is one; `--retry-delay D` waits D seconds before each retry, the same every time; `-f` makes a final error status a failure, exit `22`; `--max-time 30` bounds the whole call; `-o status.out` keeps the body out of the answer; `-s` and `-S` keep the progress meter out and an error in; and `-w "%{http_code} %{num_retries}"` prints the last status and how many retries were made.
+
+The agent tries policies in order of the waiting they cost, retries times delay, and the fewer retries first: no retry, one retry after 1 second, one after 2, two after 1, three after 1, and so on. For each outage it stops at the first that exits `0`. One failure needs one retry; two need two; three need three. A longer delay does not stand in for a retry: with two failures, one retry after 2 seconds fails exactly as one after 1 second does, `503` after one retry. That follows from the outage, which counts requests, not seconds: only another request gets past it, so the delay is waiting and nothing more. The recommendation covers every outage tried, `--retry 3 --retry-delay 1`, at most 3 seconds of waiting; an outage measured in seconds would need the same sweep with a rule that counts time, and could give a different answer.
+
+`get_events` with `kinds` `fault_applied` and `after_sequence`, the last sequence number read before the trial, answers what the rule did during it: one event per failed request, `fault_kind` `error` with the path as its `target`. A trial that succeeded after two retries leaves two, which is how the agent can check that its count of failures is the server{apos}s count too.
+
+The agent judges a trial by the status as well as the exit code. Without `-f`, a trial that runs out of retries still exits `0`, because `curl` got an answer: the last attempt{apos}s `503` (<<rfc9110>>). An agent that read the exit code alone would recommend a policy that never got through.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-fail-only-the-third-request>> for an override that counts requests from C#.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

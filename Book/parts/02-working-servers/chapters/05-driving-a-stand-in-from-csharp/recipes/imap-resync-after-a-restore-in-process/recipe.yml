@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: imap-resync-after-a-restore-in-process
+title: Resyncing IMAP After a Restore
+protocols: [imap]
+tier: working-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlSnapshot, SurlMailboxInfo, CurlClient, CurlRequest, CurlResponse, CurlAuthenticationOptions]
+exit-codes: [0, 1]
+references: [surl-readme, rfc9051]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: After a restore between two tests, the client sees UIDVALIDITY change, drops its cache and reads the mailbox again, so UID 3 is the new test's message, Your order has shipped, and the program exits 0.
+    program: resync.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^after test 1:\n  UID 1 Subject: Welcome\n  UID 2 Subject: Invoice 1042\n  UID 3 Subject: Reset your password\nUIDVALIDITY changed: (\d+) to (?!\1\b)\d+; cache dropped\nafter test 2:\n  UID 1 Subject: Welcome\n  UID 2 Subject: Invoice 1042\n  UID 3 Subject: Your order has shipped\n$'
+
+  - id: naive
+    claim: A client that ignores UIDVALIDITY and fetches only UIDs above the last it saw finds nothing new after the restore and still holds the first test's message as UID 3, a UID that now names other mail; the check fails, exit 1.
+    program: resync.cs
+    args: [naive]
+    expect:
+      exit: 1
+      stdout: "after test 1:\n  UID 1 Subject: Welcome\n  UID 2 Subject: Invoice 1042\n  UID 3 Subject: Reset your password\nafter test 2:\n  UID 1 Subject: Welcome\n  UID 2 Subject: Invoice 1042\n  UID 3 Subject: Reset your password\n"
+
+  - id: status
+    claim: STATUS after a restore gives a different UIDVALIDITY and the UIDNEXT of the snapshot, 3, and the store's SurlMailboxInfo.UidValidity equals the new UIDVALIDITY.
+    program: resync.cs
+    args: [status]
+    expect:
+      exit: 0
+      stdout-matches: '^before: \* STATUS INBOX \(UIDVALIDITY (\d+) UIDNEXT 3\)\nafter:  \* STATUS INBOX \(UIDVALIDITY (?!\1\b)(\d+) UIDNEXT 3\)\nstore:  UidValidity \2\n$'
+
+  - id: unchanged
+    claim: A restore changes UIDVALIDITY even when nothing changed since the snapshot.
+    program: resync.cs
+    args: [unchanged]
+    expect:
+      exit: 0
+      stdout: "UIDVALIDITY changed\n"
+
+  - id: reset
+    claim: ResetAsync changes UIDVALIDITY too, and leaves the mailbox empty with UIDNEXT 1.
+    program: resync.cs
+    args: [reset]
+    expect:
+      exit: 0
+      stdout: "UIDVALIDITY changed, UIDNEXT 1 MESSAGES 0\n"

@@ -1,0 +1,35 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[https-trust-a-test-ca-end-to-end]]
+=== Trusting a Test CA End to End
+
+==== Problem
+
+Your tests run a Hypertext Transfer Protocol Secure (HTTPS) server and a Simple Mail Transfer Protocol Secure (SMTPS) server, and you want one test certificate authority (CA) that signs both servers{apos} certificates, with every client trusting that authority and nothing else, never skipping the check.
+
+==== Solution
+
+Make the authority and the two certificates with `openssl`, start each `surl` with its own `--cert` and `--key`, and give every `curl` the authority{apos}s certificate with `--cacert`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The test CA is a self-signed certificate whose extensions say it may sign others: `basicConstraints=critical,CA:TRUE` and a `keyUsage` of `keyCertSign` (<<rfc5280>>). Each server certificate is a request, `openssl req -newkey`, that the authority signs with `openssl x509 -req -CA ca.pem -CAkey ca.key`; its extension file names the address the clients use, `subjectAltName=IP:127.0.0.1`, says it is not an authority, and limits it to `serverAuth`. `openssl verify -CAfile ca.pem` checks both before any server starts and prints `OK` for each. The authority{apos}s key, `ca.key`, signs and nothing more: no server is given it, and a CA for real tests keeps it out of the test folder once the certificates are made.
+
+There are two servers because there are two certificates; `surl` serves one `--cert` per process (<<surl-readme>>). The first serves the folder `site` over HTTPS: `--directory site`, `--cert www.pem` and `--key www.key`, the certificate and its private key. The second serves SMTPS and the Internet Message Access Protocol Secure (IMAPS) from one mail store, both with the mail certificate, both Transport Layer Security (TLS) from the first byte (<<rfc8314>>); `--mail-domain example.com` is the domain it takes mail for, and each `--mailbox` adds a mailbox and the account that logs in to it.
+
+Every `curl` has the same two options. `--cacert ca.pem` replaces the trusted authorities with the test CA alone (<<curl-manual>>), so the HTTPS fetch exits `0`, the SMTPS send, `-u` the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T note.eml` the message and `--crlf` its line ends, gets the server{apos}s `250`, and Ann reads its `Subject` back over IMAPS. Delivery is asynchronous, so that fetch retries until the message exists: `--retry 10` more tries, `--retry-all-errors` to retry the error a missing message gives, `--retry-delay 1` a second apart. `-s` hides the progress meter, `-S` keeps an error message, and `-w "%{response_code}"` prints the last reply. `--ssl-no-revoke` is for Windows: its TLS library asks whether a certificate signed by an authority has been revoked, the test CA publishes no revocation list, and without the option the right `--cacert` still exits `60`. The option turns that question off.
+
+Take the authority away and each client stops. With no `--cacert`, the HTTPS fetch and the SMTPS send both exit `60`: the server is unverified. A third server, `stray`, serves a certificate for the same address that another authority signed; `curl --cacert ca.pem` refuses it with `60` too, and `openssl verify` refuses it with `2`. That is the point of a test CA: a server is trusted because the test{apos}s own authority signed its certificate, not because it answers on the right port. `-k` would skip the check and fetch from `stray` as readily as from the real server, exit `0`, which is why no command here uses it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<https-trust-a-test-ca-end-to-end-in-csharp>> for the same task in C#.
+* <<https-trust-a-test-ca-end-to-end-from-an-agent>> for the same task run by an agent.
+* <<https-serve-a-certificate-chain>> for a server that sends an intermediate certificate too.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5280>>, <<rfc8314>>.

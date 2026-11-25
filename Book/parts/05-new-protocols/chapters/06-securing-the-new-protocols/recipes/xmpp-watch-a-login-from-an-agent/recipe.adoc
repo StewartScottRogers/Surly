@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[xmpp-watch-a-login-from-an-agent]]
+=== Watching an XMPP Login
+
+==== Problem
+
+Your chat client{apos}s Extensible Messaging and Presence Protocol (XMPP) login is refused, and the client says only `not-authorized`. You want an agent to read the server{apos}s login events and say which Simple Authentication and Security Layer (SASL) mechanism the client tried, as which account, and what refused it.
+
+==== Solution
+
+The program starts both hosts and an XMPP server with one account, lets the `curl` tool log in as the client, waits for the exchange to end, and reads the `login_judged` events with `get_events`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes the listen URL, `xmpp://127.0.0.1:0`, and in `arguments` `surl`{apos}s own options (<<surl-readme>>): `--cert` and `--key` name the certificate and key the recipe{apos}s setup made with `openssl` in the folder `surl-mcp` is confined to, and `--user alice:s3cret` adds the one account. With a certificate the server offers STARTTLS, the upgrade to Transport Layer Security (TLS), and requires it before any login (<<rfc6120>>). It answers a `server_id` and the `bound_urls`.
+
+The client is the `curl` tool, which runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError`. `--cacert server.pem` trusts the certificate, `-u` gives the account and password, `-s` and `-S` keep it quiet but for an error, and the URL{apos}s path, the server{apos}s own address, asks it what it offers. After STARTTLS `curl` logs in with SCRAM-SHA-256 (<<rfc7677>>). With the password mistyped, `curl` exits `67` with `XMPP authentication failed: not-authorized`, which says nothing about why.
+
+`wait_for_event` for `exchange_ended`, bounded at ten seconds, makes sure the login is over before the agent reads. `get_events` with `kinds` `login_judged` answers one event per login the server judged: its `account`, its `mechanism`, `is_accepted`, and `is_refused_by_fault`. Here `alice` tried `SCRAM-SHA-256` and was refused, not by a fault rule: the mechanism was fine, and the account and password did not match. With the right password the same mechanism is accepted and `curl` exits `0`.
+
+The mechanism is the server{apos}s choice to offer. A server started with `--auth plain` offers PLAIN alone (<<rfc4616>>), and the event then says `PLAIN`. `--auth` is for tests, and `surl` warns at start while it is given (<<surl-readme>>); without it, the case above, the client chose SCRAM-SHA-256.
+
+The event tells apart refusals the client cannot. `add_fault` with `refuse-login` makes the server refuse a login whose credentials match an account (<<surl-readme>>); the client sees the same `not-authorized`, and only `is_refused_by_fault` true says that the password was right.
+
+No event at all is an answer too. A client with no user name asks for SASL ANONYMOUS, which the server does not offer, and `curl` exits `67` with `XMPP server does not offer SASL ANONYMOUS`. A client that does not trust the certificate fails the TLS handshake, exit `60`, whose text is the TLS library{apos}s. In both, no login reached the server{apos}s judge, and `get_events` answers no `login_judged` event.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<xmpp-require-tls-before-login-from-an-agent>> for what the server offers before and after STARTTLS.
+* <<surl-readme>>, <<rfc6120>>, <<rfc7677>>, <<rfc4616>>, <<mcp-spec>>.

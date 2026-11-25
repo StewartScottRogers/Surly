@@ -1,0 +1,34 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-notice-dropped-exchanges]]
+=== Noticing Dropped Exchanges
+
+==== Problem
+
+Your long C# test makes over a thousand requests and then asks the server{apos}s record whether the app made one of them. You want to bound the record with `MaxRecordedExchanges` and read `DroppedExchangeCount`, so that a request the record no longer holds is never reported as a request the app did not make.
+
+==== Solution
+
+Bound the record, let the app run, and before judging a missing request check whether the record dropped anything:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `http://` URL on port 0, so the system picks a free port, and `Files` seeds what the app reads: `session/start`, `session/end` and 1,200 items. `RecordExchanges = true` keeps every exchange the server serves in `server.Exchanges`, and `MaxRecordedExchanges` bounds how many: 1,000 unless given, here 100. Past the bound the record drops the oldest exchange to make room for the new one, and `DroppedExchangeCount` counts how many it has dropped.
+
+The app is played by `Curl.Api`. It opens its session, reads the 1,200 items with eight workers side by side, each with its own `CurlClient`, and closes its session: 1,202 requests. Each `CurlRequest` carries `Connection: close`, so the server closes the connection after answering it (<<rfc9110>>); the program throws each `CurlResponse` body away. That matters, because for the Hypertext Transfer Protocol (HTTP) the record{apos}s unit is the exchange, one connection: a client that kept its connection open would put many requests in one exchange, and the counts below would be counts of connections (<<surl-readme>>). Here each request is an exchange of its own, and once the record has caught up, which the program allows at most ten seconds, the record holds 100 and has dropped 1,102: added together, every request the app made. The newest exchange kept is the app{apos}s last request, `GET /session/end`; the oldest is an item read late in the run. The session{apos}s opening request was one of the first to go.
+
+The test{apos}s question is whether the app opened its session. Each `SurlExchangeRecord` holds the bytes the server `Received`, and the program reads the request line from them. `GET /session/start` is not there, and a test that stopped at that would fail an app that did nothing wrong. This one reads `DroppedExchangeCount` first: with 1,102 exchanges dropped, the missing request may be among them, so the test reports that it cannot tell and exits `2`, a result of its own, neither a pass nor a fail. The fix is the bound: with `MaxRecordedExchanges` at 2,000, nothing is dropped, the request is found and the test passes. An app that really never opens its session leaves 1,201 exchanges, none dropped, and only then is a missing record a missing request: the test fails it, exit `1`.
+
+A bound is worth keeping: each exchange{apos}s bytes stay in memory, up to `MaxRecordedBytesPerExchange` of them, for the life of the server (<<surl-readme>>). Set it from the number of connections the test makes, and let the test say when the bound was too small rather than guess.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<surl-spot-a-truncated-recording>> for exchanges cut short and events dropped.
+* <<http-find-the-request-that-failed>> for finding one request in the record.
+* <<surl-readme>>, <<rfc9110>>.

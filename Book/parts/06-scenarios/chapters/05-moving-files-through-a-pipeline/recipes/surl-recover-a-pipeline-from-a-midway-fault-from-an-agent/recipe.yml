@@ -1,0 +1,51 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp and curl-mcp (ADR-0008).
+# Each case runs program.cs, a C# program on the official MCP SDK that starts both hosts
+# from PATH; its argument picks the scenario.
+schema: 2
+key: surl-recover-a-pipeline-from-a-midway-fault-from-an-agent
+title: Recovering a Pipeline from a Fault from an Agent
+protocols: [ftp, http, s3]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, get_exchanges, read_file, get_events, list_faults]
+curl-options: [-s, -S, --ssl-reqd, --cacert, -u, -T, -f, -w, --connect-to]
+exit-codes: [0]
+references: [surl-readme, curl-manual, rfc959, rfc4217, rfc9110, aws-s3-api]
+
+# The nightly report, with Windows line ends.
+fixtures:
+  report.csv: "region,total\r\nnorth,1200\r\nsouth,950\r\n"
+
+# A certificate for 127.0.0.1 and for any bucket's host name in us-east-1; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1,DNS:*.s3.us-east-1.amazonaws.com"
+
+cases:
+  - id: solution
+    role: solution
+    claim: The FTP and HTTPS steps succeed; the S3 step's answer is cut one byte in, exitCode 8, and the agent runs that step alone again, 200; get_exchanges counts one FTP exchange, one HTTPS exchange and two S3 exchanges, and the archived object is report.csv.
+    program: program.cs
+    args: [resume]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "ftp: exitCode 0\nhttps: exitCode 0, 201\ns3: exitCode 8, 000 curl: (8) The connection closed before the response head ended.\ns3 again: exitCode 0, 200\nftp exchanges: 1\nhttps exchanges: 1\ns3 exchanges: 2\narchive: identical to report.csv\n"
+
+  - id: stop-at-the-cut
+    claim: The pipeline as first written stops at the cut S3 step, yet the archive already holds report.csv; the cut came after the object was stored.
+    program: program.cs
+    args: [stop]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout: "ftp: exitCode 0\nhttps: exitCode 0, 201\ns3: exitCode 8, 000 curl: (8) The connection closed before the response head ended.\nthe pipeline stops\nftp exchanges: 1\nhttps exchanges: 1\ns3 exchanges: 1\narchive: identical to report.csv\n"
+
+  - id: one-fault-event
+    claim: get_events has one fault_applied event, a drop by rule f1 at the accept stage whose target is the s3 listener; list_faults shows the rule with close=graceful in its item and no uses left.
+    program: program.cs
+    args: [events]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\narchive: [^\n]+\nfault_applied: rule f1, drop, stage accept, on the s3 listener\nf1: drop;scheme=s3;after-bytes=1;close=graceful, remaining 0\n$'

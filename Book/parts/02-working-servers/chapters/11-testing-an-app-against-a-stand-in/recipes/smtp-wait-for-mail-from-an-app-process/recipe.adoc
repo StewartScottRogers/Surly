@@ -1,0 +1,37 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-wait-for-mail-from-an-app-process]]
+=== Waiting for Mail from an App
+
+==== Problem
+
+Your app runs as a separate process and sends mail; you want the C# test to start it against an in-process Simple Mail Transfer Protocol (SMTP) server and await its mail with `WaitForEventAsync` instead of sleeping.
+
+==== Solution
+
+Host the server with `RecordExchanges` on, start the app with the server{apos}s URL, and wait for whichever comes first, the delivery or the app{apos}s exit:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>): one `smtp://` URL on port 0, so the system picks a free port, the domain `example.com`, and mailboxes for the app, Ann, and `test@example.com`. `RecordExchanges = true` makes the server keep its exchanges and events, which is what lets the test wait on them. `server.BoundUrl` is the URL with the port the system chose, and the test hands it to the app as the app{apos}s settings would.
+
+The app is `curl`, started with `Process.Start` as a process of its own, the way a test starts any app it did not build into itself. `-u` is the app{apos}s login, `--mail-from` and `--mail-rcpt` the envelope (<<rfc5321>>), `-T order.eml` the message, `--crlf` the line ends mail needs, and `-s` with `-S` keep it quiet but for an error, which the test reads from the process{apos}s standard error (<<curl-manual>>).
+
+`WaitForEventAsync` takes a `SurlEventQuery` and a bound. The query is a `StoreChanged` event in the `Mail` store whose `Name` is `ann@example.com`, which matches any of her mailboxes. It answers a `SurlEvent`, here a `StoreChangedEvent` whose `Change` is `Delivered` and whose `Name` is `ann@example.com/INBOX/;UID=1`, the message{apos}s place in the store. `server.Mail.ReadMessageAsync` reads it, a `SurlMailMessage`, and its `Subject:` is the notice{apos}s. The test makes no guess at how long the app takes: it waits for the mail, at most ten seconds, and goes on the moment it comes.
+
+The bound is for the mail that never arrives. With the app{apos}s settings naming `test@example.com` instead of Ann, the app exits `0`, since the server took the mail, and the wait throws `TimeoutException` after ten seconds; the test fails. A test should not wait out the bound for an app that has already given up, though, so it also awaits the process{apos}s exit with `Task.WhenAny`. With a wrong password the app exits `67`, `Login denied`, and the test fails on that, with the app{apos}s own error and without the timeout.
+
+The server keeps the events it records, so the order of starting things does not matter: a wait begun after the app has already exited still answers the delivery. Without `RecordExchanges` nothing is kept, and `WaitForEventAsync` throws `InvalidOperationException` saying to set it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-wait-for-an-apps-mail>> for the wait on the console.
+* <<smtp-wait-for-mail-on-a-fake-clock>> for the bound counted on a fake clock.
+* <<smtp-see-exactly-what-an-app-sent-in-csharp>> for printing the dialogue when the wait fails.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>.
