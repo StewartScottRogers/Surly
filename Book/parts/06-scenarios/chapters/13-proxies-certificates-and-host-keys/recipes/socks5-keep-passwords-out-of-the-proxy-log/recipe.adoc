@@ -1,0 +1,46 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[socks5-keep-passwords-out-of-the-proxy-log]]
+=== Keeping Passwords out of a Proxy's Log
+
+==== Problem
+
+Your test keeps `surl`{apos}s verbose log as evidence, and its clients log in to services through `surl`{apos}s SOCKS5 proxy. You want to see that those logins are masked in the proxy{apos}s log, not written in clear.
+
+==== Solution
+
+Run the proxy in its own `surl` with `-v` and `--log-file`, log in through it, and read the relayed login lines from the log:
+
+include::.generated/solution.adoc[]
+
+Then look for the login in the proxy{apos}s log:
+
+[source,shell]
+----
+grep -E "< (USER|PASS) " proxy.log
+----
+
+==== Discussion
+
+SOCKS5 relays a Transmission Control Protocol (TCP) connection: the client names a host and port, the proxy connects there, and from then on it passes bytes both ways without being told what protocol they are (<<rfc1928>>). So a login made through the proxy crosses it, and a proxy that logs what it relays would log the password. `surl`{apos}s does not.
+
+Two `surl` processes play the test network (<<surl-readme>>). The first serves the folder `site` (`--directory site`) over the Hypertext Transfer Protocol (HTTP) and the File Transfer Protocol (FTP) on `localhost`, with one account, `--user app:s3cret-pw`. A login over plain HTTP is refused unchecked by default, because the password would cross in clear; `--allow-plaintext-auth` lets this test service check it anyway. The second is the proxy alone, on `socks5h://127.0.0.1`, with `-v` for a verbose log and `--log-file proxy.log` to write it to a file, so the log holds the proxy{apos}s exchanges and nothing else. The proxy asks for no login of its own.
+
+`curl` names the proxy with `-x socks5h://127.0.0.1:<port>`, the `h` meaning the proxy resolves `localhost`; `-u app:s3cret-pw` is the login, and `-s` hides the progress meter (<<curl-manual>>). Over FTP `curl` sends it as `USER app` then `PASS s3cret-pw` (<<rfc959>>), and fetches `hello.txt`. Over HTTP, with `--basic`, it sends `Authorization: Basic` and the user name and password in base64, `YXBwOnMzY3JldC1wdw==` (<<rfc7617>>). Both fetches work.
+
+The proxy{apos}s log writes each relayed line with its exchange number and `<` for what the client sent. The FTP login appears as `USER app` and `PASS ****`: the user name as sent, the password masked. The HTTP request appears with its request line as sent, `GET /hello.txt HTTP/1.1`, and `Authorization: Basic ****`, the scheme kept and the credentials masked. Every other line is written as it crossed, so the log still shows who logged in to what. Neither the password nor its base64 form appears anywhere in the log: `grep -c` counts no line holding either and exits 1.
+
+`--trace-ascii proxy.trace`, on a second proxy, keeps a full trace of every byte instead of the log, and masks the same way: the relayed login is the line `0000: PASS ****`, and the password is nowhere in the trace.
+
+Without `--allow-plaintext-auth` a service refuses the Basic login over plain HTTP unchecked: a third `surl`, the same service started with no loosening and its own folder, answers the same request through the proxy `403 Forbidden`, which `-w "%{http_code}\n"` prints while `-o` sends the body to the null device. The proxy relays it all the same; it does not judge the login, only the log line it writes.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<socks5-reach-test-services-through-socks>> for reaching HTTP and FTP services through the proxy, and reading its record.
+* <<socks5-require-a-socks-login>> for a proxy with accounts of its own.
+* <<smtp-see-exactly-what-an-app-sent>> for a trace that masks a mail login.
+* <<surl-readme>>, <<curl-manual>>, <<rfc1928>>, <<rfc959>>, <<rfc7617>>.

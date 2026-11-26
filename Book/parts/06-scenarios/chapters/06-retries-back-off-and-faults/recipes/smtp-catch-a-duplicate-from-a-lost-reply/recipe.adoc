@@ -1,0 +1,49 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-a-duplicate-from-a-lost-reply]]
+=== Catching a Duplicate from a Lost Reply
+
+==== Problem
+
+Your mail sender retries when the server{apos}s final reply never comes. You want a test that loses that reply on a Simple Mail Transfer Protocol (SMTP) server, lets the sender retry, and shows the message stored twice.
+
+==== Solution
+
+Run `surl` with its test control endpoint, add a fault rule that cuts the next SMTP connection one byte into the reply that follows the message, send with retries, and search the recipient{apos}s mailbox for the message{apos}s `Message-ID`:
+
+include::.generated/solution.adoc[]
+
+Two copies of one order. To see where the cut fell, read the trace with a short script that needs a POSIX shell (Git Bash on Windows). For each try that reached `DATA` it prints what the server sent from its `354` on, each line after the bytes the server had sent by then:
+
+[source,sh]
+----
+include::tries.sh[]
+----
+
+==== Discussion
+
+One `surl` serves SMTP for the shop and Internet Message Access Protocol (IMAP) for looking into Ann{apos}s mailbox, over one mail store (<<surl-readme>>). `--mail-domain example.com` is the domain it takes mail for, and each `--mailbox` adds a mailbox and the account that logs in to it by its whole address. `--trace-ascii smtp.trace` writes every byte of every exchange to that file, with `surl`{apos}s log lines between them. `--control` serves the test control endpoint on a loopback port, and `--control-token-file token.txt` names the file whose first line is the bearer token every request to it must send.
+
+The rule goes in through the control endpoint rather than as `--fault` on the command line for a reason. A cut after so many bytes is a rule of the stage at which a connection is accepted, and such a rule spends one of its `times` on every connection it matches, a check that the port is open, which connects and closes, included (<<surl-readme>>). Added once the server is up, the rule waits for the sender. `curl` posts it to `/v1/faults` as `text/plain`, `-d` the rule and `-H` the token and the type, with `-o` throwing the answer{apos}s body away and `-w` printing its status: `201`. `drop;scheme=smtp;after-bytes=320;close=graceful;times=1` cuts the next SMTP connection once the server has sent 320 bytes, once; `close=graceful` ends it with a clean close instead of a reset.
+
+320 is not a guess. On this server the dialogue up to the `354` that asks for the message is the same length on every connection: the `220` greeting, the `EHLO` reply, the `334` login challenge, `235`, the `250` replies to `MAIL FROM` and `RCPT TO`, then `354`, 319 bytes in all. The script adds up the trace{apos}s `Send data` sizes and shows it: both tries stand at 319 at the end of the `354`. Byte 320 is the first byte of the reply after the message, `2`. The count belongs to this dialogue; for another server or another login, count it from the trace of a clean exchange before you set the rule.
+
+The sender is `curl` as a sender runs it: `-u` the shop{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T order.eml` the message, `--crlf` the line ends, `-m 10` a limit on each try, and `-w "%{response_code} %{num_retries}"` the last reply and the number of retries (<<curl-manual>>). `--retry 1` allows one more try, `--retry-all-errors` makes any error a reason for it, a connection closed mid-reply included, and `--retry-delay 1` waits a second first; `-s` keeps the progress meter out and `-S` keeps an error in. The first try ends without a reply; `curl` tries again, and the second ends `250`. The sender reports success.
+
+The server{apos}s side is in the trace. In the first try it stored the message, sent the `2` of its reply, and cut the connection after 320 bytes. In the second it stored the message again and sent `250 2.0.0 Message accepted` and `221 2.0.0 Bye`. The `250` after the message is the server{apos}s word that it has taken responsibility for the message (<<rfc5321>>); losing that word does not undo the taking, and a sender that cannot tell a lost reply from a lost message sends again.
+
+The test is the search. Each order carries its own `Message-ID` header (<<rfc5322>>), and `UID SEARCH HEADER Message-ID <order-1042@shop.example.com>`, sent with `-X` to Ann{apos}s `INBOX` (<<rfc9051>>), answers the unique identifier (UID) of every message that carries it: `1 2`. Exactly one UID is a pass; two is the duplicate. The search runs right after the send, since the server stores the message before it replies.
+
+Two more runs, each on a fresh server with its own rule, bound the claim. A sender without `--retry` meets the same cut and ends with `curl` exit `56` and no reply code, `000`: it reports a failure for a message that was stored once. With the cut one byte sooner, after the 319th byte, the end of the `354`, the first try never sends the message, the retry delivers it, and the search finds one copy. Only a reply lost after the message makes the duplicate.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-a-duplicate-from-a-lost-reply-in-csharp>> for the same test in C#.
+* <<smtp-catch-a-duplicate-from-a-lost-reply-from-an-agent>> for the same test run by an agent.
+* <<smtp-chaos-test-a-mail-sender>> for delays, drops and temporary errors together.
+* <<smtp-see-exactly-what-an-app-sent>> for reading the trace of a whole dialogue.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc5322>>, <<rfc9051>>.

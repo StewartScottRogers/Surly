@@ -1,0 +1,59 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-fixed-bearer-token]]
+=== Rotating a Fixed Bearer Token
+
+==== Problem
+
+Your API{apos}s test server accepts one fixed Bearer token. You want to add it, replace it and remove it while the server runs, and see the old token refused.
+
+==== Solution
+
+Start `surl` with a control endpoint, then post the token as the account with the empty user name:
+
+include::.generated/solution.adoc[]
+
+`token.txt` holds the control endpoint{apos}s own token on its first line, and `bearer.json` is the account: `{"user":"","password":"token-one"}`. To replace the token, put the new one to `/v1/bearer-token`; `rotate.json` is `{"password":"token-two"}`:
+
+[source,shell]
+----
+curl -X PUT --json @rotate.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:8081/v1/bearer-token
+----
+
+To remove it:
+
+[source,shell]
+----
+curl -X DELETE -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:8081/v1/bearer-token
+----
+
+Stop `surl` with kbd:[Ctrl+C].
+
+==== Discussion
+
+A fixed Bearer token is a password with no user name: the client sends `Authorization: Bearer <token>` and the server compares the token (<<rfc6750>>). `surl` keeps it as an account like any other, the one whose user name is empty, which `--user :token-one` would give at start (<<surl-readme>>). There is at most one. Here the server starts with none, so it can be added, replaced and removed while it runs.
+
+The server listens for Hypertext Transfer Protocol Secure (HTTPS): `--cert server.pem` and `--key server.key` give it a certificate and its key, made in the first line with `openssl` and never committed, and `curl` trusts that certificate through `--cacert server.pem` (<<rfc8446>>), so the token crosses only inside Transport Layer Security (TLS). `--directory site` serves `hello.txt`, and `-v` with `--log-file surl.log` keeps a verbose log.
+
+`--control http://127.0.0.1:8081` opens a control endpoint on loopback, and `--control-token-file token.txt` names the file whose first line is the token every request to it must carry, a different token from the API{apos}s. It takes plain Hypertext Transfer Protocol (HTTP) and JavaScript Object Notation (JSON). `POST /v1/accounts` with `user` empty and `password` the token adds the token account and is answered `204 No Content`. `--json @bearer.json` sends the file as the body with the JSON content type, which keeps the token off the command line; `-H` adds the control endpoint{apos}s `Authorization` header (<<curl-manual>>). In the same `curl` run, after `--next`, the API is called twice: with no token, `401 Unauthorized`, and with `--oauth2-bearer token-one`, which sends the token as a Bearer header, `200`. `-w "%{scheme} %{response_code}\n"` prints each transfer{apos}s scheme and status, `-o` to the null device drops the bodies, and `-s` hides the progress meter.
+
+Before the add the same `GET` with no token was answered `200`: a server with no account at all needs no login. Adding the token closes it.
+
+A second `POST` with the empty user name is refused `409 Conflict` and changes nothing; `token-one` still fetches `hello.txt`. The token is changed in place instead: `PUT /v1/bearer-token`, the method set with `-X PUT`, with a body holding only `password` is answered `204`, and from the next request on `token-one` is refused `401` and `token-two` is answered `200`. There is no overlap. Every client holding the old token fails from that moment, so move them before the `PUT`, or straight after it if the test can stand the refusals.
+
+The log shows the change without showing a token. Every token login is judged under the account name `bearer token`: `Login accepted: Bearer bearer token` for `token-one` twice, `Login refused: Bearer bearer token` for it after the rotation, then accepted again for `token-two`. Neither token appears anywhere in the log; `grep -c` counts no line holding either and exits 1.
+
+`DELETE /v1/bearer-token` removes the token account and is answered `204`. `token-two` is refused `401` from then on. But the token was the server{apos}s only account, so with it gone the server needs no login again and a `GET` with no token is answered `200`; the log says so: `surl: warning: no account left; the server now needs no login`. A test that removes the token to check that its client is refused should check with the old token, not without one. With no token set, `PUT` and `DELETE` of `/v1/bearer-token` are both answered `404`, `no Bearer-token account is set`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-rotate-a-fixed-bearer-token-in-csharp>> for the same task in C#.
+* <<http-rotate-a-fixed-bearer-token-from-an-agent>> for the same task run by an agent.
+* <<http-accept-a-bearer-token>> for a token given at start, and why `surl` checks it only over HTTPS.
+* <<http-rotate-a-password-without-downtime>> for rotating a password with two accounts, so no client is refused.
+* <<http-expire-a-token-mid-session>> for tokens the server issues itself.
+* <<surl-readme>>, <<curl-manual>>, <<rfc6750>>, <<rfc8446>>.

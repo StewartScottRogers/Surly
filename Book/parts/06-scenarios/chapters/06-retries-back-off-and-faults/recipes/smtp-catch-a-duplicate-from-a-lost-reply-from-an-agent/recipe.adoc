@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-a-duplicate-from-a-lost-reply-from-an-agent]]
+=== Catching a Duplicate from a Lost Reply from an Agent
+
+==== Problem
+
+You want an agent to lose a Simple Mail Transfer Protocol (SMTP) server{apos}s final reply, let the sender retry, and count how many copies of the message were stored.
+
+==== Solution
+
+The program starts both hosts and a mail server, adds a fault rule with `add_fault` that cuts the next SMTP connection one byte into the reply after the message, lets the `curl` tool send with a retry, and counts the copies by `Message-ID` and the deliveries behind them:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`start_server` takes two listen URLs on port 0, SMTP for the shop to send and Internet Message Access Protocol (IMAP) to search Ann{apos}s mailbox, over one mail store, and in `arguments` `surl`{apos}s own options (<<surl-readme>>): `--mail-domain example.com` and a `--mailbox` each for the shop and for Ann. It answers a `server_id` and the `bound_urls`, in the order given.
+
+`add_fault` adds one rule in the form of `surl`{apos}s `--fault` option to the running server and answers its `fault_id`, `f1`. `drop;scheme=smtp;after-bytes=320;times=1` cuts the next SMTP connection once the server has sent 320 bytes, once, and `close` set to `graceful` ends it with a clean close instead of a reset. 320 is one byte past the `354` that asks for the message. `get_exchanges` with `scheme` `smtp` shows why: it answers each exchange{apos}s `chunks`, each with a `direction` and its `data`, and the `sent` chunks of both exchanges add up to 319 bytes by the end of the `354`. After it, exchange 1 was sent `2` and nothing more; exchange 2 was sent `250 2.0.0 Message accepted` and `221 2.0.0 Bye`. The count belongs to this dialogue; <<smtp-chaos-test-a-mail-sender>> shows an agent measuring it from a clean exchange at run time.
+
+The sender is the `curl` tool, which runs `curl`{apos}s own arguments and answers `exitCode`, `standardOutput` and `standardError` as JSON. `-u` is the shop{apos}s login, `--mail-from` and `--mail-rcpt` the envelope, `-T order.eml` the message, `--crlf` the line ends, `-m 10` a limit on each try, and `-w "%{response_code} %{num_retries}"` the last reply and the number of retries (<<curl-manual>>). `--retry 1` allows one more try, `--retry-all-errors` makes any error a reason for it, a connection closed mid-reply included, and `--retry-delay 1` waits a second first; `-s` keeps the progress meter out and `-S` keeps an error in. The sender ends with exit `0`, reply `250` and one retry, and has nothing to report.
+
+The agent does not take the sender{apos}s word. It counts through the `curl` tool again: `UID SEARCH HEADER Message-ID <order-1042@shop.example.com>`, sent with `-X` to Ann{apos}s `INBOX` (<<rfc9051>>), answers the unique identifier (UID) of each message whose `Message-ID` header (<<rfc5322>>) is the order{apos}s: `1 2`. `get_events` with `kinds` `store_changed` and `store` `mail` gives the deliveries, each `change` `delivered` with the `exchange_id` it came through: two deliveries, from two exchanges, one per try. The `250` after the message is the server{apos}s word that it has taken responsibility for the message (<<rfc5321>>); the cut lost the word, not the message, and the retry delivered it again. The agent reports `FAIL` and exits `1`.
+
+Two more runs bound the claim. Without the retry, `curl` ends with exit `56` and no reply, `000`, a failure reported for an order that was stored once, from one delivery. With `after-bytes=319`, the end of the `354`, the first try is cut before the server has the message; the retry is answered `250`, and the search and the events each find one. Only a reply lost after the message makes the duplicate.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-a-duplicate-from-a-lost-reply>> for the same test on the console.
+* <<smtp-catch-a-duplicate-from-a-lost-reply-in-csharp>> for the same test in C#.
+* <<smtp-chaos-test-a-mail-sender>> for delays, drops and temporary errors together.
+* <<smtp-see-exactly-what-an-app-sent-from-an-agent>> for reading a whole dialogue from `get_exchanges`.
+* <<surl-readme>>, <<curl-manual>>, <<rfc5321>>, <<rfc5322>>, <<rfc9051>>.

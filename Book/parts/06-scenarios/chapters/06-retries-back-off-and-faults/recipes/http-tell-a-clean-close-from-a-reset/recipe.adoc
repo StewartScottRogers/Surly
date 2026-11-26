@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-a-clean-close-from-a-reset]]
+=== Telling a Clean Close from a Reset
+
+==== Problem
+
+A download sometimes ends early; you want a server that ends it both ways, a clean close and a reset, and to see how `curl` reports each.
+
+==== Solution
+
+Run one `surl` with two listeners, each with a `drop` rule that cuts a connection at the same byte, one closing it cleanly and one resetting it, and fetch the same file from each. The clean close:
+
+include::.generated/solution.adoc[]
+
+The same `curl` against the second port is the reset; the cases below show both.
+
+==== Discussion
+
+`surl` serves `site` with `--directory`, where `big.bin` is 2,000,000 random bytes made fresh for each run, on two Hypertext Transfer Protocol (HTTP) listen URLs. Each `--fault` is one rule, and `listener=` ties it to one of them. `drop;after-bytes=1000000` cuts a connection once `surl` has sent 1,000,000 bytes on it, the response head included; the `close` key says how. `close=graceful` sends what it has and ends the connection the normal way, with a FIN, as a server that had finished would (over TLS, Transport Layer Security, it sends the `close_notify` first). Without it the rule takes the default, `close=reset`, which aborts the connection. `-v` with `--log-file surl.log` writes the verbose log to a file. A rule that cuts every connection is no way to run a server outside a test, which is why faults are off unless asked for and why `surl` warns on start (<<surl-readme>>).
+
+`curl` fetches the file with `-o` into `dl`, `-s` without a progress meter, `-S` keeping the error line, and `--max-time 30` bounding a transfer that would otherwise wait. `-w` prints the status, the size of the response head and the body bytes received (<<curl-manual>>).
+
+The clean close reaches `curl` as an ordinary end of stream that comes too soon. The answer was `200` with a `Content-Length` of 2,000,000 (<<rfc9110>>); `curl` received the 213-byte head and 999,787 body bytes, the 1,000,000 bytes `surl` sent, and exits `18`, a partial file, with `end of response with 1000213 bytes missing`. Nothing was lost on the way: the file in `dl` is exactly the first 999,787 bytes of `big.bin`, so the count is exact and the same every run, and a resume can start at that byte.
+
+The reset at the same byte reaches `curl` as a failure of the connection itself: exit `56`, one line, `Recv failure:` and the operating system{apos}s words for it, and no count of bytes missing. A reset throws away whatever had reached the client{apos}s socket and was not yet read, so `curl` has received no more than `surl` sent and often fewer. How many fewer depends on timing and on the platform; the case claims only that bound, never a count. On macOS the kernel sometimes never delivers a reset in mid-transfer at all, and `curl` waits out `--max-time`, so the reset cases run on Windows and Linux.
+
+`curl` cannot see the server{apos}s side; `surl`{apos}s log can. At the verbose level each cut has its own line: `cut after 1000000 bytes sent by fault rule f1, closing gracefully.` for the clean close and `dropped after 1000000 bytes sent by fault rule f2.` for the reset. In a test, exit `18` with an exact count means the server ended the stream early; exit `56` means the connection was lost, and the bytes kept tell you only a lower bound on where.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-a-clean-close-from-a-reset-in-csharp>> for the same task in C#.
+* <<http-tell-a-clean-close-from-a-reset-from-an-agent>> for the same task run by an agent.
+* <<http-cut-a-download-off-halfway>> for resuming a download that was cut off with `curl -C -`.
+* <<s3-resume-a-ranged-download>> for a downloader that resumes a ranged get from where a clean close left it.
+* <<surl-readme>>, <<curl-manual>>, <<rfc9110>>.

@@ -1,0 +1,94 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-tell-a-clean-close-from-a-reset-in-csharp
+title: Telling a Clean Close from a Reset in C#
+protocols: [http]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, FaultClose, LogLevel, SurlEventQuery, SurlEventKind, FaultAppliedEvent, SurlExchangeRecord, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlException]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc9110]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api.
+
+cases:
+  - id: solution
+    role: solution
+    claim: Cut with a clean close after 1,000,000 bytes, the download of the 2,000,000-byte file is answered 200 and reading the body throws CurlException 18, PartialFile, "end of response with 1000213 bytes missing", after 999,787 body bytes.
+    program: program.cs
+    args: [graceful]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '^graceful: 200, 999787 bytes, then CurlException 18 PartialFile: end of response with 1000213 bytes missing\n'
+
+  - id: clean-keeps-every-byte-sent
+    claim: After a clean close the client holds every body byte the server sent, the exchange's sent bytes less the response head, and they are the start of the file.
+    program: program.cs
+    args: [graceful]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nsent 1000000 bytes: a \d+-byte head and (\d+) body bytes\nreceived: \1 of the \1 body bytes sent, the start of the file: True\n'
+
+  - id: reset
+    platforms: [windows, linux]  # macOS: the kernel sometimes never delivers a mid-transfer reset, so the read waits out the timeout (platforms.md, Curl BL-5799).
+    claim: Cut with a reset at the same point, the read throws CurlException 56, RecvError, a Recv failure with no count of bytes missing.
+    program: program.cs
+    args: [reset]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '^reset: (200|0), \d+ bytes, then CurlException 56 RecvError: Recv failure: [^\n]+\n'
+
+  - id: reset-keeps-at-most-what-was-sent
+    platforms: [windows, linux]  # macOS: see reset.
+    claim: After a reset the client holds no more than the body bytes sent, and what it holds is the start of the file; how many fewer varies with timing and platform.
+    program: program.cs
+    args: [reset]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nsent 1000000 bytes: a \d+-byte head and (\d+) body bytes\nreceived: \d+ of the \1 body bytes sent, the start of the file: True\n'
+
+  - id: event-is-the-same
+    platforms: [windows, linux]  # macOS: see reset.
+    claim: The FaultAppliedEvent is the same for both endings, rule f1, kind Drop; it does not say how the connection was closed.
+    program: program.cs
+    args: [reset]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nevent: rule f1, Drop\nlog: '
+
+  - id: event-is-the-same-graceful
+    claim: For the clean close the FaultAppliedEvent is also rule f1, kind Drop.
+    program: program.cs
+    args: [graceful]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nevent: rule f1, Drop\nlog: '
+
+  - id: log-names-the-clean-close
+    claim: The verbose log names the clean close, "cut after 1000000 bytes sent by fault rule f1, closing gracefully."
+    program: program.cs
+    args: [graceful]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nlog: cut after 1000000 bytes sent by fault rule f1, closing gracefully\.\n$'
+
+  - id: log-names-the-reset
+    platforms: [windows, linux]  # macOS: see reset.
+    claim: The verbose log names the reset, "dropped after 1000000 bytes sent by fault rule f1."
+    program: program.cs
+    args: [reset]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nlog: dropped after 1000000 bytes sent by fault rule f1\.\n$'

@@ -1,0 +1,93 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# The recipe's executable specification. Edit this, never the generated files.
+schema: 2
+key: http-rotate-a-fixed-bearer-token
+title: Rotating a Fixed Bearer Token
+protocols: [https]
+tier: secure-servers
+surl-options: [-v, --log-file, --directory, --cert, --key, --control, --control-token-file]
+curl-options: [-s, -o, -w, --json, -H, -X, --next, --cacert, --oauth2-bearer]
+exit-codes: [0, 1]
+references: [surl-readme, curl-manual, rfc6750, rfc8446]
+
+fixtures:
+  site/hello.txt: "hello from surl\n"
+  token.txt: "control-token-0123456789abcdefghij\n"
+  bearer.json: "{\"user\":\"\",\"password\":\"token-one\"}"
+  rotate.json: "{\"password\":\"token-two\"}"
+
+# A certificate for 127.0.0.1, good for 30 days, signed by its own key; never committed.
+setup:
+  - openssl req -x509 -newkey rsa:2048 -nodes -keyout server.key -out server.pem -days 30 -subj "/CN=127.0.0.1" -addext "subjectAltName=IP:127.0.0.1"
+
+# The API's test server: HTTPS, no account at start, a verbose log, and a control endpoint on
+# loopback through which the test adds, replaces and removes the fixed Bearer token.
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site --cert server.pem --key server.key --control http://127.0.0.1:{{port2}} --control-token-file token.txt https://127.0.0.1:{{port}}/
+    ready: port
+
+cases:
+  - id: no-account-no-login
+    claim: Started with no account, the server answers a GET with no login 200.
+    run: curl -s -o {{null}} -w "%{response_code}\n" --cacert server.pem https://127.0.0.1:{{port}}/hello.txt
+    expect:
+      exit: 0
+      stdout: "200\n"
+
+  - id: solution
+    role: solution
+    claim: Posting the account with the empty user name and the password token-one to /v1/accounts is answered 204; from the next request on a GET with no token is 401 and one with --oauth2-bearer token-one is 200.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" --json @bearer.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port2}}/v1/accounts --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem https://127.0.0.1:{{port}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem --oauth2-bearer token-one https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "http 204\nhttps 401\nhttps 200\n"
+
+  - id: second-add-refused
+    claim: Posting the empty user name again is refused 409 Conflict and changes nothing; token-one still fetches hello.txt.
+    run: 'curl -s -w " %{response_code}\n" --json @bearer.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port2}}/v1/accounts --next -s --cacert server.pem --oauth2-bearer token-one https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout-matches: '^\{"error":"conflict","message":"[^"]*already has an account"\} 409\nhello from surl\n$'
+
+  - id: rotated
+    claim: A PUT of {"password":"token-two"} to /v1/bearer-token is answered 204 and takes effect at once; token-one is refused 401 and token-two fetches 200.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" -X PUT --json @rotate.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port2}}/v1/bearer-token --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem --oauth2-bearer token-one https://127.0.0.1:{{port}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem --oauth2-bearer token-two https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "http 204\nhttps 401\nhttps 200\n"
+
+  - id: log-names-no-token
+    claim: The verbose log judges each token login under the name bearer token; token-one accepted twice, then refused after the rotation, then token-two accepted.
+    run: grep -E "Login (accepted|refused)" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^#\d+ \* Login accepted: Bearer bearer token\n#\d+ \* Login accepted: Bearer bearer token\n#\d+ \* Login refused: Bearer bearer token\n#\d+ \* Login accepted: Bearer bearer token\n$'
+
+  - id: tokens-not-in-log
+    claim: Neither token-one nor token-two appears anywhere in the log; grep counts 0 lines and exits 1.
+    run: grep -c -e token-one -e token-two surl.log
+    expect:
+      exit: 1
+      stdout: "0\n"
+
+  - id: removed
+    claim: DELETE /v1/bearer-token is answered 204; token-two is then refused 401, and, the server having no account left, a GET with no token is 200.
+    run: 'curl -s -o {{null}} -w "%{scheme} %{response_code}\n" -X DELETE -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port2}}/v1/bearer-token --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem --oauth2-bearer token-two https://127.0.0.1:{{port}}/hello.txt --next -s -o {{null}} -w "%{scheme} %{response_code}\n" --cacert server.pem https://127.0.0.1:{{port}}/hello.txt'
+    expect:
+      exit: 0
+      stdout: "http 204\nhttps 401\nhttps 200\n"
+
+  - id: removal-warns
+    claim: The log warns that no account is left and the server now needs no login.
+    run: grep "no account left" surl.log
+    expect:
+      exit: 0
+      stdout: "surl: warning: no account left; the server now needs no login\n"
+
+  - id: none-to-rotate
+    claim: With no token set, a PUT or a DELETE of /v1/bearer-token is answered 404, no Bearer-token account is set.
+    run: 'curl -s -w " %{response_code}\n" -X PUT --json @rotate.json -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port2}}/v1/bearer-token --next -s -w " %{response_code}\n" -X DELETE -H "Authorization: Bearer control-token-0123456789abcdefghij" http://127.0.0.1:{{port2}}/v1/bearer-token'
+    expect:
+      exit: 0
+      stdout: "{\"error\":\"not_found\",\"message\":\"no Bearer-token account is set\"} 404\n{\"error\":\"not_found\",\"message\":\"no Bearer-token account is set\"} 404\n"

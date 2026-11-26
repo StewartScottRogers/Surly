@@ -137,10 +137,40 @@ def write_fixtures(root, fixtures):
         p.write_text(content, encoding="utf-8", newline="")   # exactly as written: no CRLF on Windows
 
 
+def plain_sh():
+    """The sh that leaves PATH alone. Git for Windows' bin/sh.exe is a wrapper that puts its own
+    mingw64/bin (and that curl) first on PATH, so a recipe's script would run upstream curl, not the
+    pinned one; its usr/bin/sh.exe is the plain MSYS shell. Elsewhere, sh as found."""
+    found = shutil.which("sh")
+    if WINDOWS and found:
+        here = Path(found).resolve().parent
+        raw = here.parent / "usr" / "bin" / "sh.exe"
+        if here.name.lower() == "bin" and raw.exists():
+            return str(raw)
+    return found
+
+
+def put_pinned_first(bins):
+    """Every case, server, setup line and script finds the pinned surl and curl by name first, and
+    on Windows the MSYS tools (cat, grep, sed) that a recipe's script uses."""
+    first = [str(Path(bins[name]).parent) for name in ("surl", "curl") if name in bins]
+    sh = plain_sh()
+    if WINDOWS and sh:
+        first.append(str(Path(sh).parent))
+    if first:
+        os.environ["PATH"] = os.pathsep.join(first + [os.environ.get("PATH", "")])
+    if sh:
+        BINS.setdefault("sh", sh)
+
+
 def resolve(cmd, bins):
-    """Replace a leading surl/curl with the pinned binary."""
+    """Replace a leading surl/curl with the pinned binary, and a leading sh with plain_sh()."""
     exe, _, rest = cmd.partition(" ")
-    return f'"{bins[exe]}" {rest}' if exe in bins else cmd
+    if exe in bins:
+        return f'"{bins[exe]}" {rest}'
+    if exe == "sh" and WINDOWS and "sh" in BINS:
+        return f'"{BINS["sh"]}" {rest}'
+    return cmd
 
 
 def build_program(path, root, bins):
@@ -397,6 +427,7 @@ def main():
         selected = selected[i - 1::n]
     bins = {t: binary(t) for t in sorted(set().union(*(tools(spec) for _, spec in selected)))}
     BINS.update(bins)
+    put_pinned_first(bins)
     tool_versions = {k: version(v) for k, v in bins.items() if k not in MCP_HOSTS.values()}
     today = datetime.date.today().isoformat()
     any_failed, counts = False, {False: 0, True: 0}

@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is surl-mcp or curl-mcp, the two programs as an
+# AI agent drives them (ADR-0008). Each case runs a C# program on the official MCP SDK that starts
+# both hosts from PATH and calls their tools. key MUST equal the folder name and never changes.
+schema: 2
+key: http-tell-a-clean-close-from-a-reset-from-an-agent
+title: Telling a Clean Close from a Reset from an Agent
+protocols: [http]
+tier: scenarios
+surface: mcp
+mcp-tools: [start_server, add_fault, curl, get_events, list_faults]
+curl-options: [-s, -S, --max-time, -o, -w]
+exit-codes: [0]
+references: [surl-readme, curl-readme, mcp-spec, rfc9110]
+
+fixtures: {}
+
+cases:
+  - id: solution
+    role: solution
+    claim: Cut with a clean close after 1,000,000 bytes, the curl tool's download of the 2,000,000-byte file ends with exitCode 18, failure text "curl exit code 18 (PartialFile)", -w 200 with a 213-byte head and 999,787 body bytes, and "end of response with 1000213 bytes missing" on standard error.
+    program: program.cs
+    args: [graceful]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '^graceful: exitCode 18, -w 200 213 999787\nfailure: curl exit code 18 \(PartialFile\)\nstderr: curl: \(18\) end of response with 1000213 bytes missing\n'
+
+  - id: clean-keeps-every-byte-sent
+    claim: After the clean close the file the curl tool wrote holds all 999,787 body bytes surl sent, the start of the file served.
+    program: program.cs
+    args: [graceful]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nkept: 999787 bytes, the start of the file: True\n'
+
+  - id: clean-rule-named
+    claim: get_events shows one fault_applied event, rule f1, drop, and the exchange ended with 1,000,000 bytes sent; list_faults shows that f1's item carries close=graceful.
+    program: program.cs
+    args: [graceful]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nfault_applied: rule f1, drop\nexchange_ended: sent 1000000 bytes\nrule f1 closes: graceful\n$'
+
+  - id: reset
+    platforms: [windows, linux]  # macOS: the kernel sometimes never delivers a mid-transfer reset, so curl waits out --max-time (platforms.md, Curl BL-5799).
+    claim: Cut with a reset at the same point, the curl tool ends with exitCode 56, failure text "curl exit code 56 (RecvError)", a Recv failure on standard error and no count of bytes missing.
+    program: program.cs
+    args: [reset]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '^reset: exitCode 56, -w (200 213 \d+|000 0 0)\nfailure: curl exit code 56 \(RecvError\)\nstderr: curl: \(56\) Recv failure: [^\n]+\nkept: '
+
+  - id: reset-keeps-at-most-what-was-sent
+    platforms: [windows, linux]  # macOS: see reset.
+    claim: After the reset the file holds the start of the file served, no more than the 999,787 body bytes sent and often fewer; how many varies with timing and platform.
+    program: program.cs
+    args: [reset]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nkept: (\d{1,5}|[1-8]\d{5}|9[0-8]\d{4}|99[0-8]\d{3}|999[0-6]\d{2}|9997[0-7]\d|99978[0-7]) bytes, the start of the file: True\n'
+
+  - id: reset-rule-named
+    platforms: [windows, linux]  # macOS: see reset.
+    claim: For the reset, get_events shows a fault_applied event of the same kind, drop, and the same 1,000,000 bytes sent, but for rule f2, whose item in list_faults has no close key, so it resets, the default.
+    program: program.cs
+    args: [reset]
+    timeout: 120
+    expect:
+      exit: 0
+      stdout-matches: '\nfault_applied: rule f2, drop\nexchange_ended: sent 1000000 bytes\nrule f2 closes: reset\n$'

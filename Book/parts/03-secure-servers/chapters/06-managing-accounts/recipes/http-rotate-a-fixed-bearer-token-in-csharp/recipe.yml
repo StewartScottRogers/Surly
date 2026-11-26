@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-rotate-a-fixed-bearer-token-in-csharp
+title: Rotating a Fixed Bearer Token in C#
+protocols: [https]
+tier: secure-servers
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlServerAccounts, SurlEventQuery, SurlEventKind, LoginJudgedEvent, LogLevel, CurlClient, CurlRequest, CurlResponse, CurlTlsOptions, CurlTlsPeerOptions, CurlAuthenticationOptions, HttpAuthenticationMethods]
+exit-codes: [0]
+references: [surl-readme, curl-readme, rfc6750, rfc8446]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api; its argument picks the scenario.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With no account a GET with no token is 200; Accounts.Add("", "token-one") makes it 401 and token-one 200; SetPassword("", "token-two") makes token-one 401 and token-two 200; Remove("") returns true, after which token-two is 401 and a GET with no token is 200 again.
+    program: rotate-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '^no token, no account: 200\nno token: 401\ntoken-one: 200\ntoken-one: 401\ntoken-two: 200\n(judged: [^\n]+\n)+Remove: True\nHasAccounts: False\ntoken-two: 401\nno token: 200\n'
+
+  - id: judged-as-bearer-token
+    claim: FindEvents for LoginJudged gives three Bearer logins under the account name bearer token, never the token; accepted, refused after the rotation, accepted.
+    program: rotate-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\ntoken-two: 200\njudged: Bearer bearer token accepted\njudged: Bearer bearer token refused\njudged: Bearer bearer token accepted\nRemove: '
+
+  - id: removal-warns
+    claim: Removing the token, the server's only account, leaves HasAccounts false and writes the warning that the server now needs no login to the Log; neither token is in the log.
+    program: rotate-token.cs
+    args: []
+    expect:
+      exit: 0
+      stdout-matches: '\nHasAccounts: False\n[\s\S]*surl: warning: no account left; the server now needs no login\ntokens in the log: False\n$'
+
+  - id: refusals
+    claim: A second Accounts.Add with the empty user name throws ArgumentException and token-one still works (200); with no token set, Remove("") returns false and SetPassword("") throws ArgumentException.
+    program: rotate-token.cs
+    args: [refusals]
+    expect:
+      exit: 0
+      stdout: "Add again: ArgumentException\ntoken-one: 200\nRemove, none set: False\nSetPassword, none set: ArgumentException\n"

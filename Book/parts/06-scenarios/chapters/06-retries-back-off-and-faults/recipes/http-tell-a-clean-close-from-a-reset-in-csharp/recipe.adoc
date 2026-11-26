@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-a-clean-close-from-a-reset-in-csharp]]
+=== Telling a Clean Close from a Reset in C#
+
+==== Problem
+
+In a C# test you want to end a response early, once with a clean close and once with a reset, and see which exception and how many bytes each gives.
+
+==== Solution
+
+Start a `SurlServer` whose one rule cuts the connection after 1,000,000 bytes with `Close = FaultClose.Graceful` or `FaultClose.Reset`, download with `CurlClient`, and compare the exception, the bytes kept, and what the server recorded:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServer.StartAsync` hosts the server in the test{apos}s own process, configured by `SurlServerOptions`: a Hypertext Transfer Protocol (HTTP) listen URL on port 0, which takes a free one, a file `big.bin` of 2,000,000 random bytes in `Files`, `RecordExchanges` on, and the log in a `StringWriter` at `LogLevel.Verbose` (<<surl-readme>>). `Faults` holds one rule, `SurlFault.DropConnection()` with `AfterBytes = 1_000_000`: once the server has sent 1,000,000 bytes on a connection, the response head included, it cuts it. `Close` chooses how. `FaultClose.Graceful` sends what it has and ends the connection the normal way, with a FIN (and over TLS, Transport Layer Security, a `close_notify` before it); `FaultClose.Reset`, the default, aborts it. A rule like this has no place in a server outside a test, which is why a server has no faults until it is given some.
+
+`CurlClient.Create` with `CurlClientOptions.Timeout` of 30 seconds makes the client; the timeout covers the body as well as the head, so a cut that never reaches the client still ends as an exception. `SendAsync` with a `CurlRequest` for `big.bin` returns a `CurlResponse` once the head has arrived, status `200`, with a `Content-Length` of 2,000,000 (<<rfc9110>>); the program copies its `Body` into memory until the read ends or throws (<<curl-readme>>).
+
+With the clean close the read throws `CurlException` with `Code` 18, `PartialFile`, and the message `end of response with 1000213 bytes missing`, after 999,787 body bytes. The program finds the server{apos}s side in `server.Exchanges`, one `SurlExchangeRecord` whose `Sent` holds the bytes the server sent: 1,000,000, a response head and the body after it. Every body byte sent arrived, and they are the start of the file, so a test can assert an exact count and a resume can start at that byte.
+
+With the reset the read throws `CurlException` with `Code` 56, `RecvError`, a `Recv failure:` message in the operating system{apos}s words, and no count of bytes missing. What arrived is still the start of the file, but no more than the body bytes sent, and often fewer: a reset throws away what had reached the client{apos}s socket and was not yet read, and how much that is depends on timing and on the platform. A test should assert only that bound. On macOS the kernel sometimes never delivers a reset in mid-transfer, and the read waits out the timeout, so the reset cases run on Windows and Linux.
+
+The server{apos}s events do not tell the two apart. `FindEvents` with a `SurlEventQuery` for `SurlEventKind.FaultApplied` returns one `FaultAppliedEvent` for each ending, rule `f1`, `Kind` `Drop`, and nothing about the close. The verbose log does: `cut after 1000000 bytes sent by fault rule f1, closing gracefully.` for the clean close and `dropped after 1000000 bytes sent by fault rule f1.` for the reset. A test that must know which ending it gave looks for that line, or keeps the `Close` it set.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-a-clean-close-from-a-reset>> for the same task on the console.
+* <<http-tell-a-clean-close-from-a-reset-from-an-agent>> for the same task run by an agent.
+* <<http-cut-a-download-off-halfway-in-csharp>> for resuming a download that was cut off with a `Range` request.
+* <<s3-resume-a-ranged-download-in-csharp>> for a downloader that resumes a ranged get from where a clean close left it.
+* <<surl-readme>>, <<curl-readme>>, <<rfc9110>>.
