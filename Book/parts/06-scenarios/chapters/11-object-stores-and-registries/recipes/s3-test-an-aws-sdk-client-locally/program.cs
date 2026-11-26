@@ -4,7 +4,7 @@
 // Run: dotnet run program.cs [-- <case>]
 //   (none)     the app puts a report; the test reads it from the store and lists the bucket (the default)
 //   get        the app reads the report back through the SDK, and a key that is not there
-//   checksum   the SDK's default request checksums left on
+//   checksum   how the SDK sent the put, from the server's record of the exchange
 //   secret     the client configured with a wrong secret
 #:package Surly.Surl.Api@*
 #:package AWSSDK.S3@4.1.2
@@ -36,7 +36,6 @@ var config = new AmazonS3Config
     ServiceURL = $"http://127.0.0.1:{server.BoundUrl.Port}",
     ForcePathStyle = true,
     AuthenticationRegion = "us-east-1",
-    RequestChecksumCalculation = which == "checksum" ? RequestChecksumCalculation.WHEN_SUPPORTED : RequestChecksumCalculation.WHEN_REQUIRED,
 };
 var credentials = new BasicAWSCredentials("AKIAIOSFODNN7EXAMPLE", which == "secret" ? "wrong" : "s3cret");
 using var s3 = new AmazonS3Client(credentials, config);
@@ -49,6 +48,15 @@ try
         BucketName = "reports", Key = "2026-q3.csv", ContentBody = "region,total\nnorth,1200\n",
     });
     Console.WriteLine($"put: {(int)put.HttpStatusCode}, ETag {put.ETag}");
+
+    if (which == "checksum")
+    {
+        // How the put was sent, from the server's record of the exchange: the request head's two checksum headers.
+        string head = Encoding.ASCII.GetString(server.Exchanges[0].Received).Split("\r\n\r\n")[0];
+        foreach (string line in head.Split("\r\n").Where(l => l.StartsWith("X-Amz-Content-SHA256") || l.StartsWith("X-Amz-Trailer")).Order())
+            Console.WriteLine($"sent {line}");
+        return 0;
+    }
 
     if (which == "get")
     {
@@ -69,13 +77,6 @@ catch (AmazonS3Exception refused)
     Console.WriteLine($"AmazonS3Exception {(int)refused.StatusCode} {refused.ErrorCode}: {refused.Message}");
     SurlFolderPage page = await server.Files.ListAsync("/reports");
     Console.WriteLine($"store: {string.Join(", ", page.Entries.Select(e => e.Name))}");
-    if (which == "checksum")
-    {
-        // How the refused put was sent, from the server's record of the exchange.
-        string head = Encoding.ASCII.GetString(server.Exchanges[0].Received).Split("\r\n\r\n")[0];
-        foreach (string line in head.Split("\r\n").Where(l => l.StartsWith("X-Amz-Content-SHA256") || l.StartsWith("X-Amz-Trailer")))
-            Console.WriteLine($"sent {line}");
-    }
 }
 
 return 0;

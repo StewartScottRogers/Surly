@@ -60,7 +60,7 @@ if (which == "own-resolver")
 {
     (int ownExit, string ownText) = await Curl("-s", "-S", "--max-time", "10", "--dns-over-tls", new Uri(dns).Authority, "--cacert", "server.pem", $"http://{name}:{httpPort}/status.txt");
     Console.Write($"curl exit {ownExit}\n{ownText}");
-    return 1;
+    return ownExit == 0 ? 0 : 1;
 }
 
 // The lookup: a dns:// URL over TLS, trusting the test server's certificate, the answer as JSON.
