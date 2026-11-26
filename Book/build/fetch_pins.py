@@ -4,8 +4,8 @@
 
 For each program: when one of its GitHub releases is tagged at the pinned commit, download that
 release's binaries for this platform (checked against its SHA256SUMS); otherwise build them from
-source as CI always did. The three libraries (Surl.Api, Curl.Api, Libcurl) are always packed from
-source, since the releases carry none at a stable version. Writes <out>/env.sh for a shell, and with
+source as CI always did. A library (Surl.Api, Curl.Api, Libcurl) comes from the release when it carries
+one at a stable version (Surl's do from v0.1.10); otherwise it is packed from source. Writes <out>/env.sh for a shell, and with
 --github-env exports the same values to a GitHub Actions job.
 
 Usage:  python3 build/fetch_pins.py --out DIR --surl-src PATH --curl-src PATH [--github-env] [--source-only]
@@ -56,6 +56,12 @@ def release_at(repo, commit):
         if sha and sha.get("sha") == commit:
             return tag
     return None
+
+
+def assets(repo, tag):
+    """The names of a release's assets."""
+    found = gh_json(["release", "view", tag, "-R", repo, "--json", "assets"]) or {"assets": []}
+    return [x["name"] for x in found["assets"]]
 
 
 def download(repo, tag, patterns, into):
@@ -142,17 +148,21 @@ def main():
     pin, r = pins(), rid()
     pin = {"surl": a.surl_commit or pin["surl"], "curl": a.curl_commit or pin["curl"]}
     src = {"surl": source("Surl", a.surl_src, pin["surl"], out), "curl": source("Curl", a.curl_src, pin["curl"], out)}
-    how = {}
+    how, packed = {}, set()
 
-    # Surl: surl and surl-mcp
+    # Surl: surl and surl-mcp, and Surl.Api when the release carries it (from v0.1.10, BL-1789)
     tag = None if a.source_only else release_at(REPOS["surl"], pin["surl"])
     if tag:
         ext = "zip" if r.startswith("win") else "tar.gz"
         dl = out / "download" / "surl"
-        download(REPOS["surl"], tag, [f"surl-{r}.{ext}", f"surl-mcp-{r}.{ext}"], dl)
+        api = [n for n in assets(REPOS["surl"], tag) if re.fullmatch(r"Surly\.Surl\.Api\.\d+\.\d+\.\d+\.nupkg", n)]
+        download(REPOS["surl"], tag, [f"surl-{r}.{ext}", f"surl-mcp-{r}.{ext}"] + api, dl)
         unpack(dl / f"surl-{r}.{ext}", bin_ / "surl")
         unpack(dl / f"surl-mcp-{r}.{ext}", bin_ / "surl-mcp")
-        how["surl"] = f"release {tag}"
+        for name in api:
+            shutil.copy2(dl / name, feed / name)
+            packed.add("Surl.Api")
+        how["surl"] = f"release {tag}" + (" with Surl.Api" if api else "")
     else:
         build(src["surl"] / "Application/Surl.Console", bin_ / "surl")
         build(src["surl"] / "Application/Surl.Mcp", bin_ / "surl-mcp")
@@ -173,9 +183,11 @@ def main():
         build(src["curl"] / "Curl.Mcp", bin_ / "curl-mcp")
         how["curl"] = "source"
 
-    # The libraries, always from source, at versions the recipes' @* references select.
+    # The libraries a release did not carry at a stable version (one the recipes' @* references
+    # select; a pre-release such as 0.4.0-preview.2 is not), packed from source.
     for project in (src["surl"] / "Application/Surl.Api", src["curl"] / "Curl.Api", src["curl"] / "Libcurl"):
-        pack(project, feed)
+        if project.name not in packed:
+            pack(project, feed)
 
     curl_mcp = next((p for p in (bin_ / "curl-mcp" / f"Curl.Mcp{EXE}", bin_ / "curl-mcp" / f"curl-mcp{EXE}") if p.exists()), None)
     if not curl_mcp:
