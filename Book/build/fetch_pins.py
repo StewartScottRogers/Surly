@@ -86,13 +86,15 @@ def unpack(archive, dest, inner_prefix=""):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(info) as src, open(target, "wb") as out:
                     shutil.copyfileobj(src, out)
+        # A zip (and so a .nupkg) keeps no Unix permissions; Curl.Mcp has a dot in its name, so no
+        # test on the extension will do: mark every extracted file executable.
+        if not WINDOWS:
+            for f in dest.rglob("*"):
+                if f.is_file():
+                    f.chmod(0o755)
     else:
         with tarfile.open(archive) as t:
-            t.extractall(dest, filter="data")
-    if not WINDOWS:
-        for f in dest.rglob("*"):
-            if f.is_file() and not f.suffix:
-                f.chmod(0o755)
+            t.extractall(dest, filter="data")   # a tar keeps the release's own permissions
 
 
 def source(name, src, commit, out):
