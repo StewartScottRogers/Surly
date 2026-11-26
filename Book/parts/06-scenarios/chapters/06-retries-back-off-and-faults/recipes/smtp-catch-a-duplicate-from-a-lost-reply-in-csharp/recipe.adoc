@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[smtp-catch-a-duplicate-from-a-lost-reply-in-csharp]]
+=== Catching a Duplicate from a Lost Reply in C#
+
+==== Problem
+
+In a C# test, you want to lose the Simple Mail Transfer Protocol (SMTP) server{apos}s final reply to a send and check whether the sender{apos}s retry stored the message twice.
+
+==== Solution
+
+Start a `SurlServer` with a fault rule that cuts the connection one byte into the reply after the message, let the sender send with its one retry, and count the messages in the recipient{apos}s mailbox that carry the order{apos}s `Message-ID`:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+`SurlServerOptions` is `surl`{apos}s command line as properties (<<surl-readme>>). `ListenUrls` holds one `smtp://` URL on port 0, so the system picks a free port; `MailDomains` is `--mail-domain` and `Mailboxes` is `--mailbox`, the shop{apos}s and Ann{apos}s. `RecordExchanges = true` keeps every exchange, byte for byte, in `server.Exchanges`, and keeps the server{apos}s events for `FindEvents`.
+
+`Faults` holds the rule. `SurlFault.DropConnection()` with `AfterBytes = 320` cuts a connection once the server has sent 320 bytes; `Close` set to `FaultClose.Graceful` ends it with a clean close instead of a reset; `Scheme = "smtp"` and `Times = 1` limit it to the next SMTP connection. A rule given at start meets no other connection first, since an in-process server has no port check. 320 is one byte past the `354` that asks for the message: the greeting, the `EHLO` reply, the login{apos}s challenge and success, and the replies to `MAIL FROM`, `RCPT TO` and `DATA` come to 319 bytes on this server, and the record shows it.
+
+The sender is played by `Curl.Api`: a `CurlClient` with `CurlClientOptions.Timeout` of ten seconds, so no try can hang, and a `CurlRequest` with `HttpMethod.Put` on the bound URL. `CurlMailOptions` is the envelope (<<rfc5321>>) and `CurlAuthenticationOptions` the shop{apos}s login; the body is the message, with its own `Message-ID` header (<<rfc5322>>). `Curl.Api` does not retry, so the sender retries itself: it catches `CurlException` and sends once more. The first try throws, its `Code` `RecvError`; the second returns a `CurlResponse` whose `StatusCode` is `250`. The sender is satisfied.
+
+The test is not. It lists Ann{apos}s `INBOX` with `server.Mail.ListMessagesAsync`, a `SurlMessageSummary` with a `Uid` per message, reads each one with `ReadMessageAsync`, whose `SurlMailMessage.Bytes` are the stored copy, and counts the lines that are exactly `Message-ID: <order-1042@shop.example.com>`. The count is 2, the test prints `FAIL` and exits `1`. It counts right after the send, since the server stores a message before it replies.
+
+The record says why. For each SMTP `SurlExchangeRecord` the program adds up the `Bytes` of the `SurlExchangeChunk` items whose `Direction` is `Sent`. Both exchanges stand at 319 at the end of the `354`. After it, exchange 1 was sent `2`, the first byte of its reply, and nothing more; exchange 2 was sent `250 2.0.0 Message accepted` and `221 2.0.0 Bye`. `FindEvents` with a `SurlEventQuery` for `StoreChanged` in the mail store shows a `StoreChangedEvent` from each, `ExchangeId` 1 and 2: the message was delivered once per try. The `250` after the message is the server{apos}s word that it has taken responsibility for the message (<<rfc5321>>), and losing the word does not undo the taking.
+
+Two more runs bound the claim. Without the retry the sender throws `RecvError` and reports a failure, yet the message is stored once and the count passes: a false alarm, not a lost order. With `AfterBytes = 319`, the end of the `354`, the first try throws before the server has the message, the second is answered `250`, and the count is 1. Only a reply lost after the message makes the duplicate, and only a count by `Message-ID`, not the sender{apos}s own result, finds it.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<smtp-catch-a-duplicate-from-a-lost-reply>> for the same test on the console.
+* <<smtp-catch-a-duplicate-from-a-lost-reply-from-an-agent>> for the same test run by an agent.
+* <<smtp-chaos-test-a-mail-sender>> for delays, drops and temporary errors together.
+* <<smtp-see-exactly-what-an-app-sent-in-csharp>> for printing a whole recorded dialogue.
+* <<surl-readme>>, <<rfc5321>>, <<rfc5322>>.

@@ -1,0 +1,40 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-tell-a-clean-close-from-a-reset-from-an-agent]]
+=== Telling a Clean Close from a Reset from an Agent
+
+==== Problem
+
+A download sometimes ends early. You want an agent to end one both ways, with a clean close and with a reset, and tell the two apart from what the `curl` tool returns and what the server recorded.
+
+==== Solution
+
+The program starts both hosts and one server with two listeners, adds a fault rule to each with `add_fault`, one closing cleanly and one resetting, downloads the same file from the listener the case names with the `curl` tool, and reads `get_events` and `list_faults` to see which rule ended it:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+The program is an agent{apos}s side of the Model Context Protocol (MCP) (<<mcp-spec>>), on the official C# software development kit. It starts `surl-mcp` and `curl-mcp` by name, each confined to the program{apos}s folder by `SURL_MCP_ROOT` and `CURL_MCP_ROOT`, and writes `site/big.bin` there, 2,000,000 random bytes. `start_server` with two Hypertext Transfer Protocol (HTTP) listen URLs on port 0 and the arguments `--directory site` starts one server that serves the folder on both, and answers with its `server_id` and the `bound_urls`, the ports it took (<<surl-readme>>).
+
+`add_fault` adds one rule to a running server, as `surl --fault` would. Both rules are `drop;listener=<url>;after-bytes=1000000`: on that listener only, once 1,000,000 bytes, the response head included, have gone out on a connection, the server cuts it. The tool{apos}s `close` argument says how. `graceful`, on the first listener, sends what it has and ends the connection the normal way, with a FIN (over TLS, Transport Layer Security, after a `close_notify`). The second rule leaves `close` out and so takes `reset`, the default, which aborts the connection. Faults are off unless an agent adds them, since a server that misbehaves on purpose looks broken to every other client.
+
+The `curl` tool runs `curl` with the arguments given: `-o` writes the body to `dl`, `-s` drops the progress meter, `-S` keeps the error line, `--max-time 30` bounds a transfer that would otherwise wait, and `-w` prints the status, the size of the response head and the body bytes received. The answer holds `exitCode`, `standardOutput`, `standardError`, and a `failure` whose text ends with the exit code{apos}s name (<<curl-readme>>).
+
+From the clean close the tool returns `exitCode` 18, `curl exit code 18 (PartialFile)`, `-w` `200 213 999787` and `end of response with 1000213 bytes missing` on standard error. The answer was `200` with a `Content-Length` of 2,000,000 (<<rfc9110>>), and the connection ended after the 213-byte head and 999,787 body bytes, every byte the server sent; the file the tool wrote is exactly the start of `big.bin`, so the count is one an agent can rely on and resume from.
+
+From the reset it returns `exitCode` 56, `curl exit code 56 (RecvError)`, `Recv failure:` in the operating system{apos}s words on standard error, and no count of bytes missing. The file still holds the start of `big.bin`, but no more than the body bytes sent and often fewer: a reset throws away what had reached the client{apos}s socket and was not yet read, and how much depends on timing and on the platform. An agent should read only that bound into it. On macOS the kernel sometimes never delivers a reset in mid-transfer, and `curl` waits out `--max-time`, so the reset cases run on Windows and Linux.
+
+`get_events` with `kinds` `fault_applied` and `exchange_ended` gives the server{apos}s account. Both endings look alike there: one `fault_applied` event, kind `drop`, and the exchange ended with 1,000,000 bytes sent. What differs is the `rule_id`, `f1` or `f2`. `list_faults` lists each rule{apos}s `fault_id` and `item`, and f1{apos}s item carries `close=graceful`; f2{apos}s has no `close` key, so it resets. An agent that must say which ending a download met matches the event{apos}s rule to that item, and checks it against the exit code.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-tell-a-clean-close-from-a-reset>> for the same task on the console.
+* <<http-tell-a-clean-close-from-a-reset-in-csharp>> for the same task in C#.
+* <<http-cut-a-download-off-halfway-from-an-agent>> for resuming a download that was cut off.
+* <<s3-resume-a-ranged-download-from-an-agent>> for an agent that resumes a ranged get from where a clean close left it.
+* <<surl-readme>>, <<curl-readme>>, <<mcp-spec>>, <<rfc9110>>.

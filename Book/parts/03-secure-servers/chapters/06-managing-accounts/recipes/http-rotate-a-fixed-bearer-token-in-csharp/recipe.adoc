@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-fixed-bearer-token-in-csharp]]
+=== Rotating a Fixed Bearer Token in C#
+
+==== Problem
+
+Your API{apos}s test server accepts one fixed Bearer token. In a C# test you want to add, replace and remove that token in process, and check the old one is refused.
+
+==== Solution
+
+Start an in-process server with no account, add the token as the account with the empty user name through `Accounts.Add`, replace it with `Accounts.SetPassword` and remove it with `Accounts.Remove`, fetching with each token after every step:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A fixed Bearer token is a password with no user name: the client sends `Authorization: Bearer <token>` and the server compares the token (<<rfc6750>>). `surl` keeps it as an account like any other, the one whose user name is the empty string, and a server holds at most one (<<surl-readme>>).
+
+`SurlServerOptions` is `surl`{apos}s command line as properties. `ListenUrls` serves Hypertext Transfer Protocol Secure (HTTPS), and `SelfSigned` makes a throwaway certificate that the client trusts exactly: `SelfSignedCertificatePem`, passed as `CertificateAuthorityBlob` in a `CurlTlsPeerOptions` inside `CurlTlsOptions`, so verification stays on and the token crosses only inside Transport Layer Security (TLS) (<<rfc8446>>). No `Accounts` are given, so the server starts open. `RecordExchanges` keeps the events `FindEvents` reads, and `Log` with `LogLevel` keeps the server{apos}s log in memory. `SurlServer.StartAsync` starts it and `await using` stops it.
+
+The client is `Get`: a `CurlRequest` for `hello.txt` sent by a fresh `CurlClient`, with the token in `CurlAuthenticationOptions` as `XOAuth2Bearer` and `HttpAuthentication` set to `HttpAuthenticationMethods.Bearer`, which sends it as a Bearer header, the spelling of `curl --oauth2-bearer` (<<curl-readme>>). It returns the `CurlResponse`{apos}s status code: a refusal is a `401` response, not an exception.
+
+`server.Accounts` is a `SurlServerAccounts`, the running server{apos}s accounts, and every change applies from the next request on. Before the token is added a request with no token is answered `200`, because a server with no account needs no login. `Accounts.Add("", "token-one")` closes it: with no token `401`, with `token-one` `200`. `Accounts.SetPassword("", "token-two")` replaces the token in place, with no overlap: `token-one` is refused `401` at once and `token-two` is answered `200`, so every client holding the old token fails from that moment.
+
+`FindEvents` with a `SurlEventQuery` of `SurlEventKind.LoginJudged` returns each judged login as a `LoginJudgedEvent`. There are three, all with `Mechanism` `Bearer` and `Account` `bearer token`, the name every token login is judged under: accepted, refused after the rotation, accepted. No event and no log line holds a token; the log contains neither.
+
+`Accounts.Remove("")` returns `true`. `token-two` is then refused `401`, but the token was the only account: `HasAccounts` is `false`, a request with no token is answered `200` again, and the log has `surl: warning: no account left; the server now needs no login`. A test that removes the token to check its client is refused should check with the old token, not with none.
+
+The refusals are exceptions. A second `Accounts.Add` with the empty user name throws `ArgumentException` and changes nothing; `token-one` still works. With no token set, `Accounts.Remove("")` returns `false` and `Accounts.SetPassword("", ...)` throws `ArgumentException`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-rotate-a-fixed-bearer-token>> for the same task on the console, through the control endpoint.
+* <<http-rotate-a-fixed-bearer-token-from-an-agent>> for the same task run by an agent.
+* <<http-rotate-a-password-without-downtime-in-csharp>> for rotating a password with two accounts, so no client is refused.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6750>>, <<rfc8446>>.

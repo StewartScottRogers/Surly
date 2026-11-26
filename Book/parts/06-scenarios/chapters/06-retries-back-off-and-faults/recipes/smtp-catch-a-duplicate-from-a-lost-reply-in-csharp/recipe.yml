@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification for a recipe whose subject is a .NET library (ADR-0008).
+# key MUST equal the folder name and never changes once published.
+schema: 2
+key: smtp-catch-a-duplicate-from-a-lost-reply-in-csharp
+title: Catching a Duplicate from a Lost Reply in C#
+protocols: [smtp]
+tier: scenarios
+surface: csharp
+api-types: [SurlServer, SurlServerOptions, SurlFault, FaultClose, SurlEventQuery, StoreChangedEvent, SurlExchangeRecord, SurlExchangeChunk, SurlMessageSummary, SurlMailMessage, CurlClient, CurlClientOptions, CurlRequest, CurlResponse, CurlMailOptions, CurlAuthenticationOptions, CurlException]
+exit-codes: [0, 1]
+references: [surl-readme, rfc5321, rfc5322]
+
+fixtures: {}
+
+# No servers: block. The program hosts its own server through Surl.Api. A failing test exits 1.
+
+cases:
+  - id: solution
+    role: solution
+    claim: With the connection cut one byte into the reply after the message, the sender's first try throws CurlException RecvError and its second is answered 250; Ann's INBOX then holds the order's Message-ID twice, and the test fails, exit 1.
+    program: lost-reply.cs
+    args: []
+    expect:
+      exit: 1
+      stdout: "try 1: CurlException RecvError\ntry 2: SMTP 250\n<order-1042@shop.example.com> stored 2 time(s)\nFAIL: the order was not stored exactly once\n"
+
+  - id: tries
+    claim: In the record both exchanges had been sent 319 bytes by the end of the 354; after it the first was sent only 2, the second 250 2.0.0 Message accepted and 221 2.0.0 Bye; and the server delivered the message once from each exchange, 1 and 2.
+    program: lost-reply.cs
+    args: [tries]
+    expect:
+      exit: 1
+      stdout-matches: '\nexchange 1: 319 bytes to the end of the 354, then 2\nexchange 2: 319 bytes to the end of the 354, then 250 2\.0\.0 Message accepted \| 221 2\.0\.0 Bye\ndeliveries from exchanges 1, 2\n$'
+
+  - id: no-retry
+    claim: A sender without the retry throws CurlException RecvError and reports a failure, yet the message is stored once and the count passes, exit 0.
+    program: lost-reply.cs
+    args: [no-retry]
+    expect:
+      exit: 0
+      stdout: "try 1: CurlException RecvError\n<order-1042@shop.example.com> stored 1 time(s)\nPASS\n"
+
+  - id: cut-before
+    claim: With the cut one byte sooner, after the 319th byte, the end of the 354, the first try throws CurlException RecvError before the message is taken, the second is answered 250, and the message is stored once, exit 0.
+    program: lost-reply.cs
+    args: [cut-before]
+    expect:
+      exit: 0
+      stdout: "try 1: CurlException RecvError\ntry 2: SMTP 250\n<order-1042@shop.example.com> stored 1 time(s)\nPASS\n"

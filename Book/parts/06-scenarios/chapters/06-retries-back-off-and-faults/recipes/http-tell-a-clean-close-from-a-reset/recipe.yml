@@ -1,0 +1,68 @@
+# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
+# Executable specification. key MUST equal the folder name and never changes once published.
+schema: 2
+key: http-tell-a-clean-close-from-a-reset
+title: Telling a Clean Close from a Reset
+protocols: [http]
+tier: scenarios
+surl-options: [-v, --log-file, --directory, --fault]
+curl-options: [-s, -S, -o, -w, --max-time]
+exit-codes: [0, 18, 56]
+references: [surl-readme, curl-manual, rfc9110]
+
+fixtures:
+  dl/.keep: ""
+  site/.keep: ""
+
+# site/big.bin: 2,000,000 random bytes, made fresh for each run.
+setup:
+  - openssl rand -out site/big.bin 2000000
+
+# One surl, two listeners, one rule each: both cut a connection once 1,000,000 bytes, the response head
+# included, have gone out on it; the first closes it cleanly, the second resets it (close=reset, the default).
+servers:
+  main:
+    command: surl -v --log-file surl.log --directory site http://127.0.0.1:{{port}}/ http://127.0.0.1:{{port2}}/ --fault "drop;listener=http://127.0.0.1:{{port}}/;after-bytes=1000000;close=graceful" --fault "drop;listener=http://127.0.0.1:{{port2}}/;after-bytes=1000000"
+    ready: port
+
+cases:
+  - id: solution
+    role: solution
+    claim: Cut with a clean close, the download of the 2,000,000-byte file is answered 200 and ends early; curl exits 18 with "end of response with 1000213 bytes missing", having received a 213-byte head and 999,787 body bytes, the 1,000,000 bytes surl sent.
+    run: curl -sS --max-time 30 -o dl/clean.bin -w "%{http_code} %{size_header} %{size_download}\n" http://127.0.0.1:{{port}}/big.bin
+    expect:
+      exit: 18
+      stdout: "200 213 999787\n"
+      stderr-contains: "curl: (18) end of response with 1000213 bytes missing"
+
+  - id: clean-keeps-every-byte-sent
+    claim: After the clean close the partial file holds exactly the first 999,787 bytes of the file served, every body byte surl sent.
+    run: head -c 999787 site/big.bin | cmp - dl/clean.bin
+    expect:
+      exit: 0
+      stdout: ""
+
+  - id: reset
+    platforms: [windows, linux]  # macOS: the kernel sometimes never delivers a mid-transfer reset, so curl waits out --max-time (platforms.md, Curl BL-5799).
+    claim: Cut with a reset at the same point, curl exits 56 with a single "Recv failure" line and no count of bytes missing, and has received at most the 1,000,000 bytes surl sent, often fewer, since a reset throws away what had not yet been read.
+    run: curl -sS --max-time 30 -o dl/reset.bin -w "%{http_code} %{size_header} %{size_download}\n" http://127.0.0.1:{{port2}}/big.bin 2>&1
+    expect:
+      exit: 56
+      stdout-matches: '^curl: \(56\) Recv failure: [^\n]+\n(200 213 \d{1,6}|000 0 0)\n$'
+
+  - id: reset-keeps-at-most-what-was-sent
+    platforms: [windows, linux]  # macOS: see reset.
+    claim: The partial file the reset leaves holds no more than 999,787 bytes, the body bytes sent, and how many fewer varies with timing and platform.
+    run: wc -c < dl/reset.bin | tr -d " "
+    expect:
+      exit: 0
+      stdout-matches: '^(\d{1,5}|[1-8]\d{5}|9[0-8]\d{4}|99[0-8]\d{3}|999[0-6]\d{2}|9997[0-7]\d|99978[0-7])\n$'
+
+  - id: log-names-each-ending
+    platforms: [windows, linux]  # macOS: see reset.
+    claim: surl's verbose log names each ending, "cut after 1000000 bytes sent by fault rule f1, closing gracefully." for the clean close and "dropped after 1000000 bytes sent by fault rule f2." for the reset.
+    run: grep "bytes sent by fault rule" surl.log
+    expect:
+      exit: 0
+      stdout-matches: '^#(\d+) \* Exchange \1 cut after 1000000 bytes sent by fault rule f1, closing gracefully\.\r?\n#(\d+) \* Exchange \2 dropped after 1000000 bytes sent by fault rule f2\.\r?\n$'
+

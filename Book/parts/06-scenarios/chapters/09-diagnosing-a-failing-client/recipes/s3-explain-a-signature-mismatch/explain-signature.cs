@@ -53,7 +53,8 @@ string[] request = which switch
 CallToolResult sent = await curl.CallToolAsync("curl", new Dictionary<string, object?> { ["args"] = request });
 using JsonDocument answer = JsonDocument.Parse(sent.Content.OfType<TextContentBlock>().Single().Text);
 string[] output = answer.RootElement.GetProperty("standardOutput").GetProperty("content").GetString()!.Split('\n');
-string code = output.Length > 2 && output[^2].Contains("<Code>") ? output[^2].Split("<Code>")[1].Split("</Code>")[0] : "";
+string body = string.Join("\n", output[..^1]);
+string code = body.Contains("<Code>") ? body.Split("<Code>")[1].Split("</Code>")[0] : "";
 Console.WriteLine($"client: {output[^1]} {code}".TrimEnd());
 
 // The agent: wait for the exchange to end, then read the request as the server received it.

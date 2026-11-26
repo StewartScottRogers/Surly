@@ -1,0 +1,41 @@
+// Copyright (c) 2026 Stewart Rogers. Prose CC BY-ND 4.0; example code Apache 2.0.
+// Metadata lives in recipe.yml. The blocks included from .generated/ are written by the build.
+include::.generated/attributes.adoc[]
+
+[[http-rotate-a-fixed-bearer-token-from-an-agent]]
+=== Rotating a Fixed Bearer Token from an Agent
+
+==== Problem
+
+Your API{apos}s test server accepts one fixed Bearer token. You want an artificial intelligence (AI) agent to add it, rotate it and remove it while the server runs, and show the old token refused.
+
+==== Solution
+
+Write the agent{apos}s side as a C# program on the official Model Context Protocol (MCP) software development kit (SDK) (<<mcp-spec>>). It starts a server with no account through `surl-mcp`, adds the token with `add_account` and `user` empty, rotates it with `set_account_password` and removes it with `remove_account`, and after each step fetches with each token through `curl-mcp`{apos}s `curl` tool:
+
+include::.generated/solution.adoc[]
+
+==== Discussion
+
+A fixed Bearer token is a password with no user name: the client sends `Authorization: Bearer <token>` and the server compares the token (<<rfc6750>>). `surl` keeps it as an account like any other, the one whose user name is the empty string, and a server holds at most one (<<surl-readme>>). In the three account tools `"user": ""` names it.
+
+`start_server` takes the listen URL, Hypertext Transfer Protocol Secure (HTTPS) here, and `surl`{apos}s own options in `arguments`: `--cert server.pem` and `--key server.key` name a certificate and key, made with `openssl` and never committed, read from the folder `SURL_MCP_ROOT` names. No `--user` is given, so the server starts with no account. The answer holds `server_id` and `bound_urls`.
+
+Each fetch is a `curl` tool call, its own process and connection: `--oauth2-bearer` sends the token as a Bearer header, `--cacert server.pem` trusts the certificate so the token crosses only inside Transport Layer Security (TLS) (<<rfc8446>>), `-o hello.out` keeps the body out of the answer, `-w "%{http_code}"` puts the status in `standardOutput`, and `-s` keeps the progress meter out of `standardError` (<<curl-readme>>).
+
+With no account the server needs no login, so a fetch with no token is answered `200`. `add_account` with `user` `""` and `password` `token-one` answers `{"user":""}`, never the token, and closes the server: no token `401`, `token-one` `200`. `set_account_password` replaces the token in place and answers the same: `token-one` is refused `401` at once and `token-two` is answered `200`. There is no overlap, so every client holding the old token fails from that moment.
+
+`get_events` with `kinds` `login_judged` answers each judged login. There are three, all with `mechanism` `Bearer` and `account` `bearer token`, the name every token login is judged under, never the token: accepted, refused after the rotation, accepted.
+
+`remove_account` removes the token, and `token-two` is refused `401`. But the token was the server{apos}s only account, so the answer adds a `warning`, `server s1 has no account left and now needs no login`, and a fetch with no token is answered `200` again. An agent that removes the token to show its client refused should fetch with the old token, not with none, and read that warning as a sign the server is open.
+
+The refusals are tool errors. A second `add_account` with `user` `""` answers `the Bearer-token account already exists` and changes nothing; `token-one` still works. With no token set, `remove_account` answers `server s1 has no Bearer-token account` and `set_account_password` `the Bearer-token account does not exist`.
+
+include::.generated/claims.adoc[]
+
+==== See Also
+
+* <<http-rotate-a-fixed-bearer-token>> for the same task on the console, through the control endpoint.
+* <<http-rotate-a-fixed-bearer-token-in-csharp>> for the same task in C#.
+* <<http-rotate-a-password-without-downtime-from-an-agent>> for rotating a password with two accounts, so no client is refused.
+* <<surl-readme>>, <<curl-readme>>, <<rfc6750>>, <<rfc8446>>, <<mcp-spec>>.
