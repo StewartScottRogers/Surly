@@ -6,7 +6,7 @@
 //   own-domain  the app mails ann@example.com
 //   seed        the agent seeds mail for carol@elsewhere.org itself
 //   no-domain   the app mails carol@elsewhere.org, and the server has no mail domain
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

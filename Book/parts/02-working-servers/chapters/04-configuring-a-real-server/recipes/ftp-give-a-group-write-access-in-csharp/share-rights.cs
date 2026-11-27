@@ -10,7 +10,7 @@
 //   plaintext      a server without AllowPlaintextAuthentication: Ed's login
 //   bare           a grant that names the group without its @
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

@@ -9,7 +9,7 @@
 //   kept          the log read before and after the consumer
 //   past-the-end  a read of the log from an offset past the end
 //   no-topic      a read of a topic nobody wrote to
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

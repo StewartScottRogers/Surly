@@ -3,7 +3,7 @@
 // above it with UID SEARCH through curl-mcp's curl tool, and fetches those; surl-mcp's record shows
 // which messages each pass fetched.
 // Run: dotnet run sync.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

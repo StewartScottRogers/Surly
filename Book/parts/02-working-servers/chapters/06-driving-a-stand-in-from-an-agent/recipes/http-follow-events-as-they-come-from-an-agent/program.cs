@@ -7,7 +7,7 @@
 //   wait       a wait for what comes after the last event seen, sent before the request
 //   kinds      a filter on kind together with the cursor
 //   one-at-a-time  pages of one event
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

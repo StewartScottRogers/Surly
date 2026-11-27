@@ -2,7 +2,7 @@
 // An agent receives files bigger than 64 KiB over WebSocket with curl-mcp, compares each with the original,
 // and reads from surl-mcp's exchange record how the server framed it. Over the official MCP SDK.
 // Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

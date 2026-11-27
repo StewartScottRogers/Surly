@@ -9,7 +9,7 @@
 //   nothing        delete a file that is not there, and a folder
 //   hidden         put a path whose name starts with a dot
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

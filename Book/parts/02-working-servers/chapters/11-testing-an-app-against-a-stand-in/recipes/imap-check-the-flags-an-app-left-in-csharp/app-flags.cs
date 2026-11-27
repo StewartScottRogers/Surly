@@ -3,7 +3,7 @@
 // with Curl.Api; the test then reads every message's flags from Surl.Api's store.
 // Run: dotnet run app-flags.cs
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

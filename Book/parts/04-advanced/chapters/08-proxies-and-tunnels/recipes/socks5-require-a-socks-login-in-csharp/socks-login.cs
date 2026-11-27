@@ -6,7 +6,7 @@
 //   login   right (the default), none, wrong, unknown (a user with no account),
 //           or split (the right login as separate user name and password)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

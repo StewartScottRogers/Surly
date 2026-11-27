@@ -8,7 +8,7 @@
 //   put_file    replace it with surl-mcp's put_file
 //   delete      delete it with a CoAP DELETE
 //   no-uploads  the same CoAP PUT to a server without --allow-uploads
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

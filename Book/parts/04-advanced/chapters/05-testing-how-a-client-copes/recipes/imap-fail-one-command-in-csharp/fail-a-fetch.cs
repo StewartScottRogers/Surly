@@ -13,7 +13,7 @@
 //   late-rule      no rule at start; one is added during the test, then removed
 //   bad-shape      a rule whose reply is not in IMAP's shape
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using System.Text.RegularExpressions;

@@ -4,7 +4,7 @@
 //   how    build (the default): build_url with the UrlEncode flag; plain: build_url without it;
 //          raw: the name appended to the server's URL as given
 //   name   one file name to ask for; with none, all three awkward names
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

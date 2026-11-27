@@ -6,7 +6,7 @@
 //   writable         upload into the other share, then read the folder on disk
 //   second-readonly  a second server on the readonly folder, read from it
 //   second-writable  a second server on the writable folder
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

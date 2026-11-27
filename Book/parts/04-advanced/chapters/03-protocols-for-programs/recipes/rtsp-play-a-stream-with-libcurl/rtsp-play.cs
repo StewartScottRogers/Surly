@@ -3,7 +3,7 @@
 // for C#: DESCRIBE, SETUP, PLAY, RECEIVE until the last RTP packet, TEARDOWN. The RTP payloads
 // are saved, in order, to the output file.
 // Run: dotnet run rtsp-play.cs -- <rtsp-url> <output-file> [transport]
-#:package Surly.Libcurl@*
+#:package Surly.Libcurl@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api.Callbacks;

@@ -3,7 +3,7 @@
 // retrying once on a failure. Run: dotnet run recover.cs -- [retries]
 //   retries   how many retries the client may make (1 if not given; 0 for none)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Codes;

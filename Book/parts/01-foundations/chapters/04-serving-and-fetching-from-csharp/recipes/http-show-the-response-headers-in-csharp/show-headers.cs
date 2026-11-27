@@ -2,7 +2,7 @@
 // Prints the status, version and every header of a response, as curl -i does, then the body.
 // Run: dotnet run show-headers.cs [-- path [method]]   (defaults: hello.txt GET)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

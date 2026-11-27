@@ -3,7 +3,7 @@
 // Run: dotnet run serve-pfx.cs -- <passphrase>
 //   s3cret   the passphrase the PFX was made with
 //   wrong    a passphrase it was not made with
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

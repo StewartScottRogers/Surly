@@ -9,7 +9,7 @@
 //   clear-wrong  a wrong password without TLS
 //   right    the right password over TLS
 //   allowed  the clear case against a server started with --allow-plaintext-auth
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -7,7 +7,7 @@
 //   not-srp   the same calls on a server started without TLS-SRP
 //   tls13     TLS-SRP with --tlsv1.3
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

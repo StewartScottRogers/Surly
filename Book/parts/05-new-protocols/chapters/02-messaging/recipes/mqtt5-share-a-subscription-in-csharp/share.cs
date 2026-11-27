@@ -7,7 +7,7 @@
 //   no-share-topic a worker subscribes to $share/workers, with no topic filter
 //   no-anonymous   a worker with no login, on a broker without AllowAnonymous
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

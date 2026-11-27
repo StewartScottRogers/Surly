@@ -6,7 +6,7 @@
 //   right        the app mails, uploads and publishes as it should (the default)
 //   wrong-topic  the app publishes on invoices/7 instead of orders/7
 //   strict       the server is started without --allow-plaintext-auth
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

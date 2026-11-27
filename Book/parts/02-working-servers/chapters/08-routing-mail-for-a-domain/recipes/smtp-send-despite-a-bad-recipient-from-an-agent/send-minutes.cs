@@ -9,7 +9,7 @@
 //   headers      the same, and the To header of Ann's copy
 //   without      Dee and Carol, without --mail-rcpt-allowfails
 //   all-refused  two outside addresses, with --mail-rcpt-allowfails
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

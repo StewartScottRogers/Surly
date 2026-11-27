@@ -5,7 +5,7 @@
 //   (no argument) HTTP/1.0, HTTP/1.1 and HTTP/2 with prior knowledge
 //   upgrade       HTTP/2 without prior knowledge: an HTTP/1.1 request offering to upgrade
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

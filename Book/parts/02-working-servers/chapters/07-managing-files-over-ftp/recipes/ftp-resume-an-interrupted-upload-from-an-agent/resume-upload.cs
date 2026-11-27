@@ -13,7 +13,7 @@
 //   zeros        a partial file of the right length with other bytes in it
 //   longer       a server file longer than the local one
 //   uploads-off  a server started without --allow-uploads
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

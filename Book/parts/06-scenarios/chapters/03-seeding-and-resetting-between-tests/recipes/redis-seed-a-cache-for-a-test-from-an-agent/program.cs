@@ -6,7 +6,7 @@
 //   miss-now       force the miss with DEL and refill the copy, with no waiting
 //   origin         the origin's statuses
 //   no-plaintext   log in without --allow-plaintext-auth
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

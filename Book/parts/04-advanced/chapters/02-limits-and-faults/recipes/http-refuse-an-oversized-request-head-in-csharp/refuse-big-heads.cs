@@ -4,7 +4,7 @@
 //   <bytes>   the cookie's length in bytes (1200 if not given)
 //   default   leave surl's own limit in place instead of setting 1 KiB
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

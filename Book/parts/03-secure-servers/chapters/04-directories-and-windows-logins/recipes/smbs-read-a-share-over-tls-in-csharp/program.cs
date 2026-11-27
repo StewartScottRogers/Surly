@@ -2,7 +2,7 @@
 // Serves an SMBS share with Surl.Api and reads a file from it with Curl.Api.
 // Run: dotnet run program.cs -- trusted    (also: untrusted, wrong-password, no-certificate, self-signed, self-signed-skip)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

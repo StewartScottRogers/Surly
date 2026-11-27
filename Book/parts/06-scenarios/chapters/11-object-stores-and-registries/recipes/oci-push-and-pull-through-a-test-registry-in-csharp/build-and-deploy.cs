@@ -10,7 +10,7 @@
 //   password       the deploy logs in with the wrong password
 //   changed        build 41's layer is overwritten in the store before the deploy by digest
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;
 using System.Text;

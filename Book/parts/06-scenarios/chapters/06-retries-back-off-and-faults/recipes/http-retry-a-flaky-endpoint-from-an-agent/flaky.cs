@@ -4,7 +4,7 @@
 //   curl       the curl tool with --retry 3 (the default)
 //   curl-few   the curl tool with -f --retry 1
 //   transfer   transfer in a loop, with the agent's own doubling wait
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

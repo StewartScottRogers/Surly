@@ -5,7 +5,7 @@
 // Run: dotnet run keep-logs.cs [-- <ftps password> | log-file]
 //   <ftps password>  the password the FTPS test logs in with (the right one, s3cret, by default)
 //   log-file         ask start_server for a log file instead, and print its answer
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

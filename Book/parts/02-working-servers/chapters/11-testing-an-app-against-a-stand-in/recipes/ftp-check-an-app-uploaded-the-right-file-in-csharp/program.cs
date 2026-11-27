@@ -10,7 +10,7 @@
 //   uploads-off    a server that takes no uploads: the app
 //   login-needed   a server with no anonymous login: the app
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

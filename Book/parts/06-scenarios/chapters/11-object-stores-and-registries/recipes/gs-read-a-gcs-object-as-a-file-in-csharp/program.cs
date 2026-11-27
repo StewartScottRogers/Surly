@@ -15,7 +15,7 @@
 //   uploads-off               a put to a server with AllowUploads off
 //   uploads-off-reads         reads from that server
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using System.Text.RegularExpressions;

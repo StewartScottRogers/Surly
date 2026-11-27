@@ -6,7 +6,7 @@
 //   untrusted    the same fetch without caFile
 //   https-proxy  through the https proxy: transfer, then the curl tool with --proxy-cacert
 //   refused      through a proxy whose fault rule answers CONNECT with 503
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

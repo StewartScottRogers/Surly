@@ -6,7 +6,7 @@
 //   cut      the user's download stopped short (the default)
 //   head     the same, then the replayed request head beside the reported one
 //   state    the user got 404 for a file that had been deleted on that server
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -6,7 +6,7 @@
 //   solution   the agent answers price=9.99
 //   none       nothing is subscribed to prices.get
 //   silent     the subscriber receives the request and the agent never answers
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

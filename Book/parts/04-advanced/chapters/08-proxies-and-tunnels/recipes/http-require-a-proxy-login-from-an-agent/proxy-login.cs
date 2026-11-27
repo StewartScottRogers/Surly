@@ -11,7 +11,7 @@
 //   plaintext     Basic to an http proxy started with --allow-plaintext-auth
 //   swapped       the origin's account at the proxy, then the proxy's account at the origin
 //   events        the logins each listener judged during a fetch
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

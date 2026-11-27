@@ -8,7 +8,7 @@
 //   topic       publish to the topic jobs instead of the queue
 //   undeclared  queue to a broker started without --queue jobs
 //   reset       queue three jobs, then reset the server
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;

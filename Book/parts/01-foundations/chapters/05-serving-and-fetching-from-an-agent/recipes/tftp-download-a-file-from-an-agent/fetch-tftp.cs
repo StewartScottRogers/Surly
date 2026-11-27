@@ -8,7 +8,7 @@
 //   dot-file      a file whose name begins with a dot, which the server holds but does not serve
 //   upload        curl -T to a server that was not told to accept uploads
 //   upload-on     curl -T to a server started with --allow-uploads, then read the file back from its store
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

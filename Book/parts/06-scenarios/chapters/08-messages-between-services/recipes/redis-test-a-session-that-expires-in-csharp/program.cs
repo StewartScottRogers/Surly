@@ -6,7 +6,7 @@
 //   lifetimes  a session with a minute to live, one with no expiry, and one never seeded
 //   strict     a server without AllowPlaintextAuthentication
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

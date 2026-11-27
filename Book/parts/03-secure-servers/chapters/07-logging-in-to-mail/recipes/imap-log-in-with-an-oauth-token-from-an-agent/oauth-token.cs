@@ -6,7 +6,7 @@
 //   loose          the same token over plain imap on a server started with --allow-plaintext-auth
 //   one            a server started with --auth oauthbearer, and a client that insists on XOAUTH2
 // server.pem and server.key, a certificate and key for 127.0.0.1, are in this folder.
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

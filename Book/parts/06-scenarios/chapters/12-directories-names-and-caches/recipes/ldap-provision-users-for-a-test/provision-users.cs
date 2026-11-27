@@ -5,7 +5,7 @@
 //   (no argument)  the set is added, read back, searched for, then the server is reset
 //   bad-batch      the set holds one user whose parent does not exist
 //   strict         a server without --allow-anonymous, searched with no name and password
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

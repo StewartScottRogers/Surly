@@ -6,7 +6,7 @@
 //   five-snapshots  take five snapshots, then restore the first
 //   other-server    restore the snapshot into a second server
 //   on-disk         snapshot a server whose files are on disk
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

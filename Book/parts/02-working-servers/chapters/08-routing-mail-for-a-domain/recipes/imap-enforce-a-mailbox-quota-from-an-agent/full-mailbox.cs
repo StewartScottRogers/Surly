@@ -4,7 +4,7 @@
 // Run: dotnet run full-mailbox.cs [-- zero]
 //   (no argument)  fill the mailbox, send again, then find what frees room
 //   zero           start a server whose quota is 0
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

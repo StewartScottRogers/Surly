@@ -14,7 +14,7 @@
 //   in-use        a second broker on the folder while the first runs
 //   missing       a --directory that does not exist
 //   closed        a broker with no --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

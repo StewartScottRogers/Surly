@@ -11,7 +11,7 @@
 //   transfer-limit    a 2 MiB file: transfer answers part of it, curl -o all of it
 //   bad-base64        put_file and start_server given text that is not base64
 //   both-given        put_file with text and base64, start_server with one path twice
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text.Json;

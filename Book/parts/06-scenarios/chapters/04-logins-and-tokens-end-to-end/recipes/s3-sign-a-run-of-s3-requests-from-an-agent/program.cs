@@ -4,7 +4,7 @@
 // Run: dotnet run program.cs -- <case>
 //   run         the wrong secret first, then the right one, then the store and the judged logins (the default)
 //   read-only   the right secret against a server with uploads off
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

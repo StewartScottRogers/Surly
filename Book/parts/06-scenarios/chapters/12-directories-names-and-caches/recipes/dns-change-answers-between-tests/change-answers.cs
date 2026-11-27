@@ -7,7 +7,7 @@
 //   no-reset       the second test adds its zone without a reset first
 //   list           the zones the server holds before and after a reset
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text.RegularExpressions;
 using Curl.Api;

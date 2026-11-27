@@ -8,7 +8,7 @@
 //   counts     the requests each listener recorded
 //   reasons    the proxy's own account of each request, from its verbose log
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

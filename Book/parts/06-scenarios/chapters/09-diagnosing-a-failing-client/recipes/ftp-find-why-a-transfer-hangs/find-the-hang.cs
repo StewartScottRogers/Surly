@@ -6,7 +6,7 @@
 //   active   the same server, the job in active mode (-P -)
 //   retr     the server holds its answer to RETR instead
 //   locked   a server without --allow-anonymous: the job only
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

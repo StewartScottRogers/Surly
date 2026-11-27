@@ -37,6 +37,13 @@ def pins():
     return found
 
 
+def nuget_pins():
+    """{package: version} for every package build/packages.yml pins at a version, not "*" or null."""
+    import yaml
+    pins = yaml.safe_load((HERE / "packages.yml").read_text(encoding="utf-8")) or {}
+    return {k: str(v) for k, v in pins.items() if v not in (None, "*")}
+
+
 def run(cmd, **kw):
     print("+", " ".join(str(c) for c in cmd), flush=True)
     return subprocess.run(cmd, check=True, **kw)
@@ -183,13 +190,29 @@ def main():
         build(src["curl"] / "Curl.Mcp", bin_ / "curl-mcp")
         how["curl"] = "source"
 
-    # The libraries a release did not carry at a stable version (one the recipes' @* references
-    # select; a pre-release such as 0.4.0-preview.2 is not), packed from source.
-    for project in (src["surl"] / "Application/Surl.Api", src["curl"] / "Curl.Api", src["curl"] / "Libcurl"):
-        if project.name not in packed:
+    # The book follows the nuget.org packages (ADR-0010): a package build/packages.yml pins at a
+    # version is restored from nuget.org, as a reader's is, and never packed here. Surly.Curl.Mcp
+    # pinned there is installed from nuget.org as the .NET tool a reader runs with dnx.
+    published = nuget_pins()
+    if published.get("Surly.Curl.Mcp"):
+        shutil.rmtree(bin_ / "curl-mcp", ignore_errors=True)
+        run(["dotnet", "tool", "install", "Surly.Curl.Mcp", "--version", published["Surly.Curl.Mcp"],
+             "--tool-path", str(bin_ / "curl-mcp"), "--add-source", "https://api.nuget.org/v3/index.json"])
+        how["curl"] += f", curl-mcp from nuget.org {published['Surly.Curl.Mcp']}"
+
+    # A library nuget.org does not carry yet comes from the program's release (Surl.Api from v0.1.10),
+    # else is packed from source.
+    for project, package in ((src["surl"] / "Application/Surl.Api", "Surly.Surl.Api"),
+                             (src["curl"] / "Curl.Api", "Surly.Curl.Api"), (src["curl"] / "Libcurl", "Surly.Libcurl")):
+        if project.name not in packed and not published.get(package):
             pack(project, feed)
 
+    # The host binary: at the top of bin/curl-mcp when unpacked or built, or, for a tool installed
+    # from nuget.org, inside its .store (the tool's own launcher there is a .cmd on Windows).
     curl_mcp = next((p for p in (bin_ / "curl-mcp" / f"Curl.Mcp{EXE}", bin_ / "curl-mcp" / f"curl-mcp{EXE}") if p.exists()), None)
+    if not curl_mcp:
+        curl_mcp = next((p for p in sorted((bin_ / "curl-mcp").rglob("*"))
+                         if p.is_file() and p.name in (f"Curl.Mcp{EXE}", f"curl-mcp{EXE}") and f"/{r}/" in p.as_posix()), None)
     if not curl_mcp:
         sys.exit("no Curl.Mcp or curl-mcp binary in bin/curl-mcp")
     values = {

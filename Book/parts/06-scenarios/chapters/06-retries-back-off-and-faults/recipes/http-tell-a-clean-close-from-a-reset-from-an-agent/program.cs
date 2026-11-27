@@ -6,7 +6,7 @@
 // Run: dotnet run program.cs -- <case>
 //   graceful  download from the listener whose rule closes cleanly (the default)
 //   reset     download from the listener whose rule resets
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

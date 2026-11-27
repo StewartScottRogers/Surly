@@ -14,7 +14,7 @@
 //   bad-date       a date in the wrong format
 //   renumber       the same search after an expunge
 //   uid            UID SEARCH, then a fetch of its first UID
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

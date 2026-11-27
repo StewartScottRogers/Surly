@@ -5,7 +5,7 @@
 //   hand         hand bound_urls to the app and read the mailbox afterwards (the default)
 //   listen-urls  hand the app listen_urls, port 0 and all, instead
 //   list         find the bound URLs again with list_servers
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

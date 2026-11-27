@@ -6,7 +6,7 @@
 //   no-teardown   the servers are left running, as a test without a finally leaves them
 //   clients-last  the servers are stopped while a client still holds a connection
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;
 using Curl.Api;

@@ -7,7 +7,7 @@
 //   stanza-errors   an unknown node, an account with no stream, a foreign domain
 //   login           no login, and a wrong password
 //   untrusted       no --cacert
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

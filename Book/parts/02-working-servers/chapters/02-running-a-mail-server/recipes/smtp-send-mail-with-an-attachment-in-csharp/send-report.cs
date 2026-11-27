@@ -10,7 +10,7 @@
 //   as-is          the report attached with no content type or encoder, then part 2's header
 //   missing        the report attached from a file that is not there
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using System.Text.RegularExpressions;

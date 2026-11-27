@@ -5,7 +5,7 @@
 //   build     build, check and use an HTTP and an FTP URL, then read the logins surl judged (the default)
 //   raw       build the same URL without UrlEncode, and check it
 //   in-clear  use the built URLs on a server that keeps its default, refusing passwords in clear
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

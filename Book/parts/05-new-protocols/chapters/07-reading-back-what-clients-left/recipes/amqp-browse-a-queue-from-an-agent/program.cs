@@ -7,7 +7,7 @@
 //   empty     a queue nothing was sent to
 //   no-queue  a queue the server does not have
 //   closed    a server with no --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

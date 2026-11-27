@@ -5,7 +5,7 @@
 //   typo (default)  the app mistyped the address, anne@; a catch-all keeps unknown addresses
 //   discarded       the same mistake on a server with no catch-all
 //   seen            the address is right, but another device read the mail first
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

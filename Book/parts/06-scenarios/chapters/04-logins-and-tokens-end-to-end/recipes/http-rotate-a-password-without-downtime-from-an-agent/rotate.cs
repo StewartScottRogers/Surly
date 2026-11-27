@@ -7,7 +7,7 @@
 //   in-place  add_account for a name that exists
 //   last      remove_account of the only account, then a GET with no login
 //   unknown   remove_account of a name the server does not hold
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

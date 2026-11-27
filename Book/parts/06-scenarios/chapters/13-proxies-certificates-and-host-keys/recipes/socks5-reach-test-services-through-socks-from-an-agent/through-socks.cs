@@ -5,7 +5,7 @@
 // Run: dotnet run through-socks.cs [-- <case>]
 //   (no argument)  HTTP and FTP through the proxy, then the proxy's record
 //   locked         FTP through the proxy to a service that takes no anonymous login
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

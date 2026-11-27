@@ -7,7 +7,7 @@
 //   arrival     each reply held back 300 ms, read for one second
 //   part-way    a stream that ends in a status after its replies
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

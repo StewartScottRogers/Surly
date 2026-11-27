@@ -2,7 +2,7 @@
 // An agent runs the app's mail step against surl-mcp (the app's three sends go through curl-mcp's curl
 // tool), waits for each delivery, and judges recipient, subject and link from read_message.
 // Run: dotnet run check-reset-mail.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

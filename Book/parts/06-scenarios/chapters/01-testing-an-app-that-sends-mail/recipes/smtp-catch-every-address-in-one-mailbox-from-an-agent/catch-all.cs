@@ -6,7 +6,7 @@
 //   no-catch-all  the same, on a server with no catch-all
 //   other-domain  one mail to an address outside the mail domain
 //   no-domain     a catch-all with no --mail-domain
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

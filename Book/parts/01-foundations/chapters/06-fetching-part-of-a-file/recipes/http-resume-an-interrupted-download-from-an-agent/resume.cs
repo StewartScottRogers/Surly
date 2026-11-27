@@ -5,7 +5,7 @@
 //   mode   resume (the default): curl -C -
 //          if-range-old: the same, with an If-Range header holding an old date
 //   file   the partial file, inside the folder both hosts are confined to (dl/records.txt by default)
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

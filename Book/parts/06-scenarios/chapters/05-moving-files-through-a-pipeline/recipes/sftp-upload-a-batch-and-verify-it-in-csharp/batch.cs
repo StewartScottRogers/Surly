@@ -2,7 +2,7 @@
 // A C# file-based app: `dotnet run batch.cs -- SCENARIO`. host_key and host_key.pub come from setup: in recipe.yml.
 //   all (the default), wrong-pin, missing, short, repaired, uploads-off, no-listing
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;
 using Curl.Api;

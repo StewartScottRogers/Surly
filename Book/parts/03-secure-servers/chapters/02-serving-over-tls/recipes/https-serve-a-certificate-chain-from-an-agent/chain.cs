@@ -2,7 +2,7 @@
 // An agent starts a surl-mcp HTTPS server from a certificate chain file and fetches from it
 // through curl-mcp, trusting only the root. The certificates come from setup: in recipe.yml.
 // Run: dotnet run chain.cs [-- fetch|leaf-only|no-trust|root-in-the-file|leaf-first|key-match]
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

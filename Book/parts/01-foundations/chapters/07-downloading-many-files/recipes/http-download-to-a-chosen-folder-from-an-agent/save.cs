@@ -5,7 +5,7 @@
 //   save          --create-dirs --output-dir downloads, -o one name, -O the other (the default)
 //   outside-dir   --output-dir ..
 //   outside-o     -o ../guide.txt
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -3,7 +3,7 @@
 // recipe.yml, which makes root.pem, a leaf chain.pem and others, in the program's folder.
 //   fetch (the default), leaf-only, no-trust, root-in-the-file, leaf-first, key-match
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

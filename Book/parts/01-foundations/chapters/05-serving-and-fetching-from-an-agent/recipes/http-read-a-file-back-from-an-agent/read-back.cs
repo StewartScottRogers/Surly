@@ -2,7 +2,7 @@
 // An agent fetches a file with curl-mcp's transfer, reads the same file from surl-mcp's store with
 // read_file, and compares the bytes and the content type.
 // Run: dotnet run read-back.cs [-- path]   (default /hello.txt; try /logo.png, /docs, /.env or /nope.txt)
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

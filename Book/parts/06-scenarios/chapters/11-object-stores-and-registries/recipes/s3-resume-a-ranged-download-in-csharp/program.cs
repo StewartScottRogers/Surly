@@ -9,7 +9,7 @@
 //   short    a range of 1,000,000 bytes, under the cut
 //   refused  a range signed with a wrong secret
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

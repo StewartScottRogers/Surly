@@ -9,7 +9,7 @@
 //   root           the names an FTP listing of the root holds
 //   http-folder    the FTP-only share's folder over HTTP
 //   unknown-scheme a protocols= value that names no scheme
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

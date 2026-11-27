@@ -8,7 +8,7 @@
 //   record    what the server recorded about the failure
 //   path      the override scoped to /report.txt, with fetches of two files mixed
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

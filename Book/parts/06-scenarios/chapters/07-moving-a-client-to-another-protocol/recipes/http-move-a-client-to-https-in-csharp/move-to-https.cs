@@ -12,7 +12,7 @@
 //   after-record    after the move: both clients, then the scheme of every exchange recorded
 //   no-certificate  an https listen URL with no certificate
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

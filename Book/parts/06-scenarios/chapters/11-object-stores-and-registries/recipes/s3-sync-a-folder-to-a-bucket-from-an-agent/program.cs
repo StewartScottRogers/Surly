@@ -15,7 +15,7 @@
 //   uploads-off         a put to a bucket started without --allow-uploads
 //   nothing-arrived     a get after that refused put
 //   listing-off         a listing of a bucket started without --list-directories
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text.Json;

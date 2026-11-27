@@ -10,7 +10,7 @@
 //   uploads-off, uploads-off-reads   a server with uploads off: a put, then a get
 //   plaintext-auth   a server without --allow-plaintext-auth
 //   no-certificate   a server without --az-plaintext
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text;

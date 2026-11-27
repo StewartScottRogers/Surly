@@ -7,7 +7,7 @@
 //   too-long   send a line of 9000 characters
 //   banner     read the banner and the terminal type the client announces
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

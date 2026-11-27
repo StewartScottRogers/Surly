@@ -6,7 +6,7 @@
 //   read-without-client read_message on a second seeded message, then list_mailboxes
 //   smtp-needs-a-login  curl sends over SMTP without a login, then with one
 //   no-such-account     seed_mail to carol, who has no account
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -9,7 +9,7 @@
 //   client-needs-a-login  a client's DELETE, then delete_file, on hello.txt
 //   nothing-to-delete     delete_file on a missing file and on a folder
 //   hidden-refused        put_file on /.env
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

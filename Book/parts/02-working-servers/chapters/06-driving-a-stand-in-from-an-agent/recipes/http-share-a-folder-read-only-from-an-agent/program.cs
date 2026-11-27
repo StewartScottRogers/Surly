@@ -7,7 +7,7 @@
 //   no-login       the server started without --allow-anonymous
 //   overwrite      an upload over the read-only share's own file
 //   second-server  a second server over the same two folders
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

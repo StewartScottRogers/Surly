@@ -9,7 +9,7 @@
 //   password      the same with -u                          account-dtls an account: coaps with curl -i
 //   anonymous     an account and --allow-anonymous          psk          an account and no certificate
 //   nothing       coaps with no certificate and no account
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

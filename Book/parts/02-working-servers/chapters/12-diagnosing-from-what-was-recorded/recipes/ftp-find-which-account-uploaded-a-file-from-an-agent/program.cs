@@ -9,7 +9,7 @@
 //   record          the PASS lines in get_exchanges
 //   log-file        a start_server that asks for a log file
 //   plaintext-off   the same uploads without --allow-plaintext-auth
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

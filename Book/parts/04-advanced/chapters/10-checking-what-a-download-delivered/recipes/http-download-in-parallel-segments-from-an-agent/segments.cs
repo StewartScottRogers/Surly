@@ -6,7 +6,7 @@
 //   curl           one curl tool call, four transfers with --parallel, each saved to a file
 //   slow           as transfer, against a server that holds every request 1 s
 //   past-the-end   one transfer for a range that starts after the last byte
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text.Json;

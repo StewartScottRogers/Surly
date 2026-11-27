@@ -7,7 +7,7 @@
 //   bare          the same three requests through a client with no options
 //   timeout       a request to a path the server holds for 5 seconds
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;
 using System.Text;

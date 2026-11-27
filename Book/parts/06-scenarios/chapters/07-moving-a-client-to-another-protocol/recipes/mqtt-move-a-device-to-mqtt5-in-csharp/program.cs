@@ -11,7 +11,7 @@
 //   no-login         mqtt | mqtt5: no user name
 //   clear-password   mqtt | mqtt5: the right password, with no --allow-plaintext-auth
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

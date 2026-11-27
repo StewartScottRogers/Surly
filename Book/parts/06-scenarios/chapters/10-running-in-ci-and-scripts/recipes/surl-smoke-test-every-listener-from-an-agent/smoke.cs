@@ -6,7 +6,7 @@
 //   all   every listener of the environment (the default)
 //   hung  HTTP, then a listener that accepts but never answers, then IMAP
 //   gone  a URL whose server has been stopped, then FTP
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

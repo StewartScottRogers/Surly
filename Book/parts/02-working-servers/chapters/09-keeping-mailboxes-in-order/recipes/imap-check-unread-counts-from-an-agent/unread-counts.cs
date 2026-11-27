@@ -6,7 +6,7 @@
 //   no-folder      STATUS for a folder that does not exist
 //   no-size        STATUS with the IMAP4rev2 SIZE item
 //   unknown-owner  list_mailboxes for an account that does not exist
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

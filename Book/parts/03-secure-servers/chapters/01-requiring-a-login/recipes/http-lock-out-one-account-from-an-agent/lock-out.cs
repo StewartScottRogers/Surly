@@ -8,7 +8,7 @@
 //   once    a rule that applies one time
 //   rule    what list_faults answers
 //   events  login_judged and fault_applied events
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

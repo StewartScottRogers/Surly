@@ -2,7 +2,7 @@
 // An app should reach one host only, through a test proxy. The agent reads the proxy listener's
 // exchanges from surl-mcp and lists every target the app asked the proxy for.
 // Run: dotnet run list-proxy-targets.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

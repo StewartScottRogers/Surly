@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent seeds a directory with surl-mcp and searches it by base, scope, filter and attributes with
 // curl-mcp, over the official MCP SDK. Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -13,7 +13,7 @@
 //   clear-text  an account broker, the right password over the WebSocket
 //   allowed     the same, with --allow-plaintext-auth
 //   wrong       the same, with a wrong password
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

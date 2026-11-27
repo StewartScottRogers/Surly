@@ -9,7 +9,7 @@
 //   answer         the headers of the override's 401, and what the server judged of the token
 //   no-override    no override: 6 calls on one token
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

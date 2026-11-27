@@ -10,7 +10,7 @@
 //   stored         the same failure, then the top of the copy the server stored
 //   fixed          the app names Ann; the test passes
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

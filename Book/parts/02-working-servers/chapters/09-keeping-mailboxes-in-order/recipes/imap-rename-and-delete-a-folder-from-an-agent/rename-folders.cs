@@ -14,7 +14,7 @@
 //   delete-full    DELETE a folder that holds messages
 //   path           RENAME to a name with a slash
 //   parent         DELETE the implied parent of that path
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

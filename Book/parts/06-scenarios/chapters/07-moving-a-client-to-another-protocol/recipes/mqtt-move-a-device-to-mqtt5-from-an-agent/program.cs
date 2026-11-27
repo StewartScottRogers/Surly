@@ -10,7 +10,7 @@
 //   wrong-password   mqtt | mqtt5: a wrong password
 //   no-login         mqtt | mqtt5: no user name
 //   clear-password   mqtt | mqtt5: the right password, with no --allow-plaintext-auth
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

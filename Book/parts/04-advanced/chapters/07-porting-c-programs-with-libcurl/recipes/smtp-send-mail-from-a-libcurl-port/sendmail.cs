@@ -3,7 +3,7 @@
 // read callback that hands libcurl the message a line at a time, ported call for call to C# with Libcurl.
 // Each line names the C call it stands for.
 // Run: dotnet run sendmail.cs -- <smtp url> <user:password> <from> <to>
-#:package Surly.Libcurl@*
+#:package Surly.Libcurl@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api.Callbacks;

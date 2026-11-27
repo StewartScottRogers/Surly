@@ -2,7 +2,7 @@
 // An agent finds out that a mailbox is IMAP-only: it tries POP3 through curl-mcp's curl tool, reads the
 // refusal and what surl-mcp recorded, then switches to IMAP with the same login.
 // Run: dotnet run imap-only.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

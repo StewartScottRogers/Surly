@@ -4,7 +4,7 @@
 // Run: dotnet run which-listener.cs [-- no-anonymous]
 //   (no argument)  the three clients, then what the server recorded
 //   no-anonymous   the FTP fetch from a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

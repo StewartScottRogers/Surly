@@ -28,6 +28,8 @@ A protocol that is new to either program gets its first recipes in `parts/05-new
 
 ## When a program releases
 
+The book follows the packages a reader can download from nuget.org, not the repositories (ADR-0010): `build/packages.yml` pins each published package at an exact version, `build/pin.py` rewrites it and every `#:package` line together, and `build/fetch_pins.py` gets the rest (the command-line programs' release binaries, and any library nuget.org does not carry yet). A new version on nuget.org is a release.
+
 Run `python3 build/verify.py` with the new binaries on each platform. Every `broken` recipe is a finding: decide whether the program regressed or the book was wrong, write it in the editorial log, and either file it against the program or fix the recipe. Rebuild so the book shows the new status. Never edit `verified.yml`.
 
 ## Rules that do not bend

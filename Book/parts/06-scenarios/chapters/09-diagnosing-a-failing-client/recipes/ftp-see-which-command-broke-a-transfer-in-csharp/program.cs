@@ -8,7 +8,7 @@
 //   real      a server with no fault rule and no AllowUploads: one run, then the failed sessions
 //   locked    a server with no anonymous login: one run
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using System.Text.RegularExpressions;

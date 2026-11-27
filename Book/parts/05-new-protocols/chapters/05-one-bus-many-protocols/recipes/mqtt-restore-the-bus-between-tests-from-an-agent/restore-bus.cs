@@ -9,7 +9,7 @@
 //   reset     a test, then reset_server in place of the restore
 //   unknown   restore_server with a snapshot never taken
 //   locked    the same server without --allow-anonymous: the test's first publish
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -9,7 +9,7 @@
 //   wrong      a wrong password at the token endpoint
 //   scope      a token scoped to another repository
 //   pages      the tag list two at a time, following the Link header
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

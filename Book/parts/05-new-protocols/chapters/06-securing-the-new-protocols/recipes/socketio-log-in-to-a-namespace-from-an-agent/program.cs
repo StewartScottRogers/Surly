@@ -7,7 +7,7 @@
 //   socketios none           TLS and no login
 //   socketios tok123:        a token account, started with the token option; :tok123 too
 //   socketio alice:s3cret    no TLS, the right password; add plaintext to loosen the server
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

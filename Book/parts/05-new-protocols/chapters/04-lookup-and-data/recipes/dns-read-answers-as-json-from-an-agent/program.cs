@@ -10,7 +10,7 @@
 //   second-zone       seed a second zone for the same apex
 //   no-dns-listener   seed a zone into a server with only an HTTP listener
 //   transfer          look up with curl-mcp's transfer tool, which has no JSON switch
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

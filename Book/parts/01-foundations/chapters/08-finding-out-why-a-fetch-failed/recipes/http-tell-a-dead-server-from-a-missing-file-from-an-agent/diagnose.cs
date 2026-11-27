@@ -5,7 +5,7 @@
 //   up           fetch a path it has
 //   stopped      stop the server with stop_server, then fetch from it
 //   unresolved   fetch from a host name that does not resolve
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

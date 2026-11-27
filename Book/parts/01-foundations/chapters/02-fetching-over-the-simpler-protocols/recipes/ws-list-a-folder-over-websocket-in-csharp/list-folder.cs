@@ -7,7 +7,7 @@
 //   off           the root of a server without ListDirectories
 //   log           the server's own account of the listing it sent
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

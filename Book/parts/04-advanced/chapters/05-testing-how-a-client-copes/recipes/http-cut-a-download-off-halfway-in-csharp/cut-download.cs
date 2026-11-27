@@ -6,7 +6,7 @@
 //   restart  download three times from the start, as a client that does not resume would
 //   short    a short file through the same rule
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

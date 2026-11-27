@@ -4,7 +4,7 @@
 // should stay shut, and surl-mcp shows what the server stored and judged.
 // Run: dotnet run token-mail.cs [-- why]   (why: ordinary mailboxes, to show what protocols=http closes)
 // server.pem and server.key, a certificate and key for 127.0.0.1, are in this folder.
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

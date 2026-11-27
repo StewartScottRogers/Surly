@@ -5,7 +5,7 @@
 //   replace      the app uploads a second file to the same key
 //   wrong-secret the app signs with a wrong secret
 //   uploads-off  the server keeps its default and takes no uploads
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

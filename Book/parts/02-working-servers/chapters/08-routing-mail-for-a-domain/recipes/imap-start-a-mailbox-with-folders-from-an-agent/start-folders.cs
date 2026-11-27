@@ -5,7 +5,7 @@
 //   (no argument)  ann and bob with three folders, carol with none, dave and erin with odd names
 //   twice          a folders= list that names Sent twice
 //   empty          folders= with nothing after it
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

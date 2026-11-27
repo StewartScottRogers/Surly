@@ -4,7 +4,7 @@
 // Run: dotnet run rotate-token.cs [-- rotate|refusals]
 //   rotate    add, replace and remove the token (the default)
 //   refusals  a second add_account, then set_account_password and remove_account with no token set
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

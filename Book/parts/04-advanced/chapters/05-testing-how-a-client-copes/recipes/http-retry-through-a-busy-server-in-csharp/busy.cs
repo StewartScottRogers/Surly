@@ -5,7 +5,7 @@
 //   path      the file to fetch (report.txt if not given; health.txt is never busy)
 //   again     as a third argument: after the loop, fetch the same path once more, with no retries
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;
 using Curl.Api;

@@ -6,7 +6,7 @@
 //   share         two workers share the jobs; the monitor is sent them all (the default)
 //   late          the same, then a worker and a plain subscriber that come late
 //   no-anonymous  a worker with no login, on a broker without --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

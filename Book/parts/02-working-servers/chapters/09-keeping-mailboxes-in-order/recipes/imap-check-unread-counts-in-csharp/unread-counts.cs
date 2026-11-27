@@ -7,7 +7,7 @@
 //   no-folder      count a folder ann does not have
 //   unknown-owner  ask the store about an account that does not exist
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

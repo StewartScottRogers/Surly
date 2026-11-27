@@ -5,7 +5,7 @@
 //   (none)       the file is replaced between the halves; the resume sends the ETag
 //   unchanged    the file is left alone; the resume sends the ETag
 //   no-if-range  the file is replaced; the resume sends Range alone
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

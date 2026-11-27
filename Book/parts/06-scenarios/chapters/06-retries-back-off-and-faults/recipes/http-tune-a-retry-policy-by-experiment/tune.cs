@@ -6,7 +6,7 @@
 //   (no argument)  the sweep over N = 1, 2, 3 and the recommendation
 //   events         one trial, then the fault events the server recorded for it
 //   no-fail        a trial without -f: the last 503 exits 0
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

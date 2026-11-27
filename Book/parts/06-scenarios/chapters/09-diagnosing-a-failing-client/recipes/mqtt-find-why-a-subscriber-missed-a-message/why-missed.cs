@@ -3,7 +3,7 @@
 // broker with grants and a retain filter. For each reading a dashboard missed, the agent checks the subscriber's
 // SUBSCRIBE and SUBACK, the retained message, the bus events for the topic and the publisher's PUBLISH, and says why.
 // Run: dotnet run why-missed.cs [no-plaintext]   (no-plaintext: a broker without --allow-plaintext-auth, one publish)
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

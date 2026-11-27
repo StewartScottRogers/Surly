@@ -7,7 +7,7 @@
 //   path     an app's own signer puts the bucket in the path it signs (virtual-hosted request)
 //   secret   curl signs with a wrong secret
 //   right    curl signs with the right secret
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text;

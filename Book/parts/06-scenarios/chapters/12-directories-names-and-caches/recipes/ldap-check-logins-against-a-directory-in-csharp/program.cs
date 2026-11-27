@@ -7,7 +7,7 @@
 //   refused   a wrong password, a name not in the directory, and no login
 //   events    what each server recorded about alice's login
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

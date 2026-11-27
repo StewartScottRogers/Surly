@@ -33,7 +33,8 @@ Do not read the Surl or Curl READMEs or `--aihelp` end to end; look up one thing
   gets a case without it (the refusal) and with it, on two servers and ports if needed.
 - Certificates and keys come from `setup:` (openssl, ssh-keygen), never fixtures. Seed stores
   with `seed:`; test a restart with `restart:`. Ports are `{{port}}`..`{{port9}}`; null is `{{null}}`.
-- C# and MCP programs: one short file, `#:package` lines exactly as scaffolded; MCP programs start
+- C# and MCP programs: one short file, `#:package` lines exactly as scaffolded (the versions in
+  build/packages.yml, the nuget.org packages a reader installs: ADR-0010); MCP programs start
   hosts by name with `StdioClientTransport` and roots in `SURL_MCP_ROOT` / `CURL_MCP_ROOT`.
 - Prose: plain, direct, dry; spell out each acronym once per recipe; `` `name`{apos}s `` not
   `` `name`'s ``; wrap `=>` and `<=` in `` `+...+` ``; no "simply", "just" or exclamation marks.

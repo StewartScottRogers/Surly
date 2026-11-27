@@ -14,7 +14,7 @@
 //   sent-as-token the record shows the token sent as auth_token, with no user and password
 //   record        the record get_exchanges keeps holds what the client sent, token included
 //   right         natss://, the token the server holds
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

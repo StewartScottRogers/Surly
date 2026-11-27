@@ -3,7 +3,7 @@
 // one the agent reads the logins surl judged (get_events) and, where none was judged, the Authorization the client sent
 // and the methods the server offered (get_exchanges), and says whether the method, the user or the password is wrong.
 // Run: dotnet run why-401.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

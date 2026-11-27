@@ -12,7 +12,7 @@
 //   plaintext   the same, with --allow-plaintext-auth
 //   anonymous   mcps with --allow-anonymous, no token
 //   no-cert     mcps with no certificate
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -2,7 +2,7 @@
 // An agent summarises a test run from surl-mcp's events: logins, uploads, mail delivered and
 // faults applied, read from what the server kept rather than from the clients' side.
 // Run: dotnet run summarise.cs [-- wrong-ftp-password | no-plaintext]
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -3,7 +3,7 @@
 // curl-mcp and reads the server's offer back from get_exchanges. The keys come from setup: in
 // recipe.yml: host_key and client_key, each with a .pub half.
 // Run: dotnet run offer.cs [-- narrowed|file|other-cipher|other-mac|default-offer|default-macs|two|unknown-cipher|unknown-mac|weak-cipher|weak-allowed]
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Buffers.Binary;
 using System.Text;

@@ -8,7 +8,7 @@
 //   no-login         a client with no login
 //   no-plaintext     log in without AllowPlaintextAuthentication
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

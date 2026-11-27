@@ -7,7 +7,7 @@
 //   stop-again  stop it, then stop the same ID again
 //   exchanges   stop it, then ask for its exchanges
 //   restart     stop it, then start a new server on the same URL and fetch from it
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

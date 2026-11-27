@@ -6,7 +6,7 @@
 //   uncapped  no cap on the client
 //   retry     no cap, and each 503 sent again a second later, up to ten times
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;
 using System.Security.Cryptography;

@@ -7,7 +7,7 @@
 //   store          the mailboxes list_mailboxes names for each owner
 //   read           Carol tries to read team's first message
 //   typo           a member's address misspelt in start_server's arguments
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

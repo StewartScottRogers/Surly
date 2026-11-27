@@ -5,7 +5,7 @@
 // Run: dotnet run choose-version.cs [-- transfer]
 //   (no argument) the curl tool with --http1.0, --http1.1 and --http2-prior-knowledge
 //   transfer      the transfer tool, which has no version field
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

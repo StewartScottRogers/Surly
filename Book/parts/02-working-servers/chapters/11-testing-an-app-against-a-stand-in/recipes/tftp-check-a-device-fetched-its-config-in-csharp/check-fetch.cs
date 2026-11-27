@@ -10,7 +10,7 @@
 //   device-missing  the same fetch, from the device's side
 //   never           no device fetches r5.cfg; the check
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Buffers.Binary;
 using System.Text;

@@ -2,7 +2,7 @@
 // multi.c, which downloads every URL on its command line at once on one multi handle and reports
 // each result as it finishes, ported call for call to C# with Libcurl. Each line names the C call it stands for.
 // Run: dotnet run multi.cs -- <url>...
-#:package Surly.Libcurl@*
+#:package Surly.Libcurl@0.4.0-preview.5
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;

@@ -6,7 +6,7 @@
 //   solution   a session that lives six seconds, the app before and after, and the store afterwards
 //   lifetimes  a session with a minute to live, one with no expiry, and one never seeded
 //   strict     a server started without --allow-plaintext-auth
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

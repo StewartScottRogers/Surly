@@ -7,7 +7,7 @@
 //   plaintext      http:// with --allow-plaintext-auth --auth digest,bearer
 //   basic-only     https:// with --auth basic
 //   <password>     log in as app with this password instead
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

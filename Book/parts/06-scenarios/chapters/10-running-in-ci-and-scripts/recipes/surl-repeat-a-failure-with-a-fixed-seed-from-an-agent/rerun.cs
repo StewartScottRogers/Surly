@@ -2,7 +2,7 @@
 // An agent reruns a failed test run with the seed its log printed: surl-mcp starts an S3 endpoint
 // with --random-seed, curl-mcp runs the app's multipart upload, and read_file shows what was stored.
 // Run: dotnet run rerun.cs [-- <seed> [probe] | nonces | bad-seed]
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

@@ -5,7 +5,7 @@
 //   server  open (started with --allow-plaintext-auth, the default) or strict (as surl starts by default)
 //   login   right (the default), none, wrong, unknown (a user with no account),
 //           or field (the right login in transfer's proxyUser field, not in the proxy URL)
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

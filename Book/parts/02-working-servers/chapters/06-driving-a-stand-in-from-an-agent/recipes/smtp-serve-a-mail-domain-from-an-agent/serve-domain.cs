@@ -7,7 +7,7 @@
 //   unknown      Ann mails cy@example.com, in the domain with no mailbox
 //   no-login     a send with no login
 //   outside-box  start_server with a mailbox outside the domain
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

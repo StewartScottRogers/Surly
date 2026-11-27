@@ -10,7 +10,7 @@
 //   no-such-account  remove_account twice, and on a server that is not running
 //   last-account     remove_account on alice, the account given at start
 //   first-account    add_account on a server that has no accounts left
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

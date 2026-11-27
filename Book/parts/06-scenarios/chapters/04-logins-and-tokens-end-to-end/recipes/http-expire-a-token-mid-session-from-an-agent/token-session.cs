@@ -8,7 +8,7 @@
 //   broken         a fault answers every API call 401, even after a new login
 //   guess          the client starts with a stale token and a wrong password
 //   endpoint       what the token endpoint answers, a call with no token, and a fixed token account
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol;

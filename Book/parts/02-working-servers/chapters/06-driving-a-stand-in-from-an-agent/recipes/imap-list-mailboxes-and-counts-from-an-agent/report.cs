@@ -11,7 +11,7 @@
 //   owners       bob's report, and ann's again
 //   unknown      owners that have no mailbox
 //   reset        reset_server: the mail goes, the folders stay
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

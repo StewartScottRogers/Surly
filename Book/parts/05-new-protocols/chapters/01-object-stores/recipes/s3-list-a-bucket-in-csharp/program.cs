@@ -2,7 +2,7 @@
 // Lists a bucket with Curl.Api against three Surl.Api servers, in one process: one that allows listings,
 // one that does not, and one that also allows anonymous callers. Run: dotnet run program.cs
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

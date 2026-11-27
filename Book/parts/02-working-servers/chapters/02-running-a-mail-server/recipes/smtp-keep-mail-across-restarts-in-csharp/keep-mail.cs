@@ -10,7 +10,7 @@
 //   in-use         a second server on the folder while the first runs
 //   memory         the same test with no DataDirectory
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

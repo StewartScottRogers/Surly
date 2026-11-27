@@ -9,7 +9,7 @@
 //   twice     a job queued after the first restart, then a second and a third restart
 //   memory    the same test with no DataDirectory
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

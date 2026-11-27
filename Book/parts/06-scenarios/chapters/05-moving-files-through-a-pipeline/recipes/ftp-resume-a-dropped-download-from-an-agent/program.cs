@@ -7,7 +7,7 @@
 //   by-hand    two curl calls without --retry
 //   whole      the copy in the folder is already the whole image
 //   longer     the copy in the folder is a 300,000-byte file
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

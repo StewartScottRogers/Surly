@@ -7,7 +7,7 @@
 //   second       start a second server on the same folder
 //   both         give DataDirectory and Files together
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

@@ -8,7 +8,7 @@
 //   wrong-recipient  the app mails an@example.com instead of ann@example.com
 //   no-plaintext     the server keeps its default, no password in clear without TLS
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net;
 using System.Net.Mail;

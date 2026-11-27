@@ -2,7 +2,7 @@
 // Seeds the LDAP directory of a running Surl.Api server from LDIF text, in steps, and reads it back
 // two ways: searched over LDAP with Curl.Api, and exported as LDIF. Run: dotnet run program.cs
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

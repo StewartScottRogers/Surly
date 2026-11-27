@@ -6,7 +6,7 @@
 //   loose          the same token over plain imap on a server with AllowPlaintextAuthentication
 //   one            a server that offers OAUTHBEARER alone, and a client that insists on XOAUTH2
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net.Sockets;
 using System.Text;

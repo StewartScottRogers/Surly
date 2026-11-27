@@ -2,7 +2,7 @@
 // A client run fails in places while fault rules are set. Before blaming the client, the agent
 // matches every failed exchange against surl-mcp's fault_applied events.
 // Run: dotnet run bug-or-fault.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

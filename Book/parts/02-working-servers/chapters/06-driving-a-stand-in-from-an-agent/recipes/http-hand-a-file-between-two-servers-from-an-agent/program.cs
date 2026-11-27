@@ -8,7 +8,7 @@
 //   wait-first the wait is sent before the upload
 //   put-twice  a second put_file over the same path
 //   put-both   put_file given both text and base64
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text.Json;

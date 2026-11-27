@@ -3,7 +3,7 @@
 // the agent waits for the SMTP exchange to end and reads the refused command and reply from
 // surl-mcp's get_exchanges, the mailbox from list_mailboxes, and a refused login from get_events.
 // Run: dotnet run why-refused.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -5,7 +5,7 @@
 //   (no argument) curl -Z with --http2-prior-knowledge
 //   slow          the server holds every request 2 s; times the five with -Z and without it
 //   http1.1       curl -Z with --http1.1, which cannot share a connection
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Diagnostics;
 using System.Text.Json;

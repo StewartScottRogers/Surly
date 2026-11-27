@@ -6,7 +6,7 @@
 //   no-keys       the server takes passwords only
 //   unknown-user  the job logged in as a user the server has no keys for
 //   same-record   a wrong key and a password the server never takes leave the same record
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -10,7 +10,7 @@
 //   plaintext-wrong-password  a wrong password over plain AMQP with --allow-plaintext-auth
 //   untrusted-certificate     AMQPS with no certificate to trust
 //   needs-a-certificate       start an amqps listener with no certificate
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -10,7 +10,7 @@
 //   subdomain     a send to ann@mail.one.test
 //   unknown       a send to cy@two.test, which has no mailbox
 //   both          one send to Bo in both domains
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

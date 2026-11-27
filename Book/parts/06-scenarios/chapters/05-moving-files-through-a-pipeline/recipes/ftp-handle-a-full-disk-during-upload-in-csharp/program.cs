@@ -9,7 +9,7 @@
 //   last-night  upload nothing; the next step reads last night's export
 //   http-put    upload the export to /archive with an HTTP PUT instead
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

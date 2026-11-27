@@ -8,7 +8,7 @@
 //   404       the same override answering 404 for a file that is there
 //   unread    an answer surl cannot read: the request is served, and the server says why
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Collections.Concurrent;
 using Curl.Api;

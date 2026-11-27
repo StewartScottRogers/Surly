@@ -9,7 +9,7 @@
 //   missing         the device asks for r9.cfg, which is not served; the check
 //   device-missing  the same fetch, from the device's side
 //   never           no device fetches r5.cfg; the check
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

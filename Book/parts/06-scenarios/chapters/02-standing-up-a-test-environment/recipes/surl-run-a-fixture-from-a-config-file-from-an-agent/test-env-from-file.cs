@@ -5,7 +5,7 @@
 //   start    read the file into start_server's arguments and try the servers (the default)
 //   config   pass --config test-env.conf to start_server instead
 //   <file>   read another file in place of test-env.conf, such as outside.conf
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

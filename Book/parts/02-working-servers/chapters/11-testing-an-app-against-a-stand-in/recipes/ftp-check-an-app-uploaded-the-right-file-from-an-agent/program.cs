@@ -9,7 +9,7 @@
 //   missing        the check of a file the app never uploaded
 //   uploads-off    a server that takes no uploads: the app
 //   login-needed   a server with no anonymous login: the app
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

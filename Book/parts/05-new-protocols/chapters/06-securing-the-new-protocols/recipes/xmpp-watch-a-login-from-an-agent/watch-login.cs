@@ -9,7 +9,7 @@
 //   fault     the right password, with a refuse-login fault on the server
 //   nologin   the client gives no user name or password
 //   untrusted the right password, but the client does not trust the server's certificate
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

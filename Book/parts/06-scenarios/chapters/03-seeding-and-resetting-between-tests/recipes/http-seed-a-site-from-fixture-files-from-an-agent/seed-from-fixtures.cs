@@ -6,7 +6,7 @@
 //   strict      the same server with --allow-anonymous and --allow-uploads left out
 //   no-uploads  --allow-anonymous given, --allow-uploads left out
 //   on-disk     serve the fixtures folder itself with --directory, then ask for a reset
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

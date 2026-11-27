@@ -7,7 +7,7 @@
 //   transfer   the transfer tool reads the root
 //   off        a server started without --list-directories
 //   missing    a path that is not there, and a dot file the server holds
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

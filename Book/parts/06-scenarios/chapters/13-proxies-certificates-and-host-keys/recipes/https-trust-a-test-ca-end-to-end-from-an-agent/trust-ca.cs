@@ -8,7 +8,7 @@
 //   stray          trust ca.pem, against a server another authority signed for
 //   insecure       skip the check (-k) against that server
 //   revocation     trust ca.pem, without --ssl-no-revoke
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -8,7 +8,7 @@
 //   account-dtls an account: read over coaps            anonymous  an account and AllowAnonymous, plain coap
 //   psk          an account and no certificate, coaps   nothing    coaps with no certificate and no account
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

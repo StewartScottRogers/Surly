@@ -8,7 +8,7 @@
 //   any           a client that lets curl pick the method from the challenge
 //   cutover       a server that takes Digest only, which is surl's default over plain HTTP
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

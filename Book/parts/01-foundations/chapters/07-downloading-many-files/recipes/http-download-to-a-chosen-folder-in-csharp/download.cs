@@ -5,7 +5,7 @@
 //   --no-create   skip creating the folders first
 //   path ...      what to fetch (default: docs/guide.txt reports/2026/summary.txt)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

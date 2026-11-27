@@ -8,7 +8,7 @@
 //   login    the same, then the client's lines before MAIL FROM
 //   stored   the same, then the top of the copy the server stored
 //   fixed    the app names Ann
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

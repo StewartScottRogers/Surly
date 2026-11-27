@@ -2,7 +2,7 @@
 // An agent uploads a batch of files over SFTP to a pinned host key with curl-mcp, then lists the server's side and
 // compares every name and size. host_key and host_key.pub come from setup: in recipe.yml.
 // Run: dotnet run batch.cs [-- all|glob|glob-escape|wrong-pin|missing|short|repaired|uploads-off|no-listing]
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text.Json;

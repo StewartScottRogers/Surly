@@ -7,7 +7,7 @@
 //   read      the agent reads a key with an expiry and a key without
 //   no-key    the agent reads a key that is not there
 //   closed    the server keeps its default and refuses the cache's password
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

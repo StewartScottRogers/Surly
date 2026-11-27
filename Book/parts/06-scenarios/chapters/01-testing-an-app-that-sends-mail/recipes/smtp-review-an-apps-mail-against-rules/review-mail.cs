@@ -6,7 +6,7 @@
 //   clean     the app sends two mails that keep the rules (the default)
 //   broken    the app sends one good mail and one with no Date or Message-ID and a Cc outside the domain
 //   outside   the app names a recipient outside the domain in the envelope
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

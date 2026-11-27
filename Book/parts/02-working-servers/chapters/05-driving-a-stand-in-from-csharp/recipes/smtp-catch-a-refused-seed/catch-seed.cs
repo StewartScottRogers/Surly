@@ -9,7 +9,7 @@
 //   right          seed for ann@example.com
 //   catch-all      seed for anne@example.com with a catch-all mailbox for example.com
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

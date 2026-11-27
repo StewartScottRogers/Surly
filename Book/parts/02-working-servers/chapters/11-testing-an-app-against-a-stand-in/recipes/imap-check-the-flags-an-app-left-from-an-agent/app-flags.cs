@@ -3,7 +3,7 @@
 // \Deleted through curl-mcp's curl tool; the agent then reads every message's flags with
 // surl-mcp's list_messages.
 // Run: dotnet run app-flags.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

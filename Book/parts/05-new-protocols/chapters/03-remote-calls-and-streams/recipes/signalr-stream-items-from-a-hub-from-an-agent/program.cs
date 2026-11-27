@@ -7,7 +7,7 @@
 //   wrong-type      invoke Count as an ordinary call, then stream Echo
 //   invalid-arg     stream Count with -1
 //   refused         stream from a hub that allows no anonymous client
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -14,6 +14,7 @@ Architecture decision records for the Surly monorepo. One file per decision, num
 - [ADR-0008](ADR-0008-recipes-from-code-and-agents.md) - Recipe schema 2: C# file-based-app cases (`Surl.Api`, `Curl.Api`, `Libcurl`) and MCP tool-call cases (`surl-mcp`, `curl-mcp`), in their own chapters inside the difficulty tiers.
 
 - [ADR-0009](ADR-0009-a-thousand-recipes.md) - About 1,000 recipes, a third each on the console, C# and agents; triplets where they fit; Part 6 Scenarios; the plan approved first; batches of about 60.
+- [ADR-0010](ADR-0010-the-book-follows-the-nuget-packages.md) - The book follows the nuget.org packages, not the repositories: exact versions in packages.yml, verify restores from nuget.org, agent recipes start hosts with dnx, console recipes keep release binaries until the programs are .NET tools.
 
 ## Open
 

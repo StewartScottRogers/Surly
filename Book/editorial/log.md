@@ -22,3 +22,4 @@ One line per decision by the author, newest last. This is the record of human au
 | 2026-11-19 | Licence wording | Accepted | "All rights reserved" dropped from book.yml: the text is CC BY-ND 4.0 and the code Apache 2.0 (ADR-0003); the cover and mark keep their own rights (Book/README.md) |
 | 2026-11-19 | The 1,000-recipe plan (plan-1000.md, ADR-0009) | Accepted | 990 recipes, 330 a surface; 890 planned in 15 batches; Part 6 Scenarios; triplets kept together in their task's chapter (ADR-0008 item 2 amended) |
 | 2026-11-27 | http-accept-a-bearer-token, http-log-in-with-digest | Accepted | The author's review of the first five drafted recipes; verified on Surl v0.1.11 and Curl v0.4.0-preview.5 on all three platforms |
+| 2026-11-27 | http-log-in-with-ntlm | Accepted | Kept the Negotiate sentence, which now cites curl-changes |

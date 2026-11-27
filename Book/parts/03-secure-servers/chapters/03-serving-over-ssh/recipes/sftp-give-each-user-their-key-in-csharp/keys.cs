@@ -3,7 +3,7 @@
 // host_key, deploy_a, deploy_a2 and deploy_b, each with a .pub half, and a_keys, two lines.
 //   own-key (the default), second-user, a-key-as-b, b-key-as-a, second-key, second-key-as-b, unknown-user, events
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

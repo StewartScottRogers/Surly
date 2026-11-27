@@ -6,7 +6,7 @@
 //   retry-alone     refuse two attempts; curl --retry 1 without --retry-all-errors
 //   one-attempt     refuse one attempt; curl with no retry
 //   wrong-password  refuse two attempts; curl --retry 1 --retry-all-errors with a wrong password
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

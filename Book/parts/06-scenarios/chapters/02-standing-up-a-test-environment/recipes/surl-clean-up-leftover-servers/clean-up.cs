@@ -7,7 +7,7 @@
 //   stop-again  clean up, then stop one of the same IDs again
 //   other-host  ask a second surl-mcp host for its servers while the first still runs three
 //   host-exit   start a server on a second host, end that host, then fetch from the server
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

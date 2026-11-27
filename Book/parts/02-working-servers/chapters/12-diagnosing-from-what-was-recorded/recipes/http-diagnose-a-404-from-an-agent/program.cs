@@ -7,7 +7,7 @@
 //   deleted    a file that was there and was removed
 //   folder     a request for a folder
 //   no-404     every request was answered: nothing to diagnose
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

@@ -6,7 +6,7 @@
 //   stomps alice:wrong    TLS and a wrong password
 //   stomps none           TLS and no login
 //   stomp alice:s3cret    no TLS, the right password; add plaintext to loosen the server
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

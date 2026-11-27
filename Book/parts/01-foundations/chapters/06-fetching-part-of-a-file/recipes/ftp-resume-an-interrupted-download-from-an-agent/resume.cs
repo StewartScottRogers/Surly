@@ -8,7 +8,7 @@
 //   offset        -C 100000, whatever is on disk
 //   wrong         a partial copy of 65,536 other bytes
 //   verbose       the resume with -v, to read the REST from the client's side
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

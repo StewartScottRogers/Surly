@@ -12,7 +12,7 @@
 //   not-retained   publish_message with retain false
 //   curl-publish   curl publishes on the topic: wait for the broker, then read the store
 //   closed         a broker with no --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

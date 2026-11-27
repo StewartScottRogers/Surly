@@ -7,7 +7,7 @@
 //   verbose       a singlecwd fetch with -v, to read the CWD from the client's side
 //   locked        a file under a folder whose CWD the server refuses, with each method
 //   missing       a missing file, and a missing folder with multicwd and nocwd
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
