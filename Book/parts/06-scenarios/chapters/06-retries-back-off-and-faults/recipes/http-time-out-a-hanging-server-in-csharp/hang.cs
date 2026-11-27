@@ -7,7 +7,7 @@
 //             none:    no limit
 //   retries   how many retries the client may make after a timeout (0 if not given)
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Diagnostics;
 using Curl.Api;

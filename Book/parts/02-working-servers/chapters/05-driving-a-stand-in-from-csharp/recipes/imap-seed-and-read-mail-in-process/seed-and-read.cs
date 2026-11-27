@@ -5,7 +5,7 @@
 //   bob             seed a message for an account the server does not have
 //   wrong-password  seed as usual, then fetch with the wrong password
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Curl.Api.Errors;

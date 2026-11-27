@@ -9,7 +9,7 @@
 //   test-put    a file the test puts itself
 //   dispose     an upload after the callback is disposed
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Collections.Concurrent;
 using System.Text;

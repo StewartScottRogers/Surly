@@ -196,7 +196,8 @@ def main():
     # version is restored from nuget.org, as a reader's is, and never packed here. A host package
     # pinned there is installed from nuget.org as the .NET tool a reader runs with dnx.
     published = nuget_pins()
-    for package, folder, program in (("Surly.Surl.Mcp", "surl-mcp", "surl"), ("Surly.Curl.Mcp", "curl-mcp", "curl")):
+    for package, folder, program in (("Surly.Surl.Mcp", "surl-mcp", "surl"), ("Surly.Curl.Mcp", "curl-mcp", "curl"),
+                                     ("Surly.Curl", "curl", "curl")):
         if published.get(package):
             shutil.rmtree(bin_ / folder, ignore_errors=True)
             run(["dotnet", "tool", "install", package, "--version", published[package],
@@ -219,11 +220,12 @@ def main():
                             if p.is_file() and p.name in names and f"/{r}/" in p.as_posix()), None)
     surl_mcp = host_binary("surl-mcp", (f"surl-mcp{EXE}", f"Surl.Mcp{EXE}"))
     curl_mcp = host_binary("curl-mcp", (f"Curl.Mcp{EXE}", f"curl-mcp{EXE}"))
-    if not surl_mcp or not curl_mcp:
-        sys.exit(f"no host binary: surl-mcp {surl_mcp}, curl-mcp {curl_mcp}")
+    curl_bin = host_binary("curl", (f"curl{EXE}",))
+    if not surl_mcp or not curl_mcp or not curl_bin:
+        sys.exit(f"no binary: surl-mcp {surl_mcp}, curl-mcp {curl_mcp}, curl {curl_bin}")
     values = {
         "SURLY_SURL": bin_ / "surl" / f"surl{EXE}",
-        "SURLY_CURL": bin_ / "curl" / f"curl{EXE}",
+        "SURLY_CURL": curl_bin,
         "SURLY_SURL_MCP": surl_mcp,
         "SURLY_CURL_MCP": curl_mcp,
         "SURLY_NUGET_SOURCE": feed,

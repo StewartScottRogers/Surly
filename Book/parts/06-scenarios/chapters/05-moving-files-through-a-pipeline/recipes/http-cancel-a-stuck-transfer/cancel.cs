@@ -5,7 +5,7 @@
 //   timeout    let the client's own Timeout of one second end it instead
 //   one-slot   cancel as above, against a server that takes one connection per address
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Diagnostics;
 using System.Text;

@@ -3,7 +3,7 @@
 // the test waits for each delivery, then checks recipient, subject and link in the stored copy.
 // Run: dotnet run check-reset-mail.cs
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using System.Text.RegularExpressions;

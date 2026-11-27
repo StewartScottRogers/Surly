@@ -3,7 +3,7 @@
 // and takes folders, one that lists only, and one that does neither.
 // Run: dotnet run program.cs
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Curl.Api.Errors;

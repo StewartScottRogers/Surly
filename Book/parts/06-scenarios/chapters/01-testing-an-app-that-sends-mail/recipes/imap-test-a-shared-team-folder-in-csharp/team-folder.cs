@@ -7,7 +7,7 @@
 //   deliver        the test seeds mail for team@example.com through Surl.Api
 //   curl-store     the flag is asked of Curl.Api, as a request method
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Net.Sockets;
 using System.Security.Cryptography;

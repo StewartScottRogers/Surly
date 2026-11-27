@@ -6,7 +6,7 @@
 //   other-server   restore the snapshot into a second server
 //   on-disk        reset and snapshot a server whose files are on disk
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

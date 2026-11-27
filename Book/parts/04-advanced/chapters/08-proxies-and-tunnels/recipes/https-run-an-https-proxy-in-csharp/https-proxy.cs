@@ -13,7 +13,7 @@
 //   proxy-unchecked   the proxy's check skipped, the origin trusted
 //   no-certificate  starting an https proxy with no certificate
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Curl.Api.Errors;

@@ -3,7 +3,7 @@
 // example.org, the app's sends go through Curl.Api, and the refusal is found in the recorded exchange.
 // Run: dotnet run foreign-mail.cs
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

@@ -7,7 +7,7 @@
 //   wrong-path     the app uploads under another name; the wait for the report times out
 //   no-advance     the app never uploads and the clock is never moved; only the real-time guard ends the wait
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Diagnostics;
 using Curl.Api;

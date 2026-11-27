@@ -13,7 +13,7 @@
 //   rset           DELE each, then RSET, then the end of the session
 //   rset-kept      the same, and a new session's listing
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

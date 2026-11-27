@@ -9,7 +9,7 @@
 //   guess          the client starts with a stale token and a wrong password
 //   endpoint       what the token endpoint answers, and a call with no token
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using System.Text.Json;

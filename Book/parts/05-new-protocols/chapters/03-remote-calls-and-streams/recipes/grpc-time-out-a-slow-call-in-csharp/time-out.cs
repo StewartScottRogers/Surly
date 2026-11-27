@@ -8,7 +8,7 @@
 //   stream-deadline a stream cut by a 1S grpc-timeout
 //   header          whether the limit goes to the server as grpc-timeout
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Diagnostics;
 using System.Text;

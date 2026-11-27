@@ -6,7 +6,7 @@
 //   throwaway  two starts with a throwaway key; compare the keys served
 //   nokey      a start with no host key at all
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;

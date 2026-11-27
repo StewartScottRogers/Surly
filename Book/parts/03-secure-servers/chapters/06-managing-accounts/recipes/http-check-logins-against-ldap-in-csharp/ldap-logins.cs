@@ -10,7 +10,7 @@
 //   shadow    bob, whom the web server also holds with a password of its own
 //   no-login  a request with no login
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Surl.Api;

@@ -6,7 +6,7 @@
 //   default        the default server: no timestamp, APOP refused, Curl.Api logs in with CRAM-MD5
 //   both           APOP and CRAM-MD5 named together
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Net.Sockets;
 using System.Security.Cryptography;

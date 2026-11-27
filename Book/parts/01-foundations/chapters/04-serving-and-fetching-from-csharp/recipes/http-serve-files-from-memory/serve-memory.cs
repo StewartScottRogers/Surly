@@ -3,7 +3,7 @@
 // Run: dotnet run serve-memory.cs [-- path ...]   (the paths default to the three files below)
 //      dotnet run serve-memory.cs -- --key <key>  (add a key of your own to Files and fetch it)
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Surl.Api;

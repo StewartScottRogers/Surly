@@ -7,7 +7,7 @@
 //   no-filter      the same produce to a server with no Topics filter
 //   no-anonymous   a producer with no login, on a server without AllowAnonymous
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

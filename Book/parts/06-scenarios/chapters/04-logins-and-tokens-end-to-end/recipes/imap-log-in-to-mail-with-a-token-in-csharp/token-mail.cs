@@ -3,7 +3,7 @@
 // XOAUTH2, a send and a read with the token, what the server stored and judged, and every way in that stays shut.
 // Run: dotnet run token-mail.cs [-- why]   (why: ordinary mailboxes, to show what protocols=http closes)
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

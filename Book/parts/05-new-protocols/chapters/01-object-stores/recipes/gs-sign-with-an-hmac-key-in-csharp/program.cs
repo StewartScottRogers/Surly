@@ -2,7 +2,7 @@
 // Logs in to Cloud Storage with an HMAC key and with an OAuth token, refuses the wrong ones, and shows that
 // writes need AllowUploads, with Curl.Api against two Surl.Api servers in one process. Run: dotnet run program.cs
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text.RegularExpressions;
 using Curl.Api;

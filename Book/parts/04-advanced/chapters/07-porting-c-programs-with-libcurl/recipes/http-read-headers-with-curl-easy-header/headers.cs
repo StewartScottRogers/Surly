@@ -2,7 +2,7 @@
 // headers.c, which fetches a URL and then reads the response headers with libcurl's header API,
 // ported call for call to C# with Libcurl. Each line names the C call it stands for.
 // Run: dotnet run headers.cs -- <url> <header name>...
-#:package Surly.Libcurl@0.4.0-preview.5
+#:package Surly.Libcurl@0.4.0-preview.6
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;

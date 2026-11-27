@@ -8,7 +8,7 @@
 //   unresolved   a host name that does not resolve
 // The exit code is the one curl would have used: 0, 22 for an error status with -f, or the libcurl code.
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Net;
 using System.Net.Sockets;

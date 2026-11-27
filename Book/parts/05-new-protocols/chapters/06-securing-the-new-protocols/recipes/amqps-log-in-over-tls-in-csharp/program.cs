@@ -12,7 +12,7 @@
 //   untrusted-certificate    AMQPS with no certificate to trust
 //   needs-a-certificate      start an amqps listener with no certificate
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

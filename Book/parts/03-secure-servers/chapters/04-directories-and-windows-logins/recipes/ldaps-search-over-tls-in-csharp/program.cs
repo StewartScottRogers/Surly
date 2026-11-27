@@ -2,7 +2,7 @@
 // Binds to an LDAP directory with a password over LDAPS, and over plain LDAP, with Surl.Api and Curl.Api,
 // in one process. Run: dotnet run program.cs
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

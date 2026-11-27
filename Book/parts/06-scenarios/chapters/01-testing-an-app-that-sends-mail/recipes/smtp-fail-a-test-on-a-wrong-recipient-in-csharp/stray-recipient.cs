@@ -7,7 +7,7 @@
 //   mixed          one mail to ann@example.com and carol@elsewhere.org
 //   no-domain      the app mails carol@elsewhere.org, and the server has no mail domain
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Net;
 using System.Net.Mail;
