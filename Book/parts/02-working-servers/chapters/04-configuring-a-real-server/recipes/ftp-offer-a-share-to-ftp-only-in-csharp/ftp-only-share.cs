@@ -7,7 +7,7 @@
 //   root             the names the FTP listing of the root holds
 //   http-folder      the FTP-only share's folder over HTTP
 //   unknown-scheme   a protocols= value that names no scheme
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

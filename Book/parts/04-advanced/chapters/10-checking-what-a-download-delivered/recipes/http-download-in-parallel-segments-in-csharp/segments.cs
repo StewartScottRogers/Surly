@@ -5,7 +5,7 @@
 //   <segments>     how many ranges to fetch at once (default 4)
 //   slow           the server holds every request 1 s, so the ranges are all in flight together
 //   past-the-end   ask for one range that starts after the last byte instead
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;

@@ -6,7 +6,7 @@
 //   (none)    alice logs in with her directory password (the default)
 //   refused   a wrong password, a name not in the directory, and no login
 //   events    what each server recorded about alice's login
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

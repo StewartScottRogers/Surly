@@ -8,7 +8,7 @@
 //   password      a wrong password over both
 //   delete        the old client deletes a message
 //   cutover       a mailbox whose logins are limited to SMTP and IMAP
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

@@ -7,7 +7,7 @@
 //   swallowed      HttpVersion.Http3 against a TFTP listener on the same port number
 //   swallowed-only HttpVersion.Http3Only against it, with a 2 s connect timeout
 //   h3             HttpVersion.Http3 against a server with --http3
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

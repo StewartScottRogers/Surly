@@ -7,7 +7,7 @@
 //   locked        the same file under a folder whose CWD the server refuses, with each method
 //   missing       a missing file, and a missing folder with multicwd and nocwd
 //   log           the server's own log of the three fetches
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

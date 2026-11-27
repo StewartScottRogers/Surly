@@ -9,7 +9,7 @@
 //   log            the same failure, then the login lines of the server's verbose log
 //   stored         the same failure, then the top of the copy the server stored
 //   fixed          the app names Ann; the test passes
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

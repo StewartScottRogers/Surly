@@ -7,7 +7,7 @@
 //   twice          a second file that repeats tester05
 //   column         a header naming a column surl does not know
 //   missing        a file that is not there
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

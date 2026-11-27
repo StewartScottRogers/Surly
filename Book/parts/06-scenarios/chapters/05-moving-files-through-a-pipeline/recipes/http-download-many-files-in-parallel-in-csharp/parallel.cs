@@ -5,7 +5,7 @@
 //   capped    MaxConnectionsPerHost 8, the server's limit (the default)
 //   uncapped  no cap on the client
 //   retry     no cap, and each 503 sent again a second later, up to ten times
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;

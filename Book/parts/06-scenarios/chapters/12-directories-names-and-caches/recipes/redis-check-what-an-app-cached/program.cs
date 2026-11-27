@@ -8,7 +8,7 @@
 //   not-found      the origin answers 404: nothing is cached
 //   broken         an app that never writes its cache: the test's check fails
 //   no-plaintext   the server keeps its default and refuses the app's password over Redis
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

@@ -7,7 +7,7 @@
 //   in-place      Accounts.Add for a name that exists, then Remove and Add
 //   last          Accounts.Remove of the only account, then a GET with no login
 //   open-session  an FTP connection logged in as app-v1 before the removal, used after it
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
@@ -64,7 +64,7 @@ switch (mode)
         Console.WriteLine($"Remove app-v1: {server.Accounts.Remove("app-v1")}");
         Console.WriteLine($"HasAccounts: {server.Accounts.HasAccounts}");
         Console.WriteLine($"https, no login: {await Web(null, null)}");
-        Console.WriteLine(log.ToString().Split('\n').Single(l => l.Contains("no account left")).TrimEnd());
+        Console.WriteLine(log.ToString().Split('\n').Single(l => l.Contains("account left")).TrimEnd());
         return 0;
 
     case "open-session":

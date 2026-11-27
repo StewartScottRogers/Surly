@@ -2,7 +2,7 @@
 // Serves a two-word glossary over DICT with Surl.Api and asks it questions with Curl.Api. Each argument is
 // the path of one DICT URL, and each reply is printed whole.
 // Run: dotnet run look-up.cs -- d:surly m:surl show:db
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text.RegularExpressions;

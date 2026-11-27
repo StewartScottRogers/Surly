@@ -4,7 +4,7 @@
 // Run: dotnet run compare-requests.cs [-- no-host]
 //   (no argument)  the bad client writes its header with a space before the colon
 //   no-host        the bad client sends no Host header
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

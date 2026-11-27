@@ -10,7 +10,7 @@
 //   wrong-pin     SFTP pinned to a fingerprint that is not the server's
 //   cutover       a server that refuses plaintext passwords: FTP is refused, SFTP is served
 // host_key and host_key.pub come from setup: in recipe.yml.
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;

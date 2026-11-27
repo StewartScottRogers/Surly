@@ -13,7 +13,7 @@
 //   uploads-off     MKD on a server that accepts no uploads
 //   uploads-off-rmd RMD on that server, of a folder with a file in it
 //   no-login        MKD on a server that accepts no anonymous login
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

@@ -9,7 +9,7 @@
 //   not-an-apex         allow transfers, ask over TCP for a name inside the zone
 //   text-answer         allow transfers, read the dig-like text and not the JSON
 //   no-incremental-type ask for IXFR
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text.Json;

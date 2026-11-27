@@ -5,7 +5,7 @@
 //   (no argument)  the three tests in order, each after a reset
 //   reverse        the same tests in the opposite order
 //   no-reset       in order, with no reset between tests
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

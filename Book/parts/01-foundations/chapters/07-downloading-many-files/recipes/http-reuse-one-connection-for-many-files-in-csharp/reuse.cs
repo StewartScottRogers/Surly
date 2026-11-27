@@ -8,7 +8,7 @@
 //   http1.0     one client, each request over HTTP/1.0
 //   pause       one client, 2 s between requests
 //   idle        one client, 2 s between requests, against a server with a 1 s idle timeout
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

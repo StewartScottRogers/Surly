@@ -9,7 +9,7 @@
 //   missing      an mcp+stdio URL naming a program that does not exist
 //   by-hand      the program starts surl itself and speaks JSON-RPC on its pipes
 //   in-process   ask Surl.Api to host mcp+stdio:
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;

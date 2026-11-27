@@ -7,7 +7,7 @@
 //   roomy          surl's default room: the check passes
 //   events         room for every exchange, but for only 10 events
 //   not-recording  RecordExchanges off: there is no record to check
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

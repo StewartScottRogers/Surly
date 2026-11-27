@@ -14,7 +14,7 @@
 //   missing-object            a get of a name that holds nothing
 //   uploads-off               a put to a server with AllowUploads off
 //   uploads-off-reads         reads from that server
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

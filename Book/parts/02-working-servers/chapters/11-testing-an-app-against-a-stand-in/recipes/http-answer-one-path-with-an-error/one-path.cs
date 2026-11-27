@@ -7,7 +7,7 @@
 //   events    the fault events the server recorded
 //   404       the same override answering 404 for a file that is there
 //   unread    an answer surl cannot read: the request is served, and the server says why
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Collections.Concurrent;

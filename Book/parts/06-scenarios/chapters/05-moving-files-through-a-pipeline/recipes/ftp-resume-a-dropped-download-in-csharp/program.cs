@@ -6,7 +6,7 @@
 //   longer    the local copy is longer than the server's file
 //   checked   the same resume without IgnoreContentLength
 //   whole     the local copy is already the whole file
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

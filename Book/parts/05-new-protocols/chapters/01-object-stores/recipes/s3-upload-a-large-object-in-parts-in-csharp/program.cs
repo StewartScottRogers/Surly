@@ -7,7 +7,7 @@
 //   huge     13,000,000 bytes in 5 MiB parts, over the limit
 //   single   13,000,000 bytes in one put
 //   small    11,000,000 bytes in 1,000,000-byte parts
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

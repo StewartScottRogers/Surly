@@ -72,6 +72,11 @@ byte[] kept = File.ReadAllBytes(Path.Combine("dl", $"{which}.bin"));
 Console.WriteLine($"kept: {kept.Length} bytes, the start of the file: {kept.AsSpan().SequenceEqual(big.AsSpan(0, kept.Length))}");
 
 // The server's account: the exchange's end with the bytes it sent, and the fault rule that cut it.
+// The server records the end a moment after the client sees it, so wait for it first.
+await surl.CallToolAsync("wait_for_event", new Dictionary<string, object?>
+{
+    ["server_id"] = id, ["kinds"] = new[] { "exchange_ended" }, ["timeout_ms"] = 10000,
+});
 CallToolResult events = await surl.CallToolAsync("get_events", new Dictionary<string, object?>
 {
     ["server_id"] = id, ["kinds"] = new[] { "fault_applied", "exchange_ended" },
