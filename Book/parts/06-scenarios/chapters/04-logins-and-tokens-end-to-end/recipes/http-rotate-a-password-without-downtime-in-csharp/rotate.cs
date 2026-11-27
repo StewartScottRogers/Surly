@@ -64,7 +64,7 @@ switch (mode)
         Console.WriteLine($"Remove app-v1: {server.Accounts.Remove("app-v1")}");
         Console.WriteLine($"HasAccounts: {server.Accounts.HasAccounts}");
         Console.WriteLine($"https, no login: {await Web(null, null)}");
-        Console.WriteLine(log.ToString().Split('\n').Single(l => l.Contains("no account left")).TrimEnd());
+        Console.WriteLine(log.ToString().Split('\n').Single(l => l.Contains("account left")).TrimEnd());
         return 0;
 
     case "open-session":
