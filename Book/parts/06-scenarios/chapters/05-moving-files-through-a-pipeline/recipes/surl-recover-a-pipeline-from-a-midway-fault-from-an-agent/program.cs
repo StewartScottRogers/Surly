@@ -7,7 +7,7 @@
 //   resume   a failed step is run once more, alone (the default)
 //   stop     the pipeline as first written, which stops at the first failure
 //   events   the default run, then the fault events and the rule's remaining uses
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

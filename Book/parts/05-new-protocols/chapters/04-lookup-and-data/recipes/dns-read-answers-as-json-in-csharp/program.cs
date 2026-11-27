@@ -10,7 +10,7 @@
 //   second-zone      seed a second zone for the same apex
 //   no-dns-server    seed a zone into a server with only an HTTP listener
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text.Encodings.Web;
 using System.Text.Json;

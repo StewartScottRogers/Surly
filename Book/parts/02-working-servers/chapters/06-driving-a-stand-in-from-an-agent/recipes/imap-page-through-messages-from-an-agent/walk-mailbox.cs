@@ -7,7 +7,7 @@
 //   arrives  60 messages; one more is seeded after the first page
 //   deleted  60 messages; UID 10, already seen, is deleted over IMAP after the first page
 //   limit    a page with a limit of 0
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol;

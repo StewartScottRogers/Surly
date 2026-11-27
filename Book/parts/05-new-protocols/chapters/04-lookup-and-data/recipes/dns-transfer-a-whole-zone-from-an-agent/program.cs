@@ -8,7 +8,7 @@
 //   not-an-apex             allow transfers, ask over TCP for a name inside the zone
 //   text-answer             allow transfers, read the dig-like text and not the JSON
 //   no-incremental-type     ask for IXFR
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -6,7 +6,7 @@
 //   no-brackets  ask for a listen URL with the IPv6 address bare
 //   bare-client  fetch from an IPv6 URL written without brackets
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

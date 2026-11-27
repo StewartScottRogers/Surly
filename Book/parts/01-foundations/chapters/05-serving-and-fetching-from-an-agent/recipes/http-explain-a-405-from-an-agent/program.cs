@@ -6,7 +6,7 @@
 //   put-on      PUT with a login to that server, as the explanation says
 //   put-off     PUT with a login to the server that takes no uploads
 //   no-login    POST with no login to the server that takes no uploads
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

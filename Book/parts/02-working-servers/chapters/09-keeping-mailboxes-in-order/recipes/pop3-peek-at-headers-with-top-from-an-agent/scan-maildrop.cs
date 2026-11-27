@@ -9,7 +9,7 @@
 //   one-id         UIDL 2, read with -v
 //   same-session   DELE 1 then UIDL in one session
 //   missing        TOP for a message that is not there
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -6,7 +6,7 @@
 //   accounts  add, change and remove TLS-SRP accounts while the server runs
 //   not-srp   the same calls on a server started with --self-signed instead
 //   tls13     TLS-SRP with --tlsv1.3
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

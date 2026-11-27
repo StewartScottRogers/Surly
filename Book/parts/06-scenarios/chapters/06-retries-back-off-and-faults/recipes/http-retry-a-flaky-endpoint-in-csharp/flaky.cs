@@ -4,7 +4,7 @@
 //   retries   how many retries the client may make (3 if not given; 0 for none)
 //   path      the path to fetch (hello.txt if not given)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

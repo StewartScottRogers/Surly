@@ -7,7 +7,7 @@
 //   removed   transfer before and after remove_fault
 //   unknown-id  remove_fault of an ID the server has not given
 //   scoped    the fault is for /report.txt and the client asks for /health.txt
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

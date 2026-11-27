@@ -6,7 +6,7 @@
 //   page         list / two entries at a time
 //   missing      list a folder that is not there
 //   not-rooted   list a path without its leading /
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

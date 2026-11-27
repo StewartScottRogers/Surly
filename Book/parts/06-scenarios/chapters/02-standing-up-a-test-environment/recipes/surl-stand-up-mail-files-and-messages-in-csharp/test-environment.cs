@@ -6,7 +6,7 @@
 //   wrong-topic    the app publishes on invoices/7 instead of orders/7
 //   strict         the server keeps its default and refuses passwords sent in clear
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

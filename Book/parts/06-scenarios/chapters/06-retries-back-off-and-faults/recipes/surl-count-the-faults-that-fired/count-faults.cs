@@ -6,7 +6,7 @@
 //   partial  the client never asks for /export.csv, so the drop rule never fires
 //   events   every FaultApplied event, one line each, in order
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

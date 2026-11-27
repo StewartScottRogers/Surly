@@ -8,7 +8,7 @@
 //   leaver    alice logs in, her directory account is removed, she logs in again
 //   events    the starter's logins as the web server judged them
 //   shadow    bob, whom the web server also holds, and a request with no login
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

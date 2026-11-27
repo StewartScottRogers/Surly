@@ -7,7 +7,7 @@
 //   http       the same table over HTTP
 //   anonymous  a server with --allow-anonymous: no account, then Ed
 //   bare       a grant that names the group without its @
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

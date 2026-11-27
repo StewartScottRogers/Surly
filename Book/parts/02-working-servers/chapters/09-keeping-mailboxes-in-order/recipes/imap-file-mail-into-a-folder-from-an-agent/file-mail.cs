@@ -11,7 +11,7 @@
 //   deleted        mark a message deleted, no EXPUNGE
 //   expunge        EXPUNGE it
 //   move           MOVE
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

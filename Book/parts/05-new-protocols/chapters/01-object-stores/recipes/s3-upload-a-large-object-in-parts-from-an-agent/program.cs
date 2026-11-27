@@ -6,7 +6,7 @@
 //   upload   11,000,000 bytes in 5 MiB parts, then what the bucket holds (the default)
 //   huge     13,000,000 bytes in 5 MiB parts, over the limit
 //   small    11,000,000 bytes in 1,000,000-byte parts
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

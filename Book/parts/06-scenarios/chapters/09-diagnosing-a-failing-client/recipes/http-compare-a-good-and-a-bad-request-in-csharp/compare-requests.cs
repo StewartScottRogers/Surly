@@ -5,7 +5,7 @@
 //   (no argument)  the bad client writes its header with a space before the colon
 //   no-host        the bad client sends no Host header
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

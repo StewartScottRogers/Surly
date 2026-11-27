@@ -7,7 +7,7 @@
 //   whole    both halves of the object, joined and compared with it
 //   short    a range of 1,000,000 bytes, under the cut
 //   refused  a range signed with a wrong secret
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

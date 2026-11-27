@@ -3,7 +3,7 @@
 // refused through Curl.Api, and the server's record shows each refusal alike and no POP3 login accepted.
 // Run: dotnet run imap-only.cs
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

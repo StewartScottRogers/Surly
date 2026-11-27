@@ -5,7 +5,7 @@
 //   rereads  the app reads its secret again after a 401 and tries once more (the default)
 //   caches   the app read its secret once at start and keeps it
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

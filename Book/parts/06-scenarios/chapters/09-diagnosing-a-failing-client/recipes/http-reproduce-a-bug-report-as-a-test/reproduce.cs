@@ -7,7 +7,7 @@
 //   reported      the command as the report gives it (the default)
 //   data-binary   the same command with --data-binary in place of -d
 //   no-uploads    the reported command against a stand-in started without --allow-uploads
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

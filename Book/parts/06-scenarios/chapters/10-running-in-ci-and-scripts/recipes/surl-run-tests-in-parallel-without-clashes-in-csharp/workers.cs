@@ -3,7 +3,7 @@
 // nothing is shared but the Surl.Api package.
 // Run: dotnet run workers.cs [-- <count> [<worker whose tests use a wrong password>] | shared-directory | shared-port]
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

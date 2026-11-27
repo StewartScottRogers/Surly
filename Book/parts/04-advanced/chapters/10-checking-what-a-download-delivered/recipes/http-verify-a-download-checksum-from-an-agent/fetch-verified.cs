@@ -6,7 +6,7 @@
 //   wrong-digest  check the same download against another digest
 //   changed       keep a good copy, change the served file with put_file, and download it again
 //   missing       download a file the server does not have
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text;

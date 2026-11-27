@@ -2,7 +2,7 @@
 // Three clients use one surl-mcp server, each from a local port of its own; one sends a malformed
 // request. The agent sifts get_exchanges for the answer 400 and says which client sent it.
 // Run: dotnet run find-the-misbehaving-client.cs -- <billing port> <search port> <reports port>
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

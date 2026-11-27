@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // An agent produces each S3 refusal on purpose with surl-mcp and curl-mcp, names each from curl's error,
 // and reads from the server which logins it judged. Over the official MCP SDK. Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

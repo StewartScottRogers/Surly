@@ -2,7 +2,7 @@
 // An agent runs test workers side by side, each with its own surl-mcp server on a free port and its
 // own in-memory store, tested through curl-mcp and stopped when its tests end.
 // Run: dotnet run workers.cs [-- <count> [<worker whose tests use a wrong password>] | shared-directory | shared-port]
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

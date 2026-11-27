@@ -5,7 +5,7 @@
 // Run: dotnet run keep-off-smtp.cs [-- <case>]
 //   (no argument)  the viewer on IMAP, SMTP and POP3; app, with no restriction, on all three
 //   wrong          the viewer's IMAP login with a wrong password
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

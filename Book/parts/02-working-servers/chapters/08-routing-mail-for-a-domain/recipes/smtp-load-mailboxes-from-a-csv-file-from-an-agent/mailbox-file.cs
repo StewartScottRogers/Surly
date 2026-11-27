@@ -7,7 +7,7 @@
 //   column         a header naming a column surl does not know
 //   missing        a file that is not there
 //   outside        a file named outside the folder surl-mcp is confined to
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

@@ -6,7 +6,7 @@
 //   uncapped  --parallel alone, up to 50 transfers at once
 //   no-fail   --parallel alone and no -f
 //   retry     --parallel alone, with --retry 10 --retry-delay 1
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

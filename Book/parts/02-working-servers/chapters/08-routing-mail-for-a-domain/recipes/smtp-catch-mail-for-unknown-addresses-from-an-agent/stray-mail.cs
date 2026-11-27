@@ -10,7 +10,7 @@
 //   envelope-only  a message to jo@example.com whose To header names ann
 //   outside        one address outside every mail domain
 //   twice          two catch-alls for one domain
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

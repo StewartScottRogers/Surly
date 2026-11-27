@@ -7,7 +7,7 @@
 //   faults         the same, then the fault_applied events the server kept
 //   no-retry       the sender without retries meets the temporary error
 //   lost-reply     the connection is cut inside the reply that confirms a stored message
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

@@ -4,7 +4,7 @@
 // Run: dotnet run split.cs [-- SCENARIO]
 //   both (the default), second-account, login-needed, later-layer-wins, under-the-limit, ftp-limit, ftp-same-store,
 //   order-matters, override-after-wins, override-before-loses, no-allow-after, config-refused, typo
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

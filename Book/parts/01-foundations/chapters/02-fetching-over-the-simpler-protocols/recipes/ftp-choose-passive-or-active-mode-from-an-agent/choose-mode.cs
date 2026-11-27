@@ -6,7 +6,7 @@
 //   verbose       the same default fetch with -v, to read the commands from the client's side
 //   other         active mode naming an address that is not the client's
 //   refused       the same fetch from a server that accepts no anonymous login
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

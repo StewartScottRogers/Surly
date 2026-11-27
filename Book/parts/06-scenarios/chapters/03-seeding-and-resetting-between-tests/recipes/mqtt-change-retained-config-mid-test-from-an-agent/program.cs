@@ -9,7 +9,7 @@
 //   no-retain  a broker with no ;retain at all
 //   restart    a broker with a data directory, stopped and started again
 //   closed     a broker with no --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

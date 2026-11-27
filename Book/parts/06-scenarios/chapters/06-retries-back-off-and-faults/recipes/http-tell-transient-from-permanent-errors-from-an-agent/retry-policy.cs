@@ -5,7 +5,7 @@
 //   all       the same with --retry-all-errors
 //   transfer  transfer in a loop, with the agent's own policy: retry 408, 429, 500, 502, 503, 504
 // A second argument, such as "retries", prints only the lines that start with it.
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Diagnostics;
 using System.Text;

@@ -2,7 +2,7 @@
 // An agent stands up a small site with surl-mcp's start_server and checks each file's
 // Content-Type with curl-mcp's transfer, over the official MCP SDK.
 // Run: dotnet run serve-site.cs [-- path ...]   (default: every file of the site)
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

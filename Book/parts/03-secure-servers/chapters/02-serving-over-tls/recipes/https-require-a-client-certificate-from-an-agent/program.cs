@@ -4,7 +4,7 @@
 // Run: dotnet run program.cs -- <authority> <client>
 //   authority  ca.pem (the test authority), none (ask for no certificate), or another file
 //   client     p12 (client.p12), pem (client.pem and client.key), stranger (stranger.p12), or none
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

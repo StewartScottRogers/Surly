@@ -7,7 +7,7 @@
 //   exchanges-stay           list_servers after restores, a reset and four requests
 //   newest-four              four more snapshots, then restore the first
 //   not-on-disk              reset and snapshot a second server, whose files are a folder on disk
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

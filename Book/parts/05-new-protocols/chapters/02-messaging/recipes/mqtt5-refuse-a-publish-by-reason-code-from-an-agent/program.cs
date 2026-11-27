@@ -10,7 +10,7 @@
 //   wrong-password a wrong password
 //   no-login       no login at all
 //   clear          a right password, with no --allow-plaintext-auth
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

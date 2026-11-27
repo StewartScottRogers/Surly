@@ -8,7 +8,7 @@
 //   older        run, run again, rewrite a.txt with the clock moved five seconds back, run again
 //   tags         the changed case, printing each reply's status, ETag and Last-Modified beside the saved tag
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

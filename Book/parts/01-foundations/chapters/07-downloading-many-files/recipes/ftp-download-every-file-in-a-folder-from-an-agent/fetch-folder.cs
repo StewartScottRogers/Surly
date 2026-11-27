@@ -8,7 +8,7 @@
 //   folder        a subfolder asked for as if it were a file
 //   vanished      a name that is not on the server
 //   hidden        the dot file, asked for by name
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

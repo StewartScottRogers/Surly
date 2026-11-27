@@ -5,7 +5,7 @@
 //   (no argument)  fetch reports 1 to 50; report 37 is missing
 //   clean          fetch reports 1 to 36, which are all there
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

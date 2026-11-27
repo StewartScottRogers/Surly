@@ -2,7 +2,7 @@
 // An app's mail goes missing three ways. The app sends through curl-mcp's curl tool to a surl-mcp mail server; for each
 // send the agent waits for the exchange to end, reads the refusals in get_exchanges, then waits for a delivery event for
 // each recipient the server accepted, and says what stopped the mail. Run: dotnet run why-no-mail.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

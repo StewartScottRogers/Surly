@@ -10,7 +10,7 @@
 //   scram-256      kafka offering SCRAM-SHA-256 only, a wrong password
 //   only-plain     kafka told to offer PLAIN only, the right password
 //   loosened       kafka with --allow-plaintext-auth, a wrong password
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

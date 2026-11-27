@@ -7,7 +7,7 @@
 //   overlap      two tasks at once: what one can read of the other's
 //   no-standing  the server has no account of the agent's own
 //   imap         a task account over IMAP
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -8,7 +8,7 @@
 //   big        upload a 300,000-byte export to /incoming, which has 100,000 bytes of room
 //   last-night upload nothing; the next step reads last night's export
 //   http-put   upload the export to /archive over HTTP instead (curl -T to the http:// listener)
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -6,7 +6,7 @@
 //   no-agent  the port leaves the user agent out
 //   no-method the port leaves the method out
 //   plain     a port of a plain command line, which matches from the start
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

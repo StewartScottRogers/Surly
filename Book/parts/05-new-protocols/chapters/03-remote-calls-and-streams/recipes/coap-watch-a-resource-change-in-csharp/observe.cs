@@ -9,7 +9,7 @@
 //   no-uploads    the same CoAP PUT to a server without AllowUploads
 //   no-anonymous  the same CoAP PUT to a server without AllowAnonymous
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net.Sockets;
 using System.Text;

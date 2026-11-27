@@ -7,7 +7,7 @@
 //   guess          the same, but bob binds with a wrong password
 //   entry-only     the job adds the entry, userPassword included, but no account
 //   strict         a server that keeps the default and refuses a password sent in clear
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

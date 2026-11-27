@@ -8,7 +8,7 @@
 //   past-end  the agent reads from an offset beyond the log
 //   no-topic  the agent reads a topic nobody wrote to
 //   closed    a broker with no --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

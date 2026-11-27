@@ -5,7 +5,7 @@
 //   (no argument)  the bad client writes its header with a space before the colon
 //   no-host        the bad client sends no Host header
 //   transfer       try the bad header through the transfer tool instead
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

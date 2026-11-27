@@ -2,7 +2,7 @@
 // An agent lists a blob container with surl-mcp and curl-mcp, three servers in one run: one that allows listings,
 // one that does not, and one that also allows anonymous callers. Over the official MCP SDK.
 // Run: dotnet run program.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

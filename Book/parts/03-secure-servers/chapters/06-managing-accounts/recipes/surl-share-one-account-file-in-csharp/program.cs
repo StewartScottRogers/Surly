@@ -2,7 +2,7 @@
 // One account file for four protocols: Surl.Api serves HTTPS, FTPS, IMAPS and MQTTS from users.txt,
 // and Curl.Api logs in on each. Run: dotnet run program.cs -- alice s3cret [users-file]
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

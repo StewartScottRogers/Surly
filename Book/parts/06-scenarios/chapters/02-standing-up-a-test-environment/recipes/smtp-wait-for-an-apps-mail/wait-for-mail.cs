@@ -7,7 +7,7 @@
 //   too-late   the app mails ann after 4 s; the agent waits at most 1 s, then waits again
 //   elsewhere  the app mails bob instead; the agent waits at most 3 s for mail to ann
 //   already    the app has mailed ann before the agent starts to wait
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Diagnostics;
 using System.Text.Json;

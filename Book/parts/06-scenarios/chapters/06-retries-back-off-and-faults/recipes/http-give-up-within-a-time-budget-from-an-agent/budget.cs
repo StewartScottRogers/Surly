@@ -6,7 +6,7 @@
 //   hang       every request held 5 s; curl tool, -m 1 --retry 10 --retry-max-time 3
 //   transfer   every request held 5 s; transfer with timeoutSeconds 1, the agent's own 3 s budget
 // A second argument, such as "retries", prints only the lines that start with it.
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Diagnostics;

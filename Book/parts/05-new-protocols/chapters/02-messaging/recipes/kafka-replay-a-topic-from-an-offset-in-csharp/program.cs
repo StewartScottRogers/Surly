@@ -2,7 +2,7 @@
 // Replays a Kafka topic from an offset with Surl.Api and Curl.Api, in one process.
 // Run: dotnet run program.cs
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

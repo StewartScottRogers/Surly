@@ -8,7 +8,7 @@
 //   in-time   a decision slower than nothing but inside its limit
 //   range     the limit's own bounds
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;
 using Curl.Api;

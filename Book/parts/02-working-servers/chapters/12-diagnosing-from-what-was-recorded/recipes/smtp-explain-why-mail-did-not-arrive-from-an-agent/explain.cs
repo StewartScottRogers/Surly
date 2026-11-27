@@ -9,7 +9,7 @@
 //   events         the same send, then the store_changed events the server kept
 //   outside        the app's typo is outside the domain, ann@example.cm
 //   catch-all      the server is started with --mail-catch-all; the same typo
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

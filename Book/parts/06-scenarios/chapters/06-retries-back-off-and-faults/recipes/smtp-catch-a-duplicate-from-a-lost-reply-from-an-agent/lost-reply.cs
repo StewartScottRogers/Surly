@@ -7,7 +7,7 @@
 //   tries          the same, then what the server sent from its 354 on in each exchange
 //   no-retry       the sender without a retry
 //   cut-before     the cut one byte sooner, at the end of the 354
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

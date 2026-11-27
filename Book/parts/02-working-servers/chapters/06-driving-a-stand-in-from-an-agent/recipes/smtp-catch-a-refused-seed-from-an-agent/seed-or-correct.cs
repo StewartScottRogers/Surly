@@ -8,7 +8,7 @@
 //   malformed   seed for "ann", which is not an address
 //   unchanged   seed for anne@example.com, then the mail store's events
 //   smtp        send for anne@example.com over SMTP with the curl tool instead
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

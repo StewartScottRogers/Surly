@@ -4,7 +4,7 @@
 // log already holds no password or token: the server writes **** in their place.
 // Run: dotnet run keep-logs.cs [-- <ftps password>]   (the right one, s3cret, by default)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

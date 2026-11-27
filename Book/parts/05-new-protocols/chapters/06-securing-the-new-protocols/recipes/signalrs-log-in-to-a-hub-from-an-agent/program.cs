@@ -6,7 +6,7 @@
 //   signalrs alice:wrong    TLS and a wrong password
 //   signalrs none           TLS and no login
 //   signalr alice:s3cret    no TLS, the right password; add plaintext to loosen the server
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

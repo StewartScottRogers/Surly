@@ -8,7 +8,7 @@
 //   untrusted      look up without trusting the server's certificate
 //   own-resolver   call by name with curl's --dns-over-tls resolver instead
 //   no-certificate start the DNS over TLS listener with no certificate
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

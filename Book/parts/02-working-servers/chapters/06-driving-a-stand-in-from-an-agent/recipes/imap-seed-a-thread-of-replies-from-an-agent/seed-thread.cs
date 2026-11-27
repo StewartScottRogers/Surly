@@ -8,7 +8,7 @@
 //   headers     read_message: the last reply's linking headers, as seeded
 //   references  UID SEARCH HEADER References for the first message's ID
 //   no-thread   the server's CAPABILITY, and the THREAD command
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

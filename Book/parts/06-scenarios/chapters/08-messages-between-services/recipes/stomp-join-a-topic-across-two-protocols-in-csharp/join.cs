@@ -9,7 +9,7 @@
 //   dotted          the old service sends to /topic/orders.created
 //   queue           the old service sends to /queue/orders/created
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

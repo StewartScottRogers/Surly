@@ -6,7 +6,7 @@
 //   limit       a count above 1000
 //   arrival     each reply held back 300 ms, read for one second
 //   part-way    a stream that ends in a status after its replies
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

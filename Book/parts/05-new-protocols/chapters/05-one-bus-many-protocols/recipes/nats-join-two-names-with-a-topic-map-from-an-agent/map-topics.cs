@@ -8,7 +8,7 @@
 //   nomap     the same NATS publish with no map: where it lands
 //   wildcard  a map whose NATS side holds a wildcard
 //   locked    the map without --allow-anonymous: a NATS publish with no login
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

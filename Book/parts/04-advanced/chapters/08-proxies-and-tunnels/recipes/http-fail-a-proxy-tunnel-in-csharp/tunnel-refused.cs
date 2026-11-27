@@ -8,7 +8,7 @@
 //   forced    the http:// URL again, with HttpProxyTunnel asking for a tunnel
 //   seen      what the server logged and recorded of a refused tunnel
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

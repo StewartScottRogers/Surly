@@ -7,7 +7,7 @@
 //   write      call write_file without --allow-uploads
 //   upload     call write_file with --allow-uploads
 //   curl-mcp   let curl-mcp's curl tool start surl from an mcp+stdio URL
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol;

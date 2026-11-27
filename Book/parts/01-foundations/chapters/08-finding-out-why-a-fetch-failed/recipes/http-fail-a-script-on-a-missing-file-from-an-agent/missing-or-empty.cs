@@ -4,7 +4,7 @@
 // Run: dotnet run missing-or-empty.cs -- <tool> <path>
 //   tool   transfer (the default) or curl
 //   path   empty.txt (the default), which the server has with no bytes in it, or missing.txt
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

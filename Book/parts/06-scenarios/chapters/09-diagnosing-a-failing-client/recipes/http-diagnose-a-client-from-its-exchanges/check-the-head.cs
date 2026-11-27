@@ -2,7 +2,7 @@
 // Four users' clients fetch a report through curl-mcp's curl tool, each with its own header settings; three get 400.
 // For each one the agent waits for the exchange to end, reads the request head surl-mcp recorded and checks every
 // header line against HTTP's rules for a field, then says which header is wrong. Run: dotnet run check-the-head.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

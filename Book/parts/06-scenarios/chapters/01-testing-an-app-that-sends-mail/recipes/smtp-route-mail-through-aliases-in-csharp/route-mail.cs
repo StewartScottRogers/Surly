@@ -7,7 +7,7 @@
 //   seed           the test delivers through the alias itself, with no SMTP
 //   typo-target    the alerts@ alias names opps@, which has no mailbox
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

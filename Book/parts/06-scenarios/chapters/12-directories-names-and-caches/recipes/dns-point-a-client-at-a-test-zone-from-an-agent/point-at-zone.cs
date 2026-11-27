@@ -8,7 +8,7 @@
 //   not-in-zone    seed the zone, then call old-api.example.test
 //   untrusted      seed the zone, then call without trusting the DNS server's certificate
 //   read-back      seed the zone, then read it back
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

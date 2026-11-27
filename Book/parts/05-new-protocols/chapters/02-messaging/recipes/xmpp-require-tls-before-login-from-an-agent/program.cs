@@ -15,7 +15,7 @@
 //   plain-wrong    the same server, a wrong password
 //   recorded       what the server recorded of a STARTTLS login
 //   recorded-early what the server recorded of a login before STARTTLS
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

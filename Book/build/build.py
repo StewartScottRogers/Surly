@@ -34,11 +34,21 @@ def shell_block(lines, lang="shell"):
 def mcp_config(spec):
     """mcp.json: both hosts as an MCP client starts them, each confined by an environment
     variable (never a path argument, which cmd.exe breaks on a space). Each must be an absolute folder."""
+    # A host build/packages.yml pins at a version is started from nuget.org, as a reader would
+    # (ADR-0010): dnx <package>@<version> --yes. One not published there yet is a command on PATH.
+    pins = yaml.safe_load((Path(__file__).resolve().parent / "packages.yml").read_text(encoding="utf-8")) or {}
+
+    def host(command, package, root_var):
+        version = pins.get(package)
+        start = ({"command": "dnx", "args": [f"{package}@{version}", "--yes"]} if version not in (None, "*")
+                 else {"command": command})
+        return {**start, "env": {root_var: "/absolute/path/to/this/folder"}}
+
     servers = {}
     if "surl-mcp" in mcp_hosts(spec):
-        servers["surl"] = {"command": "surl-mcp", "env": {"SURL_MCP_ROOT": "/absolute/path/to/this/folder"}}
+        servers["surl"] = host("surl-mcp", "Surly.Surl.Mcp", "SURL_MCP_ROOT")
     if "curl-mcp" in mcp_hosts(spec):
-        servers["curl"] = {"command": "curl-mcp", "env": {"CURL_MCP_ROOT": "/absolute/path/to/this/folder"}}
+        servers["curl"] = host("curl-mcp", "Surly.Curl.Mcp", "CURL_MCP_ROOT")
     return json.dumps({"mcpServers": servers}, indent=2) + "\n"
 
 

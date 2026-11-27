@@ -2,7 +2,7 @@
 // An agent's side of the conversation, as a C# file-based app: `dotnet run program.cs -- grants`
 // (also: no-uploads, group). It starts surl-mcp and curl-mcp over standard input and output with the
 // official MCP SDK, calls their tools as an agent would, and prints what the recipe's claims check.
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

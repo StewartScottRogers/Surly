@@ -8,7 +8,7 @@
 //   disk      the folder's files, while the server runs and after it stops
 //   twice     a job queued after the first restart, then a second and a third restart
 //   memory    the same test with no --directory
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

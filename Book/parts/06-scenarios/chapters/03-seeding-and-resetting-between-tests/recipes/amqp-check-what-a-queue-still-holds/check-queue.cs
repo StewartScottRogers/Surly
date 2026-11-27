@@ -6,7 +6,7 @@
 //   in-flight     a worker takes every job and acknowledges two, and is still busy when the agent looks
 //   no-queue      the agent browses a queue the server does not have
 //   no-plaintext  the server keeps its default: no password in clear without TLS
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

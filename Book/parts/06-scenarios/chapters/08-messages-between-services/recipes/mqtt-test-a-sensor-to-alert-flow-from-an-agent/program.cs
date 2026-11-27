@@ -4,7 +4,7 @@
 // Run: dotnet run program.cs -- <scenario>
 //   solution   the boiler reads 81.5 against a limit of 75
 //   quiet      readings at or under the limit, and a sensor that never published
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Globalization;
 using System.Text;

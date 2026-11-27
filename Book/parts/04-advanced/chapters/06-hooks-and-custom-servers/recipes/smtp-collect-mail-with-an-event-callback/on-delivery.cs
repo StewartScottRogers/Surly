@@ -13,7 +13,7 @@
 //   throws         a callback that throws: the delivery and the other callbacks are not affected
 //   unknown        mail to an address with no mailbox: no delivery, no event
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Collections.Concurrent;
 using System.Text;

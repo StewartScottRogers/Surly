@@ -6,7 +6,7 @@
 //   s3-delete        a DELETE on an s3:// URL, with the wrong secret and the right one
 //   read-only        the run against a server with uploads off
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using System.Text.RegularExpressions;

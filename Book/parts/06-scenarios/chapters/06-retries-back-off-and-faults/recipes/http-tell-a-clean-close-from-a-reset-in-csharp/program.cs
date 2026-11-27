@@ -6,7 +6,7 @@
 //   graceful  the cut closes the connection cleanly (the default)
 //   reset     the cut resets the connection
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

@@ -4,7 +4,7 @@
 // Run: dotnet run program.cs -- <scenario>
 //   proxied  the client fetches hello.txt and prices.json through the proxy
 //   bypass   it fetches hello.txt through the proxy, then once more without it
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

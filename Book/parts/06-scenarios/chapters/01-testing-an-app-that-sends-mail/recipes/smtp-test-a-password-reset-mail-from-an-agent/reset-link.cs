@@ -6,7 +6,7 @@
 //   right        the app mails a link to the page it published (the default)
 //   wrong-token  the app's link names a token it never published
 //   no-link      the app's mail has no link in it
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text.Json;

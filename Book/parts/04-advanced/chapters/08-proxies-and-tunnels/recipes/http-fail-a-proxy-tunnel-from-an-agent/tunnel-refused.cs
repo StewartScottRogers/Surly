@@ -8,7 +8,7 @@
 //   busy      transfer of an http:// URL the origin itself answers with 503
 //   forced    the curl tool with -p, tunnelling the http:// URL too
 //   seen      the fault event the proxy kept, and the exchanges at the https origin
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

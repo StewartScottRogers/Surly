@@ -8,7 +8,7 @@
 //   second-zone         add_dns_zone again for the same apex
 //   no-soa              add_dns_zone with a zone that has no SOA record
 //   no-such-zone        read_zone for an apex nobody added
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

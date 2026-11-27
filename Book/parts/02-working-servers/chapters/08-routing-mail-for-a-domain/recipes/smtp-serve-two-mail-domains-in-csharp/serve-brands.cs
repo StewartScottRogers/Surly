@@ -10,7 +10,7 @@
 //   unknown        a send to cy@two.test, which has no mailbox, then the server's log line for it
 //   both           one send to Bo in both domains
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Collections.Concurrent;
 using System.Text;

@@ -6,7 +6,7 @@
 //   (no argument)  the right password, and the token the login hands back
 //   <password>     log in with this password instead
 //   <token>        call the API with this token instead of the one handed back
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

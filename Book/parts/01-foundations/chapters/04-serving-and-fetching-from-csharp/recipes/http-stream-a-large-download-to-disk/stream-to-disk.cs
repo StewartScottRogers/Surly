@@ -5,7 +5,7 @@
 //   (no argument) stream the body to a file, a buffer at a time
 //   buffer        read the whole body into memory first, then write it
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;
 using Curl.Api;

@@ -10,7 +10,7 @@
 //   twice     two restarts, with a message in between
 //   in-use    a second server on the folder while the first runs
 //   memory    the same test with no --directory
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

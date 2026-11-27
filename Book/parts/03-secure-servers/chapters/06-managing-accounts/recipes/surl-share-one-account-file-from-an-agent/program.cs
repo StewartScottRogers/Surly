@@ -2,7 +2,7 @@
 // An agent's side of the conversation, as a C# file-based app: `dotnet run program.cs -- alice s3cret
 // [users-file]`. It starts surl-mcp and curl-mcp over standard input and output with the official MCP
 // SDK, logs in on four protocols with one account, and prints what the recipe's claims check.
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

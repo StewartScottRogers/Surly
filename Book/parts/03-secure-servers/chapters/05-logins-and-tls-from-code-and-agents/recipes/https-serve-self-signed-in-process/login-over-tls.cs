@@ -3,7 +3,7 @@
 // first with a throwaway certificate the client cannot verify, then with one the program makes and trusts.
 // Run: dotnet run login-over-tls.cs
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net;
 using System.Security.Cryptography;

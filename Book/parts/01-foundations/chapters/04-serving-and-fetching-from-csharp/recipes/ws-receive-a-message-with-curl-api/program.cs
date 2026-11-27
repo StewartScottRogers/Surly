@@ -7,7 +7,7 @@
 //   no-close  the same, when the program disposes the socket without CloseAsync
 //   missing   a path the server does not have
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;
 using Curl.Api;

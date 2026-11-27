@@ -15,7 +15,7 @@
 //   missing-object            a get of a name that holds nothing
 //   uploads-off               a put to a server without --allow-uploads
 //   uploads-off-reads         reads from that server
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

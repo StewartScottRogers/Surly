@@ -3,7 +3,7 @@
 // through curl-mcp's curl tool. One of them sends malformed requests. The agent reads the record, groups the
 // exchanges by the endpoint they arrived on, and names the client whose requests the server could not read.
 // Run: dotnet run find-the-client.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

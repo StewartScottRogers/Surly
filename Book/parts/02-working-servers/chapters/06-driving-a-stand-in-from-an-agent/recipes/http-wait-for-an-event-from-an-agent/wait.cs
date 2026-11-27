@@ -10,7 +10,7 @@
 //   a-page-at-a-time      upload, then get_events with max_events 1
 //   timeout-bounds        wait_for_event with timeout_ms 70000
 //   no-password-in-clear  the upload with Basic authentication instead of Digest
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -7,7 +7,7 @@
 //   stale      the same, but the wait leaves out after_sequence
 //   bob-first  send to Bob, then to Ann; the wait is for Ann
 //   never      send to cy@example.com, which has no mailbox
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -15,7 +15,7 @@
 //   digest-checked    push a file under a digest that is not its own
 //   uploads-off       push to a registry started without --allow-uploads
 //   wrong-password    push with the wrong password
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text;

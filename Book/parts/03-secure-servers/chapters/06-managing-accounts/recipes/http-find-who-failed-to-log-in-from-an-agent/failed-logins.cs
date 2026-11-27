@@ -4,7 +4,7 @@
 // Run: dotnet run failed-logins.cs [-- summary|exchange]
 //   summary   every judged login counted by account, method and verdict (the default)
 //   exchange  the start event of the first refused login's exchange: where that client came from
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

@@ -7,7 +7,7 @@
 //   plan       the job, the commands it used, a trial of each over SFTP and the gaps (the default)
 //   commands   the job, then every command of each FTP exchange
 //   workaround the rename gap, worked around: rm the old name first, then rename
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

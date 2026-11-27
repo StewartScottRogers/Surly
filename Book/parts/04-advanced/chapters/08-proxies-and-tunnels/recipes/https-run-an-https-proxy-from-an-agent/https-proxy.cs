@@ -11,7 +11,7 @@
 //   origin-unchecked  transfer with insecure true, the proxy trusted by nobody
 //   proxy-unchecked   the curl tool with --proxy-insecure, the origin trusted
 //   no-certificate    start_server with an https proxy and no certificate
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

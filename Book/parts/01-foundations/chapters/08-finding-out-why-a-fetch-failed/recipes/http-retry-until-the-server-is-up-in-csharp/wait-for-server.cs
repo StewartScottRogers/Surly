@@ -5,7 +5,7 @@
 //   start   when the server starts: seconds after the first refused attempt (2 if not given),
 //           0 for before the client, or never
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net;
 using System.Net.Sockets;

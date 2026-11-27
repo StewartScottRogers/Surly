@@ -8,7 +8,7 @@
 //   two            one order to Ann and Bob in one send
 //   unknown        one order to an address with no mailbox
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Collections.Concurrent;
 using System.Text;

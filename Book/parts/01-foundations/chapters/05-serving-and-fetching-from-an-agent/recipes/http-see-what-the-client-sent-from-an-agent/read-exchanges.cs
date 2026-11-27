@@ -7,7 +7,7 @@
 //   page     two requests, then one exchange at a time
 //   filter   two requests, then only those through the http listener the server bound
 //   unknown  get_exchanges for a server ID this host is not running
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

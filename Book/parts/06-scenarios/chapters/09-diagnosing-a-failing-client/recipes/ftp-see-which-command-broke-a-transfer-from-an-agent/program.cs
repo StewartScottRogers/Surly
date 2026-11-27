@@ -7,7 +7,7 @@
 //   passing   how many sessions sent STOR nightly.csv
 //   real      a server with no fault rule and no --allow-uploads: one run, then the failed sessions
 //   locked    a server with no anonymous login: one run
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

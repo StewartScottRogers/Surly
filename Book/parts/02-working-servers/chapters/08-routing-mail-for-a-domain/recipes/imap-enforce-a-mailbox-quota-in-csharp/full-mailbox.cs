@@ -5,7 +5,7 @@
 //   (no argument)  fill the mailbox, send again, then find what frees room
 //   zero           start a server whose quota is 0
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

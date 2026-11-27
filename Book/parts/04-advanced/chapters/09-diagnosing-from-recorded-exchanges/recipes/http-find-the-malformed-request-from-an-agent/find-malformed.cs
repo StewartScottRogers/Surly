@@ -3,7 +3,7 @@
 // the server refuses. The agent reads get_exchanges, finds the refused request, names the client
 // from the request's own bytes, and points at the line that makes it malformed.
 // Run: dotnet run find-malformed.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

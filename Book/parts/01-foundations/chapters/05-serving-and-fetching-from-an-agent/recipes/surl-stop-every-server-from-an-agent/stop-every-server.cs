@@ -4,7 +4,7 @@
 // Run: dotnet run stop-every-server.cs -- <case>
 //   stop  start two servers (one with two listeners), stop them all, rebind every URL (the default)
 //   busy  try to bind a server's URL while that server still runs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

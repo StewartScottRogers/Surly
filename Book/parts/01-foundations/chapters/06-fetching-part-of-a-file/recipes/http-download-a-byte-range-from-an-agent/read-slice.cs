@@ -3,7 +3,7 @@
 // Run: dotnet run read-slice.cs -- <tool> <first-last>
 //   tool    transfer (the default), with a Range header; or curl, with -f -r
 //   range   the bytes asked for, first and last counted from zero (100-199 by default)
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

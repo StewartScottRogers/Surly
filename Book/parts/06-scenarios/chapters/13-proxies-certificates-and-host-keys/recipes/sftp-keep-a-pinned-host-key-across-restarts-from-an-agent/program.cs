@@ -6,7 +6,7 @@
 //   rekeyed    one start with other_key; fetch with host_key's pin
 //   throwaway  two starts with --throwaway-hostkey; compare the keys served
 //   nokey      a start with no host key at all
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text.Json;

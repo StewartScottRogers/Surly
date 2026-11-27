@@ -7,7 +7,7 @@
 //   server-deadline  a grpc-timeout header of 300m
 //   stream-deadline  a stream cut by a 1S grpc-timeout
 //   either           -m 1 with nothing to keep it on the client
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Diagnostics;
 using System.Text.Json;

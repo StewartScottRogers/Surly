@@ -4,7 +4,7 @@
 //   authority  ca.pem (the test authority), none (ask for no certificate), or another file
 //   client     p12 (client.p12), pem (client.pem and client.key), stranger (stranger.p12), or none
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

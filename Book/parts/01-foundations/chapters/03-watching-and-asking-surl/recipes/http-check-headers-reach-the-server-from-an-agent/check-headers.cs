@@ -8,7 +8,7 @@
 //   empty       the API key with an empty value
 //   empty-sent  the API key with an empty value and sendEmpty
 //   no-accept   an Accept header with an empty value
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

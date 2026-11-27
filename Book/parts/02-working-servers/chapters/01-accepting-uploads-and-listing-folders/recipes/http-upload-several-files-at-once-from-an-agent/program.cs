@@ -7,7 +7,7 @@
 //   outside-root    the middle file is outside CURL_MCP_ROOT
 //   glob            one -T "{a,b,c}.txt", as on the console
 //   glob-outside    one -T "{a,../b}.txt", a glob with a name outside CURL_MCP_ROOT
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

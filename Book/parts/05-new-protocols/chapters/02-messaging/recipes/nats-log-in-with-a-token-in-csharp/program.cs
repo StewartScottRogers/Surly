@@ -15,7 +15,7 @@
 //   not-in-log     and nowhere else
 //   right          natss://, the token the server holds
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text.RegularExpressions;
 using Curl.Api;

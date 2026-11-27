@@ -5,7 +5,7 @@
 //   uploads     create, replace, then a missing folder (the default)
 //   fail        the missing folder again, with -f
 //   read-only   the first upload to a server started without --allow-uploads
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

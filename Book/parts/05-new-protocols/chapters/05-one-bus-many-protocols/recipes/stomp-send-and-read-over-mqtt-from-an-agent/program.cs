@@ -10,7 +10,7 @@
 //   queue-is-not-a-topic  send to a /queue/ destination
 //   stomp-subscriber      subscribe over STOMP to a topic whose message is kept
 //   read-the-store        read the kept message with read_retained_message, no client
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

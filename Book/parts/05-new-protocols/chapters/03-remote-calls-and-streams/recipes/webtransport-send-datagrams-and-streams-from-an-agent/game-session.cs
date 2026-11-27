@@ -8,7 +8,7 @@
 //   fits        a 1,099-byte datagram                   too-big    a 1,100-byte datagram
 //   none        no login                                wrong      a wrong password, and surl's record of it
 //   no-cert     start webtransport with no certificate
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

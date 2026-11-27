@@ -6,7 +6,7 @@
 //   wrong-password   the same upload with the wrong password
 //   no-login         the same upload with no login
 //   allowed          log in with Digest; the server was started with --allow-uploads
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

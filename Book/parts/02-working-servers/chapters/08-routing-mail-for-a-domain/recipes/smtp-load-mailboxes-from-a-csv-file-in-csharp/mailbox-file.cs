@@ -8,7 +8,7 @@
 //   column         a header naming a column surl does not know
 //   missing        a file that is not there
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

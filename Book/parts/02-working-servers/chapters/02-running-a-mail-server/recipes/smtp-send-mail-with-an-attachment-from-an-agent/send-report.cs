@@ -8,7 +8,7 @@
 //   parts    the same send, then each part's header
 //   as-is    the report attached with no type= or encoder=, then each part's header
 //   missing  the report attached from a file that is not there
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

@@ -4,7 +4,7 @@
 // Run: dotnet run find-failed-request.cs [-- clean]
 //   (no argument)  fetch reports 1 to 50; report 37 is missing
 //   clean          fetch reports 1 to 36, which are all there
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

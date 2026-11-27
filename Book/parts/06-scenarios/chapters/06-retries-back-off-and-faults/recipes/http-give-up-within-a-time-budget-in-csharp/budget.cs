@@ -6,7 +6,7 @@
 //   hang       every request held 5 s; each try limited to 1 s, up to 10 retries, 3 s budget
 // A second argument, such as "retries", prints only the lines that start with it.
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using System.Diagnostics;

@@ -8,7 +8,7 @@
 //   stored    what each server holds after the upload
 //   refused   the same run against servers that allow no anonymous upload
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

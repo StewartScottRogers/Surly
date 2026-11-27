@@ -6,7 +6,7 @@
 //   one-client    the same fetches, both made through one client and so one connection
 //   not-recorded  the same server with RecordExchanges left off
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using Curl.Api;

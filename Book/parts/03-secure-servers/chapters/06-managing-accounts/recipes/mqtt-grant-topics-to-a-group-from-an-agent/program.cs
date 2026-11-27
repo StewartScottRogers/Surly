@@ -9,7 +9,7 @@
 //   wrong-password  a wrong password
 //   no-plaintext    a right password, with no --allow-plaintext-auth
 //   bad-grant       three grants that name no account or group
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

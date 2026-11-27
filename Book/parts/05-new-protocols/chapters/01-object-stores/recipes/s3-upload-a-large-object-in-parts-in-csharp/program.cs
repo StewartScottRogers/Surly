@@ -8,7 +8,7 @@
 //   single   13,000,000 bytes in one put
 //   small    11,000,000 bytes in 1,000,000-byte parts
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
 using System.Text.RegularExpressions;

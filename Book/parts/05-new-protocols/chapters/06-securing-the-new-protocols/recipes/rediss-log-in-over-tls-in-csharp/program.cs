@@ -2,7 +2,7 @@
 // A C# file-based app: `dotnet run program.cs -- rediss alice s3cret`. Package versions are the
 // book's pins in Book/build/packages.yml; build/pin.py rewrites these lines, and lint checks they match.
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

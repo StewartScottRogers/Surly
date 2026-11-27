@@ -6,7 +6,7 @@
 //   no-quit    send one line and no quit, with a time limit
 //   too-long   a server started with --max-line 10, and a line past it
 //   terminal   set the terminal type and read what the server was told from get_exchanges
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

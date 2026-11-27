@@ -6,7 +6,7 @@
 //   right          the app sends report-mail.eml, with report.csv attached (the default)
 //   old-report     the app sends old-report-mail.eml, with last week's report
 //   no-attachment  the app sends no-attachment.eml
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

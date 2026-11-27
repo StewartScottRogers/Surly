@@ -9,7 +9,7 @@
 //   pinned     the same, but the pull is by the manifest's digest
 //   unknown    the pull asks for a tag never pushed
 //   changed    build 41's layer is overwritten in the store before the pull by digest
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Security.Cryptography;
 using System.Text;

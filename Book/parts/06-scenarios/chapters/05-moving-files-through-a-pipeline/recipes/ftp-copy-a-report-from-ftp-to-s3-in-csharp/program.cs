@@ -6,7 +6,7 @@
 //   missing     the hop for a report the FTP server does not have
 //   plain       the hop with the FTP login sent to the plain ftp:// listener
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

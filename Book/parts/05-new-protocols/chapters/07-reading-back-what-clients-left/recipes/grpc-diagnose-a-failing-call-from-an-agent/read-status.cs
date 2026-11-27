@@ -8,7 +8,7 @@
 //   percent   the message holds a percent sign
 //   ok        the call succeeds
 //   nologin   the server has no --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text;
 using System.Text.Json;

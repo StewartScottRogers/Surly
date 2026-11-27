@@ -8,7 +8,7 @@
 //   numbers   after UID 2 is deleted, the URL query's SEARCH beside UID SEARCH
 //   seen      search, fetch, then list_messages' flags
 //   missing   fetch UID 9, which does not exist
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

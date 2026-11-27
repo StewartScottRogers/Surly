@@ -9,7 +9,7 @@
 //   none          NoOptions: no options in the request
 //   missing       a file the server does not have
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;
 using System.Text;

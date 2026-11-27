@@ -6,7 +6,7 @@
 //   login     alice and bob log in with their directory passwords (the default)
 //   refused   a wrong password, a name not in the directory, and no login
 //   events    what each server recorded about alice's login
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

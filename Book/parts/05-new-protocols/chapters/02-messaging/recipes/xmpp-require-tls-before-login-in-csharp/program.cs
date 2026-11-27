@@ -15,7 +15,7 @@
 //   plain-curl     the same server, Curl.Api with no TLS
 //   plain-wrong    the same server, a wrong password
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net.Security;
 using System.Net.Sockets;

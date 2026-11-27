@@ -5,7 +5,7 @@
 //   resume   download with the curl tool, get cut off, resume with -C - (the default)
 //   restart  the curl tool retrying from the start, as a client that does not resume would
 //   short    transfer of a short file through the same rule
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

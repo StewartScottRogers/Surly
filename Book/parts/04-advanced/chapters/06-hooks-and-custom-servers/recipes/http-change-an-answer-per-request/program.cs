@@ -7,7 +7,7 @@
 //   point     what the decision is told about each request
 //   remove    take the override away while the test still says broken
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Collections.Concurrent;
 using Curl.Api;

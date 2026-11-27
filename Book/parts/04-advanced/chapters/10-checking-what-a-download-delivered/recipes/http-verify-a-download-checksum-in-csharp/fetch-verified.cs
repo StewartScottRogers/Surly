@@ -7,7 +7,7 @@
 //   changed       keep a good copy, change the served file, and download it again
 //   missing       download a file the server does not have
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;
 using Curl.Api;

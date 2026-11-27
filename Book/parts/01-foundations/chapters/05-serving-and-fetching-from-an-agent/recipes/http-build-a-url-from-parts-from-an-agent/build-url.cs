@@ -7,7 +7,7 @@
 //   equals     UrlEncode without AppendQuery: the query's '=' is encoded too
 //   bad-port   a port that is not a number
 //   no-scheme  the parts without a scheme
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

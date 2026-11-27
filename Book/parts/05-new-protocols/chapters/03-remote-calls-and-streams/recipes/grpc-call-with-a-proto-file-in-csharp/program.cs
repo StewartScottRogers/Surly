@@ -2,7 +2,7 @@
 // Calls a gRPC method by its field numbers, as a .proto file gives them, and by reflection, with Surl.Api,
 // Curl.Api and the framework's HttpClient, in one process. Run: dotnet run program.cs
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net;
 using System.Net.Http.Headers;

@@ -2,7 +2,7 @@
 // An agent checks that an app cannot mail outside its domains: surl-mcp serves example.com and
 // example.org, the app's sends go through curl-mcp's curl tool, and get_exchanges shows each refusal.
 // Run: dotnet run foreign-mail.cs
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

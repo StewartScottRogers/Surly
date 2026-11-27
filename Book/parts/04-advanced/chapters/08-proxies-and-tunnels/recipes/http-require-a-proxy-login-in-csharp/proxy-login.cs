@@ -12,7 +12,7 @@
 //   swapped       the origin's account at the proxy, then the proxy's account at the origin
 //   events        the logins the server judged during a fetch
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

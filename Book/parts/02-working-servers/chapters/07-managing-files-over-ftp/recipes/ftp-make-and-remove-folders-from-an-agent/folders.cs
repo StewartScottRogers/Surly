@@ -14,7 +14,7 @@
 //   uploads-off     MKD on a server started without --allow-uploads
 //   uploads-off-rmd RMD on that server, of a folder with a file in it
 //   no-login        MKD on a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using System.Text.RegularExpressions;

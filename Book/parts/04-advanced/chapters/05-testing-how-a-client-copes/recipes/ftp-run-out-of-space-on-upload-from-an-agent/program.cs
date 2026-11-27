@@ -8,7 +8,7 @@
 //   subfolder  upload into /backups/2026, a folder made on the way
 //   old        upload into /backups-old, beside /backups
 //   closed     a server that takes no uploads at all
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

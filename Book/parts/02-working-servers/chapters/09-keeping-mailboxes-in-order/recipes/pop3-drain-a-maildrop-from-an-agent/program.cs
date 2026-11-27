@@ -13,7 +13,7 @@
 //   unwritable-kept  the same, and the store after it
 //   rset          DELE each, then RSET, in one session
 //   rset-kept     the same, and a new session's listing
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

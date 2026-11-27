@@ -6,7 +6,7 @@
 //   deleted  run, delete a.txt with delete_file, run again
 //   no-fail  the deleted case, the job's curl lines without -f
 //   tags     run once, then compare the server's ETag with the saved tag and show the request
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

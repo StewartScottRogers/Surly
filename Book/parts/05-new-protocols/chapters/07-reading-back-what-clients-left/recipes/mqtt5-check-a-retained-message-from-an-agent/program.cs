@@ -8,7 +8,7 @@
 //   nothing    a topic never published to, and a topic outside the filter
 //   qos        a topic filter with a QoS of 1
 //   closed     a broker with no --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

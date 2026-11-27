@@ -8,7 +8,7 @@
 //   swallowed-only HttpVersion.Http3Only against it, with a 2 s connect timeout
 //   h3             HttpVersion.Http3 against a server with --http3
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Curl.Api.Errors;

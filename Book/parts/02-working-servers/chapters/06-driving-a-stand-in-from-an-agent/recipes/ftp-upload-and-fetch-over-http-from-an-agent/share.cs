@@ -8,7 +8,7 @@
 //   exchanges     what the server received on each of its two listeners
 //   uploads-off   a server started without --allow-uploads
 //   no-login      a server started without --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

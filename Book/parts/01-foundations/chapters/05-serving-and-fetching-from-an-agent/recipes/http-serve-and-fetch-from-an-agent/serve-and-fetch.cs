@@ -7,7 +7,7 @@
 //   port-in-use   start a second server on the URL the first one bound
 //   not-loopback  start a server on 0.0.0.0
 //   file-url      ask transfer for a file: URL
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

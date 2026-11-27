@@ -5,7 +5,7 @@
 //   upload   to a server that takes uploads (the default)
 //   refused  to a server that does not (no AllowUploads)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;
 using Curl.Api;

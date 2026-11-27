@@ -2,7 +2,7 @@
 // Starts an in-process server on port 0 and builds every client URL from the URLs it bound.
 // Run: dotnet run bound-urls.cs [-- listen-url ...]   (default: http://127.0.0.1:0 http://localhost:0)
 #:package Surly.Surl.Api@*
-#:package Surly.Curl.Api@*
+#:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
 using Surl.Api;

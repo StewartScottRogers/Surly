@@ -6,7 +6,7 @@
 //   store         the same, then read the store under each spelling
 //   reverse       publish_message to shop/orders, then consume shop.orders over Kafka
 //   no-anonymous  a producer with no login, on a server without --allow-anonymous
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;

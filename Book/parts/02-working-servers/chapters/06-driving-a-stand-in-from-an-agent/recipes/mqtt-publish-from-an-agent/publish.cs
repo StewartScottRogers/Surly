@@ -8,7 +8,7 @@
 //   client-refused  curl subscribing with no login
 //   subscriber      curl subscribing on a broker started with --allow-anonymous
 //   client-publish  curl publishing without retain, then read_retained_message
-#:package ModelContextProtocol.Core@*
+#:package ModelContextProtocol.Core@2.4.0
 
 using System.Text.Json;
 using ModelContextProtocol.Client;
