@@ -52,6 +52,36 @@ def expected_lines(case):
     return out
 
 
+URL = re.compile(r"[a-z][a-z0-9+.-]*://\S+")
+
+
+def listen_lines(args):
+    """What one surl command line prints as it starts, as measured on Surl v0.1.10: a Listening
+    line per listen URL in order, then one per --proxy URL, then "Control endpoint listening on"
+    for --control (its URL with a trailing slash). --user-ldap's URL is a directory surl queries,
+    not one it listens on."""
+    listen, proxy, control = [], [], []
+    skip = False
+    for i, arg in enumerate(args):
+        if skip:
+            skip = False
+            continue
+        name, eq, value = arg.partition("=")
+        if name in ("--control", "--proxy", "--user-ldap"):
+            if not eq:
+                value = args[i + 1] if i + 1 < len(args) else ""
+                skip = True
+            if name == "--control" and URL.fullmatch(value):
+                control.append(value if re.search(r"://[^/]+/", value) else value + "/")
+            elif name == "--proxy" and URL.fullmatch(value):
+                proxy.append(value)
+            continue
+        if URL.fullmatch(arg):
+            listen.append(arg)
+    return ([f"Listening on {u}" for u in listen + proxy]
+            + [f"Control endpoint listening on {u}" for u in control])
+
+
 def source_block(recipe, program):
     """A C# program's source, as the book shows it."""
     return (f".{program}\n[source,csharp]\n----\n"
@@ -104,8 +134,7 @@ def write_recipe_files(recipe, spec):
     cmds = setup + [s + " &" for s in servers] + seed + [sol_cmd]
     # surl prints one Listening line per listen URL on its command line, in order.
     # A listen URL is a whole argument; a URL inside an option's value (--fault "...;listener=...") is not.
-    listening = [f"Listening on {arg}" for cmd in servers for arg in shlex.split(cmd)
-                 if re.fullmatch(r"[a-z][a-z0-9+.-]*://\S+", arg)]
+    listening = [line for cmd in servers for line in listen_lines(shlex.split(cmd))]
     printed = listening + expected_lines(sol)
     status_note = ""
     if v.get("status") == "verified":
