@@ -32,4 +32,5 @@ echo "listening on $url"
 curl -s "${url}hello.txt"
 status=$?
 kill "$pid"
+wait "$pid" 2>/dev/null   # until surl has gone, so it no longer holds site for the next start
 exit $status
