@@ -6,7 +6,7 @@
 //   no-injection   the app is started without the addresses, so it points where the default says
 //   no-plaintext   the server keeps its default and refuses the app's mail password
 #:sdk Microsoft.NET.Sdk.Web
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 
 using System.Net;
 using System.Net.Mail;

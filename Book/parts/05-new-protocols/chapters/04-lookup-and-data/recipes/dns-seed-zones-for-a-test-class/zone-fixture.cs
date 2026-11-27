@@ -6,7 +6,7 @@
 //   no-restore     the same, with no restore before the next test
 //   reset          ResetAsync in place of RestoreAsync
 //   twice          two tests add zones, each followed by a restore of the one snapshot
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text.RegularExpressions;

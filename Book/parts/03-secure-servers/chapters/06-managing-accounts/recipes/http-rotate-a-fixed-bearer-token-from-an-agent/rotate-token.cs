@@ -68,7 +68,7 @@ foreach (JsonElement login in found.StructuredContent!.Value.GetProperty("events
     Console.WriteLine($"judged: {login.GetProperty("mechanism")} {login.GetProperty("account")} {verdict}");
 }
 
-// 4. Remove it: the old token is refused, but the server, with no account left, needs no login.
+// 4. Remove it: the old token is refused, and the server, with no account left, still asks for a login.
 Console.WriteLine($"remove_account: {await Account("remove_account")}");
 Console.WriteLine($"token-two: {await Get("token-two")}");
 Console.WriteLine($"no token: {await Get(null)}");

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // A C# file-based app: `dotnet run program.cs -- signalrs alice s3cret`. Package versions are the
 // book's pins in Book/build/packages.yml; build/pin.py rewrites these lines, and lint checks they match.
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

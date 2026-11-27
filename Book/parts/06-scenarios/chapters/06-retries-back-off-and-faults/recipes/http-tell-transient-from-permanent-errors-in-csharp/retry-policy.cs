@@ -5,7 +5,7 @@
 //   all        retry every error status, twice at most
 //   none       never retry
 // A second argument, such as "retries", prints only the lines that start with it.
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

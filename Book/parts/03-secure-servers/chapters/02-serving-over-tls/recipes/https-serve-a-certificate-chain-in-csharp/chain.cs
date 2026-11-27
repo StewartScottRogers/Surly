@@ -2,7 +2,7 @@
 // A C# file-based app: `dotnet run chain.cs -- SCENARIO`. The certificates come from setup: in
 // recipe.yml, which makes root.pem, a leaf chain.pem and others, in the program's folder.
 //   fetch (the default), leaf-only, no-trust, root-in-the-file, leaf-first, key-match
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

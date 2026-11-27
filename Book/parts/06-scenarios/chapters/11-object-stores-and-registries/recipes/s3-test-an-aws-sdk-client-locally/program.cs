@@ -6,7 +6,7 @@
 //   get        the app reads the report back through the SDK, and a key that is not there
 //   checksum   how the SDK sent the put, from the server's record of the exchange
 //   secret     the client configured with a wrong secret
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package AWSSDK.S3@4.1.2
 
 using System.Text;

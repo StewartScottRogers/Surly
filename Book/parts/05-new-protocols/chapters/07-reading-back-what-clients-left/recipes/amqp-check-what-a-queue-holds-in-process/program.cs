@@ -6,7 +6,7 @@
 //   taken          a worker takes one job over AMQP; the browse finds the other two
 //   wrong-queue    the app queues to a name the server does not have
 //   no-anonymous   the server keeps its default and refuses the app, which has no login
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

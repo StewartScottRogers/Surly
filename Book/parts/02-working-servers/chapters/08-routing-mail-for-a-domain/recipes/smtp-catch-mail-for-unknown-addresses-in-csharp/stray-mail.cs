@@ -10,7 +10,7 @@
 //   envelope-only  a message to jo@example.com whose To header names ann
 //   outside        one address outside every mail domain
 //   twice          two catch-alls for one domain
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Collections.Concurrent;

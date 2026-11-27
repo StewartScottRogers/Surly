@@ -8,7 +8,7 @@
 //   missing       a rename of, and a delete of, a file that is not there, and a rename with no source
 //   uploads-off   a server that accepts no uploads
 //   no-login      a server that accepts no anonymous login
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

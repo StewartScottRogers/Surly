@@ -8,7 +8,7 @@
 //   twice          the first two connections are dropped: a send with no retry, then one with one retry
 //   data           the first DATA command drops the connection, before the message is accepted
 //   quit           the first QUIT drops the connection, after the message was accepted
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

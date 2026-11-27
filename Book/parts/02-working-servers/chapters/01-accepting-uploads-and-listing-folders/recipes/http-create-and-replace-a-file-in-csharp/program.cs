@@ -2,7 +2,7 @@
 // Uploads a file with PUT, replaces it, and tries a folder that is not there, then reads the
 // server's store back with Files.ReadAsync after each answer.
 // Run: dotnet run program.cs [-- read-only]   (read-only: the same server with uploads off)
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

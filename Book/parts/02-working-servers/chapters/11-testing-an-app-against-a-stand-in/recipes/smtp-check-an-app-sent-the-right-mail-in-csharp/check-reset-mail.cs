@@ -2,7 +2,7 @@
 // A test of an app's password reset mail against an in-process surl: the app sends three mails, and
 // the test waits for each delivery, then checks recipient, subject and link in the stored copy.
 // Run: dotnet run check-reset-mail.cs
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

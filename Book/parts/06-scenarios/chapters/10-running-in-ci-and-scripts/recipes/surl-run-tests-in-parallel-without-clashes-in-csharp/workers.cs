@@ -2,7 +2,7 @@
 // Parallel test workers, each with its own in-process server on a free port and its own store:
 // nothing is shared but the Surl.Api package.
 // Run: dotnet run workers.cs [-- <count> [<worker whose tests use a wrong password>] | shared-directory | shared-port]
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

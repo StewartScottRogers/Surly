@@ -6,7 +6,7 @@
 //   miss-now         force the miss with DEL and refill the copy, with no waiting
 //   origin           the origin's statuses
 //   no-plaintext     log in without AllowPlaintextAuthentication
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

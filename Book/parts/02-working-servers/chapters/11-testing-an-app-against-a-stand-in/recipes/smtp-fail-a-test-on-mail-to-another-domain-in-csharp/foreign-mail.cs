@@ -2,7 +2,7 @@
 // A test that an app cannot mail outside its domains: an in-process surl serves example.com and
 // example.org, the app's sends go through Curl.Api, and the refusal is found in the recorded exchange.
 // Run: dotnet run foreign-mail.cs
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

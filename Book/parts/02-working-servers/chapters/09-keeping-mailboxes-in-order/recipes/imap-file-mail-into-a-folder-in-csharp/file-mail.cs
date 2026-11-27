@@ -11,7 +11,7 @@
 //   deleted        mark a message deleted, no EXPUNGE
 //   expunge        EXPUNGE it
 //   move           MOVE
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

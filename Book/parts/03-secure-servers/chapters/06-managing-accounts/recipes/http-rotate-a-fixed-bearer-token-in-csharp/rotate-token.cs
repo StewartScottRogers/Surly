@@ -4,7 +4,7 @@
 // Run: dotnet run rotate-token.cs [-- rotate|refusals]
 //   rotate    add, replace and remove the token (the default)
 //   refusals  a second Add, then SetPassword and Remove with no token set
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;
@@ -62,12 +62,12 @@ foreach (LoginJudgedEvent login in server.FindEvents(new SurlEventQuery { Kind =
     Console.WriteLine($"judged: {login.Mechanism} {login.Account} {(login.IsAccepted ? "accepted" : "refused")}");
 }
 
-// 4. Remove it: the old token is refused, but the server, with no account left, needs no login.
+// 4. Remove it: the old token is refused, and the server, with no account left, still asks for a login.
 Console.WriteLine($"Remove: {server.Accounts.Remove("")}");
 Console.WriteLine($"HasAccounts: {server.Accounts.HasAccounts}");
 Console.WriteLine($"token-two: {await Get("token-two")}");
 Console.WriteLine($"no token: {await Get(null)}");
-Console.WriteLine(log.ToString().Split('\n').Single(l => l.Contains("no account left")).TrimEnd());
+Console.WriteLine(log.ToString().Split('\n').Single(l => l.Contains("account left")).TrimEnd());
 Console.WriteLine($"tokens in the log: {log.ToString().Contains("token-one") || log.ToString().Contains("token-two")}");
 return 0;
 

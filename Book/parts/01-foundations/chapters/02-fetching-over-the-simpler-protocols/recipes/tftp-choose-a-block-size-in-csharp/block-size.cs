@@ -8,7 +8,7 @@
 //   range         block sizes of 70000, 4 and -1, out of range three ways
 //   none          NoOptions: no options in the request
 //   missing       a file the server does not have
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Security.Cryptography;

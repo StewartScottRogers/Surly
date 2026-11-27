@@ -7,7 +7,7 @@
 //   whole          TOP 2 99 against RETR 2
 //   after-delete   DELE 1, then UIDL in the same session and in a new one
 //   missing        TOP for a message that is not there
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Serves one file from memory with Surl.Api and fetches it with Curl.Api, in one process.
 // Run: dotnet run serve-and-fetch.cs [-- path]   (the path defaults to hello.txt)
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

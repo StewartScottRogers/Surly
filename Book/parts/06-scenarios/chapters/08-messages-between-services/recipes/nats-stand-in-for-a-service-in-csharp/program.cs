@@ -6,7 +6,7 @@
 //   solution   the stand-in answers price=9.99
 //   none       no stand-in is subscribed
 //   silent     the stand-in receives the request and never answers
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Net.Sockets;

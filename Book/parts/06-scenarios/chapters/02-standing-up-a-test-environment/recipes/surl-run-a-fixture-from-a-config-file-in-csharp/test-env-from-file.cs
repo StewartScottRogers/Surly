@@ -6,7 +6,7 @@
 //   no-plaintext  the same, with --no-allow-plaintext-auth added after the file
 //   <file>        another config file in place of test-env.conf, such as broken.conf
 //   urls-in-file  with-urls.conf, which names its own listen URLs, and none in code
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

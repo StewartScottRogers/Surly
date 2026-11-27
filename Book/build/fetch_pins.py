@@ -162,7 +162,9 @@ def main():
     if tag:
         ext = "zip" if r.startswith("win") else "tar.gz"
         dl = out / "download" / "surl"
-        api = [n for n in assets(REPOS["surl"], tag) if re.fullmatch(r"Surly\.Surl\.Api\.\d+\.\d+\.\d+\.nupkg", n)]
+        # Surl.Api from the release only while nuget.org does not carry it (ADR-0010).
+        api = [] if nuget_pins().get("Surly.Surl.Api") else [
+            n for n in assets(REPOS["surl"], tag) if re.fullmatch(r"Surly\.Surl\.Api\.\d+\.\d+\.\d+\.nupkg", n)]
         download(REPOS["surl"], tag, [f"surl-{r}.{ext}", f"surl-mcp-{r}.{ext}"] + api, dl)
         unpack(dl / f"surl-{r}.{ext}", bin_ / "surl")
         unpack(dl / f"surl-mcp-{r}.{ext}", bin_ / "surl-mcp")
@@ -191,14 +193,15 @@ def main():
         how["curl"] = "source"
 
     # The book follows the nuget.org packages (ADR-0010): a package build/packages.yml pins at a
-    # version is restored from nuget.org, as a reader's is, and never packed here. Surly.Curl.Mcp
+    # version is restored from nuget.org, as a reader's is, and never packed here. A host package
     # pinned there is installed from nuget.org as the .NET tool a reader runs with dnx.
     published = nuget_pins()
-    if published.get("Surly.Curl.Mcp"):
-        shutil.rmtree(bin_ / "curl-mcp", ignore_errors=True)
-        run(["dotnet", "tool", "install", "Surly.Curl.Mcp", "--version", published["Surly.Curl.Mcp"],
-             "--tool-path", str(bin_ / "curl-mcp"), "--add-source", "https://api.nuget.org/v3/index.json"])
-        how["curl"] += f", curl-mcp from nuget.org {published['Surly.Curl.Mcp']}"
+    for package, folder, program in (("Surly.Surl.Mcp", "surl-mcp", "surl"), ("Surly.Curl.Mcp", "curl-mcp", "curl")):
+        if published.get(package):
+            shutil.rmtree(bin_ / folder, ignore_errors=True)
+            run(["dotnet", "tool", "install", package, "--version", published[package],
+                 "--tool-path", str(bin_ / folder), "--add-source", "https://api.nuget.org/v3/index.json"])
+            how[program] += f", {folder} from nuget.org {published[package]}"
 
     # A library nuget.org does not carry yet comes from the program's release (Surl.Api from v0.1.10),
     # else is packed from source.
@@ -207,18 +210,21 @@ def main():
         if project.name not in packed and not published.get(package):
             pack(project, feed)
 
-    # The host binary: at the top of bin/curl-mcp when unpacked or built, or, for a tool installed
-    # from nuget.org, inside its .store (the tool's own launcher there is a .cmd on Windows).
-    curl_mcp = next((p for p in (bin_ / "curl-mcp" / f"Curl.Mcp{EXE}", bin_ / "curl-mcp" / f"curl-mcp{EXE}") if p.exists()), None)
-    if not curl_mcp:
-        curl_mcp = next((p for p in sorted((bin_ / "curl-mcp").rglob("*"))
-                         if p.is_file() and p.name in (f"Curl.Mcp{EXE}", f"curl-mcp{EXE}") and f"/{r}/" in p.as_posix()), None)
-    if not curl_mcp:
-        sys.exit("no Curl.Mcp or curl-mcp binary in bin/curl-mcp")
+    # Each host binary: at the top of its folder when unpacked, built or installed with an apphost,
+    # or, for a tool installed per platform from nuget.org, inside its .store (the launcher at the
+    # top is then a .cmd on Windows).
+    def host_binary(folder, names):
+        top = next((bin_ / folder / n for n in names if (bin_ / folder / n).is_file()), None)
+        return top or next((p for p in sorted((bin_ / folder).rglob("*"))
+                            if p.is_file() and p.name in names and f"/{r}/" in p.as_posix()), None)
+    surl_mcp = host_binary("surl-mcp", (f"surl-mcp{EXE}", f"Surl.Mcp{EXE}"))
+    curl_mcp = host_binary("curl-mcp", (f"Curl.Mcp{EXE}", f"curl-mcp{EXE}"))
+    if not surl_mcp or not curl_mcp:
+        sys.exit(f"no host binary: surl-mcp {surl_mcp}, curl-mcp {curl_mcp}")
     values = {
         "SURLY_SURL": bin_ / "surl" / f"surl{EXE}",
         "SURLY_CURL": bin_ / "curl" / f"curl{EXE}",
-        "SURLY_SURL_MCP": bin_ / "surl-mcp" / f"surl-mcp{EXE}",
+        "SURLY_SURL_MCP": surl_mcp,
         "SURLY_CURL_MCP": curl_mcp,
         "SURLY_NUGET_SOURCE": feed,
         "NUGET_PACKAGES": out / "nuget",   # fresh: Surly.* package versions repeat across pins

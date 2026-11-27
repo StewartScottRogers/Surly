@@ -8,7 +8,7 @@
 //   no-refresh     a client that does not refresh: it stops at the first 401
 //   answer         the headers of the override's 401, and what the server judged of the token
 //   no-override    no override: 6 calls on one token
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

@@ -2,7 +2,7 @@
 // A C# file-based app: `dotnet run keys.cs -- SCENARIO`. The keys come from setup: in recipe.yml:
 // host_key, deploy_a, deploy_a2 and deploy_b, each with a .pub half, and a_keys, two lines.
 //   own-key (the default), second-user, a-key-as-b, b-key-as-a, second-key, second-key-as-b, unknown-user, events
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

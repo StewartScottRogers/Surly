@@ -4,7 +4,7 @@
 //   retries   how many retries the client may make (2 if not given; 0 for none)
 //   path      the file to fetch (report.txt if not given; health.txt is never busy)
 //   again     as a third argument: after the loop, fetch the same path once more, with no retries
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Diagnostics;

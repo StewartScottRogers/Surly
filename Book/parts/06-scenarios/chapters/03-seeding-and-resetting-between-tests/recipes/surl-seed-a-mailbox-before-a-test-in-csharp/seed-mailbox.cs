@@ -4,7 +4,7 @@
 // Run: dotnet run seed-mailbox.cs [-- <address>]
 //   (no argument)  seed ann@example.com and run the client (the default)
 //   <address>      seed another address instead, such as bob@example.com
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

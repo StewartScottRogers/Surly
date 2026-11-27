@@ -12,7 +12,7 @@
 //   clear-text     an account broker, the right password over the WebSocket
 //   allowed        the same, with AllowPlaintextAuthentication
 //   wrong          the same, with a wrong password
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

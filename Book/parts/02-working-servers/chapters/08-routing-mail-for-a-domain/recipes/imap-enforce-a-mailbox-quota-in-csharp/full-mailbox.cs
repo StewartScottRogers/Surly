@@ -4,7 +4,7 @@
 // Run: dotnet run full-mailbox.cs [-- zero]
 //   (no argument)  fill the mailbox, send again, then find what frees room
 //   zero           start a server whose quota is 0
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using System.Text;

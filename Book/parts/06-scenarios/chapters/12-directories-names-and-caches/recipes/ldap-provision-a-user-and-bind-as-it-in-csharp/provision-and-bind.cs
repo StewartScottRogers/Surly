@@ -6,7 +6,7 @@
 //   guess          the same, but bob binds with a wrong password
 //   entry-only     the job adds the entry, userPassword included, but no account
 //   strict         a server that keeps the default and refuses a password sent in clear
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;

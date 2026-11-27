@@ -8,7 +8,7 @@
 //   whole    both halves of the object, joined and compared with it
 //   short    a range of 1,000,000 bytes, under the cut
 //   refused  a range signed with a wrong secret
-#:package Surly.Surl.Api@*
+#:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.5
 
 using Curl.Api;
