@@ -257,6 +257,19 @@ def run(cmd):
         print(r.stderr.strip(), file=sys.stderr)
 
 
+def version_attributes():
+    """AsciiDoc attributes for the versions a reader installs (ADR-0010), so the preface's install
+    commands follow every re-pin: {surly-curl-version} and the like from packages.yml, one per
+    package pinned at a version, and {surl-release} (the GitHub release tag) from pins.yml."""
+    here = Path(__file__).resolve().parent
+    pins = yaml.safe_load((here / "packages.yml").read_text(encoding="utf-8")) or {}
+    lines = [f":{name.lower().replace('.', '-')}-version: {v}" for name, v in pins.items() if v not in (None, "*")]
+    release = re.search(r"^surl:\s*[0-9a-f]{40}\s*#\s*Surl\s+(v[0-9][^\s,]*)", (here / "pins.yml").read_text(encoding="utf-8"), re.M)
+    if release:
+        lines.append(f":surl-release: {release.group(1)}")
+    return "".join(line + "\n" for line in lines)
+
+
 def main():
     GEN.mkdir(exist_ok=True)
     (OUT / "recipes").mkdir(parents=True, exist_ok=True)
@@ -264,8 +277,8 @@ def main():
     (GEN / "identity.adoc").write_text(
         f"= {ident['title']}: {ident['subtitle']}\n{ident['author']}\n"
         f":publisher: {ident['publisher']}\n:edition: {ident['edition']}\n"
-        f":copyright: {ident['copyright']}\n:revnumber: {ident['edition']}\n:revdate: {ident['year']}\n",
-        encoding="utf-8")
+        f":copyright: {ident['copyright']}\n:revnumber: {ident['edition']}\n:revdate: {ident['year']}\n"
+        + version_attributes(), encoding="utf-8")
 
     spine, index, by_proto = [], [], {}
     seen_part = seen_chapter = None
