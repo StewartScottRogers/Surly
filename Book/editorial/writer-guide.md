@@ -31,6 +31,10 @@ Do not read the Surl or Curl READMEs or `--aihelp` end to end; look up one thing
   show is left out or cited. Probe before you claim.
 - A loosening option (`--allow-anonymous`, `--self-signed`, `--allow-plaintext-auth`, `--auth`, ...)
   gets a case without it (the refusal) and with it, on two servers and ports if needed.
+- A measured time is claimed only in ways a slow machine cannot break: a floor ("2 s or more",
+  no ceiling), a limit far below the failure it rules out (cancelled in under 20 s when a stuck
+  transfer hangs 60 s), or a comparison inside one program (together took less than one after
+  another). Never a window like "2 to 4 s".
 - Every file a command uses is a `fixtures:` entry; the build shows the reader each one being made
   (`mkdir`, `printf`, a heredoc), so prose never assumes a file is already there.
 - Certificates and keys come from `setup:` (openssl, ssh-keygen), never fixtures. Seed stores
