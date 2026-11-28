@@ -3,7 +3,7 @@
 // download takes longer than a time limit, ported call for call to C# with Libcurl.
 // Each line names the C call it stands for.
 // Run: dotnet run fetch.cs -- <url> <seconds> [quiet]
-#:package Surly.Libcurl@0.4.0-preview.6
+#:package Surly.Libcurl@0.4.0-preview.7
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;

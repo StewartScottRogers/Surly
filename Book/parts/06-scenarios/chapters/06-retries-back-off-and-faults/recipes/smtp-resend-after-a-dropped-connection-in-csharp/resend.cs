@@ -9,7 +9,7 @@
 //   data           the first DATA command drops the connection, before the message is accepted
 //   quit           the first QUIT drops the connection, after the message was accepted
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using System.Text.RegularExpressions;

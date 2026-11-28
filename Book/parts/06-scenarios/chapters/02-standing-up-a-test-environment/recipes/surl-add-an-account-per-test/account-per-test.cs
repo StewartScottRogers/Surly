@@ -7,7 +7,7 @@
 //   imap           a test account over IMAP
 //   leftover       a test that never removed its account, and the next run that adds it again
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Errors;

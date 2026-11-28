@@ -10,7 +10,7 @@
 //   silent    a client that is sent nothing
 //   refused   a hub that allows no anonymous client
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using System.Text.Json;

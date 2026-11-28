@@ -6,7 +6,7 @@
 //   wrong-token    the app's link names a token it never published
 //   no-link        the app's mail has no link in it
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Security.Cryptography;
 using System.Text;

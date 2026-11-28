@@ -7,7 +7,7 @@
 //   no-catch-all   the same three mails to a server with no catch-all
 //   other-domain   one mail to an address outside the mail domain
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Net;
 using System.Net.Mail;

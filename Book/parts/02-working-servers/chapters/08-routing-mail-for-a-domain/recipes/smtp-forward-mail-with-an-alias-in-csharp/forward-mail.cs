@@ -13,7 +13,7 @@
 //   no-mailbox     an alias whose target is no mailbox
 //   outside        an alias whose target is outside the domain
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Collections.Concurrent;
 using System.Text;

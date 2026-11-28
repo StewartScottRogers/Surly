@@ -3,7 +3,7 @@
 // the path of one DICT URL, and each reply is printed whole.
 // Run: dotnet run look-up.cs -- d:surly m:surl show:db
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text.RegularExpressions;
 using Curl.Api;

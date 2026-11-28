@@ -8,7 +8,7 @@
 //   allowed        the same from a proxy started with --proxy-allow-origin 192.0.2.1
 //   every-origin   start a proxy with --proxy-allow-origin * and print its log
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

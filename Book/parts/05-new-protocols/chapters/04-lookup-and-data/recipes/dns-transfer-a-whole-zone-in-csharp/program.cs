@@ -10,7 +10,7 @@
 //   text-answer         allow transfers, read the dig-like text and not the JSON
 //   no-incremental-type ask for IXFR
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text.Json;
 using Curl.Api;

@@ -8,7 +8,7 @@
 //   ftp            the client fetches over the FTP listener
 //   no-anonymous   the same FTP fetch on a server without AllowAnonymous
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

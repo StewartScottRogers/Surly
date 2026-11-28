@@ -9,7 +9,7 @@
 //   host-option    --log-file, an option that belongs to a host
 //   bad-value      --max-request-head abc
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

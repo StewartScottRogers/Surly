@@ -9,7 +9,7 @@
 //   commands      what each job sent the server, from the recorded exchanges
 //   plaintext     a stand-in left at its default, which refuses a password in clear
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Net;
 using System.Text;

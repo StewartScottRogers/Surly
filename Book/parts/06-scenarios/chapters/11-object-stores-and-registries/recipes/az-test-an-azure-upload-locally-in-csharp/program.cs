@@ -11,7 +11,7 @@
 //   plaintext-auth   a server without AllowPlaintextAuthentication
 //   no-certificate   a server without --az-plaintext
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Security.Cryptography;
 using System.Text;

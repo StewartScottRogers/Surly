@@ -4,7 +4,7 @@
 //   cancel    cancel the body's token once 1 MiB has arrived (the default)
 //   dispose   dispose the body stream instead, with no token
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Diagnostics;
 using Curl.Api;

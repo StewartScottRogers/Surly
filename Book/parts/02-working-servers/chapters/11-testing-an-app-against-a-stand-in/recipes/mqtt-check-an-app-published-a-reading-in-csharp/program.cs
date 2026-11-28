@@ -15,7 +15,7 @@
 //   no-filter      a broker with no topic filter
 //   closed         a broker with no AllowAnonymous
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

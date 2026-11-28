@@ -6,7 +6,7 @@
 //   hammering  the client retries every failed status, the 401 included
 //   no-rule    the careful client against the same server without the rule
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

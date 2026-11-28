@@ -2,7 +2,7 @@
 // A C# file-based app: `dotnet run sign.cs -- SCENARIO`.
 //   fetch (the default), wrong, unknown, unsigned, password, scope, missing, events, default, default-wrong
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Options.Authentication;

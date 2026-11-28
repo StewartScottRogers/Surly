@@ -2,7 +2,7 @@
 // Serves a small site from memory with Surl.Api and checks each file's Content-Type with Curl.Api.
 // Run: dotnet run serve-site.cs [-- path ...]   (default: every file of the site)
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

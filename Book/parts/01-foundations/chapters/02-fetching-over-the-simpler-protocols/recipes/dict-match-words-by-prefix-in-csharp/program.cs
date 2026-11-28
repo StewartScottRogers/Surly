@@ -2,7 +2,7 @@
 // Serves a three-word glossary over DICT with Surl.Api, lists the words that match with Curl.Api, and
 // defines the first. Run: dotnet run program.cs -- m:ap:*:prefix
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text.RegularExpressions;
 using Curl.Api;

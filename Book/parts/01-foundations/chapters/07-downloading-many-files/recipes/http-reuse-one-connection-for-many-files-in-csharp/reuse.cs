@@ -9,7 +9,7 @@
 //   pause       one client, 2 s between requests
 //   idle        one client, 2 s between requests, against a server with a 1 s idle timeout
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Options.Http;

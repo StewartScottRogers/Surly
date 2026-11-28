@@ -8,7 +8,7 @@
 //   events         room for every exchange, but for only 10 events
 //   not-recording  RecordExchanges off: there is no record to check
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;
