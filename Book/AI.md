@@ -34,6 +34,8 @@ Run `python3 build/verify.py` with the new binaries on each platform. Every `bro
 
 ## Rules that do not bend
 
+- No file appears unannounced. Every file a recipe's commands use is made in front of the reader: `build.py` writes the lines that create each `fixtures:` file at the head of the Solution block, `run.sh` and `run.ps1` (a file the prose shows in full with `include::` is named, not repeated). Declare every file as a fixture, never commit one beside a recipe by hand.
+
 - `recipe.yml` is the recipe. Never edit anything under `.generated/`, `run.sh`, `run.ps1` or `verified.yml`; regenerate them.
 - The book is public and under Creative Commons Attribution-NoDerivatives 4.0 for prose and Apache 2.0 for code; every file carries the copyright line `Copyright (c) 2026 Stewart Rogers`. Nothing from O'Reilly Media or any publisher: no names, series names, trade dress.
 - Nothing off-site is pasted in. A source goes in the bibliography under a key, with a copy in `references/archive/` where its licence allows, and the recipe cites the key.
