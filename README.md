@@ -8,6 +8,7 @@ Surly is the monorepo for two matched programs and the book that describes them:
 
 - **Curl** - a drop-in replacement for the curl command-line tool, in C# on .NET 10. Today at [StewartScottRogers/Curl](https://github.com/StewartScottRogers/Curl).
 - **Surl** ("Server URL") - the server-side mate of curl: for every request curl can make, Surl is the server that answers it. Today at [StewartScottRogers/Surl](https://github.com/StewartScottRogers/Surl).
+- **The packages** - everything the book's recipes install, on nuget.org: [Surly packages](https://www.nuget.org/packages?q=Surly.&includeComputedFrameworks=true&prerel=true) (curl as the .NET tool `Surly.Curl`, the C# libraries, the two MCP hosts; `surl` itself is a download from its GitHub release).
 - **Surly** - a cookbook, in the Problem / Solution / Discussion form, in which every recipe pairs a `surl` command that listens with a `curl` command that talks to it.
 
 ## Layout

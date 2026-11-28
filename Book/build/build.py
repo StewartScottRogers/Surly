@@ -115,6 +115,89 @@ def speaker(case):
     return f"`{case['run'].split()[0]}`"
 
 
+def fixture_files(spec):
+    """Every file a recipe's run needs, in order: the recipe's fixtures, then the solution case's own."""
+    files = dict(spec.get("fixtures") or {})
+    files.update(solution_case(spec).get("fixtures") or {})
+    return files
+
+
+def sh_quote(text):
+    return "'" + text.replace("'", "'\\''") + "'"
+
+
+def fixture_lines_sh(files, shown=()):
+    """Shell lines that make the recipe's files, so nothing a command uses appears unannounced:
+    mkdir for the folders (a .keep placeholder is only its folder), printf for a one-line file, a
+    quoted heredoc for a longer one. A file in `shown` (the prose includes it in full) is named,
+    not repeated."""
+    folders, lines = [], []
+    for path in files:
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        if parent and parent not in folders:
+            folders.append(parent)
+    if folders:
+        lines.append("mkdir -p " + " ".join(shlex.quote(f) for f in folders))
+    for path, content in files.items():
+        if path.endswith("/.keep") or path == ".keep":
+            continue
+        target = shlex.quote(path)
+        if path in shown:
+            lines.append(f"# save {path}, shown in this recipe, here")
+        elif content == "":
+            lines.append(f": > {target}")
+        elif content.endswith("\r\n") and "\r" not in content.replace("\r\n", ""):
+            # Every line ends CRLF (mail): the lines as they read, and awk adds each CR as it writes.
+            body = content[:-2].split("\r\n")
+            end = "EOF"
+            while end in body:
+                end += "_"
+            lines += [f"awk '{{printf \"%s\\r\\n\", $0}}' > {target} <<'{end}'"] + body + [end]
+        elif any(ch == "\r" or (ord(ch) < 32 and ch not in "\n\t") for ch in content):
+            # Another mix of line ends, or bytes a shell string cannot hold (STOMP's NUL): printf's
+            # own escapes say each one, in octal.
+            fmt = "".join("\\\\" if ch == "\\" else "%%" if ch == "%" else "\\n" if ch == "\n"
+                          else f"\\{ord(ch):03o}" if ord(ch) < 32 and ch != "\t" else ch for ch in content)
+            lines.append(f"printf {sh_quote(fmt)} > {target}")
+        elif not content.endswith("\n"):
+            lines.append(f"printf '%s' {sh_quote(content)} > {target}")
+        elif content.count("\n") == 1:
+            lines.append(f"printf '%s\\n' {sh_quote(content[:-1])} > {target}")
+        else:
+            body = content[:-1].split("\n")
+            end = "EOF"
+            while end in body:
+                end += "_"
+            lines += [f"cat > {target} <<'{end}'"] + body + [end]
+    return lines
+
+
+def ps_string(text):
+    """A PowerShell double-quoted string holding text exactly, line ends included, whatever the
+    line endings of the .ps1 file that holds it."""
+    for a, b in (("`", "``"), ("$", "`$"), ('"', '`"'), ("\r", "`r"), ("\n", "`n"), ("\t", "`t"), ("\0", "`0")):
+        text = text.replace(a, b)
+    text = "".join(f"$([char]{ord(ch)})" if ord(ch) < 32 else ch for ch in text)
+    return f'"{text}"'
+
+
+def fixture_lines_ps(files):
+    """The same files for run.ps1, written byte for byte (no BOM, no CRLF) with WriteAllText."""
+    lines = []
+    folders = []
+    for path in files:
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        if parent and parent not in folders:
+            folders.append(parent)
+    if folders:
+        lines.append("New-Item -ItemType Directory -Force -Path " + ", ".join("'" + f.replace("'", "''") + "'" for f in folders) + " | Out-Null")
+    for path, content in files.items():
+        if path.endswith("/.keep") or path == ".keep":
+            continue
+        lines.append(f"[IO.File]::WriteAllText((Join-Path $PWD '{path.replace(chr(39), chr(39) * 2)}'), {ps_string(content)})")
+    return lines
+
+
 def write_recipe_files(recipe, spec):
     gen = recipe / ".generated"
     gen.mkdir(exist_ok=True)
@@ -141,7 +224,12 @@ def write_recipe_files(recipe, spec):
     sol_cmd = case_command(sol, values)
     setup = setup_commands(spec, values)
     seed = seed_commands(spec, values)
-    cmds = setup + [s + " &" for s in servers] + seed + [sol_cmd]
+    # Every file the commands use is made in front of the reader (no file appears unannounced):
+    # a file the prose already shows in full is named instead of repeated.
+    files = fixture_files(spec)
+    adoc = (recipe / "recipe.adoc").read_text(encoding="utf-8")
+    shown = {n for n in files if f"include::{n}[" in adoc}
+    cmds = fixture_lines_sh(files, shown) + setup + [s + " &" for s in servers] + seed + [sol_cmd]
     # surl prints one Listening line per listen URL on its command line, in order.
     # A listen URL is a whole argument; a URL inside an option's value (--fault "...;listener=...") is not.
     listening = [line for cmd in servers for line in listen_lines(shlex.split(cmd))]
@@ -205,7 +293,7 @@ def write_recipe_files(recipe, spec):
 
     # run.sh and run.ps1: the solution, for a reader to run.
     head = f"# Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.\n# Generated by build.py from recipe.yml for recipe {spec['key']}. Do not edit.\n"
-    sh = ["#!/usr/bin/env sh", head.rstrip(), "set -e", 'cd "$(dirname "$0")"'] + setup
+    sh = ["#!/usr/bin/env sh", head.rstrip(), "set -e", 'cd "$(dirname "$0")"'] + fixture_lines_sh(files) + setup
     for s in servers:
         sh.append(s + " &")
     # A solution that is meant to fail must not end the script before the server is stopped.
@@ -214,7 +302,7 @@ def write_recipe_files(recipe, spec):
     (recipe / "run.sh").write_text("\n".join(sh) + "\n", encoding="utf-8")
     (recipe / "run.sh").chmod(0o755)
     # Setup lines run through cmd, so a redirect writes bytes, not Windows PowerShell 5.1's UTF-16.
-    ps = [head.rstrip(), "Set-Location $PSScriptRoot"] + [
+    ps = [head.rstrip(), "Set-Location $PSScriptRoot"] + fixture_lines_ps(files) + [
         "cmd /c '" + c.replace("'", "''") + "'" for c in setup_commands(spec, {**values, "null": "NUL"})]
     for i, s in enumerate(servers):
         exe, *args = s.replace("{{null}}", "NUL").split()
