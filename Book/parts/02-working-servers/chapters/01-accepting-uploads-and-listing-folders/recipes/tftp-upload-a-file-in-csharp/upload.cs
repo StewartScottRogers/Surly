@@ -3,7 +3,7 @@
 //   stored (the default), read-back, overwrite, several-blocks, several-blocks-read-back, no-subfolders,
 //   no-dot-files, uploads-off, uploads-off-error-two, uploads-off-nothing-kept, over-the-limit, over-the-limit-kept-nothing
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

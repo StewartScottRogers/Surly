@@ -7,7 +7,7 @@
 //   entry-only     the job adds the entry, userPassword included, but no account
 //   strict         a server that keeps the default and refuses a password sent in clear
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Curl.Api.Errors;

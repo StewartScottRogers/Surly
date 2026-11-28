@@ -11,7 +11,7 @@
 //   spent          then a plain send to ann, the rule spent
 //   bad-reply      a rule whose reply is a code with no text
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Collections.Concurrent;
 using System.Text;

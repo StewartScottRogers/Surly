@@ -11,7 +11,7 @@
 //   cutover       a server that refuses plaintext passwords: FTP is refused, SFTP is served
 // host_key and host_key.pub come from setup: in recipe.yml.
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Security.Cryptography;
 using Curl.Api;

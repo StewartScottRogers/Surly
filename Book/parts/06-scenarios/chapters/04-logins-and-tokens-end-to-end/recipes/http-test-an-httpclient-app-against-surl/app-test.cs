@@ -7,7 +7,7 @@
 //   untrusted       the CurlClient does not trust the server's certificate
 //   credentials     the handler's Credentials log in instead of the app's own header
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Net;
 using System.Net.Http.Headers;

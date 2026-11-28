@@ -9,7 +9,7 @@
 //   dot        a dot file the server holds
 //   commands   the control connection's commands, as the server recorded them
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

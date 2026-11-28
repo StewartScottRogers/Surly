@@ -3,7 +3,7 @@
 // bound URLs, run the tests, stop the server, and exit with a code the job can act on.
 // Run: dotnet run run-in-ci.cs [-- pass|wrong-password|port-taken]
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Net;
 using System.Net.Sockets;

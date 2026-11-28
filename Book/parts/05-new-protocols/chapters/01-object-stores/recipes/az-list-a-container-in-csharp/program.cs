@@ -2,7 +2,7 @@
 // Lists a blob container with Curl.Api against three Surl.Api servers, in one process: one that allows
 // listings, one that does not, and one that also allows anonymous callers. Run: dotnet run program.cs
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Curl.Api.Errors;

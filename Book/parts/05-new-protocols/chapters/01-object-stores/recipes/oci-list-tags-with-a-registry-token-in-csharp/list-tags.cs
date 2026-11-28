@@ -10,7 +10,7 @@
 //   scope          a token scoped to another repository
 //   pages          the tag list two at a time, following the Link header
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using System.Text.Json;

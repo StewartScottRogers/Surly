@@ -7,7 +7,7 @@
 //   connect        share connections only
 //   none           no share handle attached
 //   cleanup-early  as both, but call curl_share_cleanup while the handles are still attached
-#:package Surly.Libcurl@0.4.0-preview.5
+#:package Surly.Libcurl@0.4.0-preview.6
 
 using Curl.Api.Callbacks;
 using Curl.Api.Codes;

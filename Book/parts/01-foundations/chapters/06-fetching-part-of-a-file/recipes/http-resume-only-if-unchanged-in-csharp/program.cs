@@ -8,7 +8,7 @@
 //   date         the server's clock stands still, so the replacement keeps the same Last-Modified;
 //                the resume is tried with the date and with the ETag
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

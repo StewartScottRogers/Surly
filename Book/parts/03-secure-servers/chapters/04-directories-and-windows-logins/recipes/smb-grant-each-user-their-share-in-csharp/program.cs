@@ -3,7 +3,7 @@
 // accounts with Curl.Api: the reader's upload is refused, the writer's kept.
 // Run: dotnet run program.cs -- grants    (also: no-uploads, group)
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using Curl.Api;
 using Curl.Api.Errors;

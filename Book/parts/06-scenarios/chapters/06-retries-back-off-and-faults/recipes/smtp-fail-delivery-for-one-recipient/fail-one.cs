@@ -11,7 +11,7 @@
 //   log            the server's log lines for the refusal and the stored message
 //   curl           the same notice sent with Curl.Api, which abandons it, then with MailRecipientAllowFails
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Net;
 using System.Net.Mail;

@@ -8,7 +8,7 @@
 //   no-retry     the sender without a retry
 //   cut-before   the cut one byte sooner, at the end of the 354
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

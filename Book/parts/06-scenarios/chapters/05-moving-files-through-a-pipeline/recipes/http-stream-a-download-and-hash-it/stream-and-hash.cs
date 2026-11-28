@@ -5,7 +5,7 @@
 //   whole    the server sends the whole file (the default)
 //   dropped  the server drops the connection after 1,000,000 bytes
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Security.Cryptography;
 using Curl.Api;

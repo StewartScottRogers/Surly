@@ -3,7 +3,7 @@
 // host_key and client_key, each with a .pub half.
 //   narrowed (the default), file, other-cipher, other-mac, default-offer, default-macs, two, unknown-cipher, unknown-mac, weak-cipher, weak-allowed
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Buffers.Binary;
 using System.Text;

@@ -4,7 +4,7 @@
 // it keeps each test's output and prints it only when the test fails, as xUnit and NUnit do.
 // Run: dotnet run log-to-test-output.cs [-- verbose|info]
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;

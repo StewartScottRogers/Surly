@@ -14,7 +14,7 @@ Until now the book was pinned to Surl and Curl commits (`Book/build/pins.yml`), 
 2. **`Book/build/packages.yml` pins the versions**, exact, never `*`, once a package is on nuget.org; `build/pin.py` rewrites it and every `#:package` line together, and lint holds them equal. A C# or agent program names its package at that version (`#:package Surly.Curl.Api@0.4.0-preview.5`), so a reader can copy it and run it. The MCP SDK is pinned the same way.
 3. **verify restores from nuget.org.** A package pinned in `packages.yml` is never packed from source or taken from a local feed; `build/fetch_pins.py` packs or downloads only what nuget.org does not carry yet, and says so.
 4. **Agent recipes start the hosts as a reader does.** A host package pinned in `packages.yml` (`Surly.Curl.Mcp`, later `Surly.Surl.Mcp`) is installed from nuget.org for verify, and the generated `mcp.json` starts it with `dnx <package>@<version> --yes`. A host not published yet stays a command on `PATH`.
-5. **Console recipes use the programs' release binaries** until the program is a .NET tool on nuget.org; then they use the tool at its pinned version, and this item is amended.
+5. **Console recipes use the programs' release binaries** until the program is a .NET tool on nuget.org; then they use the tool at its pinned version, and this item is amended (amendment 1: `curl`).
 6. **A re-pin follows nuget.org.** A new version of a pinned package on nuget.org is the trigger; `pins.yml` keeps each program's commit only as the record of where the binaries came from.
 
 ## Consequences
@@ -22,3 +22,10 @@ Until now the book was pinned to Surl and Curl commits (`Book/build/pins.yml`), 
 - Curl's side is done in one change: 323 package lines pinned to 0.4.0-preview.5, `curl-mcp` from nuget.org, the MCP SDK at 2.4.0. Surl's side waits for 0.1.12 on nuget.org; until then `Surly.Surl.Api` comes from Surl's GitHub release.
 - The book points readers at pre-release packages while Curl is in preview. Pinned exact versions make that explicit rather than silent.
 - A package that nuget.org refuses or delists breaks the recipes that use it; that is a finding for the program, as a regression is.
+
+## Amendment 1 (2026-11-27): how console recipes get curl
+
+- **Decided by:** the author, 2026-11-27 ("1": install once, then `curl`), when Curl v0.4.0-preview.6 put the `curl` program on nuget.org as the .NET tool `Surly.Curl`.
+- **The decision:** console recipes keep plain `curl ...` commands. The preface's "Getting the Programs" tells the reader once to run `dotnet tool install --global Surly.Curl --version <pinned>`, says plainly that this `curl` then comes first on `PATH` ahead of the system's, gives `dotnet tool uninstall --global Surly.Curl` to undo it, and names `dnx Surly.Curl@<pinned> --yes --` for one-off use. `surl`, not a .NET tool, is downloaded from its GitHub release. The versions there are AsciiDoc attributes that `build.py` writes from `packages.yml` and `pins.yml`, so a re-pin changes them with no edit.
+- **Alternatives rejected:** `dnx Surly.Curl@<version> --yes --` in every command (long, and the version thousands of times over); a local tool manifest and `dotnet curl` (it no longer reads as curl).
+- **verify** installs `Surly.Curl` from nuget.org and runs its binary (`fetch_pins.py`), so the recipes run the `curl` a reader installs.

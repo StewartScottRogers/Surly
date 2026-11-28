@@ -4,7 +4,7 @@
 //   seconds   the client's limit on each transfer (2 if not given; 0 for none)
 //   path      the second path, fetched beside /slow/report.txt (/hello.txt if not given)
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Diagnostics;
 using Curl.Api;

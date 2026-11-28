@@ -12,7 +12,7 @@
 //   curl-publish   a client publishes on the same topic
 //   closed         a broker with no AllowAnonymous
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.5
+#:package Surly.Curl.Api@0.4.0-preview.6
 
 using System.Text;
 using Curl.Api;
