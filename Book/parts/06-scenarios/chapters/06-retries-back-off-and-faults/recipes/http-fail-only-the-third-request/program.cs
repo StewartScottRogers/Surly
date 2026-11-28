@@ -7,7 +7,7 @@
 //   stop      a client that gives up at the first failure
 //   record    what the server recorded about the failure
 //   path      the override scoped to /report.txt, with fetches of two files mixed
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

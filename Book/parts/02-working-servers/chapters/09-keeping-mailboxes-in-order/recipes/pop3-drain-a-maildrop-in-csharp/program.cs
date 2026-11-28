@@ -12,7 +12,7 @@
 //   unwritable-kept  the same, and the store after it
 //   rset           DELE each, then RSET, then the end of the session
 //   rset-kept      the same, and a new session's listing
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

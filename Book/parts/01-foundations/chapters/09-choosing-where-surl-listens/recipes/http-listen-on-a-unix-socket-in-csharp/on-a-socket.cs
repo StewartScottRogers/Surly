@@ -6,7 +6,7 @@
 //   no-tcp       fetch the listen URL over TCP, without the socket
 //   file-exists  start on a path where a file already is
 //   two-urls     start with two listen URLs on one socket
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

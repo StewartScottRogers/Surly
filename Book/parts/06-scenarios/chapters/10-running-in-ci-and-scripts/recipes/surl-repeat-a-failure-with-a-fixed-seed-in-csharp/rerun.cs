@@ -2,7 +2,7 @@
 // One test run against an in-process S3 endpoint with a random seed: the app's multipart upload,
 // then what the server stored. The seed is printed first, so a failed run's log says how to repeat it.
 // Run: dotnet run rerun.cs [-- <seed> [probe] | nonces | bad-seed]
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Security.Cryptography;

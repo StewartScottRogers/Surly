@@ -7,7 +7,7 @@
 //   slow       refuse two logins; retry up to 3 times, 2 s apart
 //   strict     no rule, but the server was not told to check a password sent in clear
 // A second argument, such as "retries", prints only the lines that start with it.
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Seeds the LDAP directory of a running Surl.Api server from LDIF text, in steps, and reads it back
 // two ways: searched over LDAP with Curl.Api, and exported as LDIF. Run: dotnet run program.cs
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

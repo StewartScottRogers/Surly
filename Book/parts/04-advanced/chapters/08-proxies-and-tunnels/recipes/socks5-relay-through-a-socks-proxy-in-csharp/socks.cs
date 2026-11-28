@@ -10,7 +10,7 @@
 //   no-login     a server with an account, and a client with no login
 //   in-clear     the same server and the right login, sent in clear
 //   plaintext    the same, to a server that allows passwords in clear
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

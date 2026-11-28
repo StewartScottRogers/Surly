@@ -7,7 +7,7 @@
 //   (no case)  what the proxy did with each request, and what reached the origin
 //   counts     the requests each listener recorded
 //   reasons    the proxy's own account of each request, from its verbose log
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

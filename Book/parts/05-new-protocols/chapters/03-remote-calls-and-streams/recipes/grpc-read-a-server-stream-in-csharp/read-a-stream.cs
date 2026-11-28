@@ -6,7 +6,7 @@
 //   limit       a count above 1000
 //   arrival     each reply held back 300 ms, read for one second
 //   part-way    a stream that ends in a status after its replies
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

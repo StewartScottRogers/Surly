@@ -6,7 +6,7 @@
 //   new-file     write a file into site/ while the server runs, then fetch it
 //   second       start a second server on the same folder
 //   both         give DataDirectory and Files together
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

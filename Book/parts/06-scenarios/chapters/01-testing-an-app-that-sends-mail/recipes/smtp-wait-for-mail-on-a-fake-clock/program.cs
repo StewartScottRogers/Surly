@@ -5,7 +5,7 @@
 //   missing          the app mails no one; the clock moves 29 s, then 1 s more
 //   wrong-recipient  the app mails bob; the wait for ann times out, and bob's mail is there
 //   no-plaintext     the server keeps its default and refuses the app's password; the wait times out
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 
 using System.Diagnostics;
 using System.Net;

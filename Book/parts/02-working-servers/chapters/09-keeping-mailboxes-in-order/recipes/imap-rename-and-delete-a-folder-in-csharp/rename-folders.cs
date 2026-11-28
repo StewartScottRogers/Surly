@@ -14,7 +14,7 @@
 //   delete-full    DELETE a folder that holds messages
 //   path           RENAME to a name with a slash
 //   parent         DELETE the implied parent of that path
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

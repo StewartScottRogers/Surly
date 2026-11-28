@@ -5,7 +5,7 @@
 //   no-expiry        a key with no expiry
 //   bounds           expiries Surl.Api refuses
 //   no-plaintext     log in without AllowPlaintextAuthentication
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

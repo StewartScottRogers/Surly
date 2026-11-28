@@ -2,7 +2,7 @@
 // Serves a folder as the SMB share "reports" with per-account grants using Surl.Api, and tries the
 // accounts with Curl.Api: the reader's upload is refused, the writer's kept.
 // Run: dotnet run program.cs -- grants    (also: no-uploads, group)
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

@@ -5,7 +5,7 @@
 // Run: dotnet run background-work.cs [-- no-mail]
 //   (no argument)  the app uploads and mails, 1 s after the order
 //   no-mail        the app has a bug: it uploads but never mails
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Diagnostics;

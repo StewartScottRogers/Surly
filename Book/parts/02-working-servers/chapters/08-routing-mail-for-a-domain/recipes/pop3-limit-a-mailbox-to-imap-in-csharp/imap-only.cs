@@ -2,7 +2,7 @@
 // A test that a mail client never uses POP3: ann's mailbox logs in over IMAP only, the POP3 login is
 // refused through Curl.Api, and the server's record shows each refusal alike and no POP3 login accepted.
 // Run: dotnet run imap-only.cs
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

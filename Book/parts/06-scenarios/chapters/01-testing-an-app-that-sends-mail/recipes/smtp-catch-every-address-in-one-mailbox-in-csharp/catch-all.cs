@@ -6,7 +6,7 @@
 //   one-message    one mail to all three addresses at once
 //   no-catch-all   the same three mails to a server with no catch-all
 //   other-domain   one mail to an address outside the mail domain
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Net;

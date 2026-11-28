@@ -10,7 +10,7 @@
 //   unaffected     the notice goes to ann and cy, and the rule never acts
 //   log            the server's log lines for the refusal and the stored message
 //   curl           the same notice sent with Curl.Api, which abandons it, then with MailRecipientAllowFails
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Net;

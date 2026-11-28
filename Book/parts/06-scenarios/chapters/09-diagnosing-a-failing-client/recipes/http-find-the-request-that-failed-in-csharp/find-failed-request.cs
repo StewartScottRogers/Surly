@@ -4,7 +4,7 @@
 // Run: dotnet run find-failed-request.cs [-- clean]
 //   (no argument)  fetch reports 1 to 50; report 37 is missing
 //   clean          fetch reports 1 to 36, which are all there
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

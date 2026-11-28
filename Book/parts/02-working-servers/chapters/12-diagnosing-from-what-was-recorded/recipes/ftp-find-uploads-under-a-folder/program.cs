@@ -7,7 +7,7 @@
 //   nested    a Name that is a subfolder
 //   case      a Name in the wrong case
 //   detail    what one upload's event holds
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

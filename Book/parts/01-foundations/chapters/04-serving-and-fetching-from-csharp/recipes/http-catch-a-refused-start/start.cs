@@ -5,7 +5,7 @@
 //   port-in-use     a second server on the port the first one bound
 //   unknown-scheme  a listen URL whose scheme Surl has no server for
 //   host-option     --version in AdditionalArguments, which is misuse, not a refusal
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 
 using Surl.Api;
 using Surl.Protocol.Abstractions;

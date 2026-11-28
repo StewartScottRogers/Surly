@@ -2,7 +2,7 @@
 // Serves text and binary files from memory with Surl.Api, nested paths included, and fetches them with Curl.Api.
 // Run: dotnet run serve-memory.cs [-- path ...]   (the paths default to the three files below)
 //      dotnet run serve-memory.cs -- --key <key>  (add a key of your own to Files and fetch it)
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

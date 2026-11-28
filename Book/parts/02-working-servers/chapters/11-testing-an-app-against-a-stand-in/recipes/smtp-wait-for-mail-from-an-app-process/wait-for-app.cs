@@ -8,7 +8,7 @@
 //   bad-login      the app's password is wrong; the app exits first
 //   late           the test waits only after the app has exited
 //   no-record      the server was started without RecordExchanges
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 
 using System.Diagnostics;
 using System.Text;

@@ -9,7 +9,7 @@
 //   subdomain      a send to ann@mail.one.test
 //   unknown        a send to cy@two.test, which has no mailbox, then the server's log line for it
 //   both           one send to Bo in both domains
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Collections.Concurrent;

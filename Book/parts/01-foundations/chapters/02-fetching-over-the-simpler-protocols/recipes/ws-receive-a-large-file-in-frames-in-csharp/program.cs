@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Receives files bigger than 64 KiB over WebSocket with Curl.Api from an in-process Surl.Api server, compares
 // each with the original, and reads from the server's log how many frames it sent. Run: dotnet run program.cs
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

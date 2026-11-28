@@ -7,7 +7,7 @@
 //   empty         the API key is given an empty value in Headers, which removes it
 //   empty-on-purpose  the API key is named in EmptyHeaders, so it is sent with no value
 //   no-accept     the request also removes the Accept header the client adds of its own
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

@@ -7,7 +7,7 @@
 //   account      an account: read over plain coap      password   the same, with a user name and password
 //   account-dtls an account: read over coaps            anonymous  an account and AllowAnonymous, plain coap
 //   psk          an account and no certificate, coaps   nothing    coaps with no certificate and no account
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

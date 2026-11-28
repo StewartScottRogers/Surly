@@ -3,7 +3,7 @@
 // Run: dotnet run program.cs [-- <path>]
 //   big.bin      16 MiB (the default)
 //   missing.bin  a path the server does not have
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

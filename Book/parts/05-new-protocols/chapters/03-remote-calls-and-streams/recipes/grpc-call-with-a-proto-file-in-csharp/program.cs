@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Stewart Rogers. Apache License 2.0. See Book/LICENSE-CODE.txt.
 // Calls a gRPC method by its field numbers, as a .proto file gives them, and by reflection, with Surl.Api,
 // Curl.Api and the framework's HttpClient, in one process. Run: dotnet run program.cs
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Net;

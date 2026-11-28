@@ -5,7 +5,7 @@
 //   server  open (passwords in clear allowed, the default) or strict (as surl starts by default)
 //   login   right (the default), none, wrong, unknown (a user with no account),
 //           or split (the right login as separate user name and password)
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

@@ -6,7 +6,7 @@
 //   non-member     carol, who is not a member, tries to read the folder
 //   deliver        the test seeds mail for team@example.com through Surl.Api
 //   curl-store     the flag is asked of Curl.Api, as a request method
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Net.Sockets;

@@ -8,7 +8,7 @@
 //   big         upload a 300,000-byte export to /incoming
 //   last-night  upload nothing; the next step reads last night's export
 //   http-put    upload the export to /archive with an HTTP PUT instead
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

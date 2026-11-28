@@ -3,7 +3,7 @@
 // slow path and a fast one at once with Curl.Api. Run: dotnet run slow-path.cs -- [seconds] [path]
 //   seconds   the client's limit on each transfer (2 if not given; 0 for none)
 //   path      the second path, fetched beside /slow/report.txt (/hello.txt if not given)
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Diagnostics;

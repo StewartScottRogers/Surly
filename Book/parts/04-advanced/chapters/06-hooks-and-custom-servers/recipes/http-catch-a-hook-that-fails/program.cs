@@ -7,7 +7,7 @@
 //   refused   decisions that answer with a fault the server cannot apply
 //   next      a failing override followed by one that answers 503
 //   quiet     a decision that answers null
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

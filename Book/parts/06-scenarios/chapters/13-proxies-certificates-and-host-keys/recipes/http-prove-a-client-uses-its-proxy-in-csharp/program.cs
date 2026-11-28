@@ -4,7 +4,7 @@
 // Run: dotnet run program.cs -- <scenario>
 //   proxied  the client fetches hello.txt and prices.json through the proxy
 //   bypass   it fetches hello.txt through the proxy, then once more without it
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

@@ -9,7 +9,7 @@
 //   anonymous      a second server with AllowAnonymous: no login, then Ed's login
 //   plaintext      a server without AllowPlaintextAuthentication: Ed's login
 //   bare           a grant that names the group without its @
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

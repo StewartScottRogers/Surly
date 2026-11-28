@@ -8,7 +8,7 @@
 //   limit          --max-line 16, and a line longer than that
 //   idle           IdleTimeout of one second, and a client silent for longer
 //   taken          the custom server registered as http, a scheme Surl serves
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 
 using System.Net.Sockets;
 using System.Text;

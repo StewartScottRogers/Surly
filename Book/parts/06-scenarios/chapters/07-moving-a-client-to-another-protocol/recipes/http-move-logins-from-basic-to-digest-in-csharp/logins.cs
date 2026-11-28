@@ -7,7 +7,7 @@
 //   wrong         a Basic login with the wrong password during the move
 //   any           a client that lets curl pick the method from the challenge
 //   cutover       a server that takes Digest only, which is surl's default over plain HTTP
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

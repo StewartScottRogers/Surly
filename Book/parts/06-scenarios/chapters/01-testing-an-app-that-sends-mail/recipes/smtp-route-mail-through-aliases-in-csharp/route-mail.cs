@@ -6,7 +6,7 @@
 //   wrong-address  the app mails alert@ instead of alerts@
 //   seed           the test delivers through the alias itself, with no SMTP
 //   typo-target    the alerts@ alias names opps@, which has no mailbox
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

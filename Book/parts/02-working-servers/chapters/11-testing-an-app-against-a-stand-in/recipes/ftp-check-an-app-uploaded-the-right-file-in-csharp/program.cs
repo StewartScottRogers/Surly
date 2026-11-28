@@ -9,7 +9,7 @@
 //   missing        the check of a file the app never uploaded
 //   uploads-off    a server that takes no uploads: the app
 //   login-needed   a server with no anonymous login: the app
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

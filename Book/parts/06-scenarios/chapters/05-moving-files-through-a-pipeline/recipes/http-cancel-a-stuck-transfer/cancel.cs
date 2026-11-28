@@ -4,7 +4,7 @@
 //   cancel     cancel the stuck request after one second with a CancellationToken (the default)
 //   timeout    let the client's own Timeout of one second end it instead
 //   one-slot   cancel as above, against a server that takes one connection per address
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Diagnostics;

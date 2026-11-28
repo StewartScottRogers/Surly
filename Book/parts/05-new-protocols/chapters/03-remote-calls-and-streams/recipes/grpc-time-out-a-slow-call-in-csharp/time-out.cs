@@ -7,7 +7,7 @@
 //   server-deadline a grpc-timeout header of 300m
 //   stream-deadline a stream cut by a 1S grpc-timeout
 //   header          whether the limit goes to the server as grpc-timeout
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Diagnostics;

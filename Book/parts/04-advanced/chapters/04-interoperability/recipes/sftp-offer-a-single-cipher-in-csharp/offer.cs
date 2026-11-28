@@ -2,7 +2,7 @@
 // A C# file-based app: `dotnet run offer.cs -- SCENARIO`. The keys come from setup: in recipe.yml:
 // host_key and client_key, each with a .pub half.
 //   narrowed (the default), file, other-cipher, other-mac, default-offer, default-macs, two, unknown-cipher, unknown-mac, weak-cipher, weak-allowed
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Buffers.Binary;

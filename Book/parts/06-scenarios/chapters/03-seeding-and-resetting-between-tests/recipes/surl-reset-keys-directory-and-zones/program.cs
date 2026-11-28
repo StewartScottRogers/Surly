@@ -5,7 +5,7 @@
 //   reset          ResetAsync instead: the three stores are empty, and the test seeds them again
 //   twice          change and restore, then change and restore again from the same snapshot
 //   no-restore     the next test starts with no restore and finds the last test's changes
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text.RegularExpressions;

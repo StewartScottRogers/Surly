@@ -9,7 +9,7 @@
 //   text           the same send, then part 1's text
 //   as-is          the report attached with no content type or encoder, then part 2's header
 //   missing        the report attached from a file that is not there
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

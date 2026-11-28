@@ -3,7 +3,7 @@
 // Curl.Api, retrying with a doubling wait. Run: dotnet run flaky.cs -- [retries] [path]
 //   retries   how many retries the client may make (3 if not given; 0 for none)
 //   path      the path to fetch (hello.txt if not given)
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

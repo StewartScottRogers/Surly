@@ -3,7 +3,7 @@
 // carrying a cookie of the size given. Run: dotnet run refuse-big-heads.cs -- <bytes> [default]
 //   <bytes>   the cookie's length in bytes (1200 if not given)
 //   default   leave surl's own limit in place instead of setting 1 KiB
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

@@ -7,7 +7,7 @@
 //   sizes          the same, and each event's ByteCount beside the stored size
 //   two            one order to Ann and Bob in one send
 //   unknown        one order to an address with no mailbox
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Collections.Concurrent;

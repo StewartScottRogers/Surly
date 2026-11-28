@@ -6,7 +6,7 @@
 //   sync          a first run that downloads the file and a second that finds the copy current
 //   missing       ask about a file that is not there
 //   refused       ask a server that accepts no anonymous login
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Globalization;

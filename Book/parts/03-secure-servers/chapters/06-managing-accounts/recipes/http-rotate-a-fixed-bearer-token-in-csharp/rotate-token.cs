@@ -4,7 +4,7 @@
 // Run: dotnet run rotate-token.cs [-- rotate|refusals]
 //   rotate    add, replace and remove the token (the default)
 //   refusals  a second Add, then SetPassword and Remove with no token set
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

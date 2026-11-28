@@ -9,7 +9,7 @@
 //   missing         the device asks for r9.cfg, which is not served; the check
 //   device-missing  the same fetch, from the device's side
 //   never           no device fetches r5.cfg; the check
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Buffers.Binary;

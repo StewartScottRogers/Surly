@@ -6,7 +6,7 @@
 //   overlap        two tests' accounts at once: what one can read of the other's files
 //   imap           a test account over IMAP
 //   leftover       a test that never removed its account, and the next run that adds it again
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

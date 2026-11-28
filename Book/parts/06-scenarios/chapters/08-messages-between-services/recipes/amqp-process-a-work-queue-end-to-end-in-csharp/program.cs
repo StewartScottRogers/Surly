@@ -7,7 +7,7 @@
 //   restart    two jobs queued, the server restarted on the same folder, a worker takes them
 //   fails      three jobs, a worker that acknowledges two of them
 //   refused    a server with no AllowAnonymous
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

@@ -8,7 +8,7 @@
 //   client-delete  a client's own DELETE, with no login
 //   nothing        delete a file that is not there, and a folder
 //   hidden         put a path whose name starts with a dot
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

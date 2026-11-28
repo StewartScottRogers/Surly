@@ -8,7 +8,7 @@
 //   address    a different address holds nothing; the message is still on orders
 //   wrong      a wrong password on each listener
 //   locked     a server with no AllowPlaintextAuthentication
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

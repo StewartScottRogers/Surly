@@ -4,7 +4,7 @@
 // Run: dotnet run pick-up-password.cs [-- rereads|caches]
 //   rereads  the app reads its secret again after a 401 and tries once more (the default)
 //   caches   the app read its secret once at start and keeps it
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;

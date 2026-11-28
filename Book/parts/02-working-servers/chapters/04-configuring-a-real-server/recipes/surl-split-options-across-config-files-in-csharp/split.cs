@@ -3,7 +3,7 @@
 // the same files the console recipe starts surl with.
 //   both (the default), second-account, login-needed, later-file-wins, under-the-limit, ftp-limit, ftp-same-directory,
 //   order-matters, command-line-after-wins, property-before-loses, command-line-directory, no-allow-after-the-files, typo
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

@@ -9,7 +9,7 @@
 //   no-filter              the same send to a server with no --topic filter
 //   queue-is-not-a-topic   send to a /queue/ destination
 //   stomp-subscriber       subscribe over STOMP to a topic whose message is kept
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;

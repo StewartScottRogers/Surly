@@ -10,7 +10,7 @@
 //   lost-layer       a layer is deleted from the store after the push
 //   corrupt-layer    a layer is overwritten with other bytes of the same length
 //   digest-checked   the build pushes a layer under a digest that is not its own
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Security.Cryptography;

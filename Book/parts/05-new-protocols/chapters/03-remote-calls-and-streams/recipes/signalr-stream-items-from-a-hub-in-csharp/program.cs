@@ -8,7 +8,7 @@
 //   wrong-type       invoke Count as an ordinary call, then stream Echo
 //   invalid-argument stream Count with -1
 //   refused          negotiate with a hub that allows no anonymous client
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 
 using System.Net;
 using System.Net.WebSockets;

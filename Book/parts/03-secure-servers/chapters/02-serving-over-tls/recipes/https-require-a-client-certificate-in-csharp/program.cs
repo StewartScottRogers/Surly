@@ -3,7 +3,7 @@
 // Run: dotnet run program.cs -- <authority> <client>
 //   authority  ca.pem (the test authority), none (ask for no certificate), or another file
 //   client     p12 (client.p12), pem (client.pem and client.key), stranger (stranger.p12), or none
-#:package Surly.Surl.Api@0.1.12
+#:package Surly.Surl.Api@0.1.13
 #:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
