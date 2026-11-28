@@ -8,7 +8,7 @@
 //   next      a failing override followed by one that answers 503
 //   quiet     a decision that answers null
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Surl.Api;

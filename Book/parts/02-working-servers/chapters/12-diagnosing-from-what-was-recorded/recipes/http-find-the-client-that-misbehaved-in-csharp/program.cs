@@ -6,7 +6,7 @@
 //   the three ports are the local ports each client connects from, so the record can be matched to them
 //   record   what the record holds for each connection, instead of the search for the 400
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

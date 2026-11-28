@@ -7,7 +7,7 @@
 //   <file>        another config file in place of test-env.conf, such as broken.conf
 //   urls-in-file  with-urls.conf, which names its own listen URLs, and none in code
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Errors;

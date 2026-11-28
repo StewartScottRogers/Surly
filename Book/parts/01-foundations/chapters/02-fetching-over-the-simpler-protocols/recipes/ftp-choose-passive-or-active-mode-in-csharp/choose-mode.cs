@@ -7,7 +7,7 @@
 //   refused       the same fetch from a server that accepts no anonymous login
 //   log           the server's own log of a passive and an active fetch
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

@@ -2,7 +2,7 @@
 // A C# file-based app: `dotnet run program.cs -- 1.3`. Package versions are the book's pins in
 // Book/build/packages.yml; build/pin.py rewrites these lines, and lint checks they match.
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Errors;

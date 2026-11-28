@@ -6,7 +6,7 @@
 //          if-range-old: the same, with If-Range set to an old date, as if the file had changed since
 //   file   the partial file (dl/records.txt by default); the program writes it back in full
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

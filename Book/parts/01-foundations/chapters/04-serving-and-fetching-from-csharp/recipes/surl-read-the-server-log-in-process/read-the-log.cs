@@ -8,7 +8,7 @@
 //   error          the failing test, with the log at LogLevel.Error
 //   strict         the failing test, without AllowAnonymous
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Surl.Api;

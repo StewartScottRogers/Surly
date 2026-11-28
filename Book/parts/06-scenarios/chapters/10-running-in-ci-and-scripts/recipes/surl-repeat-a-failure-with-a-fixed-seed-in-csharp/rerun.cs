@@ -3,7 +3,7 @@
 // then what the server stored. The seed is printed first, so a failed run's log says how to repeat it.
 // Run: dotnet run rerun.cs [-- <seed> [probe] | nonces | bad-seed]
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Security.Cryptography;
 using System.Text;

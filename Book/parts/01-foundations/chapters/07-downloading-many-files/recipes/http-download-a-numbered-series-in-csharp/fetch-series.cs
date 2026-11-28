@@ -3,7 +3,7 @@
 // that is there into reports/, and reports the numbers that were 404.
 // Run: dotnet run fetch-series.cs [-- last]   (the series ends at 12 by default)
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

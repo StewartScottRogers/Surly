@@ -8,7 +8,7 @@
 //   http-folder      the FTP-only share's folder over HTTP
 //   unknown-scheme   a protocols= value that names no scheme
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Options.Network;

@@ -8,7 +8,7 @@
 //   missing       a missing file, and a missing folder with multicwd and nocwd
 //   log           the server's own log of the three fetches
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

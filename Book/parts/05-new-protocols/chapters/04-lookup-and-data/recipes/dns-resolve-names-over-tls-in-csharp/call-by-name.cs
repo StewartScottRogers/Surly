@@ -7,7 +7,7 @@
 //   untrusted      look up without trusting the server's certificate
 //   no-certificate start the DNS over TLS listener with no certificate
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using System.Text.Json.Nodes;

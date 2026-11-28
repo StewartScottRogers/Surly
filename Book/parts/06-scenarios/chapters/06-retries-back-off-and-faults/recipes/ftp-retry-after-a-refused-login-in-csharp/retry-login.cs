@@ -8,7 +8,7 @@
 //   strict     no rule, but the server was not told to check a password sent in clear
 // A second argument, such as "retries", prints only the lines that start with it.
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Text;
 using Curl.Api;

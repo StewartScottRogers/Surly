@@ -7,7 +7,7 @@
 //   checked   the same resume without IgnoreContentLength
 //   whole     the local copy is already the whole file
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using Curl.Api;
 using Curl.Api.Codes;

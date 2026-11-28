@@ -6,7 +6,7 @@
 //   client-open   stop while a client still holds its kept-alive connection
 //   folder        serve site/ from disk, stop, and start a new server on the same folder
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Diagnostics;
 using Curl.Api;

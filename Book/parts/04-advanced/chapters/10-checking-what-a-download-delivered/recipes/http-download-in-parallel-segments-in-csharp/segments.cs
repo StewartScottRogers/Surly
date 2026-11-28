@@ -6,7 +6,7 @@
 //   slow           the server holds every request 1 s, so the ranges are all in flight together
 //   past-the-end   ask for one range that starts after the last byte instead
 #:package Surly.Surl.Api@0.1.12
-#:package Surly.Curl.Api@0.4.0-preview.6
+#:package Surly.Curl.Api@0.4.0-preview.7
 
 using System.Security.Cryptography;
 using System.Text;
