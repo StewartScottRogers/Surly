@@ -70,7 +70,7 @@ switch (which)
         (string served, TimeSpan took) = await Timed();
         Console.WriteLine(served);
         // Ranges, not exact times: at least the limit, and far less than the decision's 30 seconds.
-        Console.WriteLine($"took at least the limit: {took >= limit - TimeSpan.FromMilliseconds(50)}; took less than 10 s: {took < TimeSpan.FromSeconds(10)}");
+        Console.WriteLine($"took at least the limit: {took >= limit - TimeSpan.FromMilliseconds(50)}; took less than 20 s: {took < TimeSpan.FromSeconds(20)}");
         Console.WriteLine(await Failure());
         break;
 

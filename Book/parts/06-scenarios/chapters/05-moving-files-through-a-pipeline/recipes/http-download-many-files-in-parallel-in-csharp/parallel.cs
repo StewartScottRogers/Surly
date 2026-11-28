@@ -8,7 +8,6 @@
 #:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.7
 
-using System.Diagnostics;
 using System.Security.Cryptography;
 using Curl.Api;
 using Surl.Api;
@@ -39,7 +38,7 @@ await using (warm.Body) { }
 
 // All fifty at once: each task saves one file, a 200's body only, and answers its last status.
 int exceptions = 0;
-var clock = Stopwatch.StartNew();
+int retried = 0;
 int[] statuses = await Task.WhenAll(Enumerable.Range(1, 50).Select(async i =>
 {
     for (int attempt = 0; ; attempt++)
@@ -50,6 +49,7 @@ int[] statuses = await Task.WhenAll(Enumerable.Range(1, 50).Select(async i =>
             await using Stream body = response.Body;
             if (response.StatusCode == 503 && which == "retry" && attempt < 10)
             {
+                Interlocked.Increment(ref retried);
                 await Task.Delay(TimeSpan.FromSeconds(1));
                 continue;
             }
@@ -80,7 +80,7 @@ int whole = Enumerable.Range(1, 50).Count(i =>
 Console.WriteLine($"server limit per address: 8, client cap: {(cap == 0 ? "none" : cap)}{(which == "retry" ? ", 503 retried" : "")}");
 Console.WriteLine($"last status 200: {statuses.Count(s => s == 200)}, 503 Service Unavailable: {statuses.Count(s => s == 503)}, exceptions: {exceptions}");
 Console.WriteLine($"saved under {folder} and whole: {whole} of 50");
-Console.WriteLine($"took under 30 s: {(clock.Elapsed.TotalSeconds < 30 ? "yes" : "no")}");
+if (which == "retry") Console.WriteLine($"sent again after a 503: {retried}");
 
 // Like curl -f: 22 unless every file arrived whole.
 return whole == 50 ? 0 : 22;

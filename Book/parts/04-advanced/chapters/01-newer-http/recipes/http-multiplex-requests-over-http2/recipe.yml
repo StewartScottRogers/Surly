@@ -28,14 +28,22 @@ fixtures:
   slow/f3.txt: "file 3\n"
   slow/f4.txt: "file 4\n"
   slow/f5.txt: "file 5\n"
-  elapsed.sh: |
-    # Runs the command given as arguments, then prints how many whole seconds it took.
+  compare.sh: |
+    # Fetches the URLs given with -Z and then without, prints the whole seconds each run took,
+    # and says whether the run with -Z took less.
     start=$(date +%s)
-    "$@" || exit
-    echo "$(( $(date +%s) - start )) s"
+    curl --http2-prior-knowledge -Z -s -o "got/s#1.txt" --create-dirs "$1" || exit
+    middle=$(date +%s)
+    curl --http2-prior-knowledge -s -o "got/s#1.txt" --create-dirs "$1" || exit
+    end=$(date +%s)
+    together=$(( middle - start ))
+    apart=$(( end - middle ))
+    echo "with -Z: $together s"
+    echo "without -Z: $apart s"
+    if [ "$together" -lt "$apart" ]; then echo "with -Z took less: yes"; else echo "with -Z took less: no"; fi
 
 # main is the recipe; its --trace-ascii log is the server's side of the proof.
-# slow holds every request 2 s before answering, so overlap shows in the clock;
+# slow holds every request 2 s before answering, so overlap shows in a comparison of two runs;
 # it serves its own directory, since two surl processes cannot share one.
 servers:
   main:
@@ -72,20 +80,20 @@ cases:
       stdout-matches: '^(#\d+) \* GET /m\d\.txt\n(?:\1 \* GET /m\d\.txt\n){4}$'
 
   - id: overlapped
-    claim: Against a server that holds every request 2 s, the five transfers with -Z take 2 to 4 s in all, so they ran at the same time.
-    run: sh elapsed.sh curl --http2-prior-knowledge -Z -s -o "got/s#1.txt" --create-dirs "http://127.0.0.1:{{port2}}/f[1-5].txt"
-    timeout: 60
+    claim: Against a server that holds every request 2 s, the five transfers with -Z take 2 s or more, the hold, and less time than the same five without -Z, so they ran at the same time.
+    run: sh compare.sh "http://127.0.0.1:{{port2}}/f[1-5].txt"
+    timeout: 90
     expect:
       exit: 0
-      stdout-matches: '^[2-4] s\n$'
+      stdout-matches: '^with -Z: (?:[2-9]|[1-9]\d+) s\nwithout -Z: \d+ s\nwith -Z took less: yes\n$'
 
   - id: one-after-another
-    claim: Without -Z, the same five transfers go one after another on the connection and take 10 s or more.
-    run: sh elapsed.sh curl --http2-prior-knowledge -s -o "got/s#1.txt" --create-dirs "http://127.0.0.1:{{port2}}/f[1-5].txt"
-    timeout: 60
+    claim: Without -Z, the same five transfers go one after another on the connection and take 10 s or more, five holds end to end.
+    run: sh compare.sh "http://127.0.0.1:{{port2}}/f[1-5].txt"
+    timeout: 90
     expect:
       exit: 0
-      stdout-matches: '^(?:1\d|[2-5]\d) s\n$'
+      stdout-matches: '\nwithout -Z: [1-9]\d+ s\n'
 
   - id: http1-1-needs-connections
     claim: Over HTTP/1.1, which cannot multiplex, -Z runs the transfers in parallel on more than one connection.

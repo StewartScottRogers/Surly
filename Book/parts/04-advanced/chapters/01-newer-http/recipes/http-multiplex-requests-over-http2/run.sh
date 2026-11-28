@@ -19,11 +19,19 @@ printf '%s\n' 'file 2' > slow/f2.txt
 printf '%s\n' 'file 3' > slow/f3.txt
 printf '%s\n' 'file 4' > slow/f4.txt
 printf '%s\n' 'file 5' > slow/f5.txt
-cat > elapsed.sh <<'EOF'
-# Runs the command given as arguments, then prints how many whole seconds it took.
+cat > compare.sh <<'EOF'
+# Fetches the URLs given with -Z and then without, prints the whole seconds each run took,
+# and says whether the run with -Z took less.
 start=$(date +%s)
-"$@" || exit
-echo "$(( $(date +%s) - start )) s"
+curl --http2-prior-knowledge -Z -s -o "got/s#1.txt" --create-dirs "$1" || exit
+middle=$(date +%s)
+curl --http2-prior-knowledge -s -o "got/s#1.txt" --create-dirs "$1" || exit
+end=$(date +%s)
+together=$(( middle - start ))
+apart=$(( end - middle ))
+echo "with -Z: $together s"
+echo "without -Z: $apart s"
+if [ "$together" -lt "$apart" ]; then echo "with -Z took less: yes"; else echo "with -Z took less: no"; fi
 EOF
 surl --directory site --trace-ascii trace.txt http://127.0.0.1:8080/ &
 sleep 1

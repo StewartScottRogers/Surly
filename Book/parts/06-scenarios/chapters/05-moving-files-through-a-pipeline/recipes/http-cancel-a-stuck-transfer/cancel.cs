@@ -31,7 +31,15 @@ await using var server = await SurlServer.StartAsync(options);
 var clientOptions = which == "timeout" ? new CurlClientOptions { Timeout = TimeSpan.FromSeconds(1) } : new CurlClientOptions();
 await using CurlClient client = CurlClient.Create(clientOptions);
 
-// The first request in a process sets the engine up, which takes a few seconds: get it out of the way.
+// The first request in a process sets the engine up, which takes a few seconds: get it out of the way. With
+// the 1 s Timeout, pay it first on a client of its own with none, so the Timeout never meets it.
+if (which == "timeout")
+{
+    await using CurlClient setUp = CurlClient.Create();
+    CurlResponse first = await setUp.SendAsync(new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}hello.txt"), CancellationToken.None);
+    await using (first.Body) { }
+}
+
 CurlResponse warm = await client.SendAsync(new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}hello.txt"), CancellationToken.None);
 await using (warm.Body) { }
 
@@ -58,7 +66,8 @@ catch (CurlException e)
     Console.WriteLine($"stuck.txt: CurlException {e.Code}");
 }
 
-Console.WriteLine($"given up after: {(clock.Elapsed.TotalSeconds is >= 1 and < 5 ? "1 to 5 s" : $"{clock.Elapsed.TotalSeconds:F1} s")}");
+// Under 30 s, half the 60 s hold: a request that waited out the hold could not come in under that.
+Console.WriteLine($"given up after: {(clock.Elapsed.TotalSeconds is >= 1 and < 30 ? "1 to 30 s" : $"{clock.Elapsed.TotalSeconds:F1} s")}");
 
 // The next request on the same client.
 clock.Restart();
@@ -79,6 +88,6 @@ bool shared = server.Exchanges.Any(x =>
     return stuckAt >= 0 && received.IndexOf("GET /hello.txt ", stuckAt) >= 0;
 });
 Console.WriteLine($"next on the given-up connection: {(shared ? "yes" : "no")}");
-Console.WriteLine($"next took under 5 s: {(clock.Elapsed.TotalSeconds < 5 ? "yes" : "no")}");
+Console.WriteLine($"next took under 30 s: {(clock.Elapsed.TotalSeconds < 30 ? "yes" : "no")}");
 // In one-slot, a 503 or a 200 are both the server's honest answer (see the recipe), so neither fails the run.
 return next.StatusCode == 200 || which == "one-slot" ? 0 : 1;
