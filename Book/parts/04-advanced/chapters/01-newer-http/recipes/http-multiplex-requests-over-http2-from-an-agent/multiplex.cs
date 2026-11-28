@@ -46,13 +46,17 @@ string urls = server.GetProperty("bound_urls")[0].GetString()! + "f[1-5].txt";
 
 if (mode == "slow")
 {
+    var took = new List<TimeSpan>();
     foreach (bool parallel in new[] { true, false })
     {
         var clock = Stopwatch.StartNew();
         await Fetch(parallel ? ["--http2-prior-knowledge", "-Z"] : ["--http2-prior-knowledge"]);
+        took.Add(clock.Elapsed);
         Console.WriteLine($"{(parallel ? "with -Z" : "without -Z")}: {(int)clock.Elapsed.TotalSeconds} s");
     }
 
+    // The comparison of the two runs is the proof, not a fixed bound: a loaded machine stretches both.
+    Console.WriteLine($"with -Z took less: {(took[0] < took[1] ? "yes" : "no")}");
     Console.WriteLine($"connections: {await Connections()}");
     return 0;
 }

@@ -91,8 +91,10 @@ if (slowest.Seconds < 2)
 }
 else
 {
-    bool asClientLeft = (endedAt - slowest.RepliedAt).TotalSeconds < 1;
-    Console.WriteLine($"stuck at: {slowest.Command}; its reply came {slowest.Seconds:0} s later{(asClientLeft ? ", as the exchange ended" : "")}: {slowest.Reply}");
+    // An order, not a gap in time: the client sent nothing after the reply, so it had given up before the reply came.
+    bool asClientLeft = !chunks.EnumerateArray().Any(c => c.GetProperty("direction").GetString() == "received"
+        && DateTimeOffset.Parse(c.GetProperty("at").GetString()!) > slowest.RepliedAt);
+    Console.WriteLine($"stuck at: {slowest.Command}; its reply came {slowest.Seconds:0} s later{(asClientLeft ? ", and the client sent nothing after it" : "")}: {slowest.Reply}");
     var before = steps.TakeWhile(s => s.Command != slowest.Command).ToList();
     Console.WriteLine($"before it: {string.Join(", ", before.Select(s => s.Command.Split(' ')[0]))}, each answered within {Math.Ceiling(before.Max(s => s.Seconds))} s");
     Console.WriteLine($"RETR sent: {(steps.Any(s => s.Command.StartsWith("RETR")) ? "yes" : "no")}");

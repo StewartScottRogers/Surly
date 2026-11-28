@@ -4,7 +4,7 @@
 // Run: dotnet run multiplex.cs [-- separate | slow | http1.1]
 //   (no argument) PipeWait on: every request waits for a connection it can share
 //   separate      PipeWait off: a request that finds no connection ready opens its own
-//   slow          the server holds every request 2 s, not 1 s; prints how long the five took
+//   slow          the server holds every request 2 s, not 1 s; times the five together, then one after another
 //   http1.1       PipeWait on, but HTTP/1.1, which cannot share a connection
 #:package Surly.Surl.Api@0.1.12
 #:package Surly.Curl.Api@0.4.0-preview.7
@@ -47,14 +47,7 @@ var http = new CurlHttpOptions
 };
 await using CurlClient client = CurlClient.Create();
 var clock = Stopwatch.StartNew();
-string[] lines = await Task.WhenAll(Enumerable.Range(1, 5).Select(async i =>
-{
-    var request = new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}f{i}.txt") { Http = http };
-    CurlResponse response = await client.SendAsync(request, CancellationToken.None);
-    await using Stream body = response.Body;
-    string text = await new StreamReader(body).ReadToEndAsync();
-    return $"f{i}.txt: HTTP/{response.Version} {response.StatusCode} {text.TrimEnd()}";
-}));
+string[] lines = await Task.WhenAll(Enumerable.Range(1, 5).Select(Get));
 clock.Stop();
 
 foreach (string line in lines)
@@ -66,7 +59,26 @@ foreach (string line in lines)
 Console.WriteLine($"connections: {server.Exchanges.Count - before}");
 if (mode == "slow")
 {
+    // The same five again, one after another: the comparison of the two runs is the proof, not a fixed bound.
+    var apart = Stopwatch.StartNew();
+    for (int i = 1; i <= 5; i++)
+    {
+        await Get(i);
+    }
+
+    apart.Stop();
     Console.WriteLine($"took {(int)clock.Elapsed.TotalSeconds} s");
+    Console.WriteLine($"one after another: {(int)apart.Elapsed.TotalSeconds} s");
+    Console.WriteLine($"together took less: {(clock.Elapsed < apart.Elapsed ? "yes" : "no")}");
 }
 
 return 0;
+
+async Task<string> Get(int i)
+{
+    var request = new CurlRequest(HttpMethod.Get, $"{server.BoundUrl}f{i}.txt") { Http = http };
+    CurlResponse response = await client.SendAsync(request, CancellationToken.None);
+    await using Stream body = response.Body;
+    string text = await new StreamReader(body).ReadToEndAsync();
+    return $"f{i}.txt: HTTP/{response.Version} {response.StatusCode} {text.TrimEnd()}";
+}

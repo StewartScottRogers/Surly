@@ -63,7 +63,8 @@ else
     Console.WriteLine("body disposed");
 }
 
-Console.WriteLine($"stopped within 2 s: {(clock.Elapsed.TotalSeconds < 2 ? "yes" : "no")}");
+// 20 s is well inside the client's 30 s Timeout, so a "yes" is the stop, not the timeout.
+Console.WriteLine($"stopped within 20 s: {(clock.Elapsed.TotalSeconds < 20 ? "yes" : "no")}");
 
 // The server's side: the connection that carried big.bin ends, having sent a small part of the file.
 // The event comes once the server has seen the connection close: wait for it, 5 s at most.

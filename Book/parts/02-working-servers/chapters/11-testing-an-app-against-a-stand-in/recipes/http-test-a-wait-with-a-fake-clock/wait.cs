@@ -33,9 +33,10 @@ await using SurlServer server = await SurlServer.StartAsync(options);
 
 // The wait: the report written, sixty seconds of the test's clock at most. The token is real time, a
 // guard, so a wait the clock does not end fails after a few seconds instead of hanging the test.
+// The stopwatch starts first, so the guard's 2 s can never read as less.
+var real = Stopwatch.StartNew();
 using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(which == "no-advance" ? 2 : 20));
 var report = new SurlEventQuery { Kind = SurlEventKind.StoreChanged, Store = StoreKind.Content, Name = "/reports/daily.csv" };
-var real = Stopwatch.StartNew();
 Task<SurlEvent> wait = server.WaitForEventAsync(report, TimeSpan.FromSeconds(60), guard.Token);
 
 // The app: the nightly export, which uploads its report with a Digest login.
@@ -92,7 +93,8 @@ catch (TimeoutException timedOut)
     Console.WriteLine($"after 60 s of fake time: TimeoutException: {timedOut.Message}");
 }
 
-Console.WriteLine($"real time spent: under ten seconds: {real.Elapsed < TimeSpan.FromSeconds(10)}");
+// Half the minute of fake time: a wait the real clock ended could not finish in under that.
+Console.WriteLine($"real time spent: under 30 seconds: {real.Elapsed < TimeSpan.FromSeconds(30)}");
 return 1;
 
 // A clock the test moves. Advance sets the time forward and fires every timer that has come due,

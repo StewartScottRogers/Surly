@@ -17,7 +17,7 @@ New-Item -ItemType Directory -Force -Path 'site', 'slow' | Out-Null
 [IO.File]::WriteAllText((Join-Path $PWD 'slow/f3.txt'), "file 3`n")
 [IO.File]::WriteAllText((Join-Path $PWD 'slow/f4.txt'), "file 4`n")
 [IO.File]::WriteAllText((Join-Path $PWD 'slow/f5.txt'), "file 5`n")
-[IO.File]::WriteAllText((Join-Path $PWD 'elapsed.sh'), "# Runs the command given as arguments, then prints how many whole seconds it took.`nstart=`$(date +%s)`n`"`$@`" || exit`necho `"`$(( `$(date +%s) - start )) s`"`n")
+[IO.File]::WriteAllText((Join-Path $PWD 'compare.sh'), "# Fetches the URLs given with -Z and then without, prints the whole seconds each run took,`n# and says whether the run with -Z took less.`nstart=`$(date +%s)`ncurl --http2-prior-knowledge -Z -s -o `"got/s#1.txt`" --create-dirs `"`$1`" || exit`nmiddle=`$(date +%s)`ncurl --http2-prior-knowledge -s -o `"got/s#1.txt`" --create-dirs `"`$1`" || exit`nend=`$(date +%s)`ntogether=`$(( middle - start ))`napart=`$(( end - middle ))`necho `"with -Z: `$together s`"`necho `"without -Z: `$apart s`"`nif [ `"`$together`" -lt `"`$apart`" ]; then echo `"with -Z took less: yes`"; else echo `"with -Z took less: no`"; fi`n")
 $server0 = Start-Process surl -ArgumentList '--directory', 'site', '--trace-ascii', 'trace.txt', 'http://127.0.0.1:8080/' -PassThru -NoNewWindow
 Start-Sleep 1
 try { curl.exe --http2-prior-knowledge -Z -s -w "%{http_version}\n" -o "got/f#1.txt" --create-dirs "http://127.0.0.1:8080/f[1-5].txt" } finally { Stop-Process $server0 }
